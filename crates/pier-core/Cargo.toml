@@ -1,0 +1,79 @@
+[package]
+name = "pier-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pier — lightweight self-hosted PaaS core server"
+
+[[bin]]
+name = "pier"
+path = "src/main.rs"
+
+[dependencies]
+# Async
+tokio = { workspace = true }
+
+# HTTP / API
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Docker
+bollard = { workspace = true }
+
+# Database
+rusqlite = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# System metrics
+sysinfo = { workspace = true }
+
+# Templates & UI
+minijinja = { workspace = true }
+rust-embed = { workspace = true }
+
+# Auth
+bcrypt = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+
+# Streaming
+futures-util = { workspace = true }
+tokio-stream = { workspace = true }
+
+# Axum extras
+axum-extra = { workspace = true }
+
+# HTTP Client
+reqwest = { workspace = true }
+
+# S3
+aws-sdk-s3 = { workspace = true }
+aws-config = { workspace = true }
+aws-credential-types = { workspace = true }
+
+# Cron
+cron = { workspace = true }
+
+# JWT
+jsonwebtoken = { workspace = true }
+
+# URL handling
+url = { workspace = true }
+urlencoding = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+chrono = { workspace = true }

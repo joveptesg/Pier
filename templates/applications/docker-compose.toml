@@ -1,0 +1,19 @@
+[meta]
+id = "docker-compose"
+name = "Docker Compose"
+description = "Deploy a multi-container application with Docker Compose"
+category = "application"
+icon = "docker"
+tags = ["docker", "compose", "multi-container"]
+
+[ui.fields.name]
+type = "text"
+label = "Stack Name"
+required = true
+placeholder = "my-stack"
+
+[ui.fields.yaml]
+type = "textarea"
+label = "Docker Compose YAML"
+required = true
+placeholder = "services:\n  web:\n    image: nginx:latest\n    ports:\n      - '80:80'"

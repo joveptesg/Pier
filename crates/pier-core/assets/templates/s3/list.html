@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}S3 Storages{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="s3Data()" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">S3 Storages</h2>
+            <p class="text-sm text-gray-500 mt-0.5">S3-compatible storage for database backups and file storage</p>
+        </div>
+        <button @click="showAdd = true"
+                class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Add Storage
+        </button>
+    </div>
+
+    <!-- Empty State -->
+    <div x-show="storages.length === 0 && !loading" class="text-center py-20">
+        <div class="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
+            <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>
+        </div>
+        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-1">No S3 storages configured</h3>
+        <p class="text-sm text-gray-500 max-w-sm mx-auto">Add S3-compatible storage (AWS S3, MinIO, Backblaze B2, etc.) for automated database backups.</p>
+    </div>
+
+    <!-- Storages List -->
+    <div x-show="storages.length > 0" class="space-y-3">
+        <template x-for="s in storages" :key="s.id">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-blue-50 dark:bg-blue-600/10 rounded-lg flex items-center justify-center">
+                            <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-medium text-gray-900 dark:text-white" x-text="s.name"></h4>
+                            <p class="text-xs text-gray-500"><span x-text="s.endpoint"></span> / <span x-text="s.bucket"></span></p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button @click="testConnection(s.id)" class="text-xs text-blue-500 hover:text-blue-700 transition-colors">Test</button>
+                        <button @click="removeStorage(s.id)" class="text-xs text-red-500 hover:text-red-700 transition-colors">Remove</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Add Storage Modal -->
+    <div x-show="showAdd" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showAdd = false">
+            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add S3 Storage</h3>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                    <input x-model="form.name" type="text" placeholder="My S3 Backup"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Type</label>
+                    <select x-model="form.storage_type"
+                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="s3">S3 Compatible</option>
+                        <option value="bunny">Bunny.net</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1" x-text="form.storage_type === 'bunny' ? 'Storage Hostname' : 'Endpoint'"></label>
+                    <input x-model="form.endpoint" type="text" placeholder="s3.amazonaws.com"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Region</label>
+                    <input x-model="form.region" type="text" placeholder="us-east-1"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Bucket</label>
+                <input x-model="form.bucket" type="text" placeholder="pier-backups"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Access Key</label>
+                    <input x-model="form.access_key" type="text" placeholder="AKIA..."
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Secret Key</label>
+                    <input x-model="form.secret_key" type="password" placeholder="secret"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button @click="showAdd = false" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200">Cancel</button>
+                <button @click="addStorage()" class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Save</button>
+            </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function s3Data() {
+    return {
+        storages: [],
+        loading: true,
+        showAdd: false,
+        form: { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '' },
+        async init() {
+            try {
+                this.storages = await fetch('/api/v1/s3').then(r => r.ok ? r.json() : []);
+            } catch { this.storages = []; }
+            this.loading = false;
+        },
+        async addStorage() {
+            if (!this.form.name || !this.form.endpoint || !this.form.bucket) {
+                toast('Name, endpoint, and bucket are required', 'error'); return;
+            }
+            try {
+                await api('/api/v1/s3', {
+                    method: 'POST',
+                    body: JSON.stringify(this.form),
+                });
+                toast('Storage added');
+                this.showAdd = false;
+                this.form = { name: '', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '' };
+                await this.init();
+            } catch (e) { toast(e.message, 'error'); }
+        },
+        async testConnection(id) {
+            try {
+                await api('/api/v1/s3/' + id + '/test', { method: 'POST' });
+                toast('Connection successful');
+            } catch (e) { toast(e.message, 'error'); }
+        },
+        async removeStorage(id) {
+            if (!confirm('Remove this S3 storage?')) return;
+            try {
+                await api('/api/v1/s3/' + id, { method: 'DELETE' });
+                toast('Storage removed');
+                await this.init();
+            } catch (e) { toast(e.message, 'error'); }
+        }
+    };
+}
+</script>
+{% endblock %}

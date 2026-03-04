@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}Servers{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="serversData()" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Servers</h2>
+            <p class="text-sm text-gray-500 mt-1">Manage connected servers</p>
+        </div>
+        <button @click="showAdd = true"
+                class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Add Server
+        </button>
+    </div>
+
+    <!-- Servers Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Localhost -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-10 h-10 bg-green-50 dark:bg-green-600/10 rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-green-500 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">localhost</h3>
+                    <div class="flex items-center gap-1.5 mt-0.5">
+                        <span class="w-2 h-2 bg-green-500 rounded-full"></span>
+                        <span class="text-xs text-green-600 dark:text-green-400">Connected</span>
+                    </div>
+                </div>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <div class="flex items-center justify-between text-xs mb-1">
+                        <span class="text-gray-500">CPU</span>
+                        <span class="text-gray-700 dark:text-gray-300 font-medium" x-text="metrics.cpu_usage + '%'"></span>
+                    </div>
+                    <div class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+                        <div class="h-full bg-blue-500 rounded-full transition-all duration-500" :style="'width: ' + metrics.cpu_usage + '%'"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between text-xs mb-1">
+                        <span class="text-gray-500">RAM</span>
+                        <span class="text-gray-700 dark:text-gray-300 font-medium" x-text="metrics.memory_percent + '%'"></span>
+                    </div>
+                    <div class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+                        <div class="h-full bg-green-500 rounded-full transition-all duration-500" :style="'width: ' + metrics.memory_percent + '%'"></div>
+                    </div>
+                </div>
+                <template x-if="metrics.disks && metrics.disks.length > 0">
+                    <div>
+                        <div class="flex items-center justify-between text-xs mb-1">
+                            <span class="text-gray-500">Disk</span>
+                            <span class="text-gray-700 dark:text-gray-300 font-medium" x-text="diskPercent(metrics.disks[0]) + '%'"></span>
+                        </div>
+                        <div class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+                            <div class="h-full bg-yellow-500 rounded-full transition-all duration-500" :style="'width: ' + diskPercent(metrics.disks[0]) + '%'"></div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 space-y-2">
+                <div class="flex justify-between text-xs"><span class="text-gray-500">Hostname</span><span class="text-gray-700 dark:text-gray-300" x-text="metrics.hostname || '--'"></span></div>
+                <div class="flex justify-between text-xs"><span class="text-gray-500">OS</span><span class="text-gray-700 dark:text-gray-300" x-text="metrics.os || '--'"></span></div>
+                <div class="flex justify-between text-xs"><span class="text-gray-500">Uptime</span><span class="text-gray-700 dark:text-gray-300" x-text="formatUptime(metrics.uptime)"></span></div>
+                <div class="flex justify-between text-xs"><span class="text-gray-500">Containers</span>
+                    <span class="text-gray-700 dark:text-gray-300"><span x-text="docker.containers_running ?? 0" class="text-green-600 dark:text-green-400"></span><span class="text-gray-400">/</span><span x-text="docker.containers ?? 0"></span></span>
+                </div>
+                <div class="flex justify-between text-xs"><span class="text-gray-500">Docker</span><span class="text-gray-700 dark:text-gray-300" x-text="docker.version || '--'"></span></div>
+            </div>
+        </div>
+
+        <!-- Remote Servers -->
+        <template x-for="srv in servers" :key="srv.id">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+                         :class="srv.status === 'online' ? 'bg-green-50 dark:bg-green-600/10' : 'bg-gray-100 dark:bg-gray-800'">
+                        <svg class="w-5 h-5" :class="srv.status === 'online' ? 'text-green-500' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-sm font-medium text-gray-900 dark:text-white" x-text="srv.name"></h3>
+                        <div class="flex items-center gap-1.5 mt-0.5">
+                            <span class="w-2 h-2 rounded-full" :class="srv.status === 'online' ? 'bg-green-500' : 'bg-gray-400'"></span>
+                            <span class="text-xs" :class="srv.status === 'online' ? 'text-green-600 dark:text-green-400' : 'text-gray-500'" x-text="srv.status"></span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button @click="testServer(srv.id)" class="text-xs text-blue-500 hover:text-blue-700">Test</button>
+                        <button @click="removeServer(srv.id)" class="text-xs text-red-500 hover:text-red-700">Remove</button>
+                    </div>
+                </div>
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between"><span class="text-gray-500">Host</span><span class="text-gray-700 dark:text-gray-300 font-mono" x-text="srv.host + ':' + srv.port"></span></div>
+                    <div class="flex justify-between"><span class="text-gray-500">OS</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.os_info || '--'"></span></div>
+                    <div class="flex justify-between"><span class="text-gray-500">Docker</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.docker_version || '--'"></span></div>
+                    <div class="flex justify-between"><span class="text-gray-500">Last Heartbeat</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.last_heartbeat || 'Never'"></span></div>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Add Server Modal -->
+    <div x-show="showAdd" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showAdd = false; lastToken = ''">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4" @click.stop>
+            <!-- Form state -->
+            <template x-if="!lastToken">
+                <div class="space-y-4">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Remote Server</h3>
+                    <p class="text-sm text-gray-500">Register a server running the Pier Agent.</p>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                        <input x-model="form.name" type="text" placeholder="Production Server"
+                               class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="col-span-2">
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Host</label>
+                            <input x-model="form.host" type="text" placeholder="192.168.1.100"
+                                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port</label>
+                            <input x-model.number="form.port" type="number" placeholder="3001"
+                                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button @click="showAdd = false" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
+                        <button @click="addServer()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Add Server</button>
+                    </div>
+                </div>
+            </template>
+            <!-- Token display state -->
+            <template x-if="lastToken">
+                <div class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-green-100 dark:bg-green-600/20 rounded-full flex items-center justify-center">
+                            <svg class="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Server Added</h3>
+                            <p class="text-sm text-gray-500">Save the agent token below</p>
+                        </div>
+                    </div>
+                    <div class="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/30 rounded-lg p-4">
+                        <p class="text-xs font-medium text-yellow-800 dark:text-yellow-400 mb-2">Agent Token:</p>
+                        <div class="bg-white dark:bg-gray-800 rounded px-3 py-2 border border-yellow-200 dark:border-yellow-600/30">
+                            <code class="text-sm font-mono text-yellow-900 dark:text-yellow-300 break-all select-all" x-text="lastToken"></code>
+                        </div>
+                        <p class="text-xs text-yellow-700 dark:text-yellow-500 mt-2">Set this as <code class="font-mono">PIER_AGENT_TOKEN</code> on the remote server.</p>
+                    </div>
+                    <div class="flex justify-end pt-2">
+                        <button @click="showAdd = false; lastToken = ''" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Done</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+</div>
+
+<script>
+function serversData() {
+    return {
+        metrics: {}, docker: {}, servers: [], showAdd: false, lastToken: '',
+        form: { name: '', host: '', port: 3001 },
+        async init() {
+            await this.refresh();
+            this.servers = await fetch('/api/v1/servers').then(r => r.ok ? r.json() : []).catch(() => []);
+            setInterval(() => this.refresh(), 5000);
+        },
+        async refresh() {
+            try {
+                const [m, d] = await Promise.all([
+                    fetch('/api/v1/system/metrics').then(r => r.json()),
+                    fetch('/api/v1/system/docker').then(r => r.json()),
+                ]);
+                this.metrics = m; this.docker = d;
+            } catch {}
+        },
+        async addServer() {
+            if (!this.form.name || !this.form.host) { toast('Name and host are required', 'error'); return; }
+            try {
+                const res = await api('/api/v1/servers', { method: 'POST', body: JSON.stringify(this.form) });
+                const data = typeof res === 'string' ? JSON.parse(res) : res;
+                this.lastToken = data.agent_token || '';
+                toast('Server added');
+                this.form = { name: '', host: '', port: 3001 };
+                this.servers = await fetch('/api/v1/servers').then(r => r.json());
+            } catch (e) { toast(e.message, 'error'); }
+        },
+        async testServer(id) {
+            try { await api('/api/v1/servers/' + id + '/test', { method: 'POST' }); toast('Agent is online'); this.servers = await fetch('/api/v1/servers').then(r => r.json()); } catch (e) { toast(e.message, 'error'); }
+        },
+        async removeServer(id) {
+            if (!confirm('Remove this server?')) return;
+            try { await api('/api/v1/servers/' + id, { method: 'DELETE' }); toast('Server removed'); this.servers = await fetch('/api/v1/servers').then(r => r.json()); } catch (e) { toast(e.message, 'error'); }
+        },
+        formatUptime(s) { if(!s) return '--'; const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60); if(d>0) return d+'d '+h+'h'; if(h>0) return h+'h '+m+'m'; return m+'m'; },
+        diskPercent(disk) { if(!disk||!disk.total) return 0; return (((disk.total-disk.available)/disk.total)*100).toFixed(1); }
+    };
+}
+</script>
+{% endblock %}

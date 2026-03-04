@@ -1,0 +1,76 @@
+[meta]
+id = "gitea-postgresql"
+name = "Gitea with PostgreSQL"
+description = "Self-hosted Git service backed by PostgreSQL"
+category = "service"
+icon = "gitea"
+tags = ["git", "repository", "postgresql", "devops", "code"]
+
+[compose]
+template = """services:
+  gitea:
+    image: gitea/gitea:{{version}}
+    container_name: pier-{{name}}-gitea
+    ports:
+      - "{{port}}:3000"
+      - "{{ssh_port}}:22"
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      GITEA__database__DB_TYPE: postgres
+      GITEA__database__HOST: postgres:5432
+      GITEA__database__NAME: gitea
+      GITEA__database__USER: gitea
+      GITEA__database__PASSWD: "{{db_password}}"
+    volumes:
+      - gitea_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  postgres:
+    image: postgres:17-alpine
+    container_name: pier-{{name}}-postgres
+    environment:
+      POSTGRES_DB: gitea
+      POSTGRES_USER: gitea
+      POSTGRES_PASSWORD: "{{db_password}}"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gitea"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  gitea_data:
+  pg_data:
+"""
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-gitea"
+
+[ui.fields.version]
+type = "select"
+label = "Gitea Version"
+options = ["1.23", "1.22", "1.21"]
+default = "1.23"
+
+[ui.fields.db_password]
+type = "password"
+label = "DB Password"
+auto_generate = true
+
+[ui.fields.port]
+type = "number"
+label = "Web Port"
+default = "3000"
+
+[ui.fields.ssh_port]
+type = "number"
+label = "SSH Port"
+default = "2222"

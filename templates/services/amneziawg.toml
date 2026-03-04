@@ -1,0 +1,50 @@
+[meta]
+id = "amneziawg"
+name = "AmneziaWG"
+description = "WireGuard VPN with web management interface"
+category = "service"
+icon = "amneziawg"
+tags = ["vpn", "wireguard", "network", "privacy", "security"]
+
+[docker]
+image = "w0rng/amnezia-wg-easy:{{version}}"
+
+[ports.web]
+internal = 51821
+protocol = "tcp"
+description = "Web UI"
+
+[ports.vpn]
+internal = 51820
+protocol = "udp"
+description = "WireGuard VPN"
+
+[volumes.config]
+mount = "/etc/wireguard"
+
+[env]
+WG_HOST = { default = "0.0.0.0", description = "Public IP or domain" }
+PASSWORD = { default = "{{password}}", description = "Web UI password", secret = true }
+
+[versions]
+available = ["latest"]
+default = "latest"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-vpn"
+
+[ui.fields.wg_host]
+type = "text"
+label = "Public IP / Domain"
+required = true
+placeholder = "vpn.example.com"
+maps_to = "WG_HOST"
+
+[ui.fields.password]
+type = "password"
+label = "Web UI Password"
+auto_generate = true
+maps_to = "PASSWORD"

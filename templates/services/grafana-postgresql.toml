@@ -1,0 +1,75 @@
+[meta]
+id = "grafana-postgresql"
+name = "Grafana with PostgreSQL"
+description = "Grafana dashboards backed by PostgreSQL database"
+category = "service"
+icon = "grafana"
+tags = ["monitoring", "dashboards", "analytics", "postgresql"]
+
+[compose]
+template = """services:
+  grafana:
+    image: grafana/grafana:{{version}}
+    container_name: pier-{{name}}-grafana
+    ports:
+      - "{{port}}:3000"
+    environment:
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: postgres:5432
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_USER: grafana
+      GF_DATABASE_PASSWORD: "{{db_password}}"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: "{{admin_password}}"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  postgres:
+    image: postgres:17-alpine
+    container_name: pier-{{name}}-postgres
+    environment:
+      POSTGRES_DB: grafana
+      POSTGRES_USER: grafana
+      POSTGRES_PASSWORD: "{{db_password}}"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grafana"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  grafana_data:
+  pg_data:
+"""
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-grafana"
+
+[ui.fields.version]
+type = "select"
+label = "Grafana Version"
+options = ["11.6", "11.5", "11.4", "10.4"]
+default = "11.6"
+
+[ui.fields.admin_password]
+type = "password"
+label = "Admin Password"
+auto_generate = true
+
+[ui.fields.db_password]
+type = "password"
+label = "DB Password"
+auto_generate = true
+
+[ui.fields.port]
+type = "number"
+label = "Exposed Port"
+default = "3000"

@@ -1,0 +1,56 @@
+[meta]
+id = "scylladb"
+name = "ScyllaDB"
+description = "High-performance NoSQL database compatible with Cassandra"
+category = "database"
+icon = "scylladb"
+tags = ["nosql", "wide-column", "cassandra-compatible", "high-performance"]
+
+[docker]
+image = "scylladb/scylla:{{version}}"
+
+[ports.cql]
+internal = 9042
+protocol = "tcp"
+description = "CQL native transport"
+
+[volumes.data]
+mount = "/var/lib/scylla"
+
+[env]
+SCYLLA_ARGS = { default = "--smp 1 --memory 512M --overprovisioned 1", description = "Scylla arguments" }
+
+[healthcheck]
+test = ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
+interval = "15s"
+timeout = "10s"
+retries = 10
+start_period = "90s"
+
+[versions]
+available = ["6.2", "6.1", "6.0", "5.4"]
+default = "6.2"
+
+[cluster]
+supported = true
+min_nodes = 2
+max_nodes = 5
+default_nodes = 3
+description = "Ring cluster with gossip protocol (faster than Cassandra, 10-30s startup)"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-scylla"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.smp]
+type = "number"
+label = "CPU Cores (--smp)"
+default = "1"
+placeholder = "1"

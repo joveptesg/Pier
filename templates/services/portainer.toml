@@ -1,0 +1,33 @@
+[meta]
+id = "portainer"
+name = "Portainer"
+description = "Lightweight Docker management UI"
+category = "service"
+icon = "portainer"
+tags = ["docker", "management", "ui", "containers", "devops"]
+
+[docker]
+image = "portainer/portainer-ce:{{version}}"
+
+[ports.primary]
+internal = 9443
+protocol = "tcp"
+description = "Web UI (HTTPS)"
+
+[volumes.data]
+mount = "/data"
+
+[versions]
+available = ["2.25.1", "2.25.0", "2.24.0", "2.23.0"]
+default = "2.25.1"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-portainer"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"

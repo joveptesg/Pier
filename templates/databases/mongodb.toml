@@ -1,0 +1,57 @@
+[meta]
+id = "mongodb"
+name = "MongoDB"
+description = "Document-oriented NoSQL database for modern applications"
+category = "database"
+icon = "mongodb"
+tags = ["nosql", "document"]
+
+[docker]
+image = "mongo:{{version}}"
+
+[ports.primary]
+internal = 27017
+protocol = "tcp"
+description = "MongoDB wire protocol"
+
+[volumes.data]
+mount = "/data/db"
+
+[env]
+MONGO_INITDB_ROOT_USERNAME = { default = "root", description = "Root username" }
+MONGO_INITDB_ROOT_PASSWORD = { default = "{{password}}", description = "Root password", secret = true }
+
+[healthcheck]
+test = ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "30s"
+
+[versions]
+available = ["8.0", "7.0"]
+default = "8.0"
+
+[cluster]
+supported = true
+min_nodes = 3
+max_nodes = 5
+default_nodes = 3
+description = "Replica set with automatic primary election"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-mongo"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.mongo_root_password]
+type = "password"
+label = "Root Password"
+auto_generate = true
+maps_to = "MONGO_INITDB_ROOT_PASSWORD"

@@ -1,0 +1,55 @@
+[meta]
+id = "rabbitmq"
+name = "RabbitMQ"
+description = "Open-source message broker with management UI"
+category = "service"
+icon = "rabbitmq"
+tags = ["message-broker", "amqp", "queue", "messaging", "pubsub"]
+
+[docker]
+image = "rabbitmq:{{version}}-management-alpine"
+
+[ports.amqp]
+internal = 5672
+protocol = "tcp"
+description = "AMQP protocol"
+
+[ports.management]
+internal = 15672
+protocol = "tcp"
+description = "Management web UI"
+
+[volumes.data]
+mount = "/var/lib/rabbitmq"
+
+[env]
+RABBITMQ_DEFAULT_USER = { default = "admin", description = "Default user" }
+RABBITMQ_DEFAULT_PASS = { default = "{{password}}", description = "Default password", secret = true }
+
+[healthcheck]
+test = ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "30s"
+
+[versions]
+available = ["4.0", "3.13", "3.12"]
+default = "4.0"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-rabbitmq"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.password]
+type = "password"
+label = "Password"
+auto_generate = true
+maps_to = "RABBITMQ_DEFAULT_PASS"

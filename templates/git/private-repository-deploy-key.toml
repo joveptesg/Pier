@@ -1,0 +1,43 @@
+[meta]
+id = "git-private-key"
+name = "Private Repository (Deploy Key)"
+description = "Deploy from a private Git repository using an SSH deploy key"
+category = "git"
+icon = "git"
+tags = ["git", "ssh", "private", "deploy-key", "repository"]
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-app"
+
+[ui.fields.git_url]
+type = "text"
+label = "Repository URL (SSH)"
+required = true
+placeholder = "git@github.com:user/repo.git"
+
+[ui.fields.branch]
+type = "text"
+label = "Branch"
+default = "main"
+placeholder = "main"
+
+[ui.fields.deploy_key]
+type = "textarea"
+label = "SSH Private Key"
+required = true
+placeholder = "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"
+
+[ui.fields.build_path]
+type = "text"
+label = "Dockerfile Path"
+default = "/Dockerfile"
+placeholder = "/Dockerfile"
+
+[ui.fields.port]
+type = "number"
+label = "Exposed Port"
+default = "3000"
+placeholder = "3000"

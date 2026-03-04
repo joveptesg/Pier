@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Containers{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="containersData()" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-semibold text-white">Containers</h2>
+            <p class="text-sm text-gray-500 mt-1">Manage Docker containers</p>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-gray-400">
+            <input type="checkbox" x-model="showAll" @change="refresh()"
+                   class="rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500">
+            Show stopped
+        </label>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="text-center py-12 text-gray-500">Loading containers...</div>
+
+    <!-- Table -->
+    <div x-show="!loading" class="bg-gray-900 border border-gray-800/50 rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-gray-800/50">
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Image</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Ports</th>
+                    <th class="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800/30">
+                <template x-for="c in containers" :key="c.id">
+                    <tr class="hover:bg-gray-800/30 transition-colors">
+                        <td class="px-4 py-3">
+                            <a :href="'/containers/' + c.id" class="text-blue-400 hover:text-blue-300 font-medium"
+                               x-text="c.name"></a>
+                        </td>
+                        <td class="px-4 py-3 text-gray-400 font-mono text-xs" x-text="c.image"></td>
+                        <td class="px-4 py-3">
+                            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
+                                  :class="c.state === 'running'
+                                    ? 'bg-green-500/10 text-green-400'
+                                    : c.state === 'paused'
+                                    ? 'bg-yellow-500/10 text-yellow-400'
+                                    : 'bg-gray-500/10 text-gray-400'">
+                                <span class="w-1.5 h-1.5 rounded-full"
+                                      :class="c.state === 'running' ? 'bg-green-400' : c.state === 'paused' ? 'bg-yellow-400' : 'bg-gray-500'"></span>
+                                <span x-text="c.state"></span>
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 text-gray-500 text-xs font-mono" x-text="c.ports || '-'"></td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="flex items-center justify-end gap-1">
+                                <template x-if="c.state !== 'running'">
+                                    <button @click="action(c.id, 'start')"
+                                            class="px-2 py-1 text-xs rounded bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
+                                        Start
+                                    </button>
+                                </template>
+                                <template x-if="c.state === 'running'">
+                                    <button @click="action(c.id, 'stop')"
+                                            class="px-2 py-1 text-xs rounded bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 transition-colors">
+                                        Stop
+                                    </button>
+                                </template>
+                                <button @click="action(c.id, 'restart')"
+                                        class="px-2 py-1 text-xs rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors">
+                                    Restart
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+
+        <div x-show="containers.length === 0" class="text-center py-8 text-gray-500 text-sm">
+            No containers found
+        </div>
+    </div>
+</div>
+
+<script>
+function containersData() {
+    return {
+        containers: [],
+        showAll: true,
+        loading: true,
+        async init() {
+            await this.refresh();
+            setInterval(() => this.refresh(), 5000);
+        },
+        async refresh() {
+            try {
+                const data = await fetch('/api/v1/containers?all=' + this.showAll).then(r => r.json());
+                this.containers = data.map(c => ({
+                    id: c.id,
+                    name: (c.names && c.names[0] || '').replace(/^\//, ''),
+                    image: c.image,
+                    state: c.state,
+                    status: c.status,
+                    ports: this.formatPorts(c.ports),
+                }));
+            } catch (e) { /* silent */ }
+            this.loading = false;
+        },
+        formatPorts(ports) {
+            if (!ports || !ports.length) return '';
+            return ports
+                .filter(p => p.public_port)
+                .map(p => p.public_port + ':' + p.private_port + '/' + p.typ)
+                .join(', ');
+        },
+        async action(id, act) {
+            try {
+                await api('/api/v1/containers/' + id + '/' + act, { method: 'POST' });
+                toast('Container ' + act + 'ed');
+                setTimeout(() => this.refresh(), 500);
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,25 @@
+[meta]
+id = "dockerfile"
+name = "Dockerfile"
+description = "Build and deploy from a Dockerfile (provide Git URL or paste Dockerfile)"
+category = "application"
+icon = "docker"
+tags = ["docker", "build", "dockerfile"]
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-app"
+
+[ui.fields.dockerfile]
+type = "textarea"
+label = "Dockerfile"
+required = true
+placeholder = "FROM node:22-alpine\nWORKDIR /app\nCOPY . .\nRUN npm install\nEXPOSE 3000\nCMD [\"npm\", \"start\"]"
+
+[ui.fields.port]
+type = "number"
+label = "Exposed Port"
+default = "3000"
+placeholder = "3000"

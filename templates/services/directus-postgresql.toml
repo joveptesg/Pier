@@ -1,0 +1,93 @@
+[meta]
+id = "directus-postgresql"
+name = "Directus with PostgreSQL"
+description = "Headless CMS with PostgreSQL backend"
+category = "service"
+icon = "directus"
+tags = ["cms", "headless", "api", "graphql", "postgresql"]
+
+[compose]
+template = """services:
+  directus:
+    image: directus/directus:{{version}}
+    container_name: pier-{{name}}-directus
+    ports:
+      - "{{port}}:8055"
+    environment:
+      KEY: "{{key}}"
+      SECRET: "{{secret}}"
+      ADMIN_EMAIL: "{{admin_email}}"
+      ADMIN_PASSWORD: "{{admin_password}}"
+      DB_CLIENT: pg
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: directus
+      DB_USER: directus
+      DB_PASSWORD: "{{db_password}}"
+    volumes:
+      - directus_uploads:/directus/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  postgres:
+    image: postgres:17-alpine
+    container_name: pier-{{name}}-postgres
+    environment:
+      POSTGRES_DB: directus
+      POSTGRES_USER: directus
+      POSTGRES_PASSWORD: "{{db_password}}"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U directus"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  directus_uploads:
+  pg_data:
+"""
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-directus"
+
+[ui.fields.version]
+type = "select"
+label = "Directus Version"
+options = ["11.5", "11.4", "11.3", "10.13"]
+default = "11.5"
+
+[ui.fields.admin_email]
+type = "text"
+label = "Admin Email"
+default = "admin@example.com"
+
+[ui.fields.admin_password]
+type = "password"
+label = "Admin Password"
+auto_generate = true
+
+[ui.fields.key]
+type = "password"
+label = "Project Key"
+auto_generate = true
+
+[ui.fields.secret]
+type = "password"
+label = "Secret Key"
+auto_generate = true
+
+[ui.fields.db_password]
+type = "password"
+label = "DB Password"
+auto_generate = true
+
+[ui.fields.port]
+type = "number"
+label = "Exposed Port"
+default = "8055"

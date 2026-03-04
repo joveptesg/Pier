@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Stacks{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="stacksData()" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-semibold text-white">Compose Stacks</h2>
+            <p class="text-sm text-gray-500 mt-1">Docker Compose deployments</p>
+        </div>
+        <a href="/stacks/new"
+           class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 rounded-lg text-white transition-colors">
+            + New Stack
+        </a>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="text-center py-12 text-gray-500">Loading stacks...</div>
+
+    <!-- Grid -->
+    <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="s in stacks" :key="s.id">
+            <div class="bg-gray-900 border border-gray-800/50 rounded-xl p-5 hover:border-gray-700/50 transition-colors">
+                <div class="flex items-center justify-between mb-3">
+                    <a :href="'/stacks/' + s.id" class="text-white font-medium hover:text-blue-400 transition-colors" x-text="s.name"></a>
+                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
+                          :class="s.status === 'running' ? 'bg-green-500/10 text-green-400' : 'bg-gray-500/10 text-gray-400'">
+                        <span class="w-1.5 h-1.5 rounded-full"
+                              :class="s.status === 'running' ? 'bg-green-400' : 'bg-gray-500'"></span>
+                        <span x-text="s.status"></span>
+                    </span>
+                </div>
+                <p class="text-xs text-gray-500 mb-4" x-text="'Created: ' + s.created_at"></p>
+                <div class="flex items-center gap-2">
+                    <button @click="deploy(s.id)"
+                            class="px-3 py-1.5 text-xs rounded-lg bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
+                        Deploy
+                    </button>
+                    <button @click="down(s.id)"
+                            class="px-3 py-1.5 text-xs rounded-lg bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 transition-colors">
+                        Down
+                    </button>
+                    <button @click="remove(s.id)"
+                            class="px-3 py-1.5 text-xs rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors ml-auto">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <div x-show="!loading && stacks.length === 0" class="text-center py-12">
+        <p class="text-gray-500 mb-4">No stacks yet</p>
+        <a href="/stacks/new" class="text-blue-400 hover:text-blue-300 text-sm">Create your first stack</a>
+    </div>
+</div>
+
+<script>
+function stacksData() {
+    return {
+        stacks: [],
+        loading: true,
+        async init() {
+            await this.refresh();
+        },
+        async refresh() {
+            try {
+                this.stacks = await fetch('/api/v1/stacks').then(r => r.json());
+            } catch (e) { /* silent */ }
+            this.loading = false;
+        },
+        async deploy(id) {
+            try {
+                toast('Deploying stack...');
+                await api('/api/v1/stacks/' + id + '/deploy', { method: 'POST' });
+                toast('Stack deployed');
+                await this.refresh();
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        },
+        async down(id) {
+            try {
+                await api('/api/v1/stacks/' + id + '/down', { method: 'POST' });
+                toast('Stack stopped');
+                await this.refresh();
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        },
+        async remove(id) {
+            if (!confirm('Remove this stack?')) return;
+            try {
+                await api('/api/v1/stacks/' + id, { method: 'DELETE' });
+                toast('Stack removed');
+                await this.refresh();
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

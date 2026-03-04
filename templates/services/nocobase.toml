@@ -1,0 +1,44 @@
+[meta]
+id = "nocobase"
+name = "NocoBase"
+description = "Extensible open-source no-code/low-code platform"
+category = "service"
+icon = "nocobase"
+tags = ["no-code", "low-code", "platform", "workflow", "database"]
+
+[docker]
+image = "nocobase/nocobase:{{version}}"
+
+[ports.primary]
+internal = 8000
+protocol = "tcp"
+description = "Web UI"
+
+[volumes.storage]
+mount = "/app/storage"
+
+[env]
+DB_STORAGE = { default = "/app/storage/db", description = "Database storage path" }
+APP_PORT = { default = "8000", description = "Application port" }
+
+[healthcheck]
+test = ["CMD-SHELL", "wget --spider -q http://localhost:8000/ || exit 1"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "60s"
+
+[versions]
+available = ["1.6", "1.5", "1.4"]
+default = "1.6"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-nocobase"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"

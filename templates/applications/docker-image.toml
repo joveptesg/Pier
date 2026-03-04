@@ -1,0 +1,33 @@
+[meta]
+id = "docker-image"
+name = "Docker Image"
+description = "Deploy any Docker image from a registry"
+category = "application"
+icon = "docker"
+tags = ["docker", "container"]
+
+[docker]
+image = "{{image}}"
+
+[ports.primary]
+internal = 80
+protocol = "tcp"
+description = "Application port"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-app"
+
+[ui.fields.image]
+type = "text"
+label = "Docker Image"
+required = true
+placeholder = "nginx:latest"
+
+[ui.fields.port]
+type = "number"
+label = "Container Port"
+default = "80"
+placeholder = "80"

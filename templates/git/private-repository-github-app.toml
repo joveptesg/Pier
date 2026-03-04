@@ -1,0 +1,37 @@
+[meta]
+id = "git-github-app"
+name = "Private Repository (GitHub App)"
+description = "Deploy public & private repositories through your GitHub Apps"
+category = "git"
+icon = "github"
+tags = ["git", "github", "app", "private", "repository", "oauth"]
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-app"
+
+[ui.fields.git_url]
+type = "text"
+label = "Repository URL"
+required = true
+placeholder = "https://github.com/user/repo"
+
+[ui.fields.branch]
+type = "text"
+label = "Branch"
+default = "main"
+placeholder = "main"
+
+[ui.fields.build_path]
+type = "text"
+label = "Dockerfile Path"
+default = "/Dockerfile"
+placeholder = "/Dockerfile"
+
+[ui.fields.port]
+type = "number"
+label = "Exposed Port"
+default = "3000"
+placeholder = "3000"

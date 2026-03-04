@@ -1,0 +1,45 @@
+[meta]
+id = "qdrant"
+name = "Qdrant"
+description = "High-performance vector similarity search engine"
+category = "service"
+icon = "qdrant"
+tags = ["vector", "search", "ai", "embeddings", "similarity"]
+
+[docker]
+image = "qdrant/qdrant:v{{version}}"
+
+[ports.primary]
+internal = 6333
+protocol = "tcp"
+description = "REST API"
+
+[ports.grpc]
+internal = 6334
+protocol = "tcp"
+description = "gRPC API"
+
+[volumes.storage]
+mount = "/qdrant/storage"
+
+[healthcheck]
+test = ["CMD-SHELL", "curl -f http://localhost:6333/healthz || exit 1"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "10s"
+
+[versions]
+available = ["1.13.2", "1.13.1", "1.12.5", "1.11.5"]
+default = "1.13.2"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-qdrant"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"

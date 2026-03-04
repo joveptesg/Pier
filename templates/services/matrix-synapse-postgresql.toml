@@ -1,0 +1,72 @@
+[meta]
+id = "matrix-synapse-postgresql"
+name = "Matrix Synapse with PostgreSQL"
+description = "Matrix chat server with PostgreSQL backend"
+category = "service"
+icon = "matrix"
+tags = ["chat", "messaging", "matrix", "federation", "postgresql"]
+
+[compose]
+template = """services:
+  synapse:
+    image: matrixdotorg/synapse:{{version}}
+    container_name: pier-{{name}}-synapse
+    ports:
+      - "{{port}}:8008"
+    environment:
+      SYNAPSE_SERVER_NAME: "{{server_name}}"
+      SYNAPSE_REPORT_STATS: "no"
+    volumes:
+      - synapse_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  postgres:
+    image: postgres:17-alpine
+    container_name: pier-{{name}}-postgres
+    environment:
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: "{{db_password}}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  synapse_data:
+  pg_data:
+"""
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-synapse"
+
+[ui.fields.version]
+type = "select"
+label = "Synapse Version"
+options = ["v1.123.0", "v1.122.0", "v1.121.0"]
+default = "v1.123.0"
+
+[ui.fields.server_name]
+type = "text"
+label = "Server Name"
+default = "localhost"
+placeholder = "matrix.example.com"
+
+[ui.fields.db_password]
+type = "password"
+label = "DB Password"
+auto_generate = true
+
+[ui.fields.port]
+type = "number"
+label = "Exposed Port"
+default = "8008"

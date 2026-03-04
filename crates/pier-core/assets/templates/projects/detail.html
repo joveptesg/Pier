@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Project Detail{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="projectDetail('{{ project_id }}')" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <a href="/projects" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </a>
+            <div>
+                <h2 class="text-xl font-semibold text-gray-900 dark:text-white" x-text="project.name || 'Loading...'"></h2>
+                <p class="text-sm text-gray-500" x-text="project.description || ''"></p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button @click="editing = !editing"
+                    class="px-3 py-1.5 text-xs rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+                <span x-text="editing ? 'Cancel' : 'Edit'"></span>
+            </button>
+            <button @click="remove()"
+                    class="px-3 py-1.5 text-xs rounded-lg bg-red-100 dark:bg-red-600/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-600/30 transition-colors">
+                Delete
+            </button>
+        </div>
+    </div>
+
+    <!-- Edit Form -->
+    <div x-show="editing" x-cloak class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                <input x-model="editForm.name" type="text"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                              text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+                <input x-model="editForm.description" type="text"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                              text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port Start</label>
+                <input x-model.number="editForm.port_range_start" type="number"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                              text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port End</label>
+                <input x-model.number="editForm.port_range_end" type="number"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                              text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+            </div>
+        </div>
+        <button @click="save()"
+                class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 rounded-lg text-white transition-colors">
+            Save Changes
+        </button>
+    </div>
+
+    <!-- Info -->
+    <div x-show="!editing" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+                <span class="text-xs text-gray-500">Port Range</span>
+                <p class="text-sm text-gray-800 dark:text-gray-200 mt-1"
+                   x-text="project.port_range_start ? project.port_range_start + ' - ' + project.port_range_end : 'Not set'"></p>
+            </div>
+            <div>
+                <span class="text-xs text-gray-500">Created</span>
+                <p class="text-sm text-gray-800 dark:text-gray-200 mt-1" x-text="project.created_at || '--'"></p>
+            </div>
+            <div>
+                <span class="text-xs text-gray-500">Services</span>
+                <p class="text-sm text-gray-800 dark:text-gray-200 mt-1" x-text="services.length"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Services -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+        <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-800/50">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Services</h3>
+        </div>
+        <div x-show="services.length > 0">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-100 dark:border-gray-800/30">
+                        <th class="text-left px-4 py-2 text-xs font-medium text-gray-500">Name</th>
+                        <th class="text-left px-4 py-2 text-xs font-medium text-gray-500">Type</th>
+                        <th class="text-left px-4 py-2 text-xs font-medium text-gray-500">Status</th>
+                        <th class="text-left px-4 py-2 text-xs font-medium text-gray-500">Port</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-800/30">
+                    <template x-for="svc in services" :key="svc.id">
+                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                            <td class="px-4 py-2 text-gray-800 dark:text-gray-200" x-text="svc.name"></td>
+                            <td class="px-4 py-2 text-gray-500 dark:text-gray-400 text-xs" x-text="svc.service_type"></td>
+                            <td class="px-4 py-2">
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs"
+                                      :class="svc.status === 'running' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400'"
+                                      x-text="svc.status"></span>
+                            </td>
+                            <td class="px-4 py-2 text-gray-500 dark:text-gray-400 text-xs" x-text="svc.port || '-'"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+        <div x-show="services.length === 0" class="text-center py-6 text-gray-500 text-sm">
+            No services in this project
+        </div>
+    </div>
+</div>
+
+<script>
+function projectDetail(id) {
+    return {
+        id,
+        project: {},
+        services: [],
+        editing: false,
+        editForm: {},
+        async init() {
+            await this.refresh();
+        },
+        async refresh() {
+            try {
+                const data = await fetch('/api/v1/projects/' + this.id).then(r => r.json());
+                this.project = data.project || {};
+                this.services = data.services || [];
+                this.editForm = { ...this.project };
+            } catch (e) {
+                toast('Failed to load project', 'error');
+            }
+        },
+        async save() {
+            try {
+                await api('/api/v1/projects/' + this.id, {
+                    method: 'PUT',
+                    body: JSON.stringify(this.editForm)
+                });
+                toast('Project updated');
+                this.editing = false;
+                await this.refresh();
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        },
+        async remove() {
+            if (!confirm('Delete this project?')) return;
+            try {
+                await api('/api/v1/projects/' + this.id, { method: 'DELETE' });
+                toast('Project deleted');
+                window.location.href = '/projects';
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

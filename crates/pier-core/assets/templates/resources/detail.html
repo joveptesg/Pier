@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+{% block title %}Resource Detail{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="resourceDetail('{{ resource_id }}')" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <a href="/projects" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </a>
+            <div>
+                <div class="flex items-center gap-2">
+                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white" x-text="resource.name || 'Loading...'"></h2>
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                          :class="resource.status === 'running' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' :
+                                  resource.status === 'stopped' ? 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400' :
+                                  resource.status === 'deploying' ? 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' :
+                                  resource.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' :
+                                  'bg-gray-100 dark:bg-gray-500/10 text-gray-500'"
+                          x-text="resource.status"></span>
+                </div>
+                <p class="text-sm text-gray-500 mt-0.5">
+                    <span x-text="resource.catalog_id || ''"></span>
+                    <span x-show="resource.category"> &middot; <span x-text="resource.category"></span></span>
+                </p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button @click="startResource()" x-show="resource.status === 'stopped'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-100 dark:bg-green-600/20 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-600/30 transition-colors">
+                Start
+            </button>
+            <button @click="stopResource()" x-show="resource.status === 'running'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-yellow-100 dark:bg-yellow-600/20 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-200 dark:hover:bg-yellow-600/30 transition-colors">
+                Stop
+            </button>
+            <button @click="restartResource()" x-show="resource.status === 'running'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+                Restart
+            </button>
+            <button @click="removeResource()"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 dark:bg-red-600/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-600/30 transition-colors">
+                Delete
+            </button>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex gap-1 border-b border-gray-200 dark:border-gray-800">
+        <button @click="tab = 'overview'" :class="tab === 'overview' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Overview</button>
+        <button @click="tab = 'env'" :class="tab === 'env' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Environment</button>
+        <button @click="tab = 'backups'" :class="tab === 'backups' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Backups</button>
+    </div>
+
+    <!-- Overview Tab -->
+    <div x-show="tab === 'overview'" class="space-y-4">
+        <!-- Cluster Nodes (shown only for cluster deployments) -->
+        <div x-show="clusterInfo && clusterInfo.cluster" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Cluster Nodes</h3>
+                    <span class="text-xs text-gray-400" x-text="(clusterInfo.node_count || 0) + ' nodes'"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button @click="scaleCluster(1)"
+                            x-show="clusterInfo.node_count < 5"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-100 dark:bg-green-600/20 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-600/30 transition-colors">
+                        + Add Node
+                    </button>
+                    <button @click="scaleCluster(-1)"
+                            x-show="clusterInfo.node_count > 2"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 dark:bg-red-600/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-600/30 transition-colors">
+                        - Remove Node
+                    </button>
+                </div>
+            </div>
+            <div class="space-y-2">
+                <template x-for="(node, idx) in (clusterInfo.nodes || [])" :key="idx">
+                    <div class="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2.5">
+                        <span class="w-6 h-6 rounded-full text-xs font-medium flex items-center justify-center"
+                              :class="node.role === 'primary' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'"
+                              x-text="node.index + 1"></span>
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300 w-20" x-text="node.role === 'primary' ? 'Primary' : 'Replica'"></span>
+                        <span class="text-xs text-gray-500 font-mono" x-text="node.server_id"></span>
+                        <span class="ml-auto w-2 h-2 rounded-full"
+                              :class="resource.status === 'running' ? 'bg-green-500' : 'bg-gray-400'"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Ports</h3>
+                <div x-show="(resource.ports || []).length > 0" class="space-y-2">
+                    <template x-for="p in resource.ports || []" :key="p.name">
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-500" x-text="p.name"></span>
+                            <code class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
+                                  x-text="p.host + ':' + p.container"></code>
+                        </div>
+                    </template>
+                </div>
+                <p x-show="(resource.ports || []).length === 0" class="text-sm text-gray-400">No ports allocated</p>
+            </div>
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Details</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between"><span class="text-gray-500">Image</span><span class="text-gray-900 dark:text-gray-100 font-mono text-xs" x-text="resource.image || '-'"></span></div>
+                    <div class="flex justify-between"><span class="text-gray-500">Mode</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="resource.cluster_mode === 'cluster' ? 'Cluster' : 'Standalone'"></span></div>
+                    <div class="flex justify-between"><span class="text-gray-500">Created</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="resource.created_at || '-'"></span></div>
+                    <div x-show="resource.project_id" class="flex justify-between"><span class="text-gray-500">Project</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="resource.project_id"></span></div>
+                </div>
+            </div>
+        </div>
+        <div x-show="connectionString" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Connection String</h3>
+            <div class="flex items-center gap-2">
+                <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto" x-text="connectionString"></code>
+                <button @click="navigator.clipboard.writeText(connectionString); toast('Copied!')"
+                        class="shrink-0 px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Environment Tab -->
+    <div x-show="tab === 'env'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Environment Variables</h3>
+                <div class="flex items-center gap-2">
+                    <button @click="addEnvRow()" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">+ Add</button>
+                    <button @click="showSecrets = !showSecrets" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                            x-text="showSecrets ? 'Hide Values' : 'Show Values'"></button>
+                </div>
+            </div>
+            <div x-show="editableEnv.length === 0" class="text-sm text-gray-400 py-4 text-center">No environment variables</div>
+            <div x-show="editableEnv.length > 0" class="space-y-2">
+                <template x-for="(row, idx) in editableEnv" :key="idx">
+                    <div class="flex items-center gap-2">
+                        <input :value="row.key" @input="row.key = $event.target.value"
+                               class="w-48 shrink-0 px-2 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="KEY">
+                        <input :value="row.value" @input="row.value = $event.target.value"
+                               :type="showSecrets ? 'text' : (isSecret(row.key) ? 'password' : 'text')"
+                               class="flex-1 px-2 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="value">
+                        <button @click="editableEnv.splice(idx, 1)" class="text-red-400 hover:text-red-600 p-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                </template>
+            </div>
+            <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+                <button @click="resetEnv()" class="px-4 py-2 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Reset</button>
+                <button @click="saveEnv(false)" class="px-4 py-2 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">Save</button>
+                <button @click="saveEnv(true)" class="px-4 py-2 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Save & Redeploy</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backups Tab -->
+    <div x-show="tab === 'backups'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Backup Schedule</h3>
+                <div class="flex items-center gap-2">
+                    <button @click="triggerBackup()" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">Backup Now</button>
+                    <button @click="showScheduleModal = true" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">Configure</button>
+                </div>
+            </div>
+            <div x-show="schedule" class="space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-gray-500">Schedule</span><span class="text-gray-900 dark:text-gray-100 font-mono text-xs" x-text="schedule?.cron_expression"></span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Retention</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="(schedule?.retention_count || 7) + ' backups'"></span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Last Run</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="schedule?.last_run_at || 'Never'"></span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Next Run</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="schedule?.next_run_at || '-'"></span></div>
+            </div>
+            <p x-show="!schedule" class="text-sm text-gray-400">No backup schedule configured</p>
+        </div>
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Backup History</h3>
+            <div x-show="backupHistory.length === 0" class="text-sm text-gray-400 text-center py-4">No backups yet</div>
+            <div x-show="backupHistory.length > 0" class="space-y-2">
+                <template x-for="b in backupHistory" :key="b.id">
+                    <div class="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
+                        <div>
+                            <span :class="b.status === 'completed' ? 'text-green-500' : b.status === 'failed' ? 'text-red-500' : 'text-yellow-500'" x-text="b.status"></span>
+                            <span class="text-gray-500 text-xs ml-2" x-text="b.started_at"></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-400" x-text="formatBytes(b.size_bytes)"></span>
+                            <a x-show="b.status === 'completed'" :href="'/api/v1/backups/' + b.id + '/download'" class="text-xs text-blue-500 hover:text-blue-700">Download</a>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- Schedule Modal -->
+    <div x-show="showScheduleModal" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showScheduleModal = false">
+            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Configure Backup Schedule</h3>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">S3 Storage</label>
+                    <select x-model="scheduleForm.s3_storage_id" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select storage...</option>
+                        <template x-for="s in s3Storages" :key="s.id"><option :value="s.id" x-text="s.name + ' (' + s.bucket + ')'"></option></template>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Schedule</label>
+                    <select x-model="scheduleForm.cron_expression" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="0 2 * * *">Daily at 2:00 AM</option>
+                        <option value="0 2 * * 0">Weekly (Sunday 2:00 AM)</option>
+                        <option value="0 */6 * * *">Every 6 hours</option>
+                        <option value="0 * * * *">Every hour</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Retention (backups to keep)</label>
+                    <input x-model.number="scheduleForm.retention_count" type="number" min="1" max="100"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button @click="showScheduleModal = false" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
+                    <button @click="saveSchedule()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function resourceDetail(id) {
+    return {
+        id, resource: {}, tab: 'overview', showEnv: false, showSecrets: false, editableEnv: [],
+        schedule: null, backupHistory: [], s3Storages: [], showScheduleModal: false,
+        scheduleForm: { s3_storage_id: '', cron_expression: '0 2 * * *', retention_count: 7 },
+        clusterInfo: null,
+        get connectionString() {
+            if (!this.resource.catalog_id || !this.resource.ports?.length) return '';
+            const port = this.resource.ports[0]?.host; if (!port) return '';
+            let envObj = {}; try { envObj = JSON.parse(this.resource.env_json || '{}'); } catch {}
+            const host = 'localhost';
+            switch (this.resource.catalog_id) {
+                case 'postgresql': { const u=envObj.POSTGRES_USER||'postgres',p=envObj.POSTGRES_PASSWORD||'',d=envObj.POSTGRES_DB||'postgres'; return `postgresql://${u}:${p}@${host}:${port}/${d}`; }
+                case 'mysql': case 'mariadb': { const p=envObj.MYSQL_ROOT_PASSWORD||envObj.MARIADB_ROOT_PASSWORD||'',d=envObj.MYSQL_DATABASE||envObj.MARIADB_DATABASE||''; return `mysql://root:${p}@${host}:${port}/${d}`; }
+                case 'mongodb': { const u=envObj.MONGO_INITDB_ROOT_USERNAME||'root',p=envObj.MONGO_INITDB_ROOT_PASSWORD||''; return `mongodb://${u}:${p}@${host}:${port}`; }
+                case 'redis': return `redis://${host}:${port}`;
+                case 'clickhouse': return `clickhouse://${host}:${port}`;
+                case 'cassandra': case 'scylladb': return `cql://${host}:${port}`;
+                default: return '';
+            }
+        },
+        isSecret(key) { const k=key.toUpperCase(); return k.includes('PASSWORD')||k.includes('SECRET')||k.includes('TOKEN')||k.includes('KEY'); },
+        async init() {
+            await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster();
+            this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
+        },
+        async refresh() { try { this.resource = await fetch('/api/v1/resources/'+this.id).then(r=>r.json()); } catch(e) { toast('Failed to load resource','error'); } },
+        async loadCluster() { try { this.clusterInfo = await fetch('/api/v1/resources/'+this.id+'/nodes').then(r=>r.ok?r.json():null); } catch { this.clusterInfo = null; } },
+        async scaleCluster(delta) {
+            const newCount = (this.clusterInfo?.node_count || 0) + delta;
+            if (newCount < 2) return;
+            const action = delta > 0 ? 'add a node' : 'remove a node';
+            if (!confirm('Scale cluster: ' + action + '? New count: ' + newCount)) return;
+            try {
+                await api('/api/v1/resources/'+this.id+'/scale', { method: 'POST', body: JSON.stringify({ node_count: newCount }) });
+                toast('Cluster scaled to ' + newCount + ' nodes');
+                await this.refresh(); await this.loadCluster();
+            } catch(e) { toast(e.message, 'error'); }
+        },
+        loadEnv() {
+            try { const j=this.resource.env_json; if(!j){this.editableEnv=[];return;} const o=JSON.parse(j);
+                this.editableEnv=Object.entries(o).filter(([k])=>k===k.toUpperCase()).map(([key,value])=>({key,value}));
+            } catch { this.editableEnv=[]; }
+        },
+        addEnvRow() { this.editableEnv.push({key:'',value:''}); },
+        resetEnv() { this.loadEnv(); },
+        async saveEnv(redeploy) {
+            const env={}; for(const r of this.editableEnv) if(r.key.trim()) env[r.key.trim()]=r.value;
+            try { await api('/api/v1/resources/'+this.id+'/env',{method:'PUT',body:JSON.stringify({env,redeploy})});
+                toast(redeploy?'Saved & redeploying...':'Environment saved');
+                if(redeploy) setTimeout(()=>this.refresh(),3000);
+            } catch(e) { toast(e.message,'error'); }
+        },
+        async loadSchedule() { try { this.schedule=await fetch('/api/v1/resources/'+this.id+'/backups/schedule').then(r=>r.ok?r.json():null); if(this.schedule){this.scheduleForm.s3_storage_id=this.schedule.s3_storage_id;this.scheduleForm.cron_expression=this.schedule.cron_expression;this.scheduleForm.retention_count=this.schedule.retention_count;} } catch{} },
+        async loadBackups() { try { this.backupHistory=await fetch('/api/v1/resources/'+this.id+'/backups').then(r=>r.ok?r.json():[]); } catch{this.backupHistory=[];} },
+        async saveSchedule() {
+            if(!this.scheduleForm.s3_storage_id){toast('Select an S3 storage','error');return;}
+            try { await api('/api/v1/resources/'+this.id+'/backups/schedule',{method:'POST',body:JSON.stringify(this.scheduleForm)});
+                toast('Schedule saved'); this.showScheduleModal=false; await this.loadSchedule();
+            } catch(e) { toast(e.message,'error'); }
+        },
+        async triggerBackup() { try { await api('/api/v1/resources/'+this.id+'/backups/trigger',{method:'POST'}); toast('Backup started'); setTimeout(()=>this.loadBackups(),5000); } catch(e){toast(e.message,'error');} },
+        formatBytes(b) { if(!b)return '0 B'; const k=1024,s=['B','KB','MB','GB'],i=Math.floor(Math.log(b)/Math.log(k)); return parseFloat((b/Math.pow(k,i)).toFixed(1))+' '+s[i]; },
+        async startResource() { try{await api('/api/v1/resources/'+this.id+'/start',{method:'POST'});toast('Resource started');await this.refresh();}catch(e){toast(e.message,'error');} },
+        async stopResource() { try{await api('/api/v1/resources/'+this.id+'/stop',{method:'POST'});toast('Resource stopped');await this.refresh();}catch(e){toast(e.message,'error');} },
+        async restartResource() { try{await api('/api/v1/resources/'+this.id+'/restart',{method:'POST'});toast('Resource restarted');await this.refresh();}catch(e){toast(e.message,'error');} },
+        async removeResource() { if(!confirm('Delete this resource? This will stop and remove the container.'))return; try{await api('/api/v1/resources/'+this.id,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');} }
+    };
+}
+</script>
+{% endblock %}

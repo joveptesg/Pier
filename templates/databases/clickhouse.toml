@@ -1,0 +1,55 @@
+[meta]
+id = "clickhouse"
+name = "ClickHouse"
+description = "Fast open-source column-oriented OLAP database"
+category = "database"
+icon = "clickhouse"
+tags = ["analytics", "olap", "columnar"]
+
+[docker]
+image = "clickhouse/clickhouse-server:{{version}}"
+
+[ports.http]
+internal = 8123
+protocol = "tcp"
+description = "HTTP interface"
+
+[ports.native]
+internal = 9000
+protocol = "tcp"
+description = "Native TCP protocol"
+
+[volumes.data]
+mount = "/var/lib/clickhouse"
+
+[env]
+CLICKHOUSE_DB = { default = "{{name}}", description = "Default database" }
+CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT = { default = "1", description = "Enable access management" }
+
+[healthcheck]
+test = ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "30s"
+
+[versions]
+available = ["25.3", "25.2", "24.12", "24.8"]
+default = "25.3"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-clickhouse"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.clickhouse_db]
+type = "text"
+label = "Database Name"
+default = "default"
+maps_to = "CLICKHOUSE_DB"

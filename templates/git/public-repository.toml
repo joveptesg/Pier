@@ -1,0 +1,37 @@
+[meta]
+id = "git-public"
+name = "Public Repository"
+description = "Deploy from a public Git repository (GitHub, GitLab, Bitbucket, etc.)"
+category = "git"
+icon = "git"
+tags = ["git", "github", "gitlab", "public", "repository"]
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-app"
+
+[ui.fields.git_url]
+type = "text"
+label = "Repository URL"
+required = true
+placeholder = "https://github.com/user/repo"
+
+[ui.fields.branch]
+type = "text"
+label = "Branch"
+default = "main"
+placeholder = "main"
+
+[ui.fields.build_path]
+type = "text"
+label = "Dockerfile Path"
+default = "/Dockerfile"
+placeholder = "/Dockerfile"
+
+[ui.fields.port]
+type = "number"
+label = "Exposed Port"
+default = "3000"
+placeholder = "3000"

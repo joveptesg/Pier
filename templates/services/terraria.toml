@@ -1,0 +1,43 @@
+[meta]
+id = "terraria"
+name = "Terraria Server"
+description = "Dedicated game server for Terraria"
+category = "service"
+icon = "terraria"
+tags = ["game", "server", "terraria"]
+
+[docker]
+image = "beardedio/terraria:{{version}}"
+
+[ports.primary]
+internal = 7777
+protocol = "tcp"
+description = "Game port"
+
+[volumes.data]
+mount = "/root/.local/share/Terraria/Worlds"
+
+[env]
+WORLDNAME = { default = "Pier World", description = "World name" }
+MAXPLAYERS = { default = "8", description = "Max players" }
+
+[versions]
+available = ["latest", "tshock-latest"]
+default = "latest"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-terraria"
+
+[ui.fields.version]
+type = "select"
+label = "Server Type"
+options_from = "versions.available"
+
+[ui.fields.worldname]
+type = "text"
+label = "World Name"
+default = "Pier World"
+maps_to = "WORLDNAME"

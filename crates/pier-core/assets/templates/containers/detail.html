@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Container Detail{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="containerDetail('{{ container_id }}')" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <a href="/containers" class="text-gray-500 hover:text-gray-300 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </a>
+            <div>
+                <h2 class="text-xl font-semibold text-white" x-text="info.name || 'Loading...'"></h2>
+                <p class="text-sm text-gray-500 font-mono" x-text="'{{ container_id }}'.substring(0, 12)"></p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                  :class="info.state === 'running' ? 'bg-green-500/10 text-green-400' : 'bg-gray-500/10 text-gray-400'">
+                <span class="w-1.5 h-1.5 rounded-full"
+                      :class="info.state === 'running' ? 'bg-green-400' : 'bg-gray-500'"></span>
+                <span x-text="info.state || '--'"></span>
+            </span>
+            <template x-if="info.state !== 'running'">
+                <button @click="action('start')" class="px-3 py-1.5 text-xs rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors">Start</button>
+            </template>
+            <template x-if="info.state === 'running'">
+                <button @click="action('stop')" class="px-3 py-1.5 text-xs rounded-lg bg-yellow-600 hover:bg-yellow-700 text-white transition-colors">Stop</button>
+            </template>
+            <button @click="action('restart')" class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors">Restart</button>
+        </div>
+    </div>
+
+    <!-- Info Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-gray-900 border border-gray-800/50 rounded-xl p-5 space-y-3">
+            <h3 class="text-sm font-medium text-gray-300 mb-3">Container Info</h3>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">Image</span><span class="text-gray-200 font-mono text-xs" x-text="info.image || '--'"></span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">Created</span><span class="text-gray-200" x-text="info.created || '--'"></span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">Platform</span><span class="text-gray-200" x-text="info.platform || '--'"></span></div>
+        </div>
+        <div class="bg-gray-900 border border-gray-800/50 rounded-xl p-5 space-y-3">
+            <h3 class="text-sm font-medium text-gray-300 mb-3">Resource Usage</h3>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">CPU</span><span class="text-gray-200" x-text="stats.cpu || '--'"></span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">Memory</span><span class="text-gray-200" x-text="stats.memory || '--'"></span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">Network I/O</span><span class="text-gray-200" x-text="stats.net_io || '--'"></span></div>
+        </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="bg-gray-900 border border-gray-800/50 rounded-xl overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-800/50">
+            <h3 class="text-sm font-medium text-gray-300">Logs</h3>
+            <div class="flex items-center gap-2">
+                <button @click="toggleLive()"
+                        class="px-2.5 py-1 text-xs rounded-lg transition-colors"
+                        :class="live ? 'bg-green-600/20 text-green-400' : 'bg-gray-700 text-gray-400'">
+                    <span x-text="live ? 'Live' : 'Paused'"></span>
+                </button>
+                <button @click="clearLogs()"
+                        class="px-2.5 py-1 text-xs rounded-lg bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors">
+                    Clear
+                </button>
+            </div>
+        </div>
+        <div class="h-96 overflow-auto p-4 font-mono text-xs leading-5 text-gray-300 bg-gray-950"
+             x-ref="logContainer">
+            <template x-for="(line, i) in logLines" :key="i">
+                <div class="whitespace-pre-wrap" x-text="line"></div>
+            </template>
+            <div x-show="logLines.length === 0" class="text-gray-600 text-center py-4">No logs available</div>
+        </div>
+    </div>
+</div>
+
+<script>
+function containerDetail(id) {
+    return {
+        id,
+        info: {},
+        stats: {},
+        logLines: [],
+        live: true,
+        ws: null,
+        async init() {
+            await this.fetchInfo();
+            await this.fetchStats();
+            this.connectWs();
+            setInterval(() => this.fetchStats(), 5000);
+        },
+        async fetchInfo() {
+            try {
+                const data = await fetch('/api/v1/containers/' + this.id).then(r => r.json());
+                this.info = {
+                    name: (data.name || '').replace(/^\//, ''),
+                    image: data.config?.image || data.image || '--',
+                    state: data.state?.status || '--',
+                    created: data.created ? new Date(data.created).toLocaleString() : '--',
+                    platform: data.platform || '--',
+                };
+            } catch (e) { /* silent */ }
+        },
+        async fetchStats() {
+            try {
+                const data = await fetch('/api/v1/containers/' + this.id + '/stats').then(r => r.json());
+                this.stats = {
+                    cpu: (data.cpu_percent || 0).toFixed(2) + '%',
+                    memory: this.formatBytes(data.memory_usage) + ' / ' + this.formatBytes(data.memory_limit),
+                    net_io: this.formatBytes(data.net_rx) + ' / ' + this.formatBytes(data.net_tx),
+                };
+            } catch (e) { /* silent */ }
+        },
+        connectWs() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            this.ws = new WebSocket(proto + '//' + location.host + '/api/v1/containers/' + this.id + '/logs/ws');
+            this.ws.onmessage = (e) => {
+                if (!this.live) return;
+                this.logLines.push(e.data);
+                if (this.logLines.length > 1000) this.logLines = this.logLines.slice(-500);
+                this.$nextTick(() => {
+                    const el = this.$refs.logContainer;
+                    if (el) el.scrollTop = el.scrollHeight;
+                });
+            };
+            this.ws.onclose = () => {
+                setTimeout(() => this.connectWs(), 3000);
+            };
+        },
+        toggleLive() { this.live = !this.live; },
+        clearLogs() { this.logLines = []; },
+        formatBytes(b) {
+            if (!b) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+            return b.toFixed(1) + ' ' + units[i];
+        },
+        async action(act) {
+            try {
+                await api('/api/v1/containers/' + this.id + '/' + act, { method: 'POST' });
+                toast('Container ' + act + 'ed');
+                setTimeout(() => this.fetchInfo(), 500);
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

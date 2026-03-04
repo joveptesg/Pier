@@ -1,0 +1,51 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo lock is committed for binaries
+# Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Architecture document (private planning)
+ARCHITECTURE.md
+CLAUDE.md
+plan_output.md
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# TLS certificates
+*.pem
+*.key
+*.crt
+*.csr
+!certs/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Distribution
+dist/
+*.tar.gz
+*.zip

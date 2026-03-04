@@ -1,0 +1,88 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/pier-core",
+    "crates/pier-agent",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+repository = "https://github.com/joveptesg/pier"
+rust-version = "1.93"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.50", features = ["full"] }
+
+# HTTP / API
+axum = { version = "0.8.8", features = ["ws"] }
+tower = "0.5.3"
+tower-http = { version = "0.6.8", features = ["cors", "fs", "trace", "compression-gzip"] }
+
+# Docker
+bollard = "0.20.1"
+
+# Database
+rusqlite = { version = "0.38", features = ["bundled", "backup"] }
+
+# Serialization
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+toml = "0.8"
+
+# Error handling
+anyhow = "1.0.102"
+thiserror = "2.0.18"
+
+# Logging
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
+
+# System metrics
+sysinfo = "0.38.3"
+
+# Templates & UI
+minijinja = { version = "2.16", features = ["loader"] }
+rust-embed = { version = "8.11", features = ["compression"] }
+
+# Auth
+bcrypt = "0.19"
+rand = "0.10"
+base64 = "0.22"
+
+# Streaming
+futures-util = "0.3"
+tokio-stream = "0.1"
+
+# Axum extras
+axum-extra = { version = "0.12", features = ["cookie"] }
+
+# HTTP Client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# S3
+aws-sdk-s3 = "1.82"
+aws-config = "1.6"
+aws-credential-types = "1.2"
+
+# Cron
+cron = "0.15"
+
+# JWT
+jsonwebtoken = "9"
+
+# URL handling
+url = "2.5"
+urlencoding = "2.1"
+
+# Utilities
+uuid = { version = "1.21", features = ["v4", "serde"] }
+chrono = { version = "0.4.44", features = ["serde"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}New Resource{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="catalogData()" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <a href="/projects" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </a>
+            <div>
+                <h2 class="text-xl font-semibold text-gray-900 dark:text-white">New Resource</h2>
+                <p class="text-sm text-gray-500 mt-0.5">Select a resource to deploy on your server</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search + Filter -->
+    <div class="flex items-center gap-3">
+        <div class="flex-1 relative">
+            <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input x-model="search" type="text" placeholder="Search..."
+                   @keydown.slash.window.prevent="$el.focus()"
+                   class="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg
+                          text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+        </div>
+        <select x-model="filter"
+                class="px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg
+                       text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">All categories</option>
+            <option value="git">Git Based</option>
+            <option value="application">Docker Based</option>
+            <option value="database">Databases</option>
+            <option value="service">Services</option>
+        </select>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="text-center py-12 text-gray-500">Loading catalog...</div>
+
+    <!-- Catalog Grid -->
+    <div x-show="!loading" class="space-y-8">
+
+        <!-- Git Based -->
+        <div x-show="filteredByCategory('git').length > 0">
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Git Based</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <template x-for="item in filteredByCategory('git')" :key="item.id">
+                    <a :href="'/resources/new/' + item.id"
+                       class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
+                              hover:border-orange-300 dark:hover:border-orange-600/50 hover:shadow-sm transition-all block group">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-11 bg-orange-50 dark:bg-orange-600/10 rounded-lg flex items-center justify-center shrink-0 p-2">
+                                <img :src="'/static/icons/' + (item.icon || 'git') + '.svg'" class="w-full h-full" :alt="item.name">
+                            </div>
+                            <div class="min-w-0">
+                                <h4 class="text-sm font-semibold text-gray-900 dark:text-white group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors" x-text="item.name"></h4>
+                                <p class="text-xs text-gray-500 mt-0.5" x-text="item.description"></p>
+                            </div>
+                        </div>
+                    </a>
+                </template>
+            </div>
+        </div>
+
+        <!-- Docker Based -->
+        <div x-show="filteredByCategory('application').length > 0">
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Docker Based</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <template x-for="item in filteredByCategory('application')" :key="item.id">
+                    <a :href="'/resources/new/' + item.id"
+                       class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
+                              hover:border-blue-300 dark:hover:border-blue-600/50 hover:shadow-sm transition-all block group">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-11 bg-blue-50 dark:bg-blue-600/10 rounded-lg flex items-center justify-center shrink-0 p-2">
+                                <img :src="'/static/icons/' + (item.icon || 'docker') + '.svg'" class="w-full h-full" :alt="item.name">
+                            </div>
+                            <div class="min-w-0">
+                                <h4 class="text-sm font-semibold text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" x-text="item.name"></h4>
+                                <p class="text-xs text-gray-500 mt-0.5" x-text="item.description"></p>
+                            </div>
+                        </div>
+                    </a>
+                </template>
+            </div>
+        </div>
+
+        <!-- Databases -->
+        <div x-show="filteredByCategory('database').length > 0">
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Databases</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <template x-for="item in filteredByCategory('database')" :key="item.id">
+                    <a :href="'/resources/new/' + item.id"
+                       class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
+                              hover:border-gray-300 dark:hover:border-gray-600/50 hover:shadow-sm transition-all block group">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-11 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center shrink-0 p-2">
+                                <img :src="'/static/icons/' + (item.icon || 'docker') + '.svg'" class="w-full h-full" :alt="item.name">
+                            </div>
+                            <div class="min-w-0">
+                                <h4 class="text-sm font-semibold text-gray-900 dark:text-white group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors" x-text="item.name"></h4>
+                                <p class="text-xs text-gray-500 mt-0.5" x-text="item.description"></p>
+                            </div>
+                        </div>
+                    </a>
+                </template>
+            </div>
+        </div>
+
+        <!-- Services -->
+        <div x-show="filteredByCategory('service').length > 0">
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Services</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <template x-for="item in filteredByCategory('service')" :key="item.id">
+                    <a :href="'/resources/new/' + item.id"
+                       class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
+                              hover:border-purple-300 dark:hover:border-purple-600/50 hover:shadow-sm transition-all block group">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-11 bg-purple-50 dark:bg-purple-600/10 rounded-lg flex items-center justify-center shrink-0 p-2">
+                                <img :src="'/static/icons/' + (item.icon || 'docker') + '.svg'" class="w-full h-full" :alt="item.name">
+                            </div>
+                            <div class="min-w-0">
+                                <h4 class="text-sm font-semibold text-gray-900 dark:text-white group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors" x-text="item.name"></h4>
+                                <p class="text-xs text-gray-500 mt-0.5" x-text="item.description"></p>
+                            </div>
+                        </div>
+                    </a>
+                </template>
+            </div>
+        </div>
+
+        <!-- Empty state -->
+        <div x-show="filtered().length === 0" class="text-center py-12 text-gray-500">
+            <p>No templates match your search</p>
+        </div>
+
+        <!-- Trademarks -->
+        <p class="text-xs text-gray-400 dark:text-gray-600 text-center pt-4">
+            The respective trademarks mentioned in this page are owned by the respective companies,
+            and use of them does not imply any affiliation or endorsement.
+        </p>
+    </div>
+</div>
+
+<script>
+function catalogData() {
+    return {
+        items: [],
+        loading: true,
+        search: '',
+        filter: '',
+        async init() {
+            try {
+                this.items = await fetch('/api/v1/catalog').then(r => r.json());
+            } catch (e) {
+                toast('Failed to load catalog', 'error');
+            }
+            this.loading = false;
+        },
+        filtered() {
+            return this.items.filter(item => {
+                if (this.filter && item.category !== this.filter) return false;
+                if (this.search) {
+                    const s = this.search.toLowerCase();
+                    return item.name.toLowerCase().includes(s) ||
+                           item.description.toLowerCase().includes(s) ||
+                           (item.tags || []).some(t => t.toLowerCase().includes(s));
+                }
+                return true;
+            });
+        },
+        filteredByCategory(cat) {
+            return this.filtered().filter(i => i.category === cat);
+        }
+    };
+}
+</script>
+{% endblock %}

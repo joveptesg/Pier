@@ -1,0 +1,41 @@
+[meta]
+id = "supabase"
+name = "Supabase"
+description = "Open-source Firebase alternative with PostgreSQL, Auth, and Realtime"
+category = "service"
+icon = "supabase"
+tags = ["firebase", "postgresql", "auth", "realtime", "api", "baas"]
+
+[docker]
+image = "supabase/postgres:latest"
+
+[ports.primary]
+internal = 5432
+protocol = "tcp"
+description = "PostgreSQL protocol"
+
+[volumes.data]
+mount = "/var/lib/postgresql/data"
+
+[env]
+POSTGRES_PASSWORD = { default = "{{password}}", description = "PostgreSQL password", secret = true }
+POSTGRES_DB = { default = "{{name}}", description = "Database name" }
+
+[healthcheck]
+test = ["CMD-SHELL", "pg_isready -U supabase_admin"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "30s"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-supabase"
+
+[ui.fields.postgres_password]
+type = "password"
+label = "Password"
+auto_generate = true
+maps_to = "POSTGRES_PASSWORD"

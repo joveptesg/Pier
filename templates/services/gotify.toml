@@ -1,0 +1,33 @@
+[meta]
+id = "gotify"
+name = "Gotify"
+description = "Self-hosted push notification server"
+category = "service"
+icon = "gotify"
+tags = ["notifications", "push", "alerts", "messaging"]
+
+[docker]
+image = "gotify/server:{{version}}"
+
+[ports.primary]
+internal = 80
+protocol = "tcp"
+description = "Web UI & API"
+
+[volumes.data]
+mount = "/app/data"
+
+[versions]
+available = ["2.6", "2.5", "2.4"]
+default = "2.6"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-gotify"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"

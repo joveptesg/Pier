@@ -1,0 +1,88 @@
+use axum::extract::{Request, State};
+use axum::http::header::COOKIE;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Redirect, Response};
+
+use crate::error::AppError;
+use crate::state::SharedState;
+
+/// User info extracted from a valid session, stored in request extensions.
+#[derive(Clone, Debug)]
+pub struct AuthUser {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+}
+
+/// Middleware that checks for a valid session cookie.
+/// For protected routes: injects AuthUser into request extensions.
+/// If no valid session: redirects to /login for UI routes, returns 401 for API routes.
+pub async fn require_auth(
+    State(state): State<SharedState>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, AppError> {
+    let is_api = req.uri().path().starts_with("/api/");
+
+    // Extract session cookie
+    let session_id = req
+        .headers()
+        .get(COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cookies| {
+            cookies.split(';').find_map(|c| {
+                let c = c.trim();
+                c.strip_prefix(&format!("{}=", state.config.session_cookie))
+            })
+        });
+
+    let session_id = match session_id {
+        Some(id) if !id.is_empty() => id.to_string(),
+        _ => {
+            return if is_api {
+                Err(AppError::Unauthorized)
+            } else {
+                Ok(Redirect::to("/login").into_response())
+            };
+        }
+    };
+
+    // Look up session and user in DB
+    let auth_user = {
+        let db = state.db.lock().map_err(|e| {
+            anyhow::anyhow!("DB lock poisoned: {e}")
+        })?;
+
+        let result = db.query_row(
+            "SELECT u.id, u.username, u.role
+             FROM sessions s
+             JOIN users u ON s.user_id = u.id
+             WHERE s.id = ?1
+               AND s.expires_at > datetime('now')
+               AND u.is_active = 1",
+            [&session_id],
+            |row| {
+                Ok(AuthUser {
+                    id: row.get(0)?,
+                    username: row.get(1)?,
+                    role: row.get(2)?,
+                })
+            },
+        );
+
+        match result {
+            Ok(user) => user,
+            Err(_) => {
+                return if is_api {
+                    Err(AppError::Unauthorized)
+                } else {
+                    Ok(Redirect::to("/login").into_response())
+                };
+            }
+        }
+    };
+
+    // Inject AuthUser into request extensions
+    req.extensions_mut().insert(auth_user);
+    Ok(next.run(req).await)
+}

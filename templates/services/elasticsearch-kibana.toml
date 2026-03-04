@@ -1,0 +1,64 @@
+[meta]
+id = "elasticsearch-kibana"
+name = "Elasticsearch with Kibana"
+description = "Search engine with Kibana visualization dashboard"
+category = "service"
+icon = "elasticsearch"
+tags = ["search", "analytics", "logging", "elk", "kibana", "visualization"]
+
+[compose]
+template = """services:
+  elasticsearch:
+    image: elasticsearch:{{version}}
+    container_name: pier-{{name}}-es
+    ports:
+      - "{{port}}:9200"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+  kibana:
+    image: kibana:{{version}}
+    container_name: pier-{{name}}-kibana
+    ports:
+      - "{{kibana_port}}:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  es_data:
+"""
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-elk"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options = ["8.17.0", "8.16.0", "8.15.0", "7.17.25"]
+default = "8.17.0"
+
+[ui.fields.port]
+type = "number"
+label = "Elasticsearch Port"
+default = "9200"
+
+[ui.fields.kibana_port]
+type = "number"
+label = "Kibana Port"
+default = "5601"

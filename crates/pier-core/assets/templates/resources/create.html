@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+{% block title %}Deploy Resource{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="createResource('{{ catalog_id }}')" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center gap-3">
+        <a href="/resources/new" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </a>
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+                Deploy <span x-text="template.name || 'Loading...'"></span>
+            </h2>
+            <p class="text-sm text-gray-500 mt-0.5" x-text="template.description || ''"></p>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="text-center py-12 text-gray-500">Loading template...</div>
+
+    <!-- Form -->
+    <div x-show="!loading" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6 max-w-2xl">
+        <div class="space-y-4">
+            <!-- Dynamic fields from catalog template -->
+            <template x-for="field in template.fields || []" :key="field.key">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1" x-text="field.label"></label>
+
+                    <!-- Text input -->
+                    <template x-if="field.type === 'text'">
+                        <input :type="'text'" x-model="form[field.key]"
+                               :placeholder="field.placeholder || ''"
+                               :required="field.required"
+                               class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                                      text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    </template>
+
+                    <!-- Number input -->
+                    <template x-if="field.type === 'number'">
+                        <input type="number" x-model="form[field.key]"
+                               :placeholder="field.placeholder || ''"
+                               class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                                      text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    </template>
+
+                    <!-- Password input -->
+                    <template x-if="field.type === 'password'">
+                        <div class="flex gap-2">
+                            <input type="text" x-model="form[field.key]"
+                                   :placeholder="field.auto_generate ? 'Auto-generated if empty' : ''"
+                                   class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                                          text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono">
+                            <button x-show="field.auto_generate" type="button"
+                                    @click="form[field.key] = generatePwd()"
+                                    class="px-3 py-2 text-xs font-medium bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
+                                           rounded-lg text-gray-600 dark:text-gray-300 transition-colors whitespace-nowrap">
+                                Generate
+                            </button>
+                        </div>
+                    </template>
+
+                    <!-- Select input -->
+                    <template x-if="field.type === 'select'">
+                        <select x-model="form[field.key]"
+                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                                       text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                            <template x-for="opt in field.options || []" :key="opt">
+                                <option :value="opt" x-text="opt" :selected="opt === field.default"></option>
+                            </template>
+                        </select>
+                    </template>
+
+                    <!-- Textarea input -->
+                    <template x-if="field.type === 'textarea'">
+                        <textarea x-model="form[field.key]"
+                                  :placeholder="field.placeholder || ''"
+                                  :rows="field.key === 'deploy_key' ? 6 : 10"
+                                  class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                                         text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"></textarea>
+                    </template>
+                </div>
+            </template>
+
+            <!-- Deployment Mode (Standalone / Cluster) -->
+            <template x-if="template.cluster && template.cluster.supported">
+                <div class="space-y-4 pt-2 border-t border-gray-200 dark:border-gray-800">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Deployment Mode</label>
+                        <div class="flex gap-2">
+                            <button type="button" @click="deploymentMode = 'standalone'"
+                                    :class="deploymentMode === 'standalone'
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-gray-400'"
+                                    class="flex-1 px-4 py-2.5 text-sm font-medium border rounded-lg transition-colors">
+                                Standalone
+                            </button>
+                            <button type="button"
+                                    @click="clusterAvailable && (deploymentMode = 'cluster')"
+                                    :disabled="!clusterAvailable"
+                                    :class="deploymentMode === 'cluster'
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : clusterAvailable
+                                            ? 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-gray-400'
+                                            : 'bg-gray-100 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 border-gray-200 dark:border-gray-800 cursor-not-allowed'"
+                                    class="flex-1 px-4 py-2.5 text-sm font-medium border rounded-lg transition-colors">
+                                Cluster
+                            </button>
+                        </div>
+                        <p x-show="!clusterAvailable" class="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
+                            Add remote servers to enable cluster mode
+                        </p>
+                    </div>
+
+                    <!-- Cluster options (visible when cluster selected) -->
+                    <template x-if="deploymentMode === 'cluster'">
+                        <div class="space-y-4">
+                            <!-- Node count -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                    Number of Nodes
+                                    <span class="text-xs text-gray-400 font-normal"
+                                          x-text="'(' + template.cluster.min_nodes + '-' + template.cluster.max_nodes + ')'"></span>
+                                </label>
+                                <select x-model.number="nodeCount"
+                                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                                               text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                                    <template x-for="n in nodeCountOptions" :key="n">
+                                        <option :value="n" x-text="n + ' nodes'" :selected="n === nodeCount"></option>
+                                    </template>
+                                </select>
+                            </div>
+
+                            <!-- Node distribution -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Node Distribution</label>
+                                <div class="space-y-2">
+                                    <template x-for="(nd, idx) in nodeDistribution" :key="idx">
+                                        <div class="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                                            <div class="flex items-center gap-2 min-w-[140px]">
+                                                <span class="w-6 h-6 rounded-full text-xs font-medium flex items-center justify-center"
+                                                      :class="idx === 0 ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'"
+                                                      x-text="idx + 1"></span>
+                                                <span class="text-sm text-gray-700 dark:text-gray-300" x-text="idx === 0 ? 'Primary' : 'Replica ' + idx"></span>
+                                            </div>
+                                            <select x-model="nd.server_id"
+                                                    class="flex-1 px-2 py-1.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md
+                                                           text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
+                                                <template x-for="srv in servers" :key="srv.id">
+                                                    <option :value="srv.id" x-text="srv.name + (srv.is_local ? ' (local)' : '')"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Cluster info -->
+                            <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/30 rounded-lg p-3">
+                                <p class="text-xs text-blue-700 dark:text-blue-300" x-text="template.cluster.description"></p>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
+            <!-- Project selector (optional) -->
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Project (optional)</label>
+                <select x-model="projectId"
+                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                               text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    <option value="">No project</option>
+                    <template x-for="p in projects" :key="p.id">
+                        <option :value="p.id" x-text="p.name"></option>
+                    </template>
+                </select>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-800">
+            <a href="/resources/new" class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
+                Cancel
+            </a>
+            <button @click="deploy()" :disabled="deploying"
+                    class="px-5 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
+                           rounded-lg text-white transition-colors flex items-center gap-2">
+                <svg x-show="deploying" class="w-4 h-4 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                <span x-text="deploying ? 'Deploying...' : (deploymentMode === 'cluster' ? 'Deploy Cluster' : 'Deploy')"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+function createResource(catalogId) {
+    return {
+        catalogId,
+        template: {},
+        form: {},
+        projects: [],
+        servers: [],
+        projectId: '',
+        loading: true,
+        deploying: false,
+        deploymentMode: 'standalone',
+        nodeCount: 3,
+        nodeDistribution: [],
+        clusterAvailable: false,
+        get nodeCountOptions() {
+            if (!this.template.cluster) return [];
+            const opts = [];
+            for (let i = this.template.cluster.min_nodes; i <= this.template.cluster.max_nodes; i++) opts.push(i);
+            return opts;
+        },
+        async init() {
+            try {
+                const [tmpl, projs, srvs] = await Promise.all([
+                    fetch('/api/v1/catalog/' + this.catalogId).then(r => r.json()),
+                    fetch('/api/v1/projects').then(r => r.json()),
+                    fetch('/api/v1/servers').then(r => r.json()),
+                ]);
+                this.template = tmpl;
+                this.projects = projs;
+                this.servers = srvs;
+
+                // Cluster is available if there are 2+ servers (localhost + at least 1 remote)
+                this.clusterAvailable = srvs.length >= 2;
+
+                // Set default node count from catalog
+                if (tmpl.cluster && tmpl.cluster.default_nodes) {
+                    this.nodeCount = tmpl.cluster.default_nodes;
+                }
+
+                // Set default values
+                for (const field of tmpl.fields || []) {
+                    if (field.default) {
+                        this.form[field.key] = field.default;
+                    } else {
+                        this.form[field.key] = '';
+                    }
+                }
+
+                // Auto-generate service name
+                this.form.name = this.generateName();
+
+                // Watch node count to rebuild distribution
+                this.$watch('nodeCount', () => this.rebuildDistribution());
+                this.$watch('deploymentMode', () => {
+                    if (this.deploymentMode === 'cluster') this.rebuildDistribution();
+                });
+
+                // Watch project selection to regenerate name prefix
+                this.$watch('projectId', () => {
+                    if (!this.form.name || this.form.name.includes('-') && this.form.name.match(/[a-z0-9]{16}$/)) {
+                        this.form.name = this.generateName();
+                    }
+                });
+            } catch (e) {
+                toast('Failed to load template', 'error');
+            }
+            this.loading = false;
+        },
+        rebuildDistribution() {
+            const defaultServer = this.servers.length > 0 ? this.servers[0].id : 'localhost';
+            const dist = [];
+            for (let i = 0; i < this.nodeCount; i++) {
+                const existing = this.nodeDistribution[i];
+                dist.push({ server_id: existing ? existing.server_id : defaultServer });
+            }
+            this.nodeDistribution = dist;
+        },
+        generateName() {
+            const suffix = this.randomStr(16);
+            if (this.projectId) {
+                const proj = this.projects.find(p => p.id === this.projectId);
+                if (proj) {
+                    const prefix = proj.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+                    return prefix + '-' + suffix;
+                }
+            }
+            return suffix;
+        },
+        randomStr(len) {
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            let s = '';
+            for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
+            return s;
+        },
+        generatePwd() {
+            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let pwd = '';
+            for (let i = 0; i < 24; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+            return pwd;
+        },
+        async deploy() {
+            const name = this.form.name;
+            if (!name || !name.trim()) {
+                toast('Name is required', 'error');
+                return;
+            }
+
+            this.deploying = true;
+            try {
+                const payload = {
+                    catalog_id: this.catalogId,
+                    name: name.trim(),
+                    project_id: this.projectId || null,
+                    config: { ...this.form },
+                };
+
+                if (this.deploymentMode === 'cluster') {
+                    payload.deployment_mode = 'cluster';
+                    payload.node_count = this.nodeCount;
+                    payload.node_distribution = this.nodeDistribution;
+                }
+
+                const result = await api('/api/v1/resources', {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                });
+                toast(name + ' deployed successfully');
+                window.location.href = '/resources/' + result.id;
+            } catch (e) {
+                toast(e.message, 'error');
+                this.deploying = false;
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

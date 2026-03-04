@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Images{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="imagesData()" x-init="init()">
+    <!-- Header -->
+    <div>
+        <h2 class="text-xl font-semibold text-white">Images</h2>
+        <p class="text-sm text-gray-500 mt-1">Docker images on this host</p>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="text-center py-12 text-gray-500">Loading images...</div>
+
+    <!-- Table -->
+    <div x-show="!loading" class="bg-gray-900 border border-gray-800/50 rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-gray-800/50">
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Repository</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Tag</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                    <th class="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800/30">
+                <template x-for="img in images" :key="img.id">
+                    <tr class="hover:bg-gray-800/30 transition-colors">
+                        <td class="px-4 py-3 text-gray-200 font-mono text-xs" x-text="img.repo"></td>
+                        <td class="px-4 py-3">
+                            <span class="px-1.5 py-0.5 bg-gray-800 rounded text-xs text-gray-300" x-text="img.tag"></span>
+                        </td>
+                        <td class="px-4 py-3 text-gray-400" x-text="img.size"></td>
+                        <td class="px-4 py-3 text-gray-500 text-xs" x-text="img.created"></td>
+                        <td class="px-4 py-3 text-right">
+                            <button @click="remove(img.id)"
+                                    class="px-2 py-1 text-xs rounded bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors">
+                                Remove
+                            </button>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+
+        <div x-show="images.length === 0" class="text-center py-8 text-gray-500 text-sm">
+            No images found
+        </div>
+    </div>
+</div>
+
+<script>
+function imagesData() {
+    return {
+        images: [],
+        loading: true,
+        async init() {
+            await this.refresh();
+        },
+        async refresh() {
+            try {
+                const data = await fetch('/api/v1/images').then(r => r.json());
+                this.images = data.map(img => {
+                    const tag = (img.repo_tags && img.repo_tags[0]) || '<none>:<none>';
+                    const [repo, t] = tag.includes(':') ? tag.split(':') : [tag, 'latest'];
+                    return {
+                        id: img.id,
+                        repo: repo,
+                        tag: t,
+                        size: this.formatBytes(img.size),
+                        created: img.created ? new Date(img.created * 1000).toLocaleDateString() : '--',
+                    };
+                });
+            } catch (e) { /* silent */ }
+            this.loading = false;
+        },
+        formatBytes(b) {
+            if (!b) return '--';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+            return b.toFixed(1) + ' ' + units[i];
+        },
+        async remove(id) {
+            if (!confirm('Remove this image?')) return;
+            try {
+                await api('/api/v1/images/' + encodeURIComponent(id), { method: 'DELETE' });
+                toast('Image removed');
+                await this.refresh();
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

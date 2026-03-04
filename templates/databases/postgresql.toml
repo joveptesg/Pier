@@ -1,0 +1,64 @@
+[meta]
+id = "postgresql"
+name = "PostgreSQL"
+description = "Advanced open-source relational database"
+category = "database"
+icon = "postgresql"
+tags = ["sql", "relational"]
+
+[docker]
+image = "postgres:{{version}}-alpine"
+
+[ports.primary]
+internal = 5432
+protocol = "tcp"
+description = "PostgreSQL wire protocol"
+
+[volumes.data]
+mount = "/var/lib/postgresql/data"
+
+[env]
+POSTGRES_DB = { default = "{{name}}", description = "Default database" }
+POSTGRES_USER = { default = "postgres", description = "Superuser name" }
+POSTGRES_PASSWORD = { default = "{{password}}", description = "Password", secret = true }
+
+[healthcheck]
+test = ["CMD-SHELL", "pg_isready -U postgres"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "30s"
+
+[versions]
+available = ["18", "17", "16"]
+default = "17"
+
+[cluster]
+supported = true
+min_nodes = 2
+max_nodes = 5
+default_nodes = 3
+description = "Streaming replication: 1 primary + N-1 read replicas (bitnami/postgresql)"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-postgres"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.postgres_db]
+type = "text"
+label = "Database Name"
+default = "postgres"
+maps_to = "POSTGRES_DB"
+
+[ui.fields.postgres_password]
+type = "password"
+label = "Password"
+auto_generate = true
+maps_to = "POSTGRES_PASSWORD"

@@ -1,0 +1,23 @@
+services:
+  pier:
+    build: .
+    container_name: pier
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      # Docker socket — allows Pier to manage containers on the host
+      # Works on both Linux and Docker Desktop (Windows/Mac)
+      - //var/run/docker.sock:/var/run/docker.sock
+      # Persistent data (SQLite DB, compose stacks)
+      - pier-data:/app/data
+    environment:
+      - PIER_HOST=0.0.0.0
+      - PIER_PORT=8443
+      - PIER_DATA_DIR=/app/data
+      - PIER_LOG_LEVEL=info
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    user: root
+
+volumes:
+  pier-data:

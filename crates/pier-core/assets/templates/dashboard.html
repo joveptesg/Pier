@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="dashboardData()" x-init="init()">
+    <!-- Header -->
+    <div>
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Dashboard</h2>
+        <p class="text-sm text-gray-500 mt-1">System overview and resource usage</p>
+    </div>
+
+    <!-- Server Health + Quick Stats -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <!-- CPU -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-sm text-gray-500 dark:text-gray-400">CPU Usage</span>
+                <svg class="w-4 h-4 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-gray-900 dark:text-white" x-text="metrics.cpu_usage + '%'">--%</div>
+            <div class="text-xs text-gray-500 mt-1" x-text="metrics.cpu_count + ' cores'">-- cores</div>
+            <div class="mt-3 h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+                <div class="h-full bg-blue-500 rounded-full transition-all duration-500"
+                     :style="'width: ' + metrics.cpu_usage + '%'"></div>
+            </div>
+        </div>
+
+        <!-- Memory -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-sm text-gray-500 dark:text-gray-400">Memory</span>
+                <svg class="w-4 h-4 text-green-500 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-gray-900 dark:text-white" x-text="metrics.memory_percent + '%'">--%</div>
+            <div class="text-xs text-gray-500 mt-1" x-text="formatBytes(metrics.memory_used) + ' / ' + formatBytes(metrics.memory_total)">-- / --</div>
+            <div class="mt-3 h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+                <div class="h-full bg-green-500 rounded-full transition-all duration-500"
+                     :style="'width: ' + metrics.memory_percent + '%'"></div>
+            </div>
+        </div>
+
+        <!-- Disk -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-sm text-gray-500 dark:text-gray-400">Disk</span>
+                <svg class="w-4 h-4 text-yellow-500 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
+            </div>
+            <template x-if="metrics.disks && metrics.disks.length > 0">
+                <div>
+                    <div class="text-2xl font-bold text-gray-900 dark:text-white"
+                         x-text="diskPercent(metrics.disks[0]) + '%'">--%</div>
+                    <div class="text-xs text-gray-500 mt-1"
+                         x-text="formatBytes(metrics.disks[0].total - metrics.disks[0].available) + ' / ' + formatBytes(metrics.disks[0].total)">-- / --</div>
+                    <div class="mt-3 h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+                        <div class="h-full bg-yellow-500 rounded-full transition-all duration-500"
+                             :style="'width: ' + diskPercent(metrics.disks[0]) + '%'"></div>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-sm text-gray-500 dark:text-gray-400">Containers</span>
+                <svg class="w-4 h-4 text-purple-500 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-gray-900 dark:text-white" x-text="docker.containers ?? 0">0</div>
+            <div class="flex items-center gap-3 mt-1">
+                <span class="text-xs text-green-600 dark:text-green-400" x-text="(docker.containers_running ?? 0) + ' running'">0 running</span>
+                <span class="text-xs text-gray-500" x-text="(docker.containers_stopped ?? 0) + ' stopped'">0 stopped</span>
+            </div>
+            <div class="mt-3 text-xs text-gray-500" x-text="'Projects: ' + projects.length">Projects: 0</div>
+        </div>
+    </div>
+
+    <!-- Docker Info + Projects -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <!-- Docker Engine -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Docker Engine</h3>
+            <div class="space-y-3">
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-500">Version</span>
+                    <span class="text-gray-800 dark:text-gray-200" x-text="docker.version || '--'">--</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-500">API Version</span>
+                    <span class="text-gray-800 dark:text-gray-200" x-text="docker.api_version || '--'">--</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-500">Storage Driver</span>
+                    <span class="text-gray-800 dark:text-gray-200" x-text="docker.storage_driver || '--'">--</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-500">Images</span>
+                    <span class="text-gray-800 dark:text-gray-200" x-text="docker.images ?? '--'">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Projects -->
+        <div class="lg:col-span-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Projects</h3>
+                <a href="/projects" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">View all</a>
+            </div>
+            <div x-show="projects.length === 0" class="text-center py-6">
+                <p class="text-sm text-gray-500">No projects yet</p>
+                <a href="/projects" class="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block">Create your first project</a>
+            </div>
+            <div x-show="projects.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <template x-for="p in projects.slice(0, 6)" :key="p.id">
+                    <a :href="'/projects/' + p.id"
+                       class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700/50 rounded-lg p-3 hover:border-blue-300 dark:hover:border-blue-600/50 transition-colors block">
+                        <div class="flex items-center gap-2 mb-1">
+                            <svg class="w-4 h-4 text-blue-500 dark:text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                            <span class="text-sm font-medium text-gray-900 dark:text-white truncate" x-text="p.name"></span>
+                        </div>
+                        <p class="text-xs text-gray-500 truncate" x-text="p.description || 'No description'"></p>
+                    </a>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Info -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">System</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+            <div>
+                <span class="text-gray-500">Hostname</span>
+                <p class="text-gray-800 dark:text-gray-200 mt-0.5" x-text="metrics.hostname || '--'">--</p>
+            </div>
+            <div>
+                <span class="text-gray-500">OS</span>
+                <p class="text-gray-800 dark:text-gray-200 mt-0.5" x-text="metrics.os || '--'">--</p>
+            </div>
+            <div>
+                <span class="text-gray-500">Uptime</span>
+                <p class="text-gray-800 dark:text-gray-200 mt-0.5" x-text="formatUptime(metrics.uptime)">--</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function dashboardData() {
+    return {
+        metrics: {},
+        docker: {},
+        projects: [],
+        async init() {
+            await this.refresh();
+            setInterval(() => this.refreshMetrics(), 5000);
+        },
+        async refresh() {
+            await Promise.all([this.refreshMetrics(), this.refreshProjects()]);
+        },
+        async refreshMetrics() {
+            try {
+                const [m, d] = await Promise.all([
+                    fetch('/api/v1/system/metrics').then(r => r.json()),
+                    fetch('/api/v1/system/docker').then(r => r.json()),
+                ]);
+                this.metrics = m;
+                this.docker = d;
+            } catch (e) { /* silent */ }
+        },
+        async refreshProjects() {
+            try {
+                this.projects = await fetch('/api/v1/projects').then(r => r.json());
+            } catch (e) { /* silent */ }
+        },
+        formatBytes(b) {
+            if (!b) return '--';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let i = 0;
+            while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+            return b.toFixed(1) + ' ' + units[i];
+        },
+        formatUptime(s) {
+            if (!s) return '--';
+            const d = Math.floor(s / 86400);
+            const h = Math.floor((s % 86400) / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            if (d > 0) return d + 'd ' + h + 'h';
+            if (h > 0) return h + 'h ' + m + 'm';
+            return m + 'm';
+        },
+        diskPercent(disk) {
+            if (!disk || !disk.total) return 0;
+            return (((disk.total - disk.available) / disk.total) * 100).toFixed(1);
+        }
+    };
+}
+</script>
+{% endblock %}

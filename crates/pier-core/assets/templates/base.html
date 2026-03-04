@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" :class="{ 'dark': dark }" x-data="{ sidebarOpen: true, dark: localStorage.getItem('pier-theme') !== 'light' }" x-init="$watch('dark', v => localStorage.setItem('pier-theme', v ? 'dark' : 'light'))" style="margin:0;padding:0;background:#fff">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Dashboard{% endblock %} — Pier</title>
+    <script>
+        /* Instant dark mode — prevent white flash */
+        if (localStorage.getItem('pier-theme') !== 'light') {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.background = '#030712';
+        }
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/static/htmx.min.js"></script>
+    <script src="/static/alpine.min.js" defer></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Allerta+Stencil&display=swap" rel="stylesheet">
+    <style>
+        html, body { margin: 0; padding: 0; }
+        html { background: #fff; }
+        html.dark { background: #030712; }
+        [x-cloak] { display: none !important; }
+        .spinner { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        .dark ::-webkit-scrollbar-track { background: rgb(17 24 39); }
+        ::-webkit-scrollbar-thumb { background: rgb(203 213 225); border-radius: 3px; }
+        .dark ::-webkit-scrollbar-thumb { background: rgb(55 65 81); border-radius: 3px; }
+    </style>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        pier: { 50: '#eff6ff', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 min-h-screen flex flex-col transition-colors" style="margin:0;padding:0">
+
+    <!-- Header -->
+    <header class="h-14 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800/50 flex items-center justify-between px-5 shrink-0 z-10">
+        <div class="flex items-center gap-3">
+            <button @click="sidebarOpen = !sidebarOpen" class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors lg:hidden">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <span class="text-sm font-bold text-white" style="font-family: 'Allerta Stencil', sans-serif;">P</span>
+                </div>
+                <span class="text-lg tracking-wide text-gray-900 dark:text-white" style="font-family: 'Allerta Stencil', sans-serif;">[ PIER ]</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <button @click="dark = !dark"
+                    class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <template x-if="dark">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                </template>
+                <template x-if="!dark">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                </template>
+            </button>
+            <div class="flex items-center gap-2 pl-3 border-l border-gray-200 dark:border-gray-800">
+                <div class="w-7 h-7 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 dark:text-gray-300">
+                    {{ user[0:1]|upper }}
+                </div>
+                <span class="text-sm text-gray-600 dark:text-gray-300">{{ user }}</span>
+                <a href="/logout" class="ml-2 text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">Logout</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 min-h-0">
+        <!-- Sidebar -->
+        <aside class="w-56 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800/50 flex flex-col shrink-0 transition-all"
+               :class="{ 'hidden': !sidebarOpen, 'flex': sidebarOpen }">
+            <nav class="flex-1 p-3 space-y-0.5">
+                <a href="/"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 'dashboard' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+                    Dashboard
+                </a>
+                <a href="/projects"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 'projects' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                    Projects
+                </a>
+                <a href="/servers"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 'servers' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
+                    Servers
+                </a>
+                <div class="pt-3 pb-1">
+                    <p class="px-3 text-[10px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-widest">Integrations</p>
+                </div>
+                <a href="/sources"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 'sources' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                    Sources
+                </a>
+                <a href="/s3"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 's3' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>
+                    S3 Storages
+                </a>
+
+                <div class="pt-3 pb-1">
+                    <p class="px-3 text-[10px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-widest">System</p>
+                </div>
+                <a href="/settings"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 'settings' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Settings
+                </a>
+            </nav>
+            <!-- Version -->
+            <div class="p-3 border-t border-gray-200 dark:border-gray-800/50">
+                <p class="text-[11px] text-gray-400 dark:text-gray-600 text-center">Pier v{{ version }}</p>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-auto bg-gray-100 dark:bg-gray-950">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Modals (rendered outside flex container for proper fixed positioning) -->
+    {% block modals %}{% endblock %}
+
+    <!-- Toast Notifications -->
+    <div x-data="toastManager()" x-on:toast.window="add($event.detail)" class="fixed top-4 right-4 z-50 space-y-2" x-cloak>
+        <template x-for="t in toasts" :key="t.id">
+            <div x-show="t.visible"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 translate-x-4"
+                 x-transition:enter-end="opacity-100 translate-x-0"
+                 x-transition:leave="transition ease-in duration-150"
+                 x-transition:leave-start="opacity-100"
+                 x-transition:leave-end="opacity-0"
+                 class="px-4 py-3 rounded-lg shadow-lg text-sm max-w-xs"
+                 :class="t.type === 'error' ? 'bg-red-600 text-white' : 'bg-green-600 text-white'"
+                 x-text="t.message">
+            </div>
+        </template>
+    </div>
+
+    <script>
+        function toastManager() {
+            return {
+                toasts: [],
+                add(detail) {
+                    const id = Date.now();
+                    this.toasts.push({ id, ...detail, visible: true });
+                    setTimeout(() => {
+                        const t = this.toasts.find(x => x.id === id);
+                        if (t) t.visible = false;
+                        setTimeout(() => {
+                            this.toasts = this.toasts.filter(x => x.id !== id);
+                        }, 200);
+                    }, 3000);
+                }
+            };
+        }
+
+        function toast(message, type = 'success') {
+            window.dispatchEvent(new CustomEvent('toast', { detail: { message, type } }));
+        }
+
+        async function api(url, opts = {}) {
+            const res = await fetch(url, {
+                headers: { 'Content-Type': 'application/json', ...opts.headers },
+                ...opts,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'Request failed');
+            return data;
+        }
+    </script>
+</body>
+</html>

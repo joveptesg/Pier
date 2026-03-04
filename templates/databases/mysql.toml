@@ -1,0 +1,63 @@
+[meta]
+id = "mysql"
+name = "MySQL"
+description = "Popular open-source relational database management system"
+category = "database"
+icon = "mysql"
+tags = ["sql", "relational"]
+
+[docker]
+image = "mysql:{{version}}"
+
+[ports.primary]
+internal = 3306
+protocol = "tcp"
+description = "MySQL protocol"
+
+[volumes.data]
+mount = "/var/lib/mysql"
+
+[env]
+MYSQL_DATABASE = { default = "{{name}}", description = "Default database" }
+MYSQL_ROOT_PASSWORD = { default = "{{password}}", description = "Root password", secret = true }
+
+[healthcheck]
+test = ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "30s"
+
+[versions]
+available = ["9.3", "9.2", "8.4", "8.0"]
+default = "9.3"
+
+[cluster]
+supported = true
+min_nodes = 2
+max_nodes = 5
+default_nodes = 3
+description = "Streaming replication: 1 primary + N-1 read replicas (bitnami/mysql)"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-mysql"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.mysql_database]
+type = "text"
+label = "Database Name"
+default = "mydb"
+maps_to = "MYSQL_DATABASE"
+
+[ui.fields.mysql_root_password]
+type = "password"
+label = "Root Password"
+auto_generate = true
+maps_to = "MYSQL_ROOT_PASSWORD"

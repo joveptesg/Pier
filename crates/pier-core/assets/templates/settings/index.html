@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6">
+    <!-- Header -->
+    <div>
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Settings</h2>
+        <p class="text-sm text-gray-500 mt-1">Application configuration</p>
+    </div>
+
+    <!-- General Settings -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">General</h3>
+        <div class="space-y-4">
+            <div class="flex items-center justify-between py-2">
+                <div>
+                    <p class="text-sm text-gray-900 dark:text-white">Application URL</p>
+                    <p class="text-xs text-gray-500 mt-0.5">The URL used to access Pier</p>
+                </div>
+                <span class="text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg" x-data x-text="window.location.origin"></span>
+            </div>
+            <div class="border-t border-gray-100 dark:border-gray-800"></div>
+            <div class="flex items-center justify-between py-2">
+                <div>
+                    <p class="text-sm text-gray-900 dark:text-white">Version</p>
+                    <p class="text-xs text-gray-500 mt-0.5">Current Pier version</p>
+                </div>
+                <span class="text-sm text-gray-600 dark:text-gray-400">0.1.0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Account -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Account</h3>
+        <div class="space-y-4">
+            <div class="flex items-center justify-between py-2">
+                <div>
+                    <p class="text-sm text-gray-900 dark:text-white">Username</p>
+                    <p class="text-xs text-gray-500 mt-0.5">Your account username</p>
+                </div>
+                <span class="text-sm text-gray-600 dark:text-gray-400">{{ user }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Danger Zone -->
+    <div class="bg-white dark:bg-gray-900 border border-red-200 dark:border-red-500/20 rounded-xl p-5">
+        <h3 class="text-sm font-medium text-red-600 dark:text-red-400 mb-4">Danger Zone</h3>
+        <div class="flex items-center justify-between py-2">
+            <div>
+                <p class="text-sm text-gray-900 dark:text-white">Reset Data</p>
+                <p class="text-xs text-gray-500 mt-0.5">Delete all projects, resources, and settings</p>
+            </div>
+            <button disabled
+                    class="px-3 py-1.5 text-xs font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-not-allowed opacity-50">
+                Coming soon
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}

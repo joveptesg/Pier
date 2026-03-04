@@ -1,0 +1,63 @@
+[meta]
+id = "directus"
+name = "Directus"
+description = "Open-source headless CMS with REST and GraphQL API"
+category = "service"
+icon = "directus"
+tags = ["cms", "headless", "api", "graphql", "rest", "content"]
+
+[docker]
+image = "directus/directus:{{version}}"
+
+[ports.primary]
+internal = 8055
+protocol = "tcp"
+description = "Web UI & API"
+
+[volumes.uploads]
+mount = "/directus/uploads"
+
+[volumes.database]
+mount = "/directus/database"
+
+[env]
+KEY = { default = "{{password}}", description = "Unique project key", secret = true }
+SECRET = { default = "{{password}}", description = "Secret key", secret = true }
+ADMIN_EMAIL = { default = "admin@example.com", description = "Admin email" }
+ADMIN_PASSWORD = { default = "{{password}}", description = "Admin password", secret = true }
+DB_CLIENT = { default = "sqlite3", description = "Database client" }
+DB_FILENAME = { default = "/directus/database/data.db", description = "Database file" }
+
+[healthcheck]
+test = ["CMD-SHELL", "wget --spider -q http://localhost:8055/server/health || exit 1"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "30s"
+
+[versions]
+available = ["11.5", "11.4", "11.3", "11.2", "10.13"]
+default = "11.5"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-directus"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.admin_email]
+type = "text"
+label = "Admin Email"
+default = "admin@example.com"
+maps_to = "ADMIN_EMAIL"
+
+[ui.fields.admin_password]
+type = "password"
+label = "Admin Password"
+auto_generate = true
+maps_to = "ADMIN_PASSWORD"

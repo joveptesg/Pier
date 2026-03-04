@@ -1,0 +1,28 @@
+[meta]
+id = "beszel"
+name = "Beszel"
+description = "Lightweight server monitoring with Docker stats and alerts"
+category = "service"
+icon = "beszel"
+tags = ["monitoring", "server", "docker", "alerts", "metrics"]
+
+[docker]
+image = "henrygd/beszel:{{version}}"
+
+[ports.primary]
+internal = 8090
+protocol = "tcp"
+description = "Web UI"
+
+[volumes.data]
+mount = "/app/data"
+
+[versions]
+available = ["latest"]
+default = "latest"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-beszel"

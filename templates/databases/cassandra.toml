@@ -1,0 +1,60 @@
+[meta]
+id = "cassandra"
+name = "Cassandra"
+description = "Highly-scalable partitioned row store NoSQL database"
+category = "database"
+icon = "cassandra"
+tags = ["nosql", "wide-column", "distributed"]
+
+[docker]
+image = "cassandra:{{version}}"
+
+[ports.cql]
+internal = 9042
+protocol = "tcp"
+description = "CQL native transport"
+
+[volumes.data]
+mount = "/var/lib/cassandra"
+
+[env]
+CASSANDRA_CLUSTER_NAME = { default = "pier-{{name}}", description = "Cluster name" }
+CASSANDRA_DC = { default = "dc1", description = "Data center name" }
+CASSANDRA_RACK = { default = "rack1", description = "Rack name" }
+HEAP_NEWSIZE = { default = "128M", description = "JVM young generation heap size" }
+MAX_HEAP_SIZE = { default = "512M", description = "JVM max heap size" }
+
+[healthcheck]
+test = ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
+interval = "15s"
+timeout = "10s"
+retries = 10
+start_period = "60s"
+
+[versions]
+available = ["5.0", "4.1", "4.0"]
+default = "5.0"
+
+[cluster]
+supported = true
+min_nodes = 2
+max_nodes = 5
+default_nodes = 3
+description = "Ring cluster with gossip protocol and seed-based discovery"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-cassandra"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.cluster_name]
+type = "text"
+label = "Cluster Name"
+placeholder = "pier-cluster"
+maps_to = "CASSANDRA_CLUSTER_NAME"

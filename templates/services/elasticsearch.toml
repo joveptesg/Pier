@@ -1,0 +1,50 @@
+[meta]
+id = "elasticsearch"
+name = "Elasticsearch"
+description = "Distributed search and analytics engine"
+category = "service"
+icon = "elasticsearch"
+tags = ["search", "analytics", "logging", "elk", "full-text"]
+
+[docker]
+image = "elasticsearch:{{version}}"
+
+[ports.primary]
+internal = 9200
+protocol = "tcp"
+description = "REST API"
+
+[ports.transport]
+internal = 9300
+protocol = "tcp"
+description = "Node transport"
+
+[volumes.data]
+mount = "/usr/share/elasticsearch/data"
+
+[env]
+discovery.type = { default = "single-node", description = "Discovery type" }
+xpack.security.enabled = { default = "false", description = "Enable security" }
+ES_JAVA_OPTS = { default = "-Xms512m -Xmx512m", description = "JVM options" }
+
+[healthcheck]
+test = ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "60s"
+
+[versions]
+available = ["8.17.0", "8.16.0", "8.15.0", "7.17.25"]
+default = "8.17.0"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-elasticsearch"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"

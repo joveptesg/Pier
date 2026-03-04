@@ -1,0 +1,50 @@
+[meta]
+id = "gitea"
+name = "Gitea"
+description = "Lightweight self-hosted Git service"
+category = "service"
+icon = "gitea"
+tags = ["git", "repository", "ci", "devops", "code"]
+
+[docker]
+image = "gitea/gitea:{{version}}"
+
+[ports.primary]
+internal = 3000
+protocol = "tcp"
+description = "Web UI"
+
+[ports.ssh]
+internal = 22
+protocol = "tcp"
+description = "SSH"
+
+[volumes.data]
+mount = "/data"
+
+[env]
+GITEA__database__DB_TYPE = { default = "sqlite3", description = "Database type" }
+USER_UID = { default = "1000", description = "User UID" }
+USER_GID = { default = "1000", description = "User GID" }
+
+[healthcheck]
+test = ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+start_period = "30s"
+
+[versions]
+available = ["1.23", "1.22", "1.21"]
+default = "1.23"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-gitea"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"

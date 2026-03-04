@@ -1,0 +1,36 @@
+[meta]
+id = "audiobookshelf"
+name = "Audiobookshelf"
+description = "Self-hosted audiobook, ebook, and podcast server"
+category = "service"
+icon = "audiobookshelf"
+tags = ["audiobook", "ebook", "podcast", "media", "library"]
+
+[docker]
+image = "advplyr/audiobookshelf:{{version}}"
+
+[ports.primary]
+internal = 80
+protocol = "tcp"
+description = "Web UI"
+
+[volumes.config]
+mount = "/config"
+
+[volumes.metadata]
+mount = "/metadata"
+
+[versions]
+available = ["2.19", "2.18", "2.17"]
+default = "2.19"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-audiobookshelf"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"

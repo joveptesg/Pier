@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'create' %}New Stack{% else %}Edit Stack{% endif %}{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="stackEditor('{{ mode }}', '{{ stack_id|default('') }}')" x-init="init()">
+    <!-- Header -->
+    <div class="flex items-center gap-3">
+        <a href="/stacks" class="text-gray-500 hover:text-gray-300 transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </a>
+        <div>
+            <h2 class="text-xl font-semibold text-white" x-text="mode === 'create' ? 'New Stack' : 'Edit Stack'"></h2>
+            <p class="text-sm text-gray-500 mt-1">Docker Compose YAML</p>
+        </div>
+    </div>
+
+    <!-- Form -->
+    <div class="bg-gray-900 border border-gray-800/50 rounded-xl p-5 space-y-4">
+        <div>
+            <label class="block text-sm font-medium text-gray-400 mb-1.5">Stack Name</label>
+            <input x-model="name" type="text" :disabled="mode === 'edit'"
+                   class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100
+                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                          placeholder-gray-500 text-sm disabled:opacity-50"
+                   placeholder="my-stack">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-400 mb-1.5">Compose YAML</label>
+            <textarea x-model="yaml" rows="20"
+                      class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                             placeholder-gray-500 text-sm font-mono leading-6"
+                      placeholder="services:
+  web:
+    image: nginx:alpine
+    ports:
+      - '80:80'"></textarea>
+        </div>
+
+        <div x-show="error" x-cloak class="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2" x-text="error"></div>
+
+        <div class="flex items-center gap-3">
+            <button @click="save()" :disabled="saving"
+                    class="px-4 py-2.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50
+                           rounded-lg text-white transition-colors">
+                <span x-text="saving ? 'Saving...' : (mode === 'create' ? 'Create Stack' : 'Save Changes')"></span>
+            </button>
+            <template x-if="mode === 'edit'">
+                <button @click="deployStack()" :disabled="deploying"
+                        class="px-4 py-2.5 text-sm font-medium bg-green-600 hover:bg-green-700 disabled:opacity-50
+                               rounded-lg text-white transition-colors">
+                    <span x-text="deploying ? 'Deploying...' : 'Save & Deploy'"></span>
+                </button>
+            </template>
+        </div>
+    </div>
+</div>
+
+<script>
+function stackEditor(mode, stackId) {
+    return {
+        mode,
+        stackId,
+        name: '',
+        yaml: '',
+        error: '',
+        saving: false,
+        deploying: false,
+        async init() {
+            if (mode === 'edit' && stackId) {
+                try {
+                    const data = await fetch('/api/v1/stacks/' + stackId).then(r => r.json());
+                    this.name = data.name || '';
+                    this.yaml = data.yaml || '';
+                } catch (e) {
+                    this.error = 'Failed to load stack';
+                }
+            }
+        },
+        async save() {
+            this.saving = true;
+            this.error = '';
+            try {
+                if (this.mode === 'create') {
+                    const result = await api('/api/v1/stacks', {
+                        method: 'POST',
+                        body: JSON.stringify({ name: this.name, yaml: this.yaml })
+                    });
+                    toast('Stack created');
+                    window.location.href = '/stacks/' + result.id;
+                } else {
+                    await api('/api/v1/stacks/' + this.stackId, {
+                        method: 'PUT',
+                        body: JSON.stringify({ yaml: this.yaml })
+                    });
+                    toast('Stack saved');
+                }
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.saving = false;
+            }
+        },
+        async deployStack() {
+            this.deploying = true;
+            this.error = '';
+            try {
+                await api('/api/v1/stacks/' + this.stackId, {
+                    method: 'PUT',
+                    body: JSON.stringify({ yaml: this.yaml })
+                });
+                await api('/api/v1/stacks/' + this.stackId + '/deploy', { method: 'POST' });
+                toast('Stack deployed');
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.deploying = false;
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

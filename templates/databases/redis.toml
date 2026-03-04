@@ -1,0 +1,46 @@
+[meta]
+id = "redis"
+name = "Redis"
+description = "In-memory data store used as database, cache, and message broker"
+category = "database"
+icon = "redis"
+tags = ["cache", "nosql", "key-value"]
+
+[docker]
+image = "redis:{{version}}-alpine"
+
+[ports.primary]
+internal = 6379
+protocol = "tcp"
+description = "Redis protocol"
+
+[volumes.data]
+mount = "/data"
+
+[healthcheck]
+test = ["CMD", "redis-cli", "ping"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+
+[versions]
+available = ["8.0", "7.4", "7.2"]
+default = "8.0"
+
+[cluster]
+supported = true
+min_nodes = 3
+max_nodes = 5
+default_nodes = 3
+description = "Sentinel HA: 1 master + N-1 replicas + N sentinels (bitnami/redis)"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-redis"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"

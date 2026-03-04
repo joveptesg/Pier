@@ -1,0 +1,53 @@
+[meta]
+id = "minecraft"
+name = "Minecraft Server"
+description = "Java Edition game server with auto-update support"
+category = "service"
+icon = "minecraft"
+tags = ["game", "server", "minecraft", "java"]
+
+[docker]
+image = "itzg/minecraft-server:{{version}}"
+
+[ports.primary]
+internal = 25565
+protocol = "tcp"
+description = "Game port"
+
+[volumes.data]
+mount = "/data"
+
+[env]
+EULA = { default = "TRUE", description = "Accept Minecraft EULA" }
+DIFFICULTY = { default = "normal", description = "Game difficulty" }
+MODE = { default = "survival", description = "Game mode" }
+MOTD = { default = "Pier Minecraft Server", description = "Message of the day" }
+
+[versions]
+available = ["latest", "java21", "java17"]
+default = "latest"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-minecraft"
+
+[ui.fields.version]
+type = "select"
+label = "Image Tag"
+options_from = "versions.available"
+
+[ui.fields.difficulty]
+type = "select"
+label = "Difficulty"
+options = ["peaceful", "easy", "normal", "hard"]
+default = "normal"
+maps_to = "DIFFICULTY"
+
+[ui.fields.mode]
+type = "select"
+label = "Game Mode"
+options = ["survival", "creative", "adventure", "spectator"]
+default = "survival"
+maps_to = "MODE"
