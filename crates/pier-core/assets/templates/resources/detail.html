@@ -27,7 +27,11 @@
             </div>
         </div>
         <div class="flex items-center gap-2">
-            <button @click="startResource()" x-show="resource.status === 'stopped'"
+            <button @click="redeployResource()"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">
+                Redeploy
+            </button>
+            <button @click="startResource()" x-show="resource.status === 'stopped' || resource.status === 'failed'"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-100 dark:bg-green-600/20 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-600/30 transition-colors">
                 Start
             </button>
@@ -445,6 +449,7 @@ function resourceDetail(id) {
         async startResource() { try{await api('/api/v1/resources/'+this.id+'/start',{method:'POST'});toast('Resource started');await this.refresh();}catch(e){toast(e.message,'error');} },
         async stopResource() { try{await api('/api/v1/resources/'+this.id+'/stop',{method:'POST'});toast('Resource stopped');await this.refresh();}catch(e){toast(e.message,'error');} },
         async restartResource() { try{await api('/api/v1/resources/'+this.id+'/restart',{method:'POST'});toast('Resource restarted');await this.refresh();}catch(e){toast(e.message,'error');} },
+        async redeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy',{method:'POST'});toast('Redeploying...');await this.refresh();}catch(e){toast(e.message,'error');} },
         async removeResource() { try{await api('/api/v1/resources/'+this.id,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');} },
         async loadDomains() { try { this.domains=await fetch('/api/v1/resources/'+this.id+'/domains').then(r=>r.ok?r.json():[]); } catch{this.domains=[];} },
         async loadContainerLogs() {

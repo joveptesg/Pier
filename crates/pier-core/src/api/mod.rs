@@ -61,6 +61,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/resources/{id}/start", post(resources::start))
         .route("/resources/{id}/stop", post(resources::stop))
         .route("/resources/{id}/restart", post(resources::restart))
+        .route("/resources/{id}/redeploy", post(resources::redeploy))
         .route("/resources/{id}/nodes", get(resources::get_nodes))
         .route("/resources/{id}/scale", post(resources::scale))
         .route("/resources/{id}/deployment-logs", get(resources::deployment_logs))

@@ -330,12 +330,17 @@ pub async fn create(
         } else {
             "failed"
         };
+        let log_output = match &deploy_result {
+            Ok(out) => out.clone(),
+            Err(e) => format!("{e}"),
+        };
         let sid = service_id.clone();
         with_db(&state, |db| {
             let _ = db.execute(
                 "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
                 rusqlite::params![status, sid],
             );
+            record_deployment_log(db, &sid, "deploy", status, &log_output);
             Ok(())
         })?;
 
@@ -386,6 +391,10 @@ pub async fn create(
     } else {
         "failed"
     };
+    let log_output = match &deploy_result {
+        Ok(out) => out.clone(),
+        Err(e) => format!("{e}"),
+    };
     let yaml_clone = yaml.clone();
     let sid = service_id.clone();
     with_db(&state, |db| {
@@ -393,6 +402,7 @@ pub async fn create(
             "UPDATE services SET status = ?1, compose_content = ?2, updated_at = datetime('now') WHERE id = ?3",
             rusqlite::params![status, yaml_clone, sid],
         );
+        record_deployment_log(db, &sid, "deploy", status, &log_output);
         Ok(())
     })?;
 
@@ -470,12 +480,17 @@ async fn create_compose(
     } else {
         "failed"
     };
+    let log_output = match &deploy_result {
+        Ok(out) => out.clone(),
+        Err(e) => format!("{e}"),
+    };
     let sid = service_id.clone();
     with_db(state, |db| {
         let _ = db.execute(
             "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
             rusqlite::params![status, sid],
         );
+        record_deployment_log(db, &sid, "deploy", status, &log_output);
         Ok(())
     })?;
 
@@ -589,6 +604,10 @@ async fn create_dockerfile(
     } else {
         "failed"
     };
+    let log_output = match &deploy_result {
+        Ok(out) => out.clone(),
+        Err(e) => format!("{e}"),
+    };
     let yaml_clone = yaml.clone();
     let sid = service_id.clone();
     with_db(state, |db| {
@@ -596,6 +615,7 @@ async fn create_dockerfile(
             "UPDATE services SET status = ?1, compose_content = ?2, updated_at = datetime('now') WHERE id = ?3",
             rusqlite::params![status, yaml_clone, sid],
         );
+        record_deployment_log(db, &sid, "deploy", status, &log_output);
         Ok(())
     })?;
 
@@ -865,6 +885,10 @@ async fn create_git_deploy(
     } else {
         "failed"
     };
+    let log_output = match &deploy_result {
+        Ok(out) => out.clone(),
+        Err(e) => format!("{e}"),
+    };
     let yaml_clone = yaml.clone();
     let sid = service_id.clone();
     let env_data = serde_json::json!({
@@ -877,6 +901,7 @@ async fn create_git_deploy(
             "UPDATE services SET status = ?1, compose_content = ?2, env_json = ?3, updated_at = datetime('now') WHERE id = ?4",
             rusqlite::params![status, yaml_clone, env_data.to_string(), sid],
         );
+        record_deployment_log(db, &sid, "deploy", status, &log_output);
         Ok(())
     })?;
 
@@ -1049,6 +1074,10 @@ async fn create_git_deploy_github_app(
     let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config).await;
 
     let status = if deploy_result.is_ok() { "running" } else { "failed" };
+    let log_output = match &deploy_result {
+        Ok(out) => out.clone(),
+        Err(e) => format!("{e}"),
+    };
     let yaml_clone = yaml.clone();
     let sid = service_id.clone();
     let env_data = serde_json::json!({
@@ -1062,6 +1091,7 @@ async fn create_git_deploy_github_app(
             "UPDATE services SET status = ?1, compose_content = ?2, env_json = ?3, updated_at = datetime('now') WHERE id = ?4",
             rusqlite::params![status, yaml_clone, env_data.to_string(), sid],
         );
+        record_deployment_log(db, &sid, "deploy", status, &log_output);
         Ok(())
     })?;
 
@@ -1228,7 +1258,8 @@ pub async fn stop(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let status_str = if result.is_ok() { "success" } else { "failed" };
-    record_deployment_log(&db, &id, "stop", status_str, "");
+    let log_output = match &result { Ok(o) => o.clone(), Err(e) => format!("{e}") };
+    record_deployment_log(&db, &id, "stop", status_str, &log_output);
     let _ = db.execute(
         "UPDATE services SET status = 'stopped', updated_at = datetime('now') WHERE id = ?1",
         [&id],
@@ -1266,7 +1297,8 @@ pub async fn start(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    record_deployment_log(&db, &id, "start", if result.is_ok() { "success" } else { "failed" }, "");
+    let log_output = match &result { Ok(o) => o.clone(), Err(e) => format!("{e}") };
+    record_deployment_log(&db, &id, "start", if result.is_ok() { "success" } else { "failed" }, &log_output);
     let _ = db.execute(
         "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
         rusqlite::params![status, id],
@@ -1305,7 +1337,60 @@ pub async fn restart(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    record_deployment_log(&db, &id, "restart", if result.is_ok() { "success" } else { "failed" }, "");
+    let log_output = match &result { Ok(o) => o.clone(), Err(e) => format!("{e}") };
+    record_deployment_log(&db, &id, "restart", if result.is_ok() { "success" } else { "failed" }, &log_output);
+    let _ = db.execute(
+        "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![status, id],
+    );
+
+    result?;
+    Ok(Json(serde_json::json!({"ok": true, "status": "running"})))
+}
+
+/// POST /api/v1/resources/{id}/redeploy
+pub async fn redeploy(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let (name, yaml) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT name, compose_content FROM services WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+    };
+
+    let yaml = yaml.ok_or_else(|| AppError::BadRequest("No compose content found".into()))?;
+    let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+
+    // Stop existing stack
+    let _ = docker::compose::down_stack(&stack_name, &state.config).await;
+
+    // Set status to deploying
+    {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let _ = db.execute(
+            "UPDATE services SET status = 'deploying', updated_at = datetime('now') WHERE id = ?1",
+            [&id],
+        );
+    }
+
+    // Redeploy
+    let result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await;
+
+    let status = if result.is_ok() { "running" } else { "failed" };
+    let log_output = match &result { Ok(o) => o.clone(), Err(e) => format!("{e}") };
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    record_deployment_log(&db, &id, "redeploy", if result.is_ok() { "success" } else { "failed" }, &log_output);
     let _ = db.execute(
         "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
         rusqlite::params![status, id],
