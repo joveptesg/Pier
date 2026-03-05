@@ -207,6 +207,20 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_domains_service ON domains(service_id);
     CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain);
     "#,
+    // Migration 8: Ensure deployment_logs table exists
+    r#"
+    CREATE TABLE IF NOT EXISTS deployment_logs (
+        id          TEXT PRIMARY KEY NOT NULL,
+        service_id  TEXT REFERENCES services(id) ON DELETE CASCADE,
+        action      TEXT NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'pending',
+        output      TEXT NOT NULL DEFAULT '',
+        triggered_by TEXT,
+        started_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_deployment_logs_service_id ON deployment_logs(service_id);
+    "#,
 ];
 
 /// Run all pending database migrations.
