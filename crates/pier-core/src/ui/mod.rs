@@ -23,6 +23,8 @@ pub fn ui_router(state: SharedState) -> Router<SharedState> {
         .route("/sources", get(pages::sources_list))
         .route("/s3", get(pages::s3_list))
         .route("/settings", get(pages::settings_page))
+        .route("/domains", get(pages::domains_page))
+        .route("/proxy", get(pages::proxy_page))
         // Resources (catalog)
         .route("/resources/new", get(pages::resources_catalog))
         .route("/resources/new/{catalog_id}", get(pages::resources_create))

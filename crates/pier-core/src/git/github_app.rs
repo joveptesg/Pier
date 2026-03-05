@@ -33,7 +33,7 @@ struct InstallationTokenResponse {
 }
 
 /// Get an installation access token from GitHub.
-async fn get_installation_token(
+pub async fn get_installation_token(
     app_id: &str,
     installation_id: i64,
     private_key: &str,

@@ -274,11 +274,16 @@ pub fn build_compose_yaml(
     yaml.push_str(&format!("    image: {image}\n"));
     yaml.push_str(&format!("    container_name: pier-{name}\n"));
 
-    // Ports
+    // Ports — databases bind to 127.0.0.1 (localhost only), services to 0.0.0.0 (public)
     if !ports.is_empty() {
         yaml.push_str("    ports:\n");
+        let is_database = item.meta.category == "database";
         for (_, host, container) in ports {
-            yaml.push_str(&format!("      - \"{host}:{container}\"\n"));
+            if is_database {
+                yaml.push_str(&format!("      - \"127.0.0.1:{host}:{container}\"\n"));
+            } else {
+                yaml.push_str(&format!("      - \"{host}:{container}\"\n"));
+            }
         }
     }
 

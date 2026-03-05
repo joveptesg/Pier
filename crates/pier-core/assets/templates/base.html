@@ -43,7 +43,7 @@
         }
     </script>
 </head>
-<body class="bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 min-h-screen flex flex-col transition-colors" style="margin:0;padding:0">
+<body class="bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 h-screen flex flex-col overflow-hidden transition-colors" style="margin:0;padding:0">
 
     <!-- Header -->
     <header class="h-14 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800/50 flex items-center justify-between px-5 shrink-0 z-10">
@@ -73,16 +73,19 @@
                     {{ user[0:1]|upper }}
                 </div>
                 <span class="text-sm text-gray-600 dark:text-gray-300">{{ user }}</span>
-                <a href="/logout" class="ml-2 text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">Logout</a>
+                <a href="/logout" class="ml-2 flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                    Logout
+                </a>
             </div>
         </div>
     </header>
 
-    <div class="flex flex-1 min-h-0">
+    <div class="flex flex-1 overflow-hidden">
         <!-- Sidebar -->
-        <aside class="bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800/50 flex-col shrink-0 transition-all duration-200"
+        <aside class="bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800/50 flex-col shrink-0 transition-all duration-200 h-full"
                :class="sidebarOpen ? 'w-56 flex' : 'w-14 hidden lg:flex'">
-            <nav class="flex-1 p-3 space-y-0.5">
+            <nav class="overflow-y-auto p-3 space-y-0.5">
                 <a href="/"
                    class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
                           {% if page == 'dashboard' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}"
@@ -124,6 +127,24 @@
                 </a>
 
                 <div class="pt-3 pb-1" x-show="sidebarOpen" x-cloak>
+                    <p class="px-3 text-[10px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-widest">Networking</p>
+                </div>
+                <div x-show="!sidebarOpen" class="pt-2 pb-1"><div class="border-t border-gray-200 dark:border-gray-800/50"></div></div>
+                <a href="/domains"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 'domains' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}"
+                   :class="!sidebarOpen && 'justify-center !px-0 !gap-0'" :title="!sidebarOpen && 'Domains'">
+                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                    <span x-show="sidebarOpen" x-cloak>Domains</span>
+                </a>
+                <a href="/proxy"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 'proxy' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}"
+                   :class="!sidebarOpen && 'justify-center !px-0 !gap-0'" :title="!sidebarOpen && 'Proxy'">
+                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                    <span x-show="sidebarOpen" x-cloak>Proxy</span>
+                </a>
+                <div class="pt-3 pb-1" x-show="sidebarOpen" x-cloak>
                     <p class="px-3 text-[10px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-widest">System</p>
                 </div>
                 <div x-show="!sidebarOpen" class="pt-2 pb-1"><div class="border-t border-gray-200 dark:border-gray-800/50"></div></div>
@@ -136,7 +157,7 @@
                 </a>
             </nav>
             <!-- Toggle + Version -->
-            <div class="p-3 border-t border-gray-200 dark:border-gray-800/50 hidden lg:block">
+            <div class="mt-auto p-3 border-t border-gray-200 dark:border-gray-800/50 shrink-0 hidden lg:block">
                 <button @click="sidebarOpen = !sidebarOpen"
                         class="w-full flex items-center justify-center py-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                     <svg x-show="sidebarOpen" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/></svg>
@@ -147,7 +168,7 @@
         </aside>
 
         <!-- Main Content -->
-        <main class="flex-1 overflow-auto bg-gray-100 dark:bg-gray-950">
+        <main class="flex-1 overflow-y-auto bg-gray-100 dark:bg-gray-950">
             {% block content %}{% endblock %}
         </main>
     </div>

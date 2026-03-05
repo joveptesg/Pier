@@ -178,6 +178,30 @@ pub async fn settings_page(
     )
 }
 
+/// GET /domains
+pub async fn domains_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "domains/list.html",
+        minijinja::context! { user => user.username, page => "domains" },
+    )
+}
+
+/// GET /proxy
+pub async fn proxy_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "proxy/settings.html",
+        minijinja::context! { user => user.username, page => "proxy" },
+    )
+}
+
 /// GET /projects
 pub async fn projects_list(
     State(state): State<SharedState>,

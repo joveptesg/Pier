@@ -3,16 +3,18 @@ pub mod backups;
 pub mod catalog;
 pub mod compose;
 pub mod containers;
+pub mod domains;
 pub mod env;
 pub mod images;
 pub mod projects;
+pub mod proxy;
 pub mod resources;
 pub mod s3;
 pub mod servers;
 pub mod sources;
 pub mod system;
 
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::Router;
 
 use crate::auth::middleware::require_auth;
@@ -61,6 +63,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/resources/{id}/restart", post(resources::restart))
         .route("/resources/{id}/nodes", get(resources::get_nodes))
         .route("/resources/{id}/scale", post(resources::scale))
+        .route("/resources/{id}/deployment-logs", get(resources::deployment_logs))
         // Environment Variables
         .route("/resources/{id}/env", get(env::get_env).put(env::update_env))
         // Backups
@@ -82,6 +85,15 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/{id}", delete(servers::remove))
         .route("/servers/{id}/test", post(servers::test_connection))
         .route("/servers/{id}/metrics", get(servers::metrics))
+        // Domains
+        .route("/domains", get(domains::list).post(domains::create))
+        .route("/domains/{id}", delete(domains::remove))
+        .route("/resources/{id}/domains", get(domains::list_for_service))
+        // Proxy
+        .route("/proxy/enable", post(proxy::enable))
+        .route("/proxy/disable", post(proxy::disable))
+        .route("/proxy/status", get(proxy::status))
+        .route("/proxy/settings", put(proxy::update_settings))
         // System
         .route("/system/metrics", get(system::metrics))
         .route("/system/docker", get(system::docker_info))

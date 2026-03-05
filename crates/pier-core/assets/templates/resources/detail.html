@@ -39,7 +39,7 @@
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
                 Restart
             </button>
-            <button @click="removeResource()"
+            <button @click="showDeleteModal = true; deleteConfirmName = ''"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 dark:bg-red-600/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-600/30 transition-colors">
                 Delete
             </button>
@@ -52,6 +52,12 @@
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Overview</button>
         <button @click="tab = 'env'" :class="tab === 'env' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Environment</button>
+        <button @click="tab = 'domains'" :class="tab === 'domains' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Domains</button>
+        <button @click="tab = 'deployments'; loadDeploymentLogs()" :class="tab === 'deployments' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Deployments</button>
+        <button @click="tab = 'logs'; loadContainerLogs()" :class="tab === 'logs' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Logs</button>
         <button @click="tab = 'backups'" :class="tab === 'backups' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Backups</button>
     </div>
@@ -161,6 +167,113 @@
         </div>
     </div>
 
+    <!-- Domains Tab -->
+    <div x-show="tab === 'domains'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Domains</h3>
+                <button @click="showAddDomain = true"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">
+                    Add Domain
+                </button>
+            </div>
+            <div x-show="domains.length === 0" class="text-sm text-gray-400 text-center py-4">No domains configured for this service</div>
+            <div x-show="domains.length > 0" class="space-y-2">
+                <template x-for="d in domains" :key="d.id">
+                    <div class="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                            <a :href="'https://' + d.domain" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline" x-text="d.domain"></a>
+                            <span x-show="d.is_generated" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">auto</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
+                                  :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
+                                  x-text="d.ssl_status"></span>
+                            <button @click="removeDomain(d.id)" class="text-xs text-red-500 hover:text-red-700">Delete</button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+        <!-- Add Domain Modal -->
+        <div x-show="showAddDomain" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" @click.self="showAddDomain = false">
+            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Custom Domain</h3>
+                <div>
+                    <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Domain</label>
+                    <input type="text" x-model="newDomainName" placeholder="app.example.com"
+                           class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button @click="showAddDomain = false" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
+                    <button @click="addDomain()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Add</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deployments Tab -->
+    <div x-show="tab === 'deployments'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Deployments</h3>
+                    <span class="text-xs text-gray-400" x-text="'(' + deploymentLogs.length + ')'"></span>
+                </div>
+                <button @click="loadDeploymentLogs()" class="px-3 py-1 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    Refresh
+                </button>
+            </div>
+            <div x-show="deploymentLogs.length === 0" class="text-sm text-gray-400 py-8 text-center">No deployment history yet</div>
+            <div class="space-y-3">
+                <template x-for="log in deploymentLogs" :key="log.id">
+                    <div class="border-l-2 pl-4 py-3" :class="log.status === 'success' ? 'border-green-500' : log.status === 'failed' ? 'border-red-500' : 'border-yellow-400'">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-xs font-medium px-2 py-0.5 rounded-full"
+                                  :class="log.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : log.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'"
+                                  x-text="log.status.charAt(0).toUpperCase() + log.status.slice(1)"></span>
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize" x-text="log.action"></span>
+                        </div>
+                        <div class="text-xs text-gray-500 space-y-0.5">
+                            <div x-text="'Started: ' + log.started_at"></div>
+                            <div x-show="log.finished_at" x-text="'Ended: ' + log.finished_at"></div>
+                        </div>
+                        <div x-show="log.output" class="mt-2">
+                            <pre class="text-xs font-mono bg-gray-100 dark:bg-gray-950 text-gray-800 dark:text-gray-300 rounded-lg p-3 max-h-40 overflow-auto whitespace-pre-wrap" x-text="log.output"></pre>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div x-show="tab === 'logs'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Logs</h3>
+                    <span class="text-xs text-gray-400">Server: localhost</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <select x-model="logLines" @change="loadContainerLogs()"
+                            class="text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 text-gray-600 dark:text-gray-400">
+                        <option value="100">Last 100</option>
+                        <option value="500">Last 500</option>
+                        <option value="1000">Last 1000</option>
+                    </select>
+                    <button @click="loadContainerLogs()" class="px-3 py-1 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="bg-gray-100 dark:bg-gray-950 rounded-lg p-4 max-h-[600px] overflow-auto">
+                <pre class="text-xs text-gray-800 dark:text-green-400 font-mono whitespace-pre-wrap" x-text="containerLogs || 'No logs available'"></pre>
+            </div>
+        </div>
+    </div>
+
     <!-- Backups Tab -->
     <div x-show="tab === 'backups'" class="space-y-4">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
@@ -195,6 +308,35 @@
                         </div>
                     </div>
                 </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div x-show="showDeleteModal" x-cloak
+         class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
+         style="top:0;left:0"
+         @click.self="showDeleteModal = false">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
+            <h3 class="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">Delete Resource</h3>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">This will permanently stop and remove the container and all its data.</p>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Type <strong class="text-gray-900 dark:text-white" x-text="resource.name"></strong> to confirm:</p>
+            <input x-model="deleteConfirmName" type="text"
+                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                          text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-mono"
+                   :placeholder="resource.name"
+                   @keydown.enter="if(deleteConfirmName === resource.name){ showDeleteModal = false; removeResource(); }">
+            <div class="flex justify-end gap-2 mt-5">
+                <button @click="showDeleteModal = false"
+                        class="px-4 py-2 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
+                    Cancel
+                </button>
+                <button @click="showDeleteModal = false; removeResource()"
+                        :disabled="deleteConfirmName !== resource.name"
+                        :class="deleteConfirmName === resource.name ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'"
+                        class="px-4 py-2 text-sm font-medium rounded-lg transition-colors">
+                    Delete
+                </button>
             </div>
         </div>
     </div>
@@ -240,6 +382,9 @@ function resourceDetail(id) {
         schedule: null, backupHistory: [], s3Storages: [], showScheduleModal: false,
         scheduleForm: { s3_storage_id: '', cron_expression: '0 2 * * *', retention_count: 7 },
         clusterInfo: null,
+        domains: [], showAddDomain: false, newDomainName: '',
+        containerLogs: '', deploymentLogs: [], logLines: '100',
+        showDeleteModal: false, deleteConfirmName: '',
         get connectionString() {
             if (!this.resource.catalog_id || !this.resource.ports?.length) return '';
             const port = this.resource.ports[0]?.host; if (!port) return '';
@@ -257,7 +402,7 @@ function resourceDetail(id) {
         },
         isSecret(key) { const k=key.toUpperCase(); return k.includes('PASSWORD')||k.includes('SECRET')||k.includes('TOKEN')||k.includes('KEY'); },
         async init() {
-            await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster();
+            await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster(); this.loadDomains();
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
         },
         async refresh() { try { this.resource = await fetch('/api/v1/resources/'+this.id).then(r=>r.json()); } catch(e) { toast('Failed to load resource','error'); } },
@@ -300,7 +445,25 @@ function resourceDetail(id) {
         async startResource() { try{await api('/api/v1/resources/'+this.id+'/start',{method:'POST'});toast('Resource started');await this.refresh();}catch(e){toast(e.message,'error');} },
         async stopResource() { try{await api('/api/v1/resources/'+this.id+'/stop',{method:'POST'});toast('Resource stopped');await this.refresh();}catch(e){toast(e.message,'error');} },
         async restartResource() { try{await api('/api/v1/resources/'+this.id+'/restart',{method:'POST'});toast('Resource restarted');await this.refresh();}catch(e){toast(e.message,'error');} },
-        async removeResource() { if(!confirm('Delete this resource? This will stop and remove the container.'))return; try{await api('/api/v1/resources/'+this.id,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');} }
+        async removeResource() { try{await api('/api/v1/resources/'+this.id,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');} },
+        async loadDomains() { try { this.domains=await fetch('/api/v1/resources/'+this.id+'/domains').then(r=>r.ok?r.json():[]); } catch{this.domains=[];} },
+        async loadContainerLogs() {
+            const containerName = 'pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-');
+            try {
+                const lines = await fetch('/api/v1/containers/'+encodeURIComponent(containerName)+'/logs?tail='+this.logLines+'&timestamps=true').then(r=>r.ok?r.json():null);
+                this.containerLogs = lines ? lines.join('\n') : 'Container not found';
+            } catch { this.containerLogs = 'Failed to load logs'; }
+        },
+        async loadDeploymentLogs() {
+            try { this.deploymentLogs = await fetch('/api/v1/resources/'+this.id+'/deployment-logs').then(r=>r.ok?r.json():[]); } catch { this.deploymentLogs = []; }
+        },
+        async addDomain() {
+            if(!this.newDomainName.trim()){toast('Domain is required','error');return;}
+            try { await api('/api/v1/domains',{method:'POST',body:JSON.stringify({domain:this.newDomainName,service_id:this.id})});
+                toast('Domain added'); this.showAddDomain=false; this.newDomainName=''; await this.loadDomains();
+            } catch(e){toast(e.message,'error');}
+        },
+        async removeDomain(domainId) { if(!confirm('Remove this domain?'))return; try{await api('/api/v1/domains/'+domainId,{method:'DELETE'}); toast('Domain removed'); await this.loadDomains();}catch(e){toast(e.message,'error');} }
     };
 }
 </script>

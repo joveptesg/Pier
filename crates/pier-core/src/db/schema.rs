@@ -191,6 +191,22 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE git_sources ADD COLUMN installation_id INTEGER;
     ALTER TABLE git_sources ADD COLUMN private_key TEXT;
     "#,
+    // Migration 7: Domains + proxy
+    r#"
+    CREATE TABLE IF NOT EXISTS domains (
+        id              TEXT PRIMARY KEY NOT NULL,
+        domain          TEXT NOT NULL UNIQUE,
+        service_id      TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        ssl_status      TEXT NOT NULL DEFAULT 'pending',
+        ssl_expires_at  TEXT,
+        ssl_provider    TEXT NOT NULL DEFAULT 'letsencrypt',
+        is_generated    INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_domains_service ON domains(service_id);
+    CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain);
+    "#,
 ];
 
 /// Run all pending database migrations.

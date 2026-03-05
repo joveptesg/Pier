@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Proxy Settings{% endblock %}
+
+{% block content %}
+<div x-data="proxySettings()" x-init="load()" class="p-6 space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Reverse Proxy</h2>
+            <p class="text-sm text-gray-500 mt-1">Traefik reverse proxy — auto-managed by Pier</p>
+        </div>
+    </div>
+
+    <!-- Status Card -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Proxy Status</h3>
+            <div x-show="loading" class="text-xs text-gray-400">Loading...</div>
+        </div>
+        <div class="space-y-3">
+            <div class="flex items-center justify-between py-2">
+                <div class="flex items-center gap-2">
+                    <div class="w-2.5 h-2.5 rounded-full" :class="status.traefik?.running ? 'bg-green-500' : 'bg-yellow-400'"></div>
+                    <span class="text-sm text-gray-900 dark:text-white">Traefik</span>
+                </div>
+                <span class="text-sm" :class="status.traefik?.running ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'" x-text="status.traefik?.running ? 'Running' : (status.traefik?.status || 'starting...')"></span>
+            </div>
+            <div class="flex items-center justify-between py-2">
+                <span class="text-sm text-gray-500">Server IP</span>
+                <span class="text-sm font-mono text-gray-900 dark:text-white" x-text="status.server_ip || 'detecting...'"></span>
+            </div>
+            <div class="border-t border-gray-100 dark:border-gray-800"></div>
+            <div class="flex items-center justify-between py-2">
+                <span class="text-sm text-gray-500">Domains</span>
+                <span class="text-sm text-gray-900 dark:text-white" x-text="status.domain_count || 0"></span>
+            </div>
+            <div class="flex items-center justify-between py-2">
+                <span class="text-sm text-gray-500">Active SSL Certificates</span>
+                <span class="text-sm text-gray-900 dark:text-white" x-text="status.active_certs || 0"></span>
+            </div>
+        </div>
+        <!-- Restart -->
+        <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 flex gap-2">
+            <button @click="restart()" :disabled="busy"
+                    class="px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors">
+                <span x-show="!busy">Restart Proxy</span>
+                <span x-show="busy">Restarting...</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Settings Card -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Configuration</h3>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Platform Domain</label>
+                <input type="text" x-model="settings.platform_domain" placeholder="pier.example.com"
+                       class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:text-white">
+                <p class="text-xs text-gray-400 mt-1">Custom domain for Pier itself — routes to this panel with SSL</p>
+            </div>
+            <div>
+                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">ACME Email</label>
+                <input type="email" x-model="settings.acme_email" placeholder="admin@example.com"
+                       class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:text-white">
+                <p class="text-xs text-gray-400 mt-1">Email for Let's Encrypt certificate notifications</p>
+            </div>
+            <div>
+                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Wildcard Domain</label>
+                <input type="text" x-model="settings.wildcard_domain" placeholder="example.com"
+                       class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:text-white">
+                <p class="text-xs text-gray-400 mt-1">Optional wildcard domain for auto-generated subdomains</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" x-model="settings.dashboard" class="sr-only peer">
+                    <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+                <div>
+                    <p class="text-sm text-gray-900 dark:text-white">Traefik Dashboard</p>
+                    <p class="text-xs text-gray-400">Expose Traefik dashboard on port 8080</p>
+                </div>
+            </div>
+            <div class="pt-2">
+                <button @click="saveSettings()" :disabled="busy"
+                        class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                    Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div x-show="toast" x-transition x-cloak
+         class="fixed bottom-6 right-6 px-4 py-2 rounded-lg text-sm text-white shadow-lg z-50"
+         :class="toastType === 'error' ? 'bg-red-600' : 'bg-green-600'"
+         x-text="toast"
+         @click="toast = ''"></div>
+</div>
+
+<script>
+function proxySettings() {
+    return {
+        status: {},
+        settings: { acme_email: '', wildcard_domain: '', platform_domain: '', dashboard: false },
+        loading: true,
+        busy: false,
+        toast: '',
+        toastType: 'success',
+
+        async load() {
+            try {
+                const res = await fetch('/api/v1/proxy/status');
+                this.status = await res.json();
+                this.settings.acme_email = this.status.acme_email || '';
+                this.settings.wildcard_domain = this.status.wildcard_domain || '';
+                this.settings.platform_domain = this.status.platform_domain || '';
+                this.settings.dashboard = this.status.traefik?.dashboard || false;
+            } catch (e) {
+                this.showToast('Failed to load status', 'error');
+            }
+            this.loading = false;
+        },
+
+        async restart() {
+            this.busy = true;
+            try {
+                const res = await fetch('/api/v1/proxy/enable', { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    this.showToast('Proxy restarted');
+                    await this.load();
+                } else {
+                    this.showToast(data.error || 'Failed to restart proxy', 'error');
+                }
+            } catch (e) {
+                this.showToast('Error: ' + e.message, 'error');
+            }
+            this.busy = false;
+        },
+
+        async saveSettings() {
+            this.busy = true;
+            try {
+                const res = await fetch('/api/v1/proxy/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.settings),
+                });
+                const data = await res.json();
+                if (data.ok) this.showToast('Settings saved');
+                else this.showToast('Failed to save settings', 'error');
+            } catch (e) {
+                this.showToast('Error: ' + e.message, 'error');
+            }
+            this.busy = false;
+        },
+
+        showToast(msg, type = 'success') {
+            this.toast = msg;
+            this.toastType = type;
+            setTimeout(() => this.toast = '', 3000);
+        },
+    };
+}
+</script>
+{% endblock %}
