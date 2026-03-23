@@ -78,9 +78,7 @@ pub async fn deploy_traefik(
     // have /app/data. Named volumes are shared correctly between sibling containers.
     let host_config = HostConfig {
         port_bindings: Some(port_bindings),
-        binds: Some(vec![
-            format!("{data_volume}:/data"),
-        ]),
+        binds: Some(vec![format!("{data_volume}:/data")]),
         network_mode: Some(PIER_NETWORK.to_string()),
         restart_policy: Some(bollard::models::RestartPolicy {
             name: Some(bollard::models::RestartPolicyNameEnum::UNLESS_STOPPED),
@@ -92,9 +90,7 @@ pub async fn deploy_traefik(
 
     let config = ContainerCreateBody {
         image: Some(TRAEFIK_IMAGE.to_string()),
-        cmd: Some(vec![
-            "--configFile=/data/traefik/traefik.yml".to_string(),
-        ]),
+        cmd: Some(vec!["--configFile=/data/traefik/traefik.yml".to_string()]),
         hostname: Some(TRAEFIK_CONTAINER.to_string()),
         host_config: Some(host_config),
         labels: Some(HashMap::from([

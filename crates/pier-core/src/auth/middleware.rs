@@ -49,9 +49,10 @@ pub async fn require_auth(
 
     // Look up session and user in DB
     let auth_user = {
-        let db = state.db.lock().map_err(|e| {
-            anyhow::anyhow!("DB lock poisoned: {e}")
-        })?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
         let result = db.query_row(
             "SELECT u.id, u.username, u.role

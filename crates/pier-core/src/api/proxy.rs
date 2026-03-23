@@ -50,9 +50,14 @@ pub async fn enable(State(state): State<SharedState>) -> AppResult<impl IntoResp
     };
 
     // Deploy Traefik
-    crate::proxy::deploy_traefik(&state.docker, &state.config.data_dir, &acme_email, dashboard)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy Traefik: {e}")))?;
+    crate::proxy::deploy_traefik(
+        &state.docker,
+        &state.config.data_dir,
+        &acme_email,
+        dashboard,
+    )
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy Traefik: {e}")))?;
 
     // Save enabled state
     {
@@ -66,7 +71,9 @@ pub async fn enable(State(state): State<SharedState>) -> AppResult<impl IntoResp
         )?;
     }
 
-    Ok(Json(serde_json::json!({"ok": true, "message": "Proxy enabled"})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "message": "Proxy enabled"}),
+    ))
 }
 
 /// POST /api/v1/proxy/disable
@@ -84,7 +91,9 @@ pub async fn disable(State(state): State<SharedState>) -> AppResult<impl IntoRes
         [],
     )?;
 
-    Ok(Json(serde_json::json!({"ok": true, "message": "Proxy disabled"})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "message": "Proxy disabled"}),
+    ))
 }
 
 /// GET /api/v1/proxy/status

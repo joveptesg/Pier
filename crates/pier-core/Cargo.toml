@@ -74,6 +74,18 @@ jsonwebtoken = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 
+# Crypto (webhook signature verification)
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+# Tar archive (Docker build context)
+tar = { workspace = true }
+
+# HTTP body (Docker build context)
+bytes = { workspace = true }
+http-body-util = { workspace = true }
+
 # Utilities
 uuid = { workspace = true }
 chrono = { workspace = true }

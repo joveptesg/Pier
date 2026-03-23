@@ -24,10 +24,7 @@ pub fn init_templates() -> Environment<'static> {
     // Inject version as a global variable available in all templates
     env.add_global("version", env!("CARGO_PKG_VERSION"));
 
-    tracing::info!(
-        "Loaded {} templates",
-        TemplateAssets::iter().count()
-    );
+    tracing::info!("Loaded {} templates", TemplateAssets::iter().count());
     env
 }
 

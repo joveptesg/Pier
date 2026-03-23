@@ -50,6 +50,7 @@ log:
 /// `domain`: the FQDN to route (e.g. "app.example.com")
 /// `target_url`: upstream URL (e.g. "http://host.docker.internal:10042")
 /// `use_tls`: whether to enable Let's Encrypt TLS
+#[allow(dead_code)]
 pub fn generate_dynamic_config(
     service_id: &str,
     domain: &str,
@@ -57,10 +58,9 @@ pub fn generate_dynamic_config(
     use_tls: bool,
 ) -> String {
     let tls_section = if use_tls {
-        format!(
-            r#"      tls:
+        r#"      tls:
         certResolver: letsencrypt"#
-        )
+            .to_string()
     } else {
         String::new()
     };
@@ -108,6 +108,7 @@ pub fn write_static_config(data_dir: &Path, acme_email: &str, dashboard: bool) -
 }
 
 /// Write a dynamic config file for a domain.
+#[allow(dead_code)]
 pub fn write_domain_config(
     data_dir: &Path,
     service_id: &str,
@@ -126,6 +127,7 @@ pub fn write_domain_config(
 }
 
 /// Remove a dynamic config file for a service.
+#[allow(dead_code)]
 pub fn remove_domain_config(data_dir: &Path, service_id: &str) -> Result<()> {
     let file_path = data_dir
         .join("traefik")
@@ -144,7 +146,13 @@ pub fn generate_service_domain(service_name: &str, service_id: &str, server_ip: 
     let clean_name: String = service_name
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let clean_name = clean_name.trim_matches('-');
 
@@ -221,11 +229,7 @@ pub fn regenerate_service_config(
 }
 
 /// Write Traefik config for the Pier platform domain.
-pub fn write_platform_domain_config(
-    data_dir: &Path,
-    domain: &str,
-    target_url: &str,
-) -> Result<()> {
+pub fn write_platform_domain_config(data_dir: &Path, domain: &str, target_url: &str) -> Result<()> {
     let dynamic_dir = data_dir.join("traefik").join("dynamic");
     std::fs::create_dir_all(&dynamic_dir)?;
 

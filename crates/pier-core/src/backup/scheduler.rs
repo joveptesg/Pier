@@ -29,17 +29,18 @@ async fn check_and_run(state: &SharedState) -> anyhow::Result<()> {
              FROM backup_schedules bs
              WHERE bs.is_active = 1 AND bs.next_run_at <= datetime('now')",
         )?;
-        let result: Vec<(String, String, String, String, i64)> = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, i64>(4)?,
-            ))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+        let result: Vec<(String, String, String, String, i64)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
         result
     };
 
@@ -211,11 +212,12 @@ async fn run_single_backup(
                 "SELECT id FROM backups WHERE schedule_id = ?1 AND status = 'completed'
                  ORDER BY started_at DESC LIMIT -1 OFFSET ?2",
             )?;
-            let result: Vec<String> = stmt.query_map(rusqlite::params![schedule_id, retention], |row| {
-                row.get::<_, String>(0)
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
+            let result: Vec<String> = stmt
+                .query_map(rusqlite::params![schedule_id, retention], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
             result
         };
 

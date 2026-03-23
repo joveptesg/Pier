@@ -136,7 +136,7 @@ pub async fn create(
 
     // Generate passwords for auto_generate fields
     if let Some(ui) = &item.ui {
-        for (_key, field) in &ui.fields {
+        for field in ui.fields.values() {
             if field.auto_generate {
                 let password = body
                     .config
@@ -189,12 +189,7 @@ pub async fn create(
             let range = db.query_row(
                 "SELECT port_range_start, port_range_end FROM projects WHERE id = ?1",
                 [pid],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<i64>>(0)?,
-                        row.get::<_, Option<i64>>(1)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
             );
             match range {
                 Ok((Some(s), Some(e))) => Ok((s as u16, e as u16)),
@@ -234,17 +229,20 @@ pub async fn create(
                 item.docker.as_ref().map(|d| catalog::substitute(&d.image, &vars)),
             ],
         )?;
-        Ok(ports::allocate_ports(db, &service_id, &port_specs, port_start, port_end)?)
+        Ok(ports::allocate_ports(
+            db,
+            &service_id,
+            &port_specs,
+            port_start,
+            port_end,
+        )?)
     })?;
 
     // Add allocated ports to vars
     let port_mappings: Vec<(String, u16, u16)> = allocated_ports
         .iter()
         .map(|pa| {
-            vars.insert(
-                format!("port_{}", pa.port_name),
-                pa.host_port.to_string(),
-            );
+            vars.insert(format!("port_{}", pa.port_name), pa.host_port.to_string());
             (
                 pa.port_name.clone(),
                 pa.host_port as u16,
@@ -272,7 +270,10 @@ pub async fn create(
     if is_cluster {
         // Validate cluster config from catalog
         let cluster_cfg = item.cluster.as_ref().ok_or_else(|| {
-            AppError::BadRequest(format!("'{}' does not support cluster mode", body.catalog_id))
+            AppError::BadRequest(format!(
+                "'{}' does not support cluster mode",
+                body.catalog_id
+            ))
         })?;
 
         let node_count = body.node_count.unwrap_or(cluster_cfg.default_nodes);
@@ -445,11 +446,7 @@ async fn create_compose(
     stack_name: &str,
     item: &catalog::CatalogItem,
 ) -> AppResult<Json<serde_json::Value>> {
-    let yaml = body
-        .config
-        .get("yaml")
-        .cloned()
-        .unwrap_or_default();
+    let yaml = body.config.get("yaml").cloned().unwrap_or_default();
     if yaml.trim().is_empty() {
         return Err(AppError::BadRequest(
             "Docker Compose YAML is required".into(),
@@ -512,13 +509,11 @@ async fn create_dockerfile(
     stack_name: &str,
     item: &catalog::CatalogItem,
 ) -> AppResult<Json<serde_json::Value>> {
-    let dockerfile_content = body
-        .config
-        .get("dockerfile")
-        .cloned()
-        .unwrap_or_default();
+    let dockerfile_content = body.config.get("dockerfile").cloned().unwrap_or_default();
     if dockerfile_content.trim().is_empty() {
-        return Err(AppError::BadRequest("Dockerfile content is required".into()));
+        return Err(AppError::BadRequest(
+            "Dockerfile content is required".into(),
+        ));
     }
 
     let container_port: u16 = body
@@ -584,11 +579,7 @@ async fn create_dockerfile(
     );
 
     // Write Dockerfile to stack dir
-    let stack_dir = state
-        .config
-        .data_dir
-        .join("stacks")
-        .join(stack_name);
+    let stack_dir = state.config.data_dir.join("stacks").join(stack_name);
     tokio::fs::create_dir_all(&stack_dir)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Create stack dir: {e}")))?;
@@ -653,11 +644,7 @@ async fn create_git_deploy(
     item: &catalog::CatalogItem,
     use_deploy_key: bool,
 ) -> AppResult<Json<serde_json::Value>> {
-    let git_url = body
-        .config
-        .get("git_url")
-        .cloned()
-        .unwrap_or_default();
+    let git_url = body.config.get("git_url").cloned().unwrap_or_default();
     if git_url.trim().is_empty() {
         return Err(AppError::BadRequest("Repository URL is required".into()));
     }
@@ -724,11 +711,7 @@ async fn create_git_deploy(
     })?;
 
     // Set up stack directory
-    let stack_dir = state
-        .config
-        .data_dir
-        .join("stacks")
-        .join(stack_name);
+    let stack_dir = state.config.data_dir.join("stacks").join(stack_name);
     tokio::fs::create_dir_all(&stack_dir)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Create stack dir: {e}")))?;
@@ -737,11 +720,7 @@ async fn create_git_deploy(
 
     // If using deploy key, write it and configure SSH
     if use_deploy_key {
-        let deploy_key = body
-            .config
-            .get("deploy_key")
-            .cloned()
-            .unwrap_or_default();
+        let deploy_key = body.config.get("deploy_key").cloned().unwrap_or_default();
         if deploy_key.trim().is_empty() {
             return Err(AppError::BadRequest("SSH deploy key is required".into()));
         }
@@ -941,10 +920,9 @@ async fn create_git_deploy_github_app(
     stack_name: &str,
     item: &catalog::CatalogItem,
 ) -> AppResult<Json<serde_json::Value>> {
-    let source_id = body
-        .source_id
-        .as_deref()
-        .ok_or_else(|| AppError::BadRequest("source_id is required for GitHub App deploy".into()))?;
+    let source_id = body.source_id.as_deref().ok_or_else(|| {
+        AppError::BadRequest("source_id is required for GitHub App deploy".into())
+    })?;
 
     // Load source credentials from DB
     let (app_id, installation_id, private_key) = with_db(state, |db| {
@@ -959,22 +937,25 @@ async fn create_git_deploy_github_app(
                 ))
             },
         ).map_err(|_| AppError::NotFound(format!("GitHub App source {source_id} not found")))?;
-        let app_id = row.0.ok_or_else(|| AppError::BadRequest("Source missing app_id".into()))?;
-        let inst_id = row.1.ok_or_else(|| AppError::BadRequest("Source missing installation_id".into()))?;
-        let pk = row.2.ok_or_else(|| AppError::BadRequest("Source missing private_key".into()))?;
+        let app_id = row
+            .0
+            .ok_or_else(|| AppError::BadRequest("Source missing app_id".into()))?;
+        let inst_id = row
+            .1
+            .ok_or_else(|| AppError::BadRequest("Source missing installation_id".into()))?;
+        let pk = row
+            .2
+            .ok_or_else(|| AppError::BadRequest("Source missing private_key".into()))?;
         Ok((app_id, inst_id, pk))
     })?;
 
     // Get installation access token
-    let token = crate::git::github_app::get_installation_token(&app_id, installation_id, &private_key)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("GitHub App token: {e}")))?;
+    let token =
+        crate::git::github_app::get_installation_token(&app_id, installation_id, &private_key)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("GitHub App token: {e}")))?;
 
-    let git_url = body
-        .config
-        .get("git_url")
-        .cloned()
-        .unwrap_or_default();
+    let git_url = body.config.get("git_url").cloned().unwrap_or_default();
     if git_url.trim().is_empty() {
         return Err(AppError::BadRequest("Repository URL is required".into()));
     }
@@ -986,9 +967,23 @@ async fn create_git_deploy_github_app(
         return Err(AppError::BadRequest("GitHub App requires HTTPS URL".into()));
     };
 
-    let branch = body.config.get("branch").cloned().filter(|b| !b.is_empty()).unwrap_or_else(|| "main".to_string());
-    let build_path = body.config.get("build_path").cloned().filter(|b| !b.is_empty()).unwrap_or_else(|| "/Dockerfile".to_string());
-    let container_port: u16 = body.config.get("port").and_then(|p| p.parse().ok()).unwrap_or(3000);
+    let branch = body
+        .config
+        .get("branch")
+        .cloned()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "main".to_string());
+    let build_path = body
+        .config
+        .get("build_path")
+        .cloned()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "/Dockerfile".to_string());
+    let container_port: u16 = body
+        .config
+        .get("port")
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3000);
 
     let service_id = uuid::Uuid::new_v4().to_string();
 
@@ -999,19 +994,32 @@ async fn create_git_deploy_github_app(
             rusqlite::params![service_id, body.project_id, name, body.catalog_id, item.meta.category, format!("git: {}", git_url)],
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
-        Ok(ports::allocate_ports(db, &service_id, &port_specs, state.config.port_range_start, state.config.port_range_end)?)
+        Ok(ports::allocate_ports(
+            db,
+            &service_id,
+            &port_specs,
+            state.config.port_range_start,
+            state.config.port_range_end,
+        )?)
     })?;
 
-    let host_port = allocated_ports.first().map(|p| p.host_port as u16).unwrap_or(container_port);
+    let host_port = allocated_ports
+        .first()
+        .map(|p| p.host_port as u16)
+        .unwrap_or(container_port);
 
     let sid = service_id.clone();
     with_db(state, |db| {
-        let _ = db.execute("UPDATE services SET port = ?1 WHERE id = ?2", rusqlite::params![host_port as i64, sid]);
+        let _ = db.execute(
+            "UPDATE services SET port = ?1 WHERE id = ?2",
+            rusqlite::params![host_port as i64, sid],
+        );
         Ok(())
     })?;
 
     let stack_dir = state.config.data_dir.join("stacks").join(stack_name);
-    tokio::fs::create_dir_all(&stack_dir).await
+    tokio::fs::create_dir_all(&stack_dir)
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Create stack dir: {e}")))?;
 
     let repo_dir = stack_dir.join("repo");
@@ -1029,23 +1037,38 @@ async fn create_git_deploy_github_app(
         let stderr = String::from_utf8_lossy(&clone_output.stderr);
         let sid = service_id.clone();
         with_db(state, |db| {
-            let _ = db.execute("UPDATE services SET status = 'failed', updated_at = datetime('now') WHERE id = ?1", rusqlite::params![sid]);
+            let _ = db.execute(
+                "UPDATE services SET status = 'failed', updated_at = datetime('now') WHERE id = ?1",
+                rusqlite::params![sid],
+            );
             Ok(())
         })?;
-        return Err(AppError::Internal(anyhow::anyhow!("Git clone failed: {stderr}")));
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Git clone failed: {stderr}"
+        )));
     }
 
     // Verify Dockerfile
     let dockerfile_rel = build_path.trim_start_matches('/');
-    let dockerfile_in_repo = if dockerfile_rel.is_empty() { "Dockerfile".to_string() } else { dockerfile_rel.to_string() };
+    let dockerfile_in_repo = if dockerfile_rel.is_empty() {
+        "Dockerfile".to_string()
+    } else {
+        dockerfile_rel.to_string()
+    };
     let full_dockerfile_path = repo_dir.join(&dockerfile_in_repo);
     if !full_dockerfile_path.exists() {
         let sid = service_id.clone();
         with_db(state, |db| {
-            let _ = db.execute("UPDATE services SET status = 'failed', updated_at = datetime('now') WHERE id = ?1", rusqlite::params![sid]);
+            let _ = db.execute(
+                "UPDATE services SET status = 'failed', updated_at = datetime('now') WHERE id = ?1",
+                rusqlite::params![sid],
+            );
             Ok(())
         })?;
-        return Err(AppError::BadRequest(format!("Dockerfile not found at {}", dockerfile_in_repo)));
+        return Err(AppError::BadRequest(format!(
+            "Dockerfile not found at {}",
+            dockerfile_in_repo
+        )));
     }
 
     // Build compose YAML
@@ -1073,7 +1096,11 @@ async fn create_git_deploy_github_app(
 
     let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config).await;
 
-    let status = if deploy_result.is_ok() { "running" } else { "failed" };
+    let status = if deploy_result.is_ok() {
+        "running"
+    } else {
+        "failed"
+    };
     let log_output = match &deploy_result {
         Ok(out) => out.clone(),
         Err(e) => format!("{e}"),
@@ -1258,7 +1285,10 @@ pub async fn stop(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let status_str = if result.is_ok() { "success" } else { "failed" };
-    let log_output = match &result { Ok(o) => o.clone(), Err(e) => format!("{e}") };
+    let log_output = match &result {
+        Ok(o) => o.clone(),
+        Err(e) => format!("{e}"),
+    };
     record_deployment_log(&db, &id, "stop", status_str, &log_output);
     let _ = db.execute(
         "UPDATE services SET status = 'stopped', updated_at = datetime('now') WHERE id = ?1",
@@ -1297,8 +1327,17 @@ pub async fn start(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    let log_output = match &result { Ok(o) => o.clone(), Err(e) => format!("{e}") };
-    record_deployment_log(&db, &id, "start", if result.is_ok() { "success" } else { "failed" }, &log_output);
+    let log_output = match &result {
+        Ok(o) => o.clone(),
+        Err(e) => format!("{e}"),
+    };
+    record_deployment_log(
+        &db,
+        &id,
+        "start",
+        if result.is_ok() { "success" } else { "failed" },
+        &log_output,
+    );
     let _ = db.execute(
         "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
         rusqlite::params![status, id],
@@ -1337,8 +1376,17 @@ pub async fn restart(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    let log_output = match &result { Ok(o) => o.clone(), Err(e) => format!("{e}") };
-    record_deployment_log(&db, &id, "restart", if result.is_ok() { "success" } else { "failed" }, &log_output);
+    let log_output = match &result {
+        Ok(o) => o.clone(),
+        Err(e) => format!("{e}"),
+    };
+    record_deployment_log(
+        &db,
+        &id,
+        "restart",
+        if result.is_ok() { "success" } else { "failed" },
+        &log_output,
+    );
     let _ = db.execute(
         "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
         rusqlite::params![status, id],
@@ -1374,7 +1422,10 @@ pub async fn redeploy(
 
     // Set status to deploying
     {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let _ = db.execute(
             "UPDATE services SET status = 'deploying', updated_at = datetime('now') WHERE id = ?1",
             [&id],
@@ -1385,12 +1436,21 @@ pub async fn redeploy(
     let result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await;
 
     let status = if result.is_ok() { "running" } else { "failed" };
-    let log_output = match &result { Ok(o) => o.clone(), Err(e) => format!("{e}") };
+    let log_output = match &result {
+        Ok(o) => o.clone(),
+        Err(e) => format!("{e}"),
+    };
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    record_deployment_log(&db, &id, "redeploy", if result.is_ok() { "success" } else { "failed" }, &log_output);
+    record_deployment_log(
+        &db,
+        &id,
+        "redeploy",
+        if result.is_ok() { "success" } else { "failed" },
+        &log_output,
+    );
     let _ = db.execute(
         "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
         rusqlite::params![status, id],
@@ -1475,8 +1535,8 @@ pub async fn scale(
         return Err(AppError::BadRequest("Resource is not a cluster".into()));
     }
 
-    let catalog_id = catalog_id
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("No catalog_id")))?;
+    let catalog_id =
+        catalog_id.ok_or_else(|| AppError::Internal(anyhow::anyhow!("No catalog_id")))?;
 
     // Validate against catalog limits
     let cluster_cfg = state
@@ -1522,7 +1582,9 @@ pub async fn scale(
                 .unwrap_or("localhost")
                 .to_string()
         } else {
-            body.server_id.clone().unwrap_or_else(|| "localhost".to_string())
+            body.server_id
+                .clone()
+                .unwrap_or_else(|| "localhost".to_string())
         };
         nodes.push(serde_json::json!({
             "index": i,
@@ -1610,4 +1672,85 @@ pub async fn deployment_logs(
         .filter_map(|r| r.ok())
         .collect();
     Ok(Json(logs))
+}
+
+// ── Git Configuration ───────────────────────────────────────────────
+
+/// GET /api/v1/resources/{id}/git — get git config for a service.
+pub async fn get_git_config(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let config = db
+        .query_row(
+            "SELECT git_repo_url, git_branch, git_source_id, build_strategy, git_webhook_secret
+             FROM services WHERE id = ?1",
+            [&id],
+            |row| {
+                Ok(serde_json::json!({
+                    "git_repo_url": row.get::<_, Option<String>>(0)?,
+                    "git_branch": row.get::<_, Option<String>>(1)?,
+                    "git_source_id": row.get::<_, Option<String>>(2)?,
+                    "build_strategy": row.get::<_, Option<String>>(3)?,
+                    "webhook_secret": row.get::<_, Option<String>>(4)?,
+                }))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
+
+    Ok(Json(config))
+}
+
+/// PUT /api/v1/resources/{id}/git — configure git source for a service.
+pub async fn update_git_config(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateGitConfigRequest>,
+) -> AppResult<impl IntoResponse> {
+    // Generate webhook secret if not provided
+    let webhook_secret = body.webhook_secret.unwrap_or_else(|| {
+        hex::encode(uuid::Uuid::new_v4().as_bytes().as_slice())
+            + &hex::encode(uuid::Uuid::new_v4().as_bytes().as_slice())
+    });
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let rows = db.execute(
+        "UPDATE services SET git_repo_url = ?1, git_branch = ?2, git_source_id = ?3, build_strategy = ?4, git_webhook_secret = ?5, updated_at = datetime('now')
+         WHERE id = ?6",
+        rusqlite::params![
+            body.git_repo_url,
+            body.git_branch.unwrap_or_else(|| "main".to_string()),
+            body.git_source_id,
+            body.build_strategy.unwrap_or_else(|| "dockerfile".to_string()),
+            webhook_secret,
+            id,
+        ],
+    )?;
+
+    if rows == 0 {
+        return Err(AppError::NotFound(format!("Service {id} not found")));
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "webhook_secret": webhook_secret,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateGitConfigRequest {
+    pub git_repo_url: String,
+    pub git_branch: Option<String>,
+    pub git_source_id: Option<String>,
+    pub build_strategy: Option<String>,
+    pub webhook_secret: Option<String>,
 }

@@ -297,8 +297,13 @@ pub async fn create_service_domain(
             .collect();
         rows
     };
-    config::regenerate_service_config(&state.config.data_dir, service_id, &all_domains, &target_url)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Write proxy config: {e}")))?;
+    config::regenerate_service_config(
+        &state.config.data_dir,
+        service_id,
+        &all_domains,
+        &target_url,
+    )
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Write proxy config: {e}")))?;
 
     tracing::info!("Auto-generated domain: {domain} → :{port}");
     Ok(domain)

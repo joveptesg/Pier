@@ -55,9 +55,7 @@ pub async fn get_installation_token(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!(
-            "GitHub API error {status}: {body}"
-        ));
+        return Err(anyhow!("GitHub API error {status}: {body}"));
     }
 
     let data: InstallationTokenResponse = resp.json().await?;

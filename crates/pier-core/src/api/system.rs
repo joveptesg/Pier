@@ -13,8 +13,8 @@ pub async fn metrics() -> AppResult<impl IntoResponse> {
 
     let total_memory = sys.total_memory();
     let used_memory = sys.used_memory();
-    let cpu_usage: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>()
-        / sys.cpus().len().max(1) as f32;
+    let cpu_usage: f32 =
+        sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len().max(1) as f32;
 
     let disks: Vec<serde_json::Value> = sysinfo::Disks::new_with_refreshed_list()
         .iter()

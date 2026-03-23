@@ -33,7 +33,10 @@ pub async fn setup(
         ));
     }
 
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     // Check no users exist
     let count: u32 = db.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
@@ -50,7 +53,9 @@ pub async fn setup(
     )?;
 
     tracing::info!("Admin user '{}' created", body.username.trim());
-    Ok(Json(serde_json::json!({"ok": true, "message": "Admin user created"})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "message": "Admin user created"}),
+    ))
 }
 
 /// POST /api/v1/auth/login — Authenticate and create session.
@@ -58,7 +63,10 @@ pub async fn login(
     State(state): State<SharedState>,
     Json(body): Json<LoginRequest>,
 ) -> AppResult<impl IntoResponse> {
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     // Find user by username
     let user_result = db.query_row(

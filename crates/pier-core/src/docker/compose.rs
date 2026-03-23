@@ -60,6 +60,7 @@ pub async fn down_stack(name: &str, config: &PierConfig) -> Result<String> {
 }
 
 /// List all stacks by scanning the stacks directory.
+#[allow(dead_code)]
 pub async fn list_stacks_on_disk(config: &PierConfig) -> Result<Vec<String>> {
     let dir = stacks_dir(config);
     if !dir.exists() {
@@ -84,6 +85,7 @@ pub async fn list_stacks_on_disk(config: &PierConfig) -> Result<Vec<String>> {
 }
 
 /// Read compose YAML content for a stack.
+#[allow(dead_code)]
 pub async fn read_stack_yaml(name: &str, config: &PierConfig) -> Result<String> {
     let compose_file = stacks_dir(config).join(name).join("docker-compose.yml");
     Ok(tokio::fs::read_to_string(compose_file).await?)

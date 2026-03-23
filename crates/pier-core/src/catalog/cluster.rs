@@ -2,9 +2,8 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 
-
-
 /// Node role within a cluster.
+#[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClusterNode {
     pub index: usize,
@@ -14,6 +13,7 @@ pub struct ClusterNode {
 }
 
 /// Cluster configuration stored in services.cluster_config_json.
+#[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClusterState {
     pub node_count: usize,
@@ -46,8 +46,14 @@ pub fn build_cluster_compose(
 fn build_postgresql(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("pg");
     let version = vars.get("version").map(|s| s.as_str()).unwrap_or("17");
-    let password = vars.get("password").map(|s| s.as_str()).unwrap_or("changeme");
-    let db_name = vars.get("POSTGRES_DB").map(|s| s.as_str()).unwrap_or("postgres");
+    let password = vars
+        .get("password")
+        .map(|s| s.as_str())
+        .unwrap_or("changeme");
+    let db_name = vars
+        .get("POSTGRES_DB")
+        .map(|s| s.as_str())
+        .unwrap_or("postgres");
     let port = vars.get("port").map(|s| s.as_str()).unwrap_or("5432");
     let repl_password = vars
         .get("repl_password")
@@ -125,8 +131,14 @@ fn build_postgresql(nodes: usize, vars: &HashMap<String, String>) -> Result<Stri
 fn build_mysql(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("mysql");
     let version = vars.get("version").map(|s| s.as_str()).unwrap_or("9.3");
-    let password = vars.get("password").map(|s| s.as_str()).unwrap_or("changeme");
-    let db_name = vars.get("MYSQL_DATABASE").map(|s| s.as_str()).unwrap_or("mydb");
+    let password = vars
+        .get("password")
+        .map(|s| s.as_str())
+        .unwrap_or("changeme");
+    let db_name = vars
+        .get("MYSQL_DATABASE")
+        .map(|s| s.as_str())
+        .unwrap_or("mydb");
     let port = vars.get("port").map(|s| s.as_str()).unwrap_or("3306");
     let repl_password = vars
         .get("repl_password")
@@ -199,7 +211,10 @@ fn build_mysql(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
 fn build_mariadb(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("mariadb");
     let version = vars.get("version").map(|s| s.as_str()).unwrap_or("11.8");
-    let password = vars.get("password").map(|s| s.as_str()).unwrap_or("changeme");
+    let password = vars
+        .get("password")
+        .map(|s| s.as_str())
+        .unwrap_or("changeme");
     let db_name = vars
         .get("MARIADB_DATABASE")
         .map(|s| s.as_str())
@@ -282,7 +297,17 @@ fn build_mongodb(nodes: usize, vars: &HashMap<String, String>) -> Result<String>
 
     // Build rs.initiate() members list
     let members: Vec<String> = (0..nodes)
-        .map(|i| format!("{{_id:{i}, host:'mongo-{}:27017'{}}}", i + 1, if i == 0 { ", priority:2" } else { ", priority:1" }))
+        .map(|i| {
+            format!(
+                "{{_id:{i}, host:'mongo-{}:27017'{}}}",
+                i + 1,
+                if i == 0 {
+                    ", priority:2"
+                } else {
+                    ", priority:1"
+                }
+            )
+        })
         .collect();
     let members_str = members.join(",");
 
@@ -348,9 +373,7 @@ fn build_cassandra(nodes: usize, vars: &HashMap<String, String>) -> Result<Strin
 
     // Seeds: first 2 nodes (or 1 if only 2 total)
     let seed_count = std::cmp::min(2, nodes);
-    let seeds: Vec<String> = (1..=seed_count)
-        .map(|i| format!("cassandra-{i}"))
-        .collect();
+    let seeds: Vec<String> = (1..=seed_count).map(|i| format!("cassandra-{i}")).collect();
     let seeds_str = seeds.join(",");
 
     let mut yaml = String::from("services:\n");
@@ -416,9 +439,7 @@ fn build_scylladb(nodes: usize, vars: &HashMap<String, String>) -> Result<String
     let memory = vars.get("memory").map(|s| s.as_str()).unwrap_or("750M");
 
     let seed_count = std::cmp::min(2, nodes);
-    let seeds: Vec<String> = (1..=seed_count)
-        .map(|i| format!("scylla-{i}"))
-        .collect();
+    let seeds: Vec<String> = (1..=seed_count).map(|i| format!("scylla-{i}")).collect();
     let seeds_str = seeds.join(",");
 
     let mut yaml = String::from("services:\n");
@@ -473,7 +494,10 @@ fn build_scylladb(nodes: usize, vars: &HashMap<String, String>) -> Result<String
 fn build_redis(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("redis");
     let version = vars.get("version").map(|s| s.as_str()).unwrap_or("8.0");
-    let password = vars.get("password").map(|s| s.as_str()).unwrap_or("changeme");
+    let password = vars
+        .get("password")
+        .map(|s| s.as_str())
+        .unwrap_or("changeme");
     let port = vars.get("port").map(|s| s.as_str()).unwrap_or("6379");
 
     let replica_count = nodes - 1; // 1 master + (nodes-1) replicas
@@ -559,12 +583,10 @@ fn build_redis(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
 }
 
 /// Get the decommission command for a given database type and node.
+#[allow(dead_code)]
 pub fn decommission_command(catalog_id: &str, _node_role: &str) -> Option<Vec<String>> {
     match catalog_id {
-        "cassandra" | "scylladb" => Some(vec![
-            "nodetool".to_string(),
-            "decommission".to_string(),
-        ]),
+        "cassandra" | "scylladb" => Some(vec!["nodetool".to_string(), "decommission".to_string()]),
         "mongodb" => {
             // MongoDB removal is done via rs.remove() on the primary, not on the node itself
             None

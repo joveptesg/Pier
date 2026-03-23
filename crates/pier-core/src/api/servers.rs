@@ -68,9 +68,7 @@ pub async fn create(
     Json(body): Json<CreateServerRequest>,
 ) -> AppResult<impl IntoResponse> {
     if body.name.trim().is_empty() || body.host.trim().is_empty() {
-        return Err(AppError::BadRequest(
-            "Name and host are required".into(),
-        ));
+        return Err(AppError::BadRequest("Name and host are required".into()));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let agent_token = catalog::generate_password(32);
@@ -153,11 +151,7 @@ pub async fn test_connection(
         .header("Authorization", format!("Bearer {agent_token}"))
         .send()
         .await
-        .map_err(|e| {
-            AppError::BadRequest(format!(
-                "Cannot connect to agent at {url}: {e}"
-            ))
-        })?;
+        .map_err(|e| AppError::BadRequest(format!("Cannot connect to agent at {url}: {e}")))?;
 
     if resp.status().is_success() {
         let db = state

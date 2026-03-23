@@ -3,6 +3,7 @@ pub mod backups;
 pub mod catalog;
 pub mod compose;
 pub mod containers;
+pub mod deployments;
 pub mod domains;
 pub mod env;
 pub mod images;
@@ -13,6 +14,7 @@ pub mod s3;
 pub mod servers;
 pub mod sources;
 pub mod system;
+pub mod webhooks;
 
 use axum::routing::{delete, get, post, put};
 use axum::Router;
@@ -26,7 +28,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/auth/login", post(auth::login))
         .route("/auth/setup", post(auth::setup))
         // Agent heartbeat (token-based auth, not session)
-        .route("/servers/heartbeat", post(servers::heartbeat));
+        .route("/servers/heartbeat", post(servers::heartbeat))
+        // Webhooks (public — GitHub/GitLab need to reach these)
+        .route("/webhooks/github", post(webhooks::github))
+        .route("/webhooks/gitlab", post(webhooks::gitlab));
 
     let protected = Router::new()
         // Auth
@@ -34,7 +39,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/auth/session", get(auth::session_check))
         // Containers
         .route("/containers", get(containers::list))
-        .route("/containers/{id}", get(containers::inspect).delete(containers::remove))
+        .route(
+            "/containers/{id}",
+            get(containers::inspect).delete(containers::remove),
+        )
         .route("/containers/{id}/start", post(containers::start))
         .route("/containers/{id}/stop", post(containers::stop))
         .route("/containers/{id}/restart", post(containers::restart))
@@ -46,33 +54,77 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/images/{id}", delete(images::remove))
         // Stacks
         .route("/stacks", get(compose::list).post(compose::create))
-        .route("/stacks/{id}", get(compose::get).put(compose::update).delete(compose::remove))
+        .route(
+            "/stacks/{id}",
+            get(compose::get)
+                .put(compose::update)
+                .delete(compose::remove),
+        )
         .route("/stacks/{id}/deploy", post(compose::deploy))
         .route("/stacks/{id}/down", post(compose::down))
         // Projects
         .route("/projects", get(projects::list).post(projects::create))
-        .route("/projects/{id}", get(projects::get).put(projects::update).delete(projects::delete))
+        .route(
+            "/projects/{id}",
+            get(projects::get)
+                .put(projects::update)
+                .delete(projects::delete),
+        )
         // Catalog
         .route("/catalog", get(catalog::list))
         .route("/catalog/{id}", get(catalog::get))
         // Resources
         .route("/resources", get(resources::list).post(resources::create))
-        .route("/resources/{id}", get(resources::get).delete(resources::remove))
+        .route(
+            "/resources/{id}",
+            get(resources::get).delete(resources::remove),
+        )
         .route("/resources/{id}/start", post(resources::start))
         .route("/resources/{id}/stop", post(resources::stop))
         .route("/resources/{id}/restart", post(resources::restart))
         .route("/resources/{id}/redeploy", post(resources::redeploy))
         .route("/resources/{id}/nodes", get(resources::get_nodes))
         .route("/resources/{id}/scale", post(resources::scale))
-        .route("/resources/{id}/deployment-logs", get(resources::deployment_logs))
+        .route(
+            "/resources/{id}/deployment-logs",
+            get(resources::deployment_logs),
+        )
+        // Git config
+        .route(
+            "/resources/{id}/git",
+            get(resources::get_git_config).put(resources::update_git_config),
+        )
+        // Deployments (CI/CD pipeline)
+        .route("/resources/{id}/deploy", post(deployments::manual_deploy))
+        .route("/resources/{id}/rollback", post(deployments::rollback))
+        .route("/resources/{id}/deployments", get(deployments::list))
+        .route(
+            "/resources/{id}/deployments/{dep_id}",
+            get(deployments::get),
+        )
         // Environment Variables
-        .route("/resources/{id}/env", get(env::get_env).put(env::update_env))
+        .route(
+            "/resources/{id}/env",
+            get(env::get_env).put(env::update_env),
+        )
         // Backups
         .route("/resources/{id}/backups", get(backups::list_backups))
-        .route("/resources/{id}/backups/schedule", get(backups::get_schedule).post(backups::create_schedule))
-        .route("/resources/{id}/backups/schedule/{schedule_id}", delete(backups::delete_schedule))
-        .route("/resources/{id}/backups/trigger", post(backups::trigger_backup))
-        .route("/backups/{backup_id}/download", get(backups::download_backup))
+        .route(
+            "/resources/{id}/backups/schedule",
+            get(backups::get_schedule).post(backups::create_schedule),
+        )
+        .route(
+            "/resources/{id}/backups/schedule/{schedule_id}",
+            delete(backups::delete_schedule),
+        )
+        .route(
+            "/resources/{id}/backups/trigger",
+            post(backups::trigger_backup),
+        )
+        .route(
+            "/backups/{backup_id}/download",
+            get(backups::download_backup),
+        )
         // Sources
         .route("/sources", get(sources::list).post(sources::create))
         .route("/sources/{id}", delete(sources::remove))

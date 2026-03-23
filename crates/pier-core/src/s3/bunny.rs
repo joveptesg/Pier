@@ -2,11 +2,7 @@ use anyhow::Result;
 use reqwest::Client;
 
 /// Test Bunny.net storage zone connectivity.
-pub async fn test_connection(
-    storage_zone: &str,
-    access_key: &str,
-    endpoint: &str,
-) -> Result<()> {
+pub async fn test_connection(storage_zone: &str, access_key: &str, endpoint: &str) -> Result<()> {
     let url = format!("https://{endpoint}/{storage_zone}/");
     let client = Client::new();
     let resp = client

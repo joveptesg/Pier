@@ -299,19 +299,21 @@ pub async fn s3_list(
 
 /// GET /static/{*path}
 pub async fn static_file(Path(path): Path<String>) -> impl IntoResponse {
-    use super::templates::{StaticAssets, content_type_for};
+    use super::templates::{content_type_for, StaticAssets};
 
     match StaticAssets::get(&path) {
         Some(file) => (
             StatusCode::OK,
-            [(
-                axum::http::header::CONTENT_TYPE,
-                content_type_for(&path).to_string(),
-            ),
-            (
-                axum::http::header::CACHE_CONTROL,
-                "public, max-age=31536000, immutable".to_string(),
-            )],
+            [
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    content_type_for(&path).to_string(),
+                ),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "public, max-age=31536000, immutable".to_string(),
+                ),
+            ],
             file.data.to_vec(),
         )
             .into_response(),

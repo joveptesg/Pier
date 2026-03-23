@@ -19,13 +19,9 @@ pub fn allocate_ports(
     }
 
     // Get ALL currently allocated ports (not just in range — needed for standard port check)
-    let mut stmt = conn.prepare(
-        "SELECT host_port FROM port_allocations ORDER BY host_port",
-    )?;
+    let mut stmt = conn.prepare("SELECT host_port FROM port_allocations ORDER BY host_port")?;
     let all_used: Vec<u16> = stmt
-        .query_map([], |row| {
-            row.get::<_, i64>(0).map(|p| p as u16)
-        })?
+        .query_map([], |row| row.get::<_, i64>(0).map(|p| p as u16))?
         .filter_map(|r| r.ok())
         .collect();
 

@@ -20,7 +20,10 @@ pub struct UpdateStackRequest {
 
 /// GET /api/v1/stacks
 pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let mut stmt = db.prepare(
         "SELECT id, name, compose_content, status, created_at FROM services WHERE service_type = 'compose'"
@@ -52,7 +55,10 @@ pub async fn create(
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     db.execute(
         "INSERT INTO services (id, name, service_type, compose_content, status)
@@ -68,7 +74,10 @@ pub async fn get(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let result = db.query_row(
         "SELECT id, name, compose_content, status FROM services WHERE id = ?1 AND service_type = 'compose'",
@@ -92,7 +101,10 @@ pub async fn update(
     Path(id): Path<String>,
     Json(body): Json<UpdateStackRequest>,
 ) -> AppResult<impl IntoResponse> {
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let rows = db.execute(
         "UPDATE services SET compose_content = ?1, updated_at = datetime('now')
@@ -113,7 +125,10 @@ pub async fn deploy(
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
     let (name, yaml) = {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
             "SELECT name, compose_content FROM services WHERE id = ?1 AND service_type = 'compose'",
             [&id],
@@ -126,7 +141,10 @@ pub async fn deploy(
     let output = docker::compose::deploy_stack(&name, &yaml, &state.config).await?;
 
     // Update status
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let _ = db.execute(
         "UPDATE services SET status = 'running', updated_at = datetime('now') WHERE id = ?1",
         [&id],
@@ -141,7 +159,10 @@ pub async fn down(
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
     let name = {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
             "SELECT name FROM services WHERE id = ?1 AND service_type = 'compose'",
             [&id],
@@ -152,7 +173,10 @@ pub async fn down(
 
     let output = docker::compose::down_stack(&name, &state.config).await?;
 
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let _ = db.execute(
         "UPDATE services SET status = 'stopped', updated_at = datetime('now') WHERE id = ?1",
         [&id],
@@ -167,7 +191,10 @@ pub async fn remove(
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
     let name = {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
             "SELECT name FROM services WHERE id = ?1 AND service_type = 'compose'",
             [&id],
@@ -180,7 +207,10 @@ pub async fn remove(
     let _ = docker::compose::down_stack(&name, &state.config).await;
     let _ = docker::compose::remove_stack(&name, &state.config).await;
 
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     db.execute("DELETE FROM services WHERE id = ?1", [&id])?;
 
     Ok(Json(serde_json::json!({"ok": true, "action": "removed"})))

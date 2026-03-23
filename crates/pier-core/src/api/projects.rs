@@ -25,7 +25,10 @@ pub struct UpdateProjectRequest {
 
 /// GET /api/v1/projects
 pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let mut stmt = db.prepare(
         "SELECT id, name, description, port_range_start, port_range_end, created_at FROM projects ORDER BY name"
@@ -58,12 +61,21 @@ pub async fn create(
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     db.execute(
         "INSERT INTO projects (id, name, description, port_range_start, port_range_end)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![id, body.name.trim(), body.description, body.port_range_start, body.port_range_end],
+        rusqlite::params![
+            id,
+            body.name.trim(),
+            body.description,
+            body.port_range_start,
+            body.port_range_end
+        ],
     )?;
 
     Ok(Json(serde_json::json!({"ok": true, "id": id})))
@@ -74,7 +86,10 @@ pub async fn get(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let project = db.query_row(
         "SELECT id, name, description, port_range_start, port_range_end, created_at FROM projects WHERE id = ?1",
@@ -93,7 +108,7 @@ pub async fn get(
 
     // Get services for this project
     let mut stmt = db.prepare(
-        "SELECT id, name, service_type, status, port, image FROM services WHERE project_id = ?1"
+        "SELECT id, name, service_type, status, port, image FROM services WHERE project_id = ?1",
     )?;
 
     let services: Vec<serde_json::Value> = stmt
@@ -122,7 +137,10 @@ pub async fn update(
     Path(id): Path<String>,
     Json(body): Json<UpdateProjectRequest>,
 ) -> AppResult<impl IntoResponse> {
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     // Build dynamic update
     let mut sets = vec!["updated_at = datetime('now')".to_string()];
@@ -167,7 +185,10 @@ pub async fn delete(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let rows = db.execute("DELETE FROM projects WHERE id = ?1", [&id])?;
     if rows == 0 {

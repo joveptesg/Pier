@@ -85,8 +85,7 @@ pub async fn logs(
     Path(id): Path<String>,
     Query(params): Query<LogParams>,
 ) -> AppResult<impl IntoResponse> {
-    let lines =
-        docker::logs::get_logs(&state.docker, &id, params.tail, params.timestamps).await?;
+    let lines = docker::logs::get_logs(&state.docker, &id, params.tail, params.timestamps).await?;
     Ok(Json(lines))
 }
 

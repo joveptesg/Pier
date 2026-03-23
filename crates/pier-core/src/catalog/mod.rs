@@ -203,18 +203,26 @@ pub fn load_catalog() -> Vec<CatalogItem> {
                 } else if a.meta.category == "service" && b.meta.category == "service" {
                     let svc = |id: &str| match id {
                         "supabase" => 0,
-                        "grafana" => 1, "grafana-postgresql" => 2,
-                        "elasticsearch" => 3, "elasticsearch-kibana" => 4,
-                        "rabbitmq" => 5, "qdrant" => 6,
+                        "grafana" => 1,
+                        "grafana-postgresql" => 2,
+                        "elasticsearch" => 3,
+                        "elasticsearch-kibana" => 4,
+                        "rabbitmq" => 5,
+                        "qdrant" => 6,
                         "portainer" => 7,
-                        "gitea" => 8, "gitea-postgresql" => 9,
-                        "directus" => 10, "directus-postgresql" => 11,
+                        "gitea" => 8,
+                        "gitea-postgresql" => 9,
+                        "directus" => 10,
+                        "directus-postgresql" => 11,
                         "nocobase" => 12,
-                        "matrix-synapse-postgresql" => 13, "matrix-synapse-sqlite" => 14,
-                        "beszel" => 15, "gotify" => 16,
+                        "matrix-synapse-postgresql" => 13,
+                        "matrix-synapse-sqlite" => 14,
+                        "beszel" => 15,
+                        "gotify" => 16,
                         "audiobookshelf" => 17,
                         "amneziawg" => 18,
-                        "minecraft" => 19, "terraria" => 20,
+                        "minecraft" => 19,
+                        "terraria" => 20,
                         _ => 99,
                     };
                     svc(&a.meta.id).cmp(&svc(&b.meta.id))
@@ -290,7 +298,7 @@ pub fn build_compose_yaml(
     // Environment — only include actual env vars (uppercase keys)
     let env_entries: Vec<_> = env_vars
         .iter()
-        .filter(|(key, _)| key.chars().next().map_or(false, |c| c.is_uppercase()))
+        .filter(|(key, _)| key.chars().next().is_some_and(|c| c.is_uppercase()))
         .collect();
     if !env_entries.is_empty() {
         yaml.push_str("    environment:\n");

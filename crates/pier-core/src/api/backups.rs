@@ -49,10 +49,7 @@ pub async fn create_schedule(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     // Delete existing schedule for this service
-    db.execute(
-        "DELETE FROM backup_schedules WHERE service_id = ?1",
-        [&id],
-    )?;
+    db.execute("DELETE FROM backup_schedules WHERE service_id = ?1", [&id])?;
 
     db.execute(
         "INSERT INTO backup_schedules (id, service_id, s3_storage_id, cron_expression, retention_count, next_run_at)
@@ -99,9 +96,7 @@ pub async fn get_schedule(
 
     match result {
         Ok(schedule) => Ok(Json(schedule)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            Ok(Json(serde_json::Value::Null))
-        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(Json(serde_json::Value::Null)),
         Err(e) => Err(AppError::Database(e)),
     }
 }
@@ -115,10 +110,7 @@ pub async fn delete_schedule(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    db.execute(
-        "DELETE FROM backup_schedules WHERE id = ?1",
-        [&schedule_id],
-    )?;
+    db.execute("DELETE FROM backup_schedules WHERE id = ?1", [&schedule_id])?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -236,12 +228,10 @@ pub async fn trigger_backup(
             "bunny" => {
                 crate::s3::bunny::upload_file(&bucket, &access_key, &endpoint, &s3_key, data).await
             }
-            _ => {
-                match crate::s3::build_client(&endpoint, &region, &access_key, &secret_key) {
-                    Ok(client) => crate::s3::upload_file(&client, &bucket, &s3_key, data).await,
-                    Err(e) => Err(e),
-                }
-            }
+            _ => match crate::s3::build_client(&endpoint, &region, &access_key, &secret_key) {
+                Ok(client) => crate::s3::upload_file(&client, &bucket, &s3_key, data).await,
+                Err(e) => Err(e),
+            },
         };
 
         if let Ok(db) = state2.db.lock() {

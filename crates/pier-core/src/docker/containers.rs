@@ -1,7 +1,6 @@
 use anyhow::Result;
 use bollard::query_parameters::{
-    ListContainersOptions, RemoveContainerOptions, RestartContainerOptions,
-    StopContainerOptions,
+    ListContainersOptions, RemoveContainerOptions, RestartContainerOptions, StopContainerOptions,
 };
 use bollard::Docker;
 use serde::Serialize;
@@ -50,9 +49,12 @@ pub async fn list_containers(docker: &Docker, all: bool) -> Result<Vec<Container
                 .unwrap_or_default()
                 .into_iter()
                 .map(|p| PortMapping {
-                    private_port: p.private_port as u16,
-                    public_port: p.public_port.map(|pp| pp as u16),
-                    port_type: p.typ.map(|t| format!("{t:?}").to_lowercase()).unwrap_or_else(|| "tcp".into()),
+                    private_port: p.private_port,
+                    public_port: p.public_port,
+                    port_type: p
+                        .typ
+                        .map(|t| format!("{t:?}").to_lowercase())
+                        .unwrap_or_else(|| "tcp".into()),
                 })
                 .collect();
 
@@ -160,12 +162,8 @@ pub async fn container_stats(docker: &Docker, id: &str) -> Result<serde_json::Va
                 .and_then(|u| u.total_usage)
                 .unwrap_or(0) as f64;
 
-        let system_delta = cpu
-            .and_then(|c| c.system_cpu_usage)
-            .unwrap_or(0) as f64
-            - precpu
-                .and_then(|c| c.system_cpu_usage)
-                .unwrap_or(0) as f64;
+        let system_delta = cpu.and_then(|c| c.system_cpu_usage).unwrap_or(0) as f64
+            - precpu.and_then(|c| c.system_cpu_usage).unwrap_or(0) as f64;
 
         let num_cpus = cpu.and_then(|c| c.online_cpus).unwrap_or(1) as f64;
 

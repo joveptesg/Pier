@@ -201,9 +201,7 @@ async fn stop(
         .await;
 
     match output {
-        Ok(out) if out.status.success() => {
-            Json(serde_json::json!({"ok": true})).into_response()
-        }
+        Ok(out) if out.status.success() => Json(serde_json::json!({"ok": true})).into_response(),
         Ok(out) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -339,7 +337,8 @@ async fn main() -> Result<()> {
         .and_then(|p| p.parse().ok())
         .unwrap_or(3001);
 
-    let data_dir = std::env::var("PIER_AGENT_DATA_DIR").unwrap_or_else(|_| "/var/lib/pier-agent".into());
+    let data_dir =
+        std::env::var("PIER_AGENT_DATA_DIR").unwrap_or_else(|_| "/var/lib/pier-agent".into());
     tokio::fs::create_dir_all(&data_dir).await?;
 
     let docker = Docker::connect_with_local_defaults()

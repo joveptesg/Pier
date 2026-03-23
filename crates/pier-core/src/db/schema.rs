@@ -221,6 +221,31 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_deployment_logs_service_id ON deployment_logs(service_id);
     "#,
+    // Migration 9: Git webhooks + auto-deploy pipeline
+    r#"
+    ALTER TABLE services ADD COLUMN git_source_id TEXT;
+    ALTER TABLE services ADD COLUMN git_repo_url TEXT;
+    ALTER TABLE services ADD COLUMN git_branch TEXT DEFAULT 'main';
+    ALTER TABLE services ADD COLUMN git_webhook_secret TEXT;
+    ALTER TABLE services ADD COLUMN build_strategy TEXT DEFAULT 'dockerfile';
+    ALTER TABLE services ADD COLUMN previous_image_tag TEXT;
+
+    CREATE TABLE IF NOT EXISTS deployments (
+        id              TEXT PRIMARY KEY NOT NULL,
+        service_id      TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        commit_sha      TEXT,
+        commit_message  TEXT,
+        branch          TEXT,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        build_log       TEXT NOT NULL DEFAULT '',
+        image_tag       TEXT,
+        triggered_by    TEXT NOT NULL DEFAULT 'webhook',
+        duration_secs   INTEGER,
+        started_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_deployments_service_id ON deployments(service_id);
+    "#,
 ];
 
 /// Run all pending database migrations.
@@ -246,10 +271,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         if version > current_version {
             tracing::info!("Running migration {version}...");
             conn.execute_batch(migration)?;
-            conn.execute(
-                "INSERT INTO _migrations (version) VALUES (?1)",
-                [version],
-            )?;
+            conn.execute("INSERT INTO _migrations (version) VALUES (?1)", [version])?;
         }
     }
 

@@ -77,33 +77,36 @@ pub async fn update_env(
     if body.redeploy {
         if let Some(yaml) = &compose_content {
             // Rebuild compose YAML with new env vars
-            let catalog_item = catalog_id.as_ref().and_then(|cid| {
-                state.catalog.iter().find(|i| i.meta.id == *cid)
-            });
+            let catalog_item = catalog_id
+                .as_ref()
+                .and_then(|cid| state.catalog.iter().find(|i| i.meta.id == *cid));
 
             // Get ports
             let ports: Vec<(String, u16, u16)> = {
-                let db = state.db.lock().map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
                 let mut stmt = db.prepare(
                     "SELECT port_name, host_port, container_port FROM port_allocations WHERE service_id = ?1"
                 )?;
-                let result: Vec<(String, u16, u16)> = stmt.query_map([&id], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, i64>(1)? as u16,
-                        row.get::<_, i64>(2)? as u16,
-                    ))
-                })?.filter_map(|r| r.ok()).collect();
+                let result: Vec<(String, u16, u16)> = stmt
+                    .query_map([&id], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)? as u16,
+                            row.get::<_, i64>(2)? as u16,
+                        ))
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
                 result
             };
 
             // Build new compose YAML
             let new_yaml = if let Some(item) = catalog_item {
-                if item.compose.is_some() {
-                    crate::catalog::build_from_template(
-                        &item.compose.as_ref().unwrap().template,
-                        &body.env,
-                    )
+                if let Some(compose) = &item.compose {
+                    crate::catalog::build_from_template(&compose.template, &body.env)
                 } else {
                     crate::catalog::build_compose_yaml(item, &id, &name, &body.env, &ports)
                 }
@@ -115,7 +118,10 @@ pub async fn update_env(
 
             // Update compose_content in DB
             {
-                let db = state.db.lock().map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
                 db.execute(
                     "UPDATE services SET compose_content = ?1, status = 'deploying', updated_at = datetime('now') WHERE id = ?2",
                     rusqlite::params![new_yaml, id],
@@ -126,7 +132,10 @@ pub async fn update_env(
             let result = docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config).await;
             let status = if result.is_ok() { "running" } else { "failed" };
             {
-                let db = state.db.lock().map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
                 db.execute(
                     "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
                     rusqlite::params![status, id],

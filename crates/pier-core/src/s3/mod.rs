@@ -5,7 +5,12 @@ use aws_credential_types::Credentials;
 use aws_sdk_s3::Client;
 
 /// Build an S3 client with a custom endpoint.
-pub fn build_client(endpoint: &str, region: &str, access_key: &str, secret_key: &str) -> Result<Client> {
+pub fn build_client(
+    endpoint: &str,
+    region: &str,
+    access_key: &str,
+    secret_key: &str,
+) -> Result<Client> {
     let creds = Credentials::new(access_key, secret_key, None, None, "pier");
     let region = aws_sdk_s3::config::Region::new(region.to_string());
 
@@ -38,12 +43,7 @@ pub async fn test_connection(
 }
 
 /// Upload a file to S3.
-pub async fn upload_file(
-    client: &Client,
-    bucket: &str,
-    key: &str,
-    body: Vec<u8>,
-) -> Result<()> {
+pub async fn upload_file(client: &Client, bucket: &str, key: &str, body: Vec<u8>) -> Result<()> {
     client
         .put_object()
         .bucket(bucket)
@@ -55,12 +55,19 @@ pub async fn upload_file(
 }
 
 /// Delete an object from S3.
+#[allow(dead_code)]
 pub async fn delete_object(client: &Client, bucket: &str, key: &str) -> Result<()> {
-    client.delete_object().bucket(bucket).key(key).send().await?;
+    client
+        .delete_object()
+        .bucket(bucket)
+        .key(key)
+        .send()
+        .await?;
     Ok(())
 }
 
 /// List objects with a given prefix.
+#[allow(dead_code)]
 pub async fn list_objects(
     client: &Client,
     bucket: &str,

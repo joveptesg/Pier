@@ -51,9 +51,7 @@ pub async fn create(
     Json(body): Json<CreateSourceRequest>,
 ) -> AppResult<impl IntoResponse> {
     if body.name.trim().is_empty() || body.url.trim().is_empty() {
-        return Err(AppError::BadRequest(
-            "Name and URL are required".into(),
-        ));
+        return Err(AppError::BadRequest("Name and URL are required".into()));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let token = if body.token.is_empty() {
@@ -127,7 +125,8 @@ pub async fn list_repos(
 
     let repos = if source_type == "github-app" {
         let app_id = app_id.ok_or_else(|| AppError::BadRequest("Missing app_id".into()))?;
-        let inst_id = installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
+        let inst_id = installation_id
+            .ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
         let pk = private_key.ok_or_else(|| AppError::BadRequest("Missing private_key".into()))?;
         crate::git::github_app::list_repos(&app_id, inst_id, &pk)
             .await

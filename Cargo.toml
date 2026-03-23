@@ -77,6 +77,18 @@ jsonwebtoken = "9"
 url = "2.5"
 urlencoding = "2.1"
 
+# Crypto (webhook signature verification)
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
+# Tar archive (Docker build context)
+tar = "0.4"
+
+# HTTP body (Docker build context)
+bytes = "1"
+http-body-util = "0.1"
+
 # Utilities
 uuid = { version = "1.21", features = ["v4", "serde"] }
 chrono = { version = "0.4.44", features = ["serde"] }
