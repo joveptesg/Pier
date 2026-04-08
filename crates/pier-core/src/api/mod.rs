@@ -16,17 +16,30 @@ pub mod sources;
 pub mod system;
 pub mod webhooks;
 
+use axum::extract::State;
 use axum::routing::{delete, get, post, put};
 use axum::Router;
 
 use crate::auth::middleware::require_auth;
 use crate::state::SharedState;
 
+/// Health check endpoint — no auth required.
+async fn health(State(state): State<SharedState>) -> axum::Json<serde_json::Value> {
+    let docker_ok = state.docker.ping().await.is_ok();
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "docker": docker_ok,
+    }))
+}
+
 /// Build the API router at /api/v1/*.
 pub fn api_router(state: SharedState) -> Router<SharedState> {
     let public = Router::new()
         .route("/auth/login", post(auth::login))
         .route("/auth/setup", post(auth::setup))
+        // Health check
+        .route("/health", get(health))
         // Agent heartbeat (token-based auth, not session)
         .route("/servers/heartbeat", post(servers::heartbeat))
         // Webhooks (public — GitHub/GitLab need to reach these)
@@ -152,5 +165,8 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/system/docker", get(system::docker_info))
         .layer(axum::middleware::from_fn_with_state(state, require_auth));
 
-    Router::new().nest("/api/v1", public.merge(protected))
+    Router::new()
+        // Health at root level for easy monitoring
+        .route("/health", get(health))
+        .nest("/api/v1", public.merge(protected))
 }

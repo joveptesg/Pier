@@ -4,8 +4,8 @@
 
 | Phase | Название | Приоритет | Статус |
 |-------|----------|-----------|--------|
-| **8** | Reverse Proxy (Traefik) + Домены + SSL + Служебные домены | CRITICAL | TODO |
-| **9** | Git Webhooks + Auto-Deploy Pipeline | HIGH | TODO |
+| **8** | Reverse Proxy (Traefik) + Домены + SSL + Служебные домены | CRITICAL | **DONE** |
+| **9** | Git Webhooks + Auto-Deploy Pipeline | HIGH | **DONE** |
 | **10** | Multi-Server — завершение | HIGH | TODO |
 | **11** | Auto-Update + Load Balancing + RBAC + Alerts | MEDIUM | TODO |
 

@@ -24,9 +24,9 @@ pub async fn deploy_traefik(
     // Write Traefik config files
     config::write_static_config(data_dir, acme_email, dashboard)?;
 
-    // Detect the Docker named volume that holds Pier's data directory.
-    // We inspect our own container to find which volume is mounted at /app/data.
-    let data_volume = detect_data_volume(docker).await?;
+    // Detect the data volume/path for sharing configs with Traefik.
+    // Supports: env var override, Docker named volume (containerized), or host path (native).
+    let data_volume = detect_data_volume(docker, data_dir).await?;
     tracing::info!("Using data volume: {data_volume}");
 
     // Ensure pier-net network exists
@@ -218,31 +218,38 @@ async fn pull_image_if_needed(docker: &Docker) -> Result<()> {
 const PIER_CONTAINER: &str = "pier";
 const PIER_DATA_MOUNT: &str = "/app/data";
 
-/// Detect the Docker named volume that holds Pier's data directory.
-/// Inspects the Pier container to find which volume is mounted at /app/data.
-/// Falls back to env var PIER_DATA_VOLUME if container inspection fails.
-async fn detect_data_volume(docker: &Docker) -> Result<String> {
-    // Check env var first
+/// Detect the data volume or host path for sharing with Traefik.
+///
+/// Priority:
+/// 1. `PIER_DATA_VOLUME` env var (explicit override)
+/// 2. Docker named volume (when Pier runs inside a container)
+/// 3. Absolute host path from `data_dir` (native installation)
+async fn detect_data_volume(docker: &Docker, data_dir: &Path) -> Result<String> {
+    // 1. Explicit env var (highest priority)
     if let Ok(vol) = std::env::var("PIER_DATA_VOLUME") {
         if !vol.is_empty() {
             return Ok(vol);
         }
     }
 
-    // Inspect own container
-    let info = docker.inspect_container(PIER_CONTAINER, None).await?;
-    if let Some(mounts) = info.mounts {
-        for mount in &mounts {
-            let dest = mount.destination.as_deref().unwrap_or_default();
-            if dest == PIER_DATA_MOUNT {
-                if let Some(name) = &mount.name {
-                    return Ok(name.clone());
+    // 2. Try Docker volume detection (when Pier runs in container)
+    if let Ok(info) = docker.inspect_container(PIER_CONTAINER, None).await {
+        if let Some(mounts) = info.mounts {
+            for mount in &mounts {
+                let dest = mount.destination.as_deref().unwrap_or_default();
+                if dest == PIER_DATA_MOUNT {
+                    if let Some(name) = &mount.name {
+                        return Ok(name.clone());
+                    }
                 }
             }
         }
     }
 
-    Err(anyhow::anyhow!(
-        "Could not detect data volume. Set PIER_DATA_VOLUME env var."
-    ))
+    // 3. Native mode: use absolute host path as bind-mount source for Traefik
+    let abs = std::fs::canonicalize(data_dir).map_err(|e| {
+        anyhow::anyhow!("Cannot resolve data_dir '{}': {e}", data_dir.display())
+    })?;
+    tracing::info!("Native mode detected — using host path for Traefik bind-mount");
+    Ok(abs.to_string_lossy().to_string())
 }

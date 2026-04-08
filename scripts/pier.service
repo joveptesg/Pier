@@ -1,0 +1,28 @@
+[Unit]
+Description=Pier PaaS
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=pier
+Group=docker
+WorkingDirectory=/opt/pier
+EnvironmentFile=/opt/pier/.env
+ExecStart=/opt/pier/bin/pier
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pier/data
+ProtectHome=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pier
+
+[Install]
+WantedBy=multi-user.target
