@@ -2,20 +2,38 @@
 
 ## 0. Безопасность сервера
 
-### Создать sudo-юзера (под root)
+### 0.1 Создать sudo-юзера (на сервере под root)
 
 ```bash
 adduser deploy
 usermod -aG sudo deploy
 ```
 
-### Скопировать SSH-ключ (с локальной машины)
+### 0.2 Скопировать SSH-ключ (с локальной машины)
+
+Если SSH-ключа ещё нет — сначала сгенерировать:
+
+```bash
+ssh-keygen -t ed25519
+```
+
+Скопировать на сервер:
 
 ```bash
 ssh-copy-id deploy@SERVER_IP
 ```
 
-### SSH hardening
+### 0.3 Проверить вход по ключу
+
+**Не закрывая текущую сессию**, в новом терминале:
+
+```bash
+ssh deploy@SERVER_IP
+```
+
+Должен пустить **без пароля**. Если нет — не переходить к следующему шагу.
+
+### 0.4 SSH hardening (только после успешной проверки 0.3)
 
 ```bash
 sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
