@@ -262,11 +262,8 @@ const MIGRATIONS: &[&str] = &[
         updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_networks_name ON networks(name);
-
-    -- Seed default network
     INSERT OR IGNORE INTO networks (id, name, description, driver, is_default)
     VALUES ('default-pier-net', 'pier-net', 'Default network for all services', 'bridge', 1);
-
     ALTER TABLE services ADD COLUMN network_id TEXT REFERENCES networks(id) ON DELETE SET NULL;
     "#,
 ];

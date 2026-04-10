@@ -24,6 +24,13 @@ pub fn init_db(path: &Path) -> Result<Connection> {
 
     schema::run_migrations(&conn)?;
 
+    // Ensure default network exists (fallback for partial migration)
+    let _ = conn.execute(
+        "INSERT OR IGNORE INTO networks (id, name, description, driver, is_default)
+         VALUES ('default-pier-net', 'pier-net', 'Default network for all services', 'bridge', 1)",
+        [],
+    );
+
     tracing::info!("Database initialized at {}", path.display());
     Ok(conn)
 }
