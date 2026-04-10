@@ -1,4 +1,4 @@
-# Pier PaaS — TODO: Фазы 8–11
+# Pier PaaS — TODO: Фазы 8–12
 
 ## Обзор
 
@@ -8,6 +8,7 @@
 | **9** | Git Webhooks + Auto-Deploy Pipeline | HIGH | **DONE** |
 | **10** | Multi-Server — завершение | HIGH | TODO |
 | **11** | Auto-Update + Load Balancing + RBAC + Alerts | MEDIUM | TODO |
+| **12** | Docker Networks — изоляция проектов | MEDIUM | TODO |
 
 ---
 
@@ -544,6 +545,41 @@ Phase 10 (Servers)  ←── зависит от Phase 9 (deploy pipeline)
 
 Phase 11 (Polish)   ←── независима, можно делать параллельно
 ```
+
+---
+
+## Phase 12: Docker Networks — изоляция проектов
+
+### 12.1 DB
+
+- [ ] Таблица `networks` (id, name, driver, is_default, created_at)
+- [ ] `pier-net` — встроенная сеть, is_default=1, нельзя удалить
+- [ ] Колонка `network_id` в `services` (FK → networks, default → pier-net)
+
+### 12.2 API
+
+- [ ] `GET /api/v1/networks` — список сетей
+- [ ] `POST /api/v1/networks` — создать сеть (создаёт Docker network)
+- [ ] `DELETE /api/v1/networks/{id}` — удалить (если нет сервисов)
+
+### 12.3 Compose генерация
+
+- [ ] Добавить `networks:` секцию в compose YAML с выбранной сетью
+- [ ] При смене сети — regenerate compose + redeploy
+
+### 12.4 UI
+
+- [ ] Settings → Networks — CRUD сетей
+- [ ] При создании ресурса — dropdown "Network" (как Project)
+- [ ] На странице ресурса — текущая сеть + возможность сменить
+
+### 12.5 Обратная совместимость
+
+- Существующие ресурсы остаются в `pier-net`
+- Смена сети только при явном redeploy
+- `pier-shared` — опциональная общая сеть для межпроектной связи
+
+---
 
 ## Статистика
 

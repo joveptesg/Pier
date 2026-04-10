@@ -282,15 +282,16 @@ pub fn build_compose_yaml(
     yaml.push_str(&format!("    image: {image}\n"));
     yaml.push_str(&format!("    container_name: pier-{name}\n"));
 
-    // Ports — databases bind to 127.0.0.1 (localhost only), services to 0.0.0.0 (public)
+    // Ports — bind to 127.0.0.1 (private) by default; user can toggle to 0.0.0.0 (public)
     if !ports.is_empty() {
         yaml.push_str("    ports:\n");
-        let is_database = item.meta.category == "database";
         for (_, host, container) in ports {
-            if is_database {
-                yaml.push_str(&format!("      - \"127.0.0.1:{host}:{container}\"\n"));
-            } else {
+            // Default: databases private, services public (can be toggled via UI)
+            let is_public = item.meta.category != "database";
+            if is_public {
                 yaml.push_str(&format!("      - \"{host}:{container}\"\n"));
+            } else {
+                yaml.push_str(&format!("      - \"127.0.0.1:{host}:{container}\"\n"));
             }
         }
     }
@@ -347,4 +348,44 @@ pub fn build_compose_yaml(
 /// Build docker-compose.yml from a compose template (multi-container).
 pub fn build_from_template(template: &str, vars: &HashMap<String, String>) -> String {
     substitute(template, vars)
+}
+
+/// Regenerate port bindings in compose YAML based on is_public flag.
+/// Replaces `127.0.0.1:port:port` ↔ `port:port` (0.0.0.0) for all port lines.
+pub fn regenerate_compose_ports(yaml: &str, is_public: bool) -> String {
+    yaml.lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            // Match port binding lines like: - "127.0.0.1:10000:5432" or - "10000:5432"
+            if trimmed.starts_with("- \"") && trimmed.contains(':') {
+                let content = trimmed.trim_start_matches("- \"").trim_end_matches('"');
+                let parts: Vec<&str> = content.split(':').collect();
+                let indent = line.len() - line.trim_start().len();
+                let spaces = &line[..indent];
+
+                match parts.len() {
+                    // "host_port:container_port" (currently public)
+                    2 => {
+                        if is_public {
+                            line.to_string()
+                        } else {
+                            format!("{spaces}- \"127.0.0.1:{}:{}\"", parts[0], parts[1])
+                        }
+                    }
+                    // "ip:host_port:container_port" (currently private or explicit IP)
+                    3 => {
+                        if is_public {
+                            format!("{spaces}- \"{}:{}\"", parts[1], parts[2])
+                        } else {
+                            format!("{spaces}- \"127.0.0.1:{}:{}\"", parts[1], parts[2])
+                        }
+                    }
+                    _ => line.to_string(),
+                }
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

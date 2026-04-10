@@ -1221,12 +1221,28 @@ pub async fn get(
                 "host": pa.host_port,
                 "container": pa.container_port,
                 "protocol": pa.protocol,
+                "is_public": pa.is_public,
             })
         })
         .collect();
 
+    // Get public IP for connection URLs
+    let public_ip = db
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'server.public_ip'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_default();
+
+    // Get container name for Docker URL
+    let svc_name = resource["name"].as_str().unwrap_or_default();
+    let container_name = format!("pier-{}", svc_name.to_lowercase().replace(' ', "-"));
+
     let mut result = resource;
     result["ports"] = serde_json::json!(ports_json);
+    result["public_ip"] = serde_json::json!(public_ip);
+    result["container_name"] = serde_json::json!(container_name);
     Ok(Json(result))
 }
 
@@ -1753,4 +1769,92 @@ pub struct UpdateGitConfigRequest {
     pub git_source_id: Option<String>,
     pub build_strategy: Option<String>,
     pub webhook_secret: Option<String>,
+}
+
+/// PUT /api/v1/resources/{id}/port-public — toggle public port visibility.
+pub async fn set_port_public(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<SetPortPublicRequest>,
+) -> AppResult<impl IntoResponse> {
+    // Update is_public in port_allocations
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        ports::set_ports_public(&db, &id, body.is_public)?;
+    }
+
+    // Regenerate compose YAML with new port bindings
+    let (name, yaml) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT name, compose_content FROM services WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+    };
+
+    let yaml = yaml.ok_or_else(|| AppError::BadRequest("No compose content".into()))?;
+    let new_yaml = crate::catalog::regenerate_compose_ports(&yaml, body.is_public);
+
+    // Save updated compose
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "UPDATE services SET compose_content = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![new_yaml, id],
+        )?;
+    }
+
+    // Redeploy with new port bindings
+    let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+    let _ = docker::compose::down_stack(&stack_name, &state.config).await;
+    let result = docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config).await;
+
+    let status = if result.is_ok() { "running" } else { "failed" };
+    let log_output = match &result {
+        Ok(o) => o.clone(),
+        Err(e) => format!("{e}"),
+    };
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        record_deployment_log(
+            &db,
+            &id,
+            if body.is_public {
+                "port-public"
+            } else {
+                "port-private"
+            },
+            if result.is_ok() { "success" } else { "failed" },
+            &log_output,
+        );
+        let _ = db.execute(
+            "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![status, id],
+        );
+    }
+
+    result?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "is_public": body.is_public,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct SetPortPublicRequest {
+    pub is_public: bool,
 }

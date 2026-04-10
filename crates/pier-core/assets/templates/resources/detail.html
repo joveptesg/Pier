@@ -112,12 +112,35 @@
                     <template x-for="p in resource.ports || []" :key="p.name">
                         <div class="flex items-center justify-between text-sm">
                             <span class="text-gray-500" x-text="p.name"></span>
-                            <code class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
-                                  x-text="p.host + ':' + p.container"></code>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs px-1.5 py-0.5 rounded"
+                                      :class="p.is_public ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'"
+                                      x-text="p.is_public ? 'Public' : 'Local'"></span>
+                                <code class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
+                                      x-text="(p.is_public ? '0.0.0.0' : '127.0.0.1') + ':' + p.host + ':' + p.container"></code>
+                            </div>
                         </div>
                     </template>
                 </div>
                 <p x-show="(resource.ports || []).length === 0" class="text-sm text-gray-400">No ports allocated</p>
+
+                <!-- Public toggle -->
+                <div x-show="(resource.ports || []).length > 0" class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-800">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Make it publicly available</span>
+                            <p class="text-xs text-gray-400 mt-0.5">Bind ports to 0.0.0.0 instead of 127.0.0.1</p>
+                        </div>
+                        <button @click="togglePublic()"
+                                :disabled="togglingPublic"
+                                class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                                :class="portIsPublic ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'">
+                            <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                                  :class="portIsPublic ? 'translate-x-5' : 'translate-x-0'"></span>
+                        </button>
+                    </div>
+                    <p x-show="togglingPublic" class="text-xs text-blue-500 mt-2">Redeploying with new port bindings...</p>
+                </div>
             </div>
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Details</h3>
@@ -130,11 +153,35 @@
             </div>
         </div>
         <div x-show="connectionString" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Connection String</h3>
-            <div class="flex items-center gap-2">
-                <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto" x-text="connectionString"></code>
-                <button @click="navigator.clipboard.writeText(connectionString); toast('Copied!')"
-                        class="shrink-0 px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Connection URLs</h3>
+            <div class="space-y-2">
+                <!-- Host URL (always shown) -->
+                <div>
+                    <span class="text-xs text-gray-400">Host (from server)</span>
+                    <div class="flex items-center gap-2 mt-1">
+                        <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto" x-text="connectionString"></code>
+                        <button @click="navigator.clipboard.writeText(connectionString); toast('Copied!')"
+                                class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
+                    </div>
+                </div>
+                <!-- Docker URL (always shown) -->
+                <div x-show="dockerConnectionString">
+                    <span class="text-xs text-gray-400">Docker (from containers in pier-net)</span>
+                    <div class="flex items-center gap-2 mt-1">
+                        <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto" x-text="dockerConnectionString"></code>
+                        <button @click="navigator.clipboard.writeText(dockerConnectionString); toast('Copied!')"
+                                class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
+                    </div>
+                </div>
+                <!-- Public URL (only when is_public) -->
+                <div x-show="portIsPublic && publicConnectionString">
+                    <span class="text-xs text-green-500">Public (from anywhere)</span>
+                    <div class="flex items-center gap-2 mt-1">
+                        <code class="flex-1 text-xs font-mono bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 px-3 py-2 rounded-lg overflow-x-auto" x-text="publicConnectionString"></code>
+                        <button @click="navigator.clipboard.writeText(publicConnectionString); toast('Copied!')"
+                                class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -518,20 +565,48 @@ function resourceDetail(id) {
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitSources: [], showWebhookSecret: false,
         ciDeployments: [], expandedLog: null,
-        get connectionString() {
-            if (!this.resource.catalog_id || !this.resource.ports?.length) return '';
-            const port = this.resource.ports[0]?.host; if (!port) return '';
+        togglingPublic: false,
+        get portIsPublic() { return this.resource.ports?.[0]?.is_public || false; },
+        _buildConnStr(host, port, containerPort) {
+            if (!this.resource.catalog_id) return '';
+            const p = containerPort || port;
             let envObj = {}; try { envObj = JSON.parse(this.resource.env_json || '{}'); } catch {}
-            const host = 'localhost';
             switch (this.resource.catalog_id) {
-                case 'postgresql': { const u=envObj.POSTGRES_USER||'postgres',p=envObj.POSTGRES_PASSWORD||'',d=envObj.POSTGRES_DB||'postgres'; return `postgresql://${u}:${p}@${host}:${port}/${d}`; }
-                case 'mysql': case 'mariadb': { const p=envObj.MYSQL_ROOT_PASSWORD||envObj.MARIADB_ROOT_PASSWORD||'',d=envObj.MYSQL_DATABASE||envObj.MARIADB_DATABASE||''; return `mysql://root:${p}@${host}:${port}/${d}`; }
-                case 'mongodb': { const u=envObj.MONGO_INITDB_ROOT_USERNAME||'root',p=envObj.MONGO_INITDB_ROOT_PASSWORD||''; return `mongodb://${u}:${p}@${host}:${port}`; }
-                case 'redis': return `redis://${host}:${port}`;
-                case 'clickhouse': return `clickhouse://${host}:${port}`;
-                case 'cassandra': case 'scylladb': return `cql://${host}:${port}`;
+                case 'postgresql': { const u=envObj.POSTGRES_USER||'postgres',pw=envObj.POSTGRES_PASSWORD||'',d=envObj.POSTGRES_DB||'postgres'; return `postgresql://${u}:${pw}@${host}:${p}/${d}`; }
+                case 'mysql': case 'mariadb': { const pw=envObj.MYSQL_ROOT_PASSWORD||envObj.MARIADB_ROOT_PASSWORD||'',d=envObj.MYSQL_DATABASE||envObj.MARIADB_DATABASE||''; return `mysql://root:${pw}@${host}:${p}/${d}`; }
+                case 'mongodb': { const u=envObj.MONGO_INITDB_ROOT_USERNAME||'root',pw=envObj.MONGO_INITDB_ROOT_PASSWORD||''; return `mongodb://${u}:${pw}@${host}:${p}`; }
+                case 'redis': return `redis://${host}:${p}`;
+                case 'clickhouse': return `clickhouse://${host}:${p}`;
+                case 'cassandra': case 'scylladb': return `cql://${host}:${p}`;
                 default: return '';
             }
+        },
+        get connectionString() {
+            if (!this.resource.ports?.length) return '';
+            const p = this.resource.ports[0];
+            return this._buildConnStr('localhost', p.host, null);
+        },
+        get dockerConnectionString() {
+            if (!this.resource.ports?.length || !this.resource.container_name) return '';
+            const p = this.resource.ports[0];
+            return this._buildConnStr(this.resource.container_name, p.container, null);
+        },
+        get publicConnectionString() {
+            if (!this.resource.ports?.length || !this.resource.public_ip) return '';
+            const p = this.resource.ports[0];
+            return this._buildConnStr(this.resource.public_ip, p.host, null);
+        },
+        async togglePublic() {
+            const newState = !this.portIsPublic;
+            const msg = newState ? 'Make ports publicly available? This will redeploy the service.' : 'Make ports local-only? This will redeploy the service.';
+            if (!confirm(msg)) return;
+            this.togglingPublic = true;
+            try {
+                await api('/api/v1/resources/'+this.id+'/port-public', { method: 'PUT', body: JSON.stringify({ is_public: newState }) });
+                toast(newState ? 'Ports are now public' : 'Ports are now local-only');
+                await this.refresh();
+            } catch(e) { toast(e.message, 'error'); }
+            this.togglingPublic = false;
         },
         isSecret(key) { const k=key.toUpperCase(); return k.includes('PASSWORD')||k.includes('SECRET')||k.includes('TOKEN')||k.includes('KEY'); },
         async init() {

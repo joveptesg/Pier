@@ -6,6 +6,7 @@ use super::models::PortAllocation;
 /// Allocate N free ports in the given range [start, end).
 /// For each port, first tries to use the standard port (container_port == host_port),
 /// e.g. 5432 for PostgreSQL. Falls back to pool if standard port is taken.
+/// `is_public` controls whether the port binds to 0.0.0.0 (true) or 127.0.0.1 (false).
 pub fn allocate_ports(
     conn: &Connection,
     service_id: &str,
@@ -70,8 +71,8 @@ pub fn allocate_ports(
         let host_port = free[i];
 
         conn.execute(
-            "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'tcp')",
+            "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', 0)",
             rusqlite::params![id, service_id, port_name, host_port as i64, *container_port as i64],
         )?;
 
@@ -82,6 +83,7 @@ pub fn allocate_ports(
             host_port: host_port as i64,
             container_port: *container_port as i64,
             protocol: "tcp".to_string(),
+            is_public: false,
             created_at: String::new(),
         });
     }
@@ -101,7 +103,7 @@ pub fn free_ports(conn: &Connection, service_id: &str) -> Result<()> {
 /// Get all port allocations for a service.
 pub fn get_ports(conn: &Connection, service_id: &str) -> Result<Vec<PortAllocation>> {
     let mut stmt = conn.prepare(
-        "SELECT id, service_id, port_name, host_port, container_port, protocol, created_at
+        "SELECT id, service_id, port_name, host_port, container_port, protocol, is_public, created_at
          FROM port_allocations WHERE service_id = ?1",
     )?;
 
@@ -114,11 +116,21 @@ pub fn get_ports(conn: &Connection, service_id: &str) -> Result<Vec<PortAllocati
                 host_port: row.get(3)?,
                 container_port: row.get(4)?,
                 protocol: row.get(5)?,
-                created_at: row.get(6)?,
+                is_public: row.get::<_, i64>(6)? != 0,
+                created_at: row.get(7)?,
             })
         })?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(ports)
+}
+
+/// Set public visibility for all ports of a service.
+pub fn set_ports_public(conn: &Connection, service_id: &str, is_public: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE port_allocations SET is_public = ?1 WHERE service_id = ?2",
+        rusqlite::params![is_public as i64, service_id],
+    )?;
+    Ok(())
 }

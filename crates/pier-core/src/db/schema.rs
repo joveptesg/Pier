@@ -246,6 +246,10 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_deployments_service_id ON deployments(service_id);
     "#,
+    // Migration 10: Port visibility (public/private toggle)
+    r#"
+    ALTER TABLE port_allocations ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 /// Run all pending database migrations.

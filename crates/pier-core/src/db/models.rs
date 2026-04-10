@@ -68,6 +68,7 @@ pub struct PortAllocation {
     pub host_port: i64,
     pub container_port: i64,
     pub protocol: String,
+    pub is_public: bool,
     pub created_at: String,
 }
 
