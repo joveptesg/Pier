@@ -33,6 +33,7 @@ pub struct CreateResourceRequest {
     pub catalog_id: String,
     pub name: String,
     pub project_id: Option<String>,
+    pub network_id: Option<String>,
     #[serde(default)]
     pub config: HashMap<String, String>,
     /// Git source ID for GitHub App deploys
@@ -215,13 +216,44 @@ pub async fn create(
             .collect()
     };
 
+    // Resolve network_id: use provided or fall back to default
+    let network_id = body.network_id.clone().or_else(|| {
+        state
+            .db
+            .lock()
+            .ok()
+            .and_then(|db| {
+                db.query_row(
+                    "SELECT id FROM networks WHERE is_default = 1 LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .ok()
+            })
+    });
+
+    // Resolve network name for compose YAML
+    let network_name: Option<String> = network_id.as_ref().and_then(|nid| {
+        state
+            .db
+            .lock()
+            .ok()
+            .and_then(|db| {
+                db.query_row("SELECT name FROM networks WHERE id = ?1", [nid], |row| {
+                    row.get(0)
+                })
+                .ok()
+            })
+    });
+
     let allocated_ports = with_db(&state, |db| {
         db.execute(
-            "INSERT INTO services (id, project_id, name, service_type, status, catalog_id, category, env_json, image)
-             VALUES (?1, ?2, ?3, 'compose', 'deploying', ?4, ?5, ?6, ?7)",
+            "INSERT INTO services (id, project_id, network_id, name, service_type, status, catalog_id, category, env_json, image)
+             VALUES (?1, ?2, ?3, ?4, 'compose', 'deploying', ?5, ?6, ?7, ?8)",
             rusqlite::params![
                 service_id,
                 body.project_id,
+                network_id,
                 name,
                 body.catalog_id,
                 item.meta.category,
@@ -380,7 +412,7 @@ pub async fn create(
     let yaml = if let Some(compose) = &item.compose {
         catalog::build_from_template(&compose.template, &vars)
     } else {
-        catalog::build_compose_yaml(&item, &service_id, &name, &vars, &port_mappings)
+        catalog::build_compose_yaml(&item, &service_id, &name, &vars, &port_mappings, network_name.as_deref())
     };
 
     // Deploy (the only await point)

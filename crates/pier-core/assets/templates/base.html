@@ -144,6 +144,13 @@
                     <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
                     <span x-show="sidebarOpen" x-cloak>Proxy</span>
                 </a>
+                <a href="/networks"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 'networks' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}"
+                   :class="!sidebarOpen && 'justify-center !px-0 !gap-0'" :title="!sidebarOpen && 'Networks'">
+                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
+                    <span x-show="sidebarOpen" x-cloak>Networks</span>
+                </a>
                 <div class="pt-3 pb-1" x-show="sidebarOpen" x-cloak>
                     <p class="px-3 text-[10px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-widest">System</p>
                 </div>

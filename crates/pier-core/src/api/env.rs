@@ -103,12 +103,26 @@ pub async fn update_env(
                 result
             };
 
+            // Resolve network name
+            let network_name: Option<String> = {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+                db.query_row(
+                    "SELECT n.name FROM networks n JOIN services s ON s.network_id = n.id WHERE s.id = ?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .ok()
+            };
+
             // Build new compose YAML
             let new_yaml = if let Some(item) = catalog_item {
                 if let Some(compose) = &item.compose {
                     crate::catalog::build_from_template(&compose.template, &body.env)
                 } else {
-                    crate::catalog::build_compose_yaml(item, &id, &name, &body.env, &ports)
+                    crate::catalog::build_compose_yaml(item, &id, &name, &body.env, &ports, network_name.as_deref())
                 }
             } else {
                 yaml.clone()

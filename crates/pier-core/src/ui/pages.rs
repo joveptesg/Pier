@@ -202,6 +202,18 @@ pub async fn proxy_page(
     )
 }
 
+/// GET /networks
+pub async fn networks_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "networks/list.html",
+        minijinja::context! { user => user.username, page => "networks" },
+    )
+}
+
 /// GET /projects
 pub async fn projects_list(
     State(state): State<SharedState>,

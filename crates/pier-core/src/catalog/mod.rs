@@ -269,6 +269,7 @@ pub fn build_compose_yaml(
     name: &str,
     env_vars: &HashMap<String, String>,
     ports: &[(String, u16, u16)], // (port_name, host_port, container_port)
+    network_name: Option<&str>,
 ) -> String {
     let docker = match &item.docker {
         Some(d) => d,
@@ -334,6 +335,11 @@ pub fn build_compose_yaml(
     yaml.push_str(&format!("      pier.service.id: \"{service_id}\"\n"));
     yaml.push_str(&format!("      pier.catalog.id: \"{}\"\n", item.meta.id));
 
+    // Service network reference
+    let net = network_name.unwrap_or("pier-net");
+    yaml.push_str("    networks:\n");
+    yaml.push_str(&format!("      - {net}\n"));
+
     // Named volumes
     if !item.volumes.is_empty() {
         yaml.push_str("volumes:\n");
@@ -341,6 +347,11 @@ pub fn build_compose_yaml(
             yaml.push_str(&format!("  {vol_name}:\n"));
         }
     }
+
+    // Network definition (external — managed by Pier)
+    yaml.push_str("networks:\n");
+    yaml.push_str(&format!("  {net}:\n"));
+    yaml.push_str("    external: true\n");
 
     yaml
 }

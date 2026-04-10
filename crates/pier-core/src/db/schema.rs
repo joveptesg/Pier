@@ -250,6 +250,25 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE port_allocations ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0;
     "#,
+    // Migration 11: Docker networks management
+    r#"
+    CREATE TABLE IF NOT EXISTS networks (
+        id          TEXT PRIMARY KEY NOT NULL,
+        name        TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL DEFAULT '',
+        driver      TEXT NOT NULL DEFAULT 'bridge',
+        is_default  INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_networks_name ON networks(name);
+
+    -- Seed default network
+    INSERT OR IGNORE INTO networks (id, name, description, driver, is_default)
+    VALUES ('default-pier-net', 'pier-net', 'Default network for all services', 'bridge', 1);
+
+    ALTER TABLE services ADD COLUMN network_id TEXT REFERENCES networks(id) ON DELETE SET NULL;
+    "#,
 ];
 
 /// Run all pending database migrations.

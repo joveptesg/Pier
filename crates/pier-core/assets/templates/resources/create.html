@@ -206,6 +206,18 @@
                     </template>
                 </select>
             </div>
+
+            <!-- Network selector -->
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Network</label>
+                <select x-model="networkId"
+                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                               text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    <template x-for="n in networks" :key="n.id">
+                        <option :value="n.id" x-text="n.name + (n.is_default ? ' (default)' : '')"></option>
+                    </template>
+                </select>
+            </div>
         </div>
 
         <!-- Actions -->
@@ -233,7 +245,9 @@ function createResource(catalogId) {
         servers: [],
         sources: [],
         sourceRepos: [],
+        networks: [],
         projectId: '',
+        networkId: '',
         sourceId: '',
         loadingRepos: false,
         loading: true,
@@ -254,14 +268,19 @@ function createResource(catalogId) {
                     fetch('/api/v1/catalog/' + this.catalogId).then(r => r.json()),
                     fetch('/api/v1/projects').then(r => r.json()),
                     fetch('/api/v1/servers').then(r => r.json()),
+                    fetch('/api/v1/networks').then(r => r.json()),
                 ];
                 if (this.catalogId === 'git-github-app') {
                     fetches.push(fetch('/api/v1/sources').then(r => r.json()));
                 }
-                const [tmpl, projs, srvs, srcs] = await Promise.all(fetches);
+                const [tmpl, projs, srvs, nets, srcs] = await Promise.all(fetches);
                 this.template = tmpl;
                 this.projects = projs;
                 this.servers = srvs;
+                this.networks = nets || [];
+                // Pre-select default network
+                const defaultNet = this.networks.find(n => n.is_default);
+                if (defaultNet) this.networkId = defaultNet.id;
                 if (srcs) this.sources = srcs.filter(s => s.type === 'github-app');
 
                 // Cluster is available if there are 2+ servers (localhost + at least 1 remote)
@@ -358,6 +377,7 @@ function createResource(catalogId) {
                     catalog_id: this.catalogId,
                     name: name.trim(),
                     project_id: this.projectId || null,
+                    network_id: this.networkId || null,
                     source_id: this.sourceId || null,
                     config: { ...this.form },
                 };

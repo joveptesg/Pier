@@ -7,6 +7,7 @@ pub mod deployments;
 pub mod domains;
 pub mod env;
 pub mod images;
+pub mod networks;
 pub mod projects;
 pub mod proxy;
 pub mod resources;
@@ -155,6 +156,9 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/{id}", delete(servers::remove))
         .route("/servers/{id}/test", post(servers::test_connection))
         .route("/servers/{id}/metrics", get(servers::metrics))
+        // Networks
+        .route("/networks", get(networks::list).post(networks::create))
+        .route("/networks/{id}", delete(networks::delete))
         // Domains
         .route("/domains", get(domains::list).post(domains::create))
         .route("/domains/{id}", delete(domains::remove))

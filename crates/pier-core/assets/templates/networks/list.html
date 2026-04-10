@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Networks{% endblock %}
+
+{% block content %}
+<div x-data="networksPage()" x-init="load()" class="p-6 space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Networks</h2>
+            <p class="text-sm text-gray-500 mt-1">Manage Docker networks for service isolation</p>
+        </div>
+        <button @click="showCreate = true"
+                class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
+            Create Network
+        </button>
+    </div>
+
+    <!-- Networks List -->
+    <div class="space-y-3">
+        <template x-for="net in networks" :key="net.id">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg flex items-center justify-center"
+                             :class="net.is_default ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-gray-100 dark:bg-gray-800'">
+                            <svg class="w-4 h-4" :class="net.is_default ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500'"
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm font-medium text-gray-900 dark:text-white" x-text="net.name"></span>
+                                <span x-show="net.is_default" class="text-[10px] px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded font-medium">DEFAULT</span>
+                            </div>
+                            <div class="flex items-center gap-3 mt-0.5">
+                                <span class="text-xs text-gray-400" x-text="'Driver: ' + net.driver"></span>
+                                <span class="text-xs text-gray-400" x-text="net.service_count + ' service(s)'"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <button x-show="!net.is_default"
+                            @click="deleteNetwork(net.id, net.name)"
+                            class="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors">
+                        Delete
+                    </button>
+                </div>
+                <p x-show="net.description" class="text-xs text-gray-400 mt-2 ml-11" x-text="net.description"></p>
+            </div>
+        </template>
+        <p x-show="networks.length === 0" class="text-sm text-gray-400 text-center py-8">No networks found</p>
+    </div>
+
+    <!-- Create Modal -->
+    <div x-show="showCreate" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+         @click.self="showCreate = false">
+        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl p-6 w-full max-w-md border border-gray-200 dark:border-gray-800">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Create Network</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                    <div class="flex items-center">
+                        <span class="text-sm text-gray-400 mr-1">pier-</span>
+                        <input x-model="newName" type="text" placeholder="my-network"
+                               class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1">Letters, numbers, hyphens, underscores only</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Description (optional)</label>
+                    <input x-model="newDesc" type="text" placeholder="Network for frontend services"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-5">
+                <button @click="showCreate = false" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200">Cancel</button>
+                <button @click="createNetwork()" :disabled="!newName.trim()"
+                        class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors">Create</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function networksPage() {
+    return {
+        networks: [],
+        showCreate: false,
+        newName: '',
+        newDesc: '',
+        async load() {
+            try {
+                this.networks = await fetch('/api/v1/networks').then(r => r.json());
+            } catch { this.networks = []; }
+        },
+        async createNetwork() {
+            const name = this.newName.trim();
+            if (!name) return;
+            try {
+                await api('/api/v1/networks', {
+                    method: 'POST',
+                    body: JSON.stringify({ name, description: this.newDesc || null }),
+                });
+                toast('Network created');
+                this.showCreate = false;
+                this.newName = '';
+                this.newDesc = '';
+                await this.load();
+            } catch(e) { toast(e.message, 'error'); }
+        },
+        async deleteNetwork(id, name) {
+            if (!confirm('Delete network "' + name + '"?')) return;
+            try {
+                await api('/api/v1/networks/' + id, { method: 'DELETE' });
+                toast('Network deleted');
+                await this.load();
+            } catch(e) { toast(e.message, 'error'); }
+        },
+    };
+}
+</script>
+{% endblock %}
