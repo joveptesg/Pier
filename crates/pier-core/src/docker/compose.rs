@@ -22,6 +22,7 @@ pub async fn deploy_stack(name: &str, yaml_content: &str, config: &PierConfig) -
         .arg(&compose_file)
         .args(["up", "-d"])
         .current_dir(&stack_dir)
+        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
         .output()
         .await?;
 
@@ -50,6 +51,7 @@ pub async fn down_stack(name: &str, config: &PierConfig) -> Result<String> {
         .arg(&compose_file)
         .arg("down")
         .current_dir(&stack_dir)
+        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
         .output()
         .await?;
 
