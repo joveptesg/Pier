@@ -164,33 +164,92 @@
                 </div>
             </template>
 
-            <!-- GitHub App Source selector (shown only for git-github-app) -->
+            <!-- GitHub App Wizard (shown only for git-github-app) -->
             <template x-if="catalogId === 'git-github-app'">
-                <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">GitHub App Source</label>
-                    <select x-model="sourceId"
-                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
-                                   text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                        <option value="">Select a GitHub App source...</option>
-                        <template x-for="src in sources" :key="src.id">
-                            <option :value="src.id" x-text="src.name"></option>
-                        </template>
-                    </select>
-                    <p x-show="sources.length === 0" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        No GitHub App sources configured. <a href="/sources" class="underline">Add one first</a>.
-                    </p>
-                    <!-- Repo picker from source -->
-                    <div x-show="sourceId && sourceRepos.length > 0" class="mt-2">
-                        <label class="block text-xs text-gray-500 mb-1">Or pick a repository:</label>
-                        <select @change="if($event.target.value) { form.git_url = $event.target.value; form.branch = sourceRepos.find(r => r.clone_url === $event.target.value)?.default_branch || 'main'; }"
-                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm dark:text-gray-100">
-                            <option value="">Manual URL entry...</option>
-                            <template x-for="repo in sourceRepos" :key="repo.clone_url">
-                                <option :value="repo.clone_url" x-text="repo.full_name + (repo.is_private ? ' (private)' : '')"></option>
+                <div class="space-y-4">
+                    <!-- Step 1: Select GitHub App Source -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Select a GitHub App</label>
+                        <div class="flex gap-2">
+                            <select x-model="sourceId"
+                                    class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">Select a GitHub App source...</option>
+                                <template x-for="src in sources" :key="src.id">
+                                    <option :value="src.id" x-text="src.name"></option>
+                                </template>
+                            </select>
+                            <a href="/sources" class="px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-lg whitespace-nowrap flex items-center">+ Add</a>
+                        </div>
+                        <p x-show="sources.length === 0" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                            No GitHub App sources. <a href="/sources" class="underline">Connect one first</a>.
+                        </p>
+                    </div>
+
+                    <!-- Step 2: Select Repository -->
+                    <div x-show="sourceId">
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Repository</label>
+                        <select x-model="selectedRepo" @change="onRepoSelected()"
+                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select a repository...</option>
+                            <template x-for="repo in sourceRepos" :key="repo.full_name">
+                                <option :value="repo.full_name" x-text="repo.full_name + (repo.is_private ? ' (private)' : '')"></option>
                             </template>
                         </select>
+                        <p x-show="loadingRepos" class="text-xs text-gray-400 mt-1">Loading repositories...</p>
+                        <a x-show="sourceId && !loadingRepos" :href="'https://github.com/apps/' + sources.find(s=>s.id===sourceId)?.name?.replace('GitHub App: ','') + '/installations/new'" target="_blank"
+                           class="text-xs text-blue-500 hover:text-blue-400 mt-1 inline-block">Change Repositories on GitHub ↗</a>
                     </div>
-                    <div x-show="sourceId && loadingRepos" class="mt-2 text-xs text-gray-400">Loading repositories...</div>
+
+                    <!-- Step 3: Branch + Build Pack -->
+                    <div x-show="selectedRepo" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Branch</label>
+                                <select x-model="form.branch"
+                                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <template x-for="b in repoBranches" :key="b">
+                                        <option :value="b" x-text="b"></option>
+                                    </template>
+                                </select>
+                                <p x-show="loadingBranches" class="text-xs text-gray-400 mt-1">Loading branches...</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Build Pack</label>
+                                <select x-model="form.build_pack"
+                                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="dockerfile">Dockerfile</option>
+                                    <option value="docker-compose">Docker Compose</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Dockerfile config -->
+                        <div x-show="form.build_pack === 'dockerfile'">
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Dockerfile Path</label>
+                            <input x-model="form.build_path" type="text" placeholder="/Dockerfile"
+                                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Docker Compose config -->
+                        <div x-show="form.build_pack === 'docker-compose'">
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Docker Compose Location</label>
+                            <input x-model="form.compose_path" type="text" placeholder="/docker-compose.yml"
+                                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div x-show="form.build_pack === 'dockerfile'">
+                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Exposed Port</label>
+                                <input x-model="form.port" type="number" placeholder="3000"
+                                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Service Name</label>
+                                <input x-model="form.name" type="text" :placeholder="selectedRepo.split('/').pop()"
+                                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </template>
 
@@ -229,7 +288,7 @@
                     class="px-5 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
                            rounded-lg text-white transition-colors flex items-center gap-2">
                 <svg x-show="deploying" class="w-4 h-4 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                <span x-text="deploying ? 'Deploying...' : (deploymentMode === 'cluster' ? 'Deploy Cluster' : 'Deploy')"></span>
+                <span x-text="deploying ? 'Creating...' : (catalogId === 'git-github-app' ? 'Continue' : (deploymentMode === 'cluster' ? 'Deploy Cluster' : 'Deploy'))"></span>
             </button>
         </div>
     </div>
@@ -245,6 +304,9 @@ function createResource(catalogId) {
         servers: [],
         sources: [],
         sourceRepos: [],
+        repoBranches: [],
+        selectedRepo: '',
+        loadingBranches: false,
         networks: [],
         projectId: '',
         networkId: '',
@@ -312,6 +374,8 @@ function createResource(catalogId) {
                 // Watch source selection to load repos
                 this.$watch('sourceId', async () => {
                     this.sourceRepos = [];
+                    this.selectedRepo = '';
+                    this.repoBranches = [];
                     if (this.sourceId) {
                         this.loadingRepos = true;
                         try {
@@ -351,6 +415,27 @@ function createResource(catalogId) {
                 }
             }
             return suffix;
+        },
+        async onRepoSelected() {
+            if (!this.selectedRepo || !this.sourceId) return;
+            const repo = this.sourceRepos.find(r => r.full_name === this.selectedRepo);
+            if (repo) {
+                this.form.git_url = repo.clone_url;
+                this.form.branch = repo.default_branch || 'main';
+                this.form.name = this.form.name || repo.name;
+                this.form.build_pack = this.form.build_pack || 'dockerfile';
+                this.form.build_path = this.form.build_path || '/Dockerfile';
+                this.form.compose_path = this.form.compose_path || '/docker-compose.yml';
+                this.form.port = this.form.port || '3000';
+            }
+            // Load branches
+            this.loadingBranches = true;
+            this.repoBranches = [];
+            try {
+                const branches = await fetch('/api/v1/sources/' + this.sourceId + '/branches/' + this.selectedRepo).then(r => r.ok ? r.json() : []);
+                this.repoBranches = branches.length > 0 ? branches : [repo?.default_branch || 'main'];
+            } catch { this.repoBranches = [repo?.default_branch || 'main']; }
+            this.loadingBranches = false;
         },
         randomStr(len) {
             const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';

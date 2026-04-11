@@ -143,6 +143,44 @@ pub async fn list_repos(
     Ok(Json(serde_json::json!(repos)))
 }
 
+/// GET /api/v1/sources/{id}/repos/{repo}/branches — list branches for a repo.
+pub async fn list_branches(
+    State(state): State<SharedState>,
+    Path((id, repo)): Path<(String, String)>,
+) -> AppResult<impl IntoResponse> {
+    let (app_id, installation_id, private_key) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT app_id, installation_id, private_key FROM git_sources WHERE id = ?1",
+            [&id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Source {id} not found")))?
+    };
+
+    let app_id = app_id.ok_or_else(|| AppError::BadRequest("Missing app_id".into()))?;
+    let inst_id = installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
+    let pk = private_key.ok_or_else(|| AppError::BadRequest("Missing private_key".into()))?;
+
+    // repo comes as path param — Axum already decodes it
+    let repo_name = &repo;
+
+    let branches = crate::git::github_app::list_branches(&app_id, inst_id, &pk, &repo_name)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Failed to list branches: {e}")))?;
+
+    Ok(Json(serde_json::json!(branches)))
+}
+
 /// GET /api/v1/sources/{id} — source detail (for source detail page)
 pub async fn get(
     State(state): State<SharedState>,

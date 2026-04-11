@@ -133,6 +133,40 @@ pub async fn list_repos(
     Ok(repos)
 }
 
+/// List branches for a repository using GitHub App installation token.
+pub async fn list_branches(
+    app_id: &str,
+    installation_id: i64,
+    private_key: &str,
+    repo_full_name: &str,
+) -> Result<Vec<String>> {
+    let token = get_installation_token(app_id, installation_id, private_key).await?;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!(
+            "https://api.github.com/repos/{repo_full_name}/branches?per_page=100"
+        ))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "Pier-PaaS")
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("GitHub list branches error: {body}"));
+    }
+
+    let data: Vec<serde_json::Value> = resp.json().await?;
+    let branches: Vec<String> = data
+        .iter()
+        .filter_map(|b| b["name"].as_str().map(|s| s.to_string()))
+        .collect();
+
+    Ok(branches)
+}
+
 /// Exchange a GitHub App Manifest code for app credentials.
 /// Called after user creates an app via the manifest flow.
 /// Returns: (app_id, slug, pem, webhook_secret, client_id, client_secret, owner_login)
