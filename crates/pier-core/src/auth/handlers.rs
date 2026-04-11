@@ -97,7 +97,7 @@ pub async fn login(
 
     // Build Set-Cookie header
     let cookie = format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+        "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
         state.config.session_cookie,
         session_id,
         ttl * 3600,

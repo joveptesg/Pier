@@ -317,9 +317,12 @@ pub async fn github_callback(
                 );
             }
 
-            // Redirect back to source detail page
-            let source_url = format!("/sources/{id}");
-            axum::response::Redirect::to(&source_url)
+            // Redirect to GitHub App install page to select repositories
+            let install_url = format!(
+                "https://github.com/apps/{}/installations/new",
+                result.slug
+            );
+            axum::response::Redirect::to(&install_url)
         }
         Err(e) => {
             tracing::error!("GitHub manifest exchange failed: {e}");
