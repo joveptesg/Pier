@@ -133,7 +133,7 @@
                     <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-2">Databases</p>
                     <template x-for="item in catalogItems.filter(i => i.category === 'database')" :key="item.id">
                         <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                            <div class="w-6 h-6 rounded bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
+                            <div class="w-6 h-6 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
                                 <img :src="'/static/icons/' + item.id + '.svg'" class="w-5 h-5" onerror="this.parentElement.innerHTML='<svg class=\'w-4 h-4 text-gray-500\' fill=\'none\' stroke=\'currentColor\' viewBox=\'0 0 24 24\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7c-2 0-3 1-3 3z\'/></svg>'">
                             </div>
                             <div class="min-w-0">
@@ -145,7 +145,7 @@
                     <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-3">Services</p>
                     <template x-for="item in catalogItems.filter(i => i.category === 'service')" :key="item.id">
                         <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                            <div class="w-6 h-6 rounded bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
+                            <div class="w-6 h-6 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
                                 <img :src="'/static/icons/' + item.id + '.svg'" class="w-5 h-5" onerror="this.parentElement.innerHTML='<svg class=\'w-4 h-4 text-gray-500\' fill=\'none\' stroke=\'currentColor\' viewBox=\'0 0 24 24\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2\'/></svg>'">
                             </div>
                             <div class="min-w-0">
@@ -157,7 +157,7 @@
                     <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-3">Docker</p>
                     <template x-for="item in catalogItems.filter(i => !i.category || (i.category !== 'database' && i.category !== 'service'))" :key="item.id">
                         <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                            <div class="w-6 h-6 rounded bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
+                            <div class="w-6 h-6 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
                                 <img :src="'/static/icons/' + (item.id || 'docker') + '.svg'" class="w-5 h-5" onerror="this.parentElement.innerHTML='<svg class=\'w-4 h-4 text-blue-400\' fill=\'none\' stroke=\'currentColor\' viewBox=\'0 0 24 24\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4\'/></svg>'">
                             </div>
                             <div class="min-w-0">
