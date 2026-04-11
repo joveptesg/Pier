@@ -2,7 +2,7 @@
 {% block title %}Architecture{% endblock %}
 
 {% block content %}
-<div x-data="canvasApp()" x-init="init()" class="fixed inset-0 overflow-hidden select-none"
+<div x-data="canvasApp()" x-init="init()" class="absolute inset-0 overflow-hidden select-none"
      style="background-color:#0a0e17; background-image: radial-gradient(circle, #1a2030 1px, transparent 1px); background-size: 30px 30px;">
 
     <!-- Top bar -->
@@ -39,7 +39,7 @@
     </div>
 
     <!-- Canvas area (pan/zoom container) -->
-    <div class="absolute inset-0 pt-10 overflow-hidden"
+    <div class="absolute inset-0 pt-11 overflow-hidden"
          @mousedown="onCanvasMouseDown($event)"
          @mousemove="onMouseMove($event)"
          @mouseup="onMouseUp($event)"
