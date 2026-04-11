@@ -222,6 +222,34 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Step 3: Deploying (log viewer) -->
+            <div x-show="createModal.step === 'deploying'" class="p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 rounded-full animate-pulse"
+                             :class="createModal.deployStatus === 'success' ? 'bg-green-500' : createModal.deployStatus === 'failed' ? 'bg-red-500' : 'bg-blue-500'"></div>
+                        <h3 class="text-lg font-semibold text-white" x-text="createModal.deployStatus === 'success' ? 'Deployed!' : createModal.deployStatus === 'failed' ? 'Deploy Failed' : 'Deploying...'"></h3>
+                    </div>
+                    <span class="text-xs text-gray-500" x-text="createModal.template?.name"></span>
+                </div>
+                <div class="bg-black rounded-lg p-3 font-mono text-[11px] text-gray-300 max-h-[50vh] overflow-y-auto whitespace-pre-wrap" x-ref="deployLogBox"
+                     x-text="createModal.deployLog || 'Starting deployment...'"></div>
+                <div class="flex justify-end gap-2 mt-4">
+                    <template x-if="createModal.deployStatus === 'success'">
+                        <div class="flex gap-2">
+                            <a :href="'/resources/' + createModal.deployedId"
+                               class="px-4 py-2 text-sm text-blue-400 hover:text-blue-300">Open Details</a>
+                            <button @click="createModal.show = false; createModal.step = 'catalog'; createModal.deployLog = ''"
+                                    class="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg">Done</button>
+                        </div>
+                    </template>
+                    <template x-if="createModal.deployStatus === 'failed'">
+                        <button @click="createModal.step = 'config'; createModal.deployLog = ''; createModal.deployStatus = ''"
+                                class="px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white rounded-lg">Back to Config</button>
+                    </template>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -275,7 +303,7 @@ function canvasApp() {
         hoveredId: null,
         contextMenu: { show: false, x: 0, y: 0, id: null },
         catalogItems: [],
-        createModal: { show: false, step: 'catalog', template: null, form: {}, networkId: '', deploying: false },
+        createModal: { show: false, step: 'catalog', template: null, form: {}, networkId: '', deploying: false, deployLog: '', deployStatus: '', deployedId: null },
 
         async init() {
             await this.loadData();
@@ -489,16 +517,46 @@ function canvasApp() {
             const name = m.form.name?.trim();
             if (!name) { toast('Name is required', 'error'); return; }
             m.deploying = true;
+            m.step = 'deploying';
+            m.deployLog = `Deploying ${m.template.name} "${name}"...\n`;
+            m.deployStatus = 'deploying';
+            m.deployedId = null;
+
             try {
-                await api('/api/v1/resources', { method: 'POST', body: JSON.stringify({
+                m.deployLog += `Creating resource...\n`;
+                const result = await api('/api/v1/resources', { method: 'POST', body: JSON.stringify({
                     catalog_id: m.template.id, name, network_id: m.networkId || null, config: { ...m.form },
                 }) });
+                m.deployedId = result.id;
+                m.deployLog += `Container created successfully\n`;
+
+                // Fetch deployment logs
+                if (result.id) {
+                    try {
+                        const logs = await fetch('/api/v1/resources/' + result.id + '/deployment-logs').then(r => r.json());
+                        if (logs && logs.length > 0) {
+                            const lastLog = logs[logs.length - 1];
+                            m.deployLog += `\n--- Deployment Log ---\n${lastLog.output || 'No output'}\n`;
+                        }
+                    } catch {}
+                }
+
+                m.deployLog += `\n✓ ${name} deployed successfully!\n`;
+                m.deployStatus = 'success';
                 toast(name + ' deployed');
-                m.show = false; m.step = 'catalog';
                 await this.loadData();
                 this.buildCanvas();
-            } catch (e) { toast(e.message, 'error'); }
+            } catch (e) {
+                m.deployLog += `\n✗ Deploy failed: ${e.message}\n`;
+                m.deployStatus = 'failed';
+                toast(e.message, 'error');
+            }
             m.deploying = false;
+            // Auto-scroll log
+            this.$nextTick(() => {
+                const box = this.$refs.deployLogBox;
+                if (box) box.scrollTop = box.scrollHeight;
+            });
         },
     };
 }

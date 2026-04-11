@@ -75,6 +75,7 @@
                             </template>
                         </div>
                         <div class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 space-y-2">
+                            <div class="flex justify-between text-xs"><span class="text-gray-500">Hostname</span><span class="text-gray-700 dark:text-gray-300" x-text="metrics.hostname || '--'"></span></div>
                             <div class="flex justify-between text-xs"><span class="text-gray-500">Host</span><span class="text-gray-700 dark:text-gray-300 font-mono" x-text="srv.host"></span></div>
                             <div class="flex justify-between text-xs"><span class="text-gray-500">OS</span><span class="text-gray-700 dark:text-gray-300" x-text="metrics.os || '--'"></span></div>
                             <div class="flex justify-between text-xs"><span class="text-gray-500">Uptime</span><span class="text-gray-700 dark:text-gray-300" x-text="formatUptime(metrics.uptime)"></span></div>
