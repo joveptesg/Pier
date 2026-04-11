@@ -222,7 +222,8 @@ function sourceDetail(sourceId) {
         },
         async deleteSource() {
             const name = this.source.name || '';
-            if (!confirm('Delete source "' + name + '"? This cannot be undone.')) return;
+            const input = prompt('Type "' + name + '" to confirm deletion:');
+            if (input !== name) { if (input !== null) toast('Name does not match', 'error'); return; }
             try {
                 await api('/api/v1/sources/' + sourceId, { method: 'DELETE' });
                 toast('Source deleted');
