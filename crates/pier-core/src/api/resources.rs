@@ -1256,6 +1256,7 @@ pub async fn get(
                 "container": pa.container_port,
                 "protocol": pa.protocol,
                 "is_public": pa.is_public,
+                "public_port": pa.public_port,
             })
         })
         .collect();
@@ -1805,92 +1806,126 @@ pub struct UpdateGitConfigRequest {
     pub webhook_secret: Option<String>,
 }
 
-/// PUT /api/v1/resources/{id}/port-public — toggle public port visibility.
+/// PUT /api/v1/resources/{id}/port-public — toggle public port via Traefik TCP proxy.
+/// No container redeploy needed — only Traefik config update.
 pub async fn set_port_public(
     State(state): State<SharedState>,
     Path(id): Path<String>,
     Json(body): Json<SetPortPublicRequest>,
 ) -> AppResult<impl IntoResponse> {
-    // Update is_public in port_allocations
-    {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        ports::set_ports_public(&db, &id, body.is_public)?;
-    }
+    let public_port = body.public_port.unwrap_or(0) as u16;
 
-    // Regenerate compose YAML with new port bindings
-    let (name, yaml) = {
+    // Get host_port from port_allocations
+    let host_port = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row(
-            "SELECT name, compose_content FROM services WHERE id = ?1",
-            [&id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+
+        let hp: i64 = db
+            .query_row(
+                "SELECT host_port FROM port_allocations WHERE service_id = ?1 LIMIT 1",
+                [&id],
+                |row| row.get(0),
+            )
+            .map_err(|_| AppError::NotFound(format!("No ports for resource {id}")))?;
+
+        // Update is_public and public_port
+        if body.is_public {
+            let pp = if public_port > 0 { public_port } else { hp as u16 };
+            db.execute(
+                "UPDATE port_allocations SET is_public = 1, public_port = ?1 WHERE service_id = ?2",
+                rusqlite::params![pp as i64, id],
+            )?;
+        } else {
+            db.execute(
+                "UPDATE port_allocations SET is_public = 0, public_port = NULL WHERE service_id = ?1",
+                [&id],
+            )?;
+        }
+        hp as u16
+    };
+
+    let pp = if public_port > 0 {
+        public_port
+    } else {
+        host_port
+    };
+
+    if body.is_public {
+        // Create Traefik TCP route
+        crate::proxy::config::write_tcp_route(&state.config.data_dir, &id, pp, host_port)
+            .map_err(|e| anyhow::anyhow!("Write TCP route: {e}"))?;
+
+        // Collect all active public TCP ports for static config
+        let tcp_ports = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            let mut stmt = db.prepare(
+                "SELECT DISTINCT public_port FROM port_allocations WHERE is_public = 1 AND public_port IS NOT NULL",
+            )?;
+            let ports: Vec<u16> = stmt
+                .query_map([], |row| row.get::<_, i64>(0).map(|p| p as u16))?
+                .filter_map(|r| r.ok())
+                .collect();
+            ports
+        };
+
+        // Get proxy settings for static config
+        let (acme_email, dashboard) = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            let email = db
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'proxy.acme_email'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_else(|_| "admin@pier.local".to_string());
+            let dash = db
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_default()
+                == "true";
+            (email, dash)
+        };
+
+        // Regenerate static config with TCP entryPoints + restart Traefik
+        crate::proxy::config::regenerate_static_config_with_tcp(
+            &state.config.data_dir,
+            &acme_email,
+            dashboard,
+            &tcp_ports,
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
-    };
+        .map_err(|e| anyhow::anyhow!("Regenerate static config: {e}"))?;
 
-    let yaml = yaml.ok_or_else(|| AppError::BadRequest("No compose content".into()))?;
-    let new_yaml = crate::catalog::regenerate_compose_ports(&yaml, body.is_public);
-
-    // Save updated compose
-    {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.execute(
-            "UPDATE services SET compose_content = ?1, updated_at = datetime('now') WHERE id = ?2",
-            rusqlite::params![new_yaml, id],
-        )?;
+        let _ = crate::proxy::restart_traefik(&state.docker).await;
+        tracing::info!("Public TCP port {pp} enabled for {id} → localhost:{host_port}");
+    } else {
+        // Remove Traefik TCP route
+        let _ = crate::proxy::config::remove_tcp_route(&state.config.data_dir, &id);
+        tracing::info!("Public TCP port disabled for {id}");
+        // Note: entryPoint stays in static config until next restart, harmless
     }
 
-    // Redeploy with new port bindings
-    let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
-    let _ = docker::compose::down_stack(&stack_name, &state.config).await;
-    let result = docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config).await;
-
-    let status = if result.is_ok() { "running" } else { "failed" };
-    let log_output = match &result {
-        Ok(o) => o.clone(),
-        Err(e) => format!("{e}"),
-    };
-    {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        record_deployment_log(
-            &db,
-            &id,
-            if body.is_public {
-                "port-public"
-            } else {
-                "port-private"
-            },
-            if result.is_ok() { "success" } else { "failed" },
-            &log_output,
-        );
-        let _ = db.execute(
-            "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-            rusqlite::params![status, id],
-        );
-    }
-
-    result?;
     Ok(Json(serde_json::json!({
         "ok": true,
         "is_public": body.is_public,
+        "public_port": if body.is_public { Some(pp) } else { None },
     })))
 }
 
 #[derive(Deserialize)]
 pub struct SetPortPublicRequest {
     pub is_public: bool,
+    pub public_port: Option<i64>,
 }
 
 /// PUT /api/v1/resources/{id}/network — change network assignment.

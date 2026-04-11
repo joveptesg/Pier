@@ -295,17 +295,11 @@ pub fn build_compose_yaml(
         yaml.push_str(&format!("    command: [{}]\n", cmd.join(", ")));
     }
 
-    // Ports — bind to 127.0.0.1 (private) by default; user can toggle to 0.0.0.0 (public)
+    // Ports — always bind to 127.0.0.1 (public access via Traefik TCP proxy)
     if !ports.is_empty() {
         yaml.push_str("    ports:\n");
         for (_, host, container) in ports {
-            // Default: databases private, services public (can be toggled via UI)
-            let is_public = item.meta.category != "database";
-            if is_public {
-                yaml.push_str(&format!("      - \"{host}:{container}\"\n"));
-            } else {
-                yaml.push_str(&format!("      - \"127.0.0.1:{host}:{container}\"\n"));
-            }
+            yaml.push_str(&format!("      - \"127.0.0.1:{host}:{container}\"\n"));
         }
     }
 
@@ -381,7 +375,8 @@ pub fn build_from_template(template: &str, vars: &HashMap<String, String>) -> St
     substitute(template, vars)
 }
 
-/// Regenerate port bindings in compose YAML based on is_public flag.
+/// Regenerate port bindings in compose YAML (kept for backward compatibility).
+#[allow(dead_code)]
 /// Replaces `127.0.0.1:port:port` ↔ `port:port` (0.0.0.0) for all port lines.
 pub fn regenerate_compose_ports(yaml: &str, is_public: bool) -> String {
     yaml.lines()

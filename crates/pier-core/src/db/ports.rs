@@ -84,6 +84,7 @@ pub fn allocate_ports(
             container_port: *container_port as i64,
             protocol: "tcp".to_string(),
             is_public: false,
+            public_port: None,
             created_at: String::new(),
         });
     }
@@ -103,7 +104,7 @@ pub fn free_ports(conn: &Connection, service_id: &str) -> Result<()> {
 /// Get all port allocations for a service.
 pub fn get_ports(conn: &Connection, service_id: &str) -> Result<Vec<PortAllocation>> {
     let mut stmt = conn.prepare(
-        "SELECT id, service_id, port_name, host_port, container_port, protocol, is_public, created_at
+        "SELECT id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, created_at
          FROM port_allocations WHERE service_id = ?1",
     )?;
 
@@ -117,7 +118,8 @@ pub fn get_ports(conn: &Connection, service_id: &str) -> Result<Vec<PortAllocati
                 container_port: row.get(4)?,
                 protocol: row.get(5)?,
                 is_public: row.get::<_, i64>(6)? != 0,
-                created_at: row.get(7)?,
+                public_port: row.get(7)?,
+                created_at: row.get(8)?,
             })
         })?
         .filter_map(|r| r.ok())
@@ -127,6 +129,7 @@ pub fn get_ports(conn: &Connection, service_id: &str) -> Result<Vec<PortAllocati
 }
 
 /// Set public visibility for all ports of a service.
+#[allow(dead_code)]
 pub fn set_ports_public(conn: &Connection, service_id: &str, is_public: bool) -> Result<()> {
     conn.execute(
         "UPDATE port_allocations SET is_public = ?1 WHERE service_id = ?2",

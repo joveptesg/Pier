@@ -2,6 +2,7 @@ pub mod auth;
 pub mod backups;
 pub mod canvas;
 pub mod catalog;
+pub mod databases;
 pub mod compose;
 pub mod containers;
 pub mod deployments;
@@ -124,6 +125,15 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/resources/{id}/deployments/{dep_id}",
             get(deployments::get),
+        )
+        // Database management (PostgreSQL/MySQL)
+        .route(
+            "/resources/{id}/databases",
+            get(databases::list_databases).post(databases::create_database),
+        )
+        .route(
+            "/resources/{id}/databases/{dbname}",
+            delete(databases::delete_database),
         )
         // Environment Variables
         .route(

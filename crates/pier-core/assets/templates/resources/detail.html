@@ -54,6 +54,9 @@
     <div class="flex gap-1 border-b border-gray-200 dark:border-gray-800">
         <button @click="tab = 'overview'" :class="tab === 'overview' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Overview</button>
+        <button x-show="resource.category === 'database'" @click="tab = 'databases'; loadDatabases()"
+                :class="tab === 'databases' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Databases</button>
         <button @click="tab = 'env'" :class="tab === 'env' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Environment</button>
         <button @click="tab = 'domains'" :class="tab === 'domains' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
@@ -124,12 +127,12 @@
                 </div>
                 <p x-show="(resource.ports || []).length === 0" class="text-sm text-gray-400">No ports allocated</p>
 
-                <!-- Public toggle -->
+                <!-- Public toggle (via Traefik TCP proxy — no container restart) -->
                 <div x-show="(resource.ports || []).length > 0" class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-800">
                     <div class="flex items-center justify-between">
                         <div>
                             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Make it publicly available</span>
-                            <p class="text-xs text-gray-400 mt-0.5">Bind ports to 0.0.0.0 instead of 127.0.0.1</p>
+                            <p class="text-xs text-gray-400 mt-0.5">Expose via Traefik TCP proxy (no container restart)</p>
                         </div>
                         <button @click="togglePublic()"
                                 :disabled="togglingPublic"
@@ -139,7 +142,14 @@
                                   :class="portIsPublic ? 'translate-x-5' : 'translate-x-0'"></span>
                         </button>
                     </div>
-                    <p x-show="togglingPublic" class="text-xs text-blue-500 mt-2">Redeploying with new port bindings...</p>
+                    <!-- Public port input -->
+                    <div x-show="portIsPublic" class="mt-2 flex items-center gap-2">
+                        <label class="text-xs text-gray-500">Public Port:</label>
+                        <input type="number" x-model.number="publicPort" min="1024" max="65535"
+                               class="w-24 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100"
+                               @change="updatePublicPort()">
+                    </div>
+                    <p x-show="togglingPublic" class="text-xs text-blue-500 mt-2">Updating Traefik proxy...</p>
                 </div>
             </div>
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
@@ -199,6 +209,89 @@
                         <button @click="navigator.clipboard.writeText(publicConnectionStringRaw); toast('Copied!')"
                                 class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Databases Tab (only for database category) -->
+    <div x-show="tab === 'databases'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Databases</h3>
+                <button @click="showCreateDb = true"
+                        class="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">+ Create Database</button>
+            </div>
+            <div x-show="dbList.length > 0" class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-800">
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Database</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Owner</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Size</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Connection URL</th>
+                            <th class="text-right py-2 px-2 text-xs font-medium text-gray-500"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="d in dbList" :key="d.name">
+                            <tr class="border-b border-gray-100 dark:border-gray-800/50">
+                                <td class="py-2 px-2 font-mono text-xs text-gray-900 dark:text-gray-100" x-text="d.name"></td>
+                                <td class="py-2 px-2 text-xs text-gray-500" x-text="d.owner"></td>
+                                <td class="py-2 px-2 text-xs text-gray-500" x-text="d.size"></td>
+                                <td class="py-2 px-2">
+                                    <div class="flex items-center gap-1">
+                                        <code class="text-[10px] font-mono text-gray-600 dark:text-gray-400 truncate max-w-[300px]"
+                                              x-text="buildDbConnStr(d.name, d.owner)"></code>
+                                        <button @click="navigator.clipboard.writeText(buildDbConnStrRaw(d.name, d.owner)); toast('Copied!')"
+                                                class="shrink-0 px-1.5 py-0.5 text-[10px] bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-gray-500 transition-colors">Copy</button>
+                                    </div>
+                                </td>
+                                <td class="py-2 px-2 text-right">
+                                    <button x-show="d.name !== 'postgres' && d.name !== 'mysql'"
+                                            @click="deleteDb(d.name)"
+                                            class="text-[10px] text-red-500 hover:text-red-400">Delete</button>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            <p x-show="dbList.length === 0 && !dbLoading" class="text-sm text-gray-400 text-center py-4">No databases found</p>
+            <p x-show="dbLoading" class="text-sm text-gray-400 text-center py-4">Loading...</p>
+        </div>
+
+        <!-- Create Database Modal -->
+        <div x-show="showCreateDb" x-cloak
+             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+             @click.self="showCreateDb = false">
+            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4 border border-gray-200 dark:border-gray-800">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Create Database</h3>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Database Name</label>
+                    <input x-model="newDb.database" type="text" placeholder="voxly"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Username</label>
+                    <input x-model="newDb.username" type="text" placeholder="voxlyadmin"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Password</label>
+                    <div class="flex gap-2">
+                        <input x-model="newDb.password" type="text" placeholder="Auto-generated if empty"
+                               class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <button @click="newDb.password = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)"
+                                class="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-xs text-gray-600 dark:text-gray-300">Generate</button>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button @click="showCreateDb = false" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">Cancel</button>
+                    <button @click="createDb()" :disabled="dbCreating"
+                            class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg">
+                        <span x-text="dbCreating ? 'Creating...' : 'Create'"></span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -584,8 +677,12 @@ function resourceDetail(id) {
         gitSources: [], showWebhookSecret: false,
         ciDeployments: [], expandedLog: null,
         togglingPublic: false,
+        publicPort: 0,
         changingNetwork: false,
         availableNetworks: [],
+        dbList: [], dbLoading: false, dbCreating: false,
+        showCreateDb: false,
+        newDb: { database: '', username: '', password: '' },
         get portIsPublic() { return this.resource.ports?.[0]?.is_public || false; },
         showPasswords: false,
         _buildConnStr(host, port, containerPort, masked) {
@@ -635,12 +732,22 @@ function resourceDetail(id) {
         },
         async togglePublic() {
             const newState = !this.portIsPublic;
-            const msg = newState ? 'Make ports publicly available? This will redeploy the service.' : 'Make ports local-only? This will redeploy the service.';
-            if (!confirm(msg)) return;
+            const port = this.publicPort || this.resource.ports?.[0]?.host || 0;
             this.togglingPublic = true;
             try {
-                await api('/api/v1/resources/'+this.id+'/port-public', { method: 'PUT', body: JSON.stringify({ is_public: newState }) });
-                toast(newState ? 'Ports are now public' : 'Ports are now local-only');
+                await api('/api/v1/resources/'+this.id+'/port-public', { method: 'PUT', body: JSON.stringify({ is_public: newState, public_port: port }) });
+                toast(newState ? 'Public access enabled (port ' + port + ')' : 'Public access disabled');
+                await this.refresh();
+                this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.host || 0;
+            } catch(e) { toast(e.message, 'error'); }
+            this.togglingPublic = false;
+        },
+        async updatePublicPort() {
+            if (!this.publicPort || this.publicPort < 1024) return;
+            this.togglingPublic = true;
+            try {
+                await api('/api/v1/resources/'+this.id+'/port-public', { method: 'PUT', body: JSON.stringify({ is_public: true, public_port: this.publicPort }) });
+                toast('Public port updated to ' + this.publicPort);
                 await this.refresh();
             } catch(e) { toast(e.message, 'error'); }
             this.togglingPublic = false;
@@ -657,10 +764,45 @@ function resourceDetail(id) {
             } catch(e) { toast(e.message, 'error'); }
             this.changingNetwork = false;
         },
+        // Database management
+        async loadDatabases() {
+            this.dbLoading = true;
+            try { this.dbList = await fetch('/api/v1/resources/'+this.id+'/databases').then(r => r.ok ? r.json() : []); } catch { this.dbList = []; }
+            this.dbLoading = false;
+        },
+        async createDb() {
+            if (!this.newDb.database || !this.newDb.username || !this.newDb.password) { toast('All fields required', 'error'); return; }
+            this.dbCreating = true;
+            try {
+                await api('/api/v1/resources/'+this.id+'/databases', { method: 'POST', body: JSON.stringify(this.newDb) });
+                toast('Database ' + this.newDb.database + ' created');
+                this.showCreateDb = false;
+                this.newDb = { database: '', username: '', password: '' };
+                await this.loadDatabases();
+            } catch(e) { toast(e.message, 'error'); }
+            this.dbCreating = false;
+        },
+        async deleteDb(name) {
+            if (!confirm('Delete database "' + name + '" and its owner user?')) return;
+            try {
+                await api('/api/v1/resources/'+this.id+'/databases/' + name, { method: 'DELETE' });
+                toast('Database deleted');
+                await this.loadDatabases();
+            } catch(e) { toast(e.message, 'error'); }
+        },
+        buildDbConnStr(dbName, owner) {
+            const p = this.resource.ports?.[0]; if (!p) return '';
+            return this._buildConnStr('localhost', p.host, null, true).replace(/\/[^/]*$/, '/' + dbName).replace(/\/\/[^:]+:/, '//' + owner + ':');
+        },
+        buildDbConnStrRaw(dbName, owner) {
+            const p = this.resource.ports?.[0]; if (!p) return '';
+            return this._buildConnStr('localhost', p.host, null, false).replace(/\/[^/]*$/, '/' + dbName).replace(/\/\/[^:]+:/, '//' + owner + ':');
+        },
         async init() {
             await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster(); this.loadDomains();
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
+            this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.host || 0;
         },
         async refresh() { try { this.resource = await fetch('/api/v1/resources/'+this.id).then(r=>r.json()); } catch(e) { toast('Failed to load resource','error'); } },
         async loadCluster() { try { this.clusterInfo = await fetch('/api/v1/resources/'+this.id+'/nodes').then(r=>r.ok?r.json():null); } catch { this.clusterInfo = null; } },

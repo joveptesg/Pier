@@ -118,6 +118,15 @@ pub async fn deploy_traefik(
     Ok(())
 }
 
+/// Restart the Traefik container (for static config changes like new entryPoints).
+pub async fn restart_traefik(docker: &Docker) -> Result<()> {
+    docker
+        .restart_container(TRAEFIK_CONTAINER, None)
+        .await?;
+    tracing::info!("Traefik restarted for config update");
+    Ok(())
+}
+
 /// Stop and remove the Traefik container.
 pub async fn stop_traefik(docker: &Docker) -> Result<()> {
     let _ = docker.stop_container(TRAEFIK_CONTAINER, None).await;

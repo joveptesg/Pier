@@ -267,6 +267,114 @@ pub fn remove_platform_domain_config(data_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Write a Traefik TCP dynamic config for exposing a service port publicly.
+/// Creates `tcp-{service_id}.yml` in the dynamic config directory.
+pub fn write_tcp_route(
+    data_dir: &Path,
+    service_id: &str,
+    public_port: u16,
+    host_port: u16,
+) -> Result<()> {
+    let dynamic_dir = data_dir.join("traefik").join("dynamic");
+    std::fs::create_dir_all(&dynamic_dir)?;
+
+    let ep_name = format!("tcp-{public_port}");
+    let config = format!(
+        r#"# TCP proxy for service {service_id} (port {public_port} -> {host_port})
+tcp:
+  routers:
+    tcp-{service_id}:
+      entryPoints:
+        - "{ep_name}"
+      rule: "HostSNI(`*`)"
+      service: "tcp-{service_id}"
+  services:
+    tcp-{service_id}:
+      loadBalancer:
+        servers:
+          - address: "host.docker.internal:{host_port}"
+"#
+    );
+
+    std::fs::write(
+        dynamic_dir.join(format!("tcp-{service_id}.yml")),
+        config,
+    )?;
+    Ok(())
+}
+
+/// Remove a TCP route config for a service.
+pub fn remove_tcp_route(data_dir: &Path, service_id: &str) -> Result<()> {
+    let path = data_dir
+        .join("traefik")
+        .join("dynamic")
+        .join(format!("tcp-{service_id}.yml"));
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+/// Regenerate Traefik static config with additional TCP entryPoints.
+/// Reads all TCP ports from dynamic configs and adds them as entryPoints.
+pub fn regenerate_static_config_with_tcp(
+    data_dir: &Path,
+    acme_email: &str,
+    dashboard: bool,
+    tcp_ports: &[u16],
+) -> Result<()> {
+    let mut tcp_entries = String::new();
+    for port in tcp_ports {
+        tcp_entries.push_str(&format!(
+            "  tcp-{port}:\n    address: \":{port}\"\n"
+        ));
+    }
+
+    let dashboard_section = if dashboard {
+        "api:\n  dashboard: true\n  insecure: true"
+    } else {
+        "api:\n  dashboard: false"
+    };
+
+    let config = format!(
+        r#"# Pier-managed Traefik configuration — do not edit manually
+{dashboard_section}
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+{tcp_entries}
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "{acme_email}"
+      storage: /data/traefik/acme.json
+      httpChallenge:
+        entryPoint: web
+
+providers:
+  file:
+    directory: /data/traefik/dynamic
+    watch: true
+
+log:
+  level: WARN
+"#
+    );
+
+    let traefik_dir = data_dir.join("traefik");
+    std::fs::create_dir_all(&traefik_dir)?;
+    std::fs::write(traefik_dir.join("traefik.yml"), config)?;
+    Ok(())
+}
+
 /// Detect the public IP of this server.
 pub async fn detect_public_ip() -> Result<String> {
     let client = reqwest::Client::builder()

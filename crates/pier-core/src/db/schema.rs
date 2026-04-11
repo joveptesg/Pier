@@ -285,6 +285,10 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE git_sources ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
     "#,
+    // Migration 15: Public port for Traefik TCP proxy
+    r#"
+    ALTER TABLE port_allocations ADD COLUMN public_port INTEGER;
+    "#,
 ];
 
 /// Run all pending database migrations.
