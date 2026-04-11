@@ -1,167 +1,174 @@
 {% extends "base.html" %}
-{% block title %}Architecture Canvas{% endblock %}
+{% block title %}Architecture{% endblock %}
 
 {% block content %}
-<div x-data="canvasApp()" x-init="init()" class="fixed inset-0 top-0 overflow-hidden" style="margin:0;padding:0;">
+<div x-data="canvasApp()" x-init="init()" class="fixed inset-0 overflow-hidden select-none"
+     style="background-color:#0a0e17; background-image: radial-gradient(circle, #1a2030 1px, transparent 1px); background-size: 30px 30px;">
+
     <!-- Top bar -->
-    <div class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-2 bg-gray-950/80 backdrop-blur-sm border-b border-gray-800/50">
+    <div class="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-2 bg-[#0a0e17]/90 backdrop-blur-sm border-b border-gray-800/50">
         <div class="flex items-center gap-3">
             <a href="/" class="text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                 Dashboard
             </a>
-            <span class="text-gray-600">|</span>
+            <span class="text-gray-700">|</span>
             <h2 class="text-sm font-medium text-white">Architecture</h2>
             <span class="text-xs text-gray-500" x-text="resources.length + ' services'"></span>
         </div>
         <div class="flex items-center gap-2">
+            <button @click="$refs.addMenu.classList.toggle('hidden')"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"/></svg>
+                Create
+            </button>
+            <!-- Add menu dropdown -->
+            <div x-ref="addMenu" class="hidden absolute right-4 top-12 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px] z-50">
+                <a href="/resources/new" class="block px-3 py-2 text-sm text-gray-300 hover:bg-gray-800">New Resource</a>
+            </div>
+            <span class="text-gray-700 ml-2">|</span>
             <span class="text-xs text-gray-500" x-text="Math.round(zoom * 100) + '%'"></span>
-            <button @click="zoomIn()" class="p-1 text-gray-400 hover:text-white"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"/></svg></button>
-            <button @click="zoomOut()" class="p-1 text-gray-400 hover:text-white"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12H6"/></svg></button>
-            <button @click="resetView()" class="p-1 text-gray-400 hover:text-white text-xs">Fit</button>
+            <button @click="zoomIn()" class="p-1 text-gray-400 hover:text-white" title="Zoom in">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"/></svg>
+            </button>
+            <button @click="zoomOut()" class="p-1 text-gray-400 hover:text-white" title="Zoom out">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"/></svg>
+            </button>
+            <button @click="resetView()" class="px-2 py-1 text-xs text-gray-400 hover:text-white border border-gray-700 rounded" title="Fit to view">Fit</button>
         </div>
     </div>
 
-    <!-- SVG Canvas -->
-    <svg xmlns="http://www.w3.org/2000/svg"
-         class="w-full h-full bg-gray-950"
-         :viewBox="viewBox"
+    <!-- Canvas area (pan/zoom container) -->
+    <div class="absolute inset-0 pt-10 overflow-hidden"
          @mousedown="onCanvasMouseDown($event)"
          @mousemove="onMouseMove($event)"
          @mouseup="onMouseUp($event)"
          @mouseleave="onMouseUp($event)"
-         @wheel.prevent="onWheel($event)">
+         @wheel.prevent="onWheel($event)"
+         @contextmenu.prevent>
 
-        <!-- Grid pattern -->
-        <defs>
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <circle cx="20" cy="20" r="0.5" fill="#1f2937" />
-            </pattern>
-        </defs>
-        <rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#grid)" />
+        <!-- Transform container -->
+        <div :style="'transform: scale(' + zoom + ') translate(' + (-panX) + 'px,' + (-panY) + 'px); transform-origin: 0 0; position: absolute; top: 0; left: 0; width: 6000px; height: 4000px;'">
 
-        <!-- Network connection lines -->
-        <template x-for="edge in edges" :key="edge.id">
-            <line :x1="edge.x1" :y1="edge.y1" :x2="edge.x2" :y2="edge.y2"
-                  stroke="#374151" stroke-width="1" stroke-dasharray="6,4"
-                  :class="hoveredId && (hoveredId === edge.from || hoveredId === edge.to) ? 'opacity-100' : 'opacity-30'"
-                  style="transition: opacity 0.2s" />
-        </template>
+            <!-- SVG layer for connection lines -->
+            <svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index:1">
+                <template x-for="edge in edges" :key="edge.id">
+                    <line :x1="getCardCenter(edge.from).x" :y1="getCardCenter(edge.from).y"
+                          :x2="getCardCenter(edge.to).x" :y2="getCardCenter(edge.to).y"
+                          stroke="#374151" stroke-width="1.5" stroke-dasharray="6,4"
+                          :opacity="hoveredId && (hoveredId === edge.from || hoveredId === edge.to) ? 0.8 : 0.25" />
+                </template>
+            </svg>
 
-        <!-- Server zone rectangles -->
-        <template x-for="zone in serverZones" :key="zone.id">
-            <g>
-                <rect :x="zone.x" :y="zone.y" :width="zone.w" :height="zone.h"
-                      rx="12" fill="none" stroke="#374151" stroke-width="1.5" stroke-dasharray="8,6" />
-                <text :x="zone.x + 16" :y="zone.y + 24" fill="#6b7280" font-size="13" font-weight="600"
-                      x-text="zone.name"></text>
-                <circle :cx="zone.x + zone.w - 20" :cy="zone.y + 18" r="5"
-                        :fill="zone.status === 'online' || zone.is_local ? '#22c55e' : '#6b7280'" />
-                <text :x="zone.x + 16" :y="zone.y + 42" fill="#4b5563" font-size="11"
-                      x-text="zone.metrics"></text>
-            </g>
-        </template>
+            <!-- Server zones -->
+            <template x-for="zone in serverZones" :key="zone.id">
+                <div class="absolute rounded-2xl border-2 border-dashed border-gray-800/60"
+                     :style="'left:' + zone.x + 'px; top:' + zone.y + 'px; width:' + zone.w + 'px; height:' + zone.h + 'px; z-index:2'">
+                    <div class="flex items-center justify-between px-4 pt-3">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-semibold text-gray-500" x-text="zone.name"></span>
+                            <span class="w-2 h-2 rounded-full" :class="zone.is_local || zone.status === 'online' ? 'bg-green-500' : 'bg-gray-600'"></span>
+                        </div>
+                        <span class="text-[10px] text-gray-600" x-text="zone.metrics"></span>
+                    </div>
+                </div>
+            </template>
 
-        <!-- Service cards -->
-        <template x-for="card in cards" :key="card.id">
-            <g :transform="'translate(' + card.x + ',' + card.y + ')'"
-               @mousedown.stop="onCardMouseDown($event, card)"
-               @mouseenter="hoveredId = card.id"
-               @mouseleave="hoveredId = null"
-               @dblclick="window.location.href = '/resources/' + card.id"
-               style="cursor: grab">
-                <foreignObject width="200" height="90" style="overflow:visible">
-                    <div xmlns="http://www.w3.org/1999/xhtml"
-                         class="w-[200px] rounded-xl border p-3 shadow-lg backdrop-blur-sm transition-all duration-200"
+            <!-- Service cards -->
+            <template x-for="card in cards" :key="card.id">
+                <div class="absolute cursor-grab active:cursor-grabbing"
+                     :style="'left:' + card.x + 'px; top:' + card.y + 'px; z-index:10'"
+                     @mousedown.stop="onCardMouseDown($event, card)"
+                     @mouseenter="hoveredId = card.id"
+                     @mouseleave="hoveredId = null"
+                     @dblclick="window.location.href = '/resources/' + card.id"
+                     @contextmenu.prevent="contextMenu = { show: true, x: $event.clientX, y: $event.clientY, id: card.id }">
+                    <div class="w-[210px] rounded-xl border p-3.5 shadow-lg backdrop-blur-sm transition-all duration-200"
                          :class="{
-                             'bg-gray-900/95 border-green-500/50 shadow-green-500/10': card.status === 'running',
-                             'bg-gray-900/95 border-red-500/50 shadow-red-500/10': card.status === 'failed',
-                             'bg-gray-900/95 border-gray-600/50': card.status === 'stopped' || card.status === 'unknown',
-                             'bg-gray-900/95 border-blue-500/50 shadow-blue-500/10 animate-pulse': card.status === 'deploying',
-                             'ring-2 ring-blue-400/50': hoveredId === card.id
+                             'bg-gray-900/95 border-green-500/40 shadow-green-500/5': card.status === 'running',
+                             'bg-gray-900/95 border-red-500/40 shadow-red-500/5': card.status === 'failed',
+                             'bg-gray-900/95 border-gray-700/50': card.status === 'stopped' || card.status === 'unknown',
+                             'bg-gray-900/95 border-blue-500/40 shadow-blue-500/5': card.status === 'deploying',
+                             'ring-2 ring-blue-400/40 scale-105': hoveredId === card.id
                          }">
-                        <div class="flex items-center gap-2 mb-1">
+                        <div class="flex items-center gap-2.5 mb-1.5">
                             <img :src="'/static/icons/' + (card.catalog_id || 'docker') + '.svg'"
-                                 class="w-5 h-5 rounded" onerror="this.src='/static/icons/docker.svg'">
-                            <span class="text-sm font-medium text-white truncate" x-text="card.name"></span>
-                            <span class="ml-auto w-2 h-2 rounded-full shrink-0"
+                                 class="w-6 h-6 rounded" onerror="this.style.display='none'">
+                            <span class="text-sm font-semibold text-white truncate flex-1" x-text="card.name"></span>
+                            <span class="w-2.5 h-2.5 rounded-full shrink-0"
                                   :class="{
-                                      'bg-green-500': card.status === 'running',
+                                      'bg-green-500 shadow-green-500/50 shadow-sm': card.status === 'running',
                                       'bg-red-500': card.status === 'failed',
-                                      'bg-gray-500': card.status === 'stopped' || card.status === 'unknown',
-                                      'bg-blue-500': card.status === 'deploying'
+                                      'bg-gray-600': card.status === 'stopped' || card.status === 'unknown',
+                                      'bg-blue-500 animate-pulse': card.status === 'deploying'
                                   }"></span>
                         </div>
-                        <div class="text-[10px] text-gray-400" x-text="(card.catalog_id || 'container') + ' \u00B7 ' + (card.category || 'service')"></div>
-                        <div class="flex items-center justify-between mt-1.5">
-                            <span class="text-[10px] text-gray-500" x-text="card.port ? 'Port ' + card.port : ''"></span>
-                            <span class="text-[10px] px-1.5 py-0.5 rounded"
+                        <div class="text-[11px] text-gray-500 mb-1" x-text="(card.catalog_id || 'container')"></div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] text-gray-600 font-mono" x-text="card.port ? ':' + card.port : ''"></span>
+                            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded"
                                   :class="{
-                                      'bg-green-900/50 text-green-400': card.status === 'running',
-                                      'bg-red-900/50 text-red-400': card.status === 'failed',
-                                      'bg-gray-800 text-gray-500': card.status === 'stopped' || card.status === 'unknown',
-                                      'bg-blue-900/50 text-blue-400': card.status === 'deploying'
+                                      'bg-green-500/10 text-green-400': card.status === 'running',
+                                      'bg-red-500/10 text-red-400': card.status === 'failed',
+                                      'bg-gray-700/50 text-gray-500': card.status === 'stopped' || card.status === 'unknown',
+                                      'bg-blue-500/10 text-blue-400': card.status === 'deploying'
                                   }"
                                   x-text="card.status"></span>
                         </div>
                     </div>
-                </foreignObject>
-            </g>
-        </template>
-    </svg>
+                </div>
+            </template>
+        </div>
+    </div>
 
     <!-- Context menu -->
     <div x-show="contextMenu.show" x-cloak
-         :style="'left:' + contextMenu.x + 'px;top:' + contextMenu.y + 'px'"
+         :style="'left:' + contextMenu.x + 'px; top:' + contextMenu.y + 'px'"
          @click.away="contextMenu.show = false"
-         class="fixed z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[160px]">
-        <button @click="doAction('start')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800">Start</button>
-        <button @click="doAction('stop')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800">Stop</button>
-        <button @click="doAction('restart')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800">Restart</button>
-        <button @click="doAction('redeploy')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800">Redeploy</button>
+         class="fixed z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl py-1 min-w-[160px]">
+        <button @click="doAction('start')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+            Start</button>
+        <button @click="doAction('stop')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+            Stop</button>
+        <button @click="doAction('restart')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Restart</button>
+        <button @click="doAction('redeploy')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            Redeploy</button>
         <div class="border-t border-gray-700 my-1"></div>
-        <a :href="'/resources/' + contextMenu.id" class="block px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800">Open Details</a>
+        <a :href="'/resources/' + contextMenu.id" class="block px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Open Details</a>
     </div>
 
     <!-- Legend -->
-    <div class="absolute bottom-4 left-4 z-20 bg-gray-900/90 backdrop-blur-sm border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-400 flex items-center gap-4">
-        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> Running</span>
-        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span> Failed</span>
-        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Deploying</span>
-        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-gray-500"></span> Stopped</span>
-        <span class="text-gray-600">|</span>
-        <span>Double-click to open | Right-click for menu | Drag to move</span>
+    <div class="absolute bottom-3 left-3 z-20 bg-gray-900/80 backdrop-blur-sm border border-gray-800/50 rounded-lg px-3 py-2 text-[10px] text-gray-500 flex items-center gap-3">
+        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> Running</span>
+        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> Failed</span>
+        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Deploying</span>
+        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Stopped</span>
     </div>
 </div>
 
 <script>
 function canvasApp() {
-    const CARD_W = 200, CARD_H = 90, CARD_GAP = 24, ZONE_PAD = 60;
+    const CARD_W = 210, CARD_H = 100, GAP = 28, ZONE_PAD = 50;
     return {
         resources: [], servers: [], networks: [], positions: {},
         cards: [], edges: [], serverZones: [],
-        // View state
-        zoom: 1, panX: 0, panY: 0,
-        get viewBox() {
-            const w = 1600 / this.zoom, h = 900 / this.zoom;
-            return `${this.panX} ${this.panY} ${w} ${h}`;
-        },
-        // Interaction state
-        dragging: null, dragStartX: 0, dragStartY: 0,
+        zoom: 1, panX: -100, panY: -30,
+        dragging: null, dragOffsetX: 0, dragOffsetY: 0,
         panning: false, panStartX: 0, panStartY: 0, panStartPanX: 0, panStartPanY: 0,
         hoveredId: null,
         contextMenu: { show: false, x: 0, y: 0, id: null },
-        refreshInterval: null,
 
         async init() {
             await this.loadData();
             this.buildCanvas();
-            // Auto-refresh every 5s
-            this.refreshInterval = setInterval(() => this.refreshStatus(), 5000);
-            // Right-click context menu
-            document.addEventListener('contextmenu', (e) => {
-                if (this.contextMenu.id) e.preventDefault();
-            });
+            setInterval(() => this.refreshStatus(), 5000);
         },
 
         async loadData() {
@@ -176,52 +183,47 @@ function canvasApp() {
 
         async refreshStatus() {
             try {
-                const data = await fetch('/api/v1/canvas').then(r => r.json());
-                // Update only status, don't rebuild layout
-                for (const r of (data.resources || [])) {
+                const res = await fetch('/api/v1/resources').then(r => r.json());
+                for (const r of res) {
                     const card = this.cards.find(c => c.id === r.id);
                     if (card && card.status !== r.status) card.status = r.status;
                 }
             } catch {}
         },
 
-        buildCanvas() {
-            // Group resources by server
-            const localId = '_local_';
-            const byServer = {};
-            byServer[localId] = [];
-            for (const s of this.servers) byServer[s.id] = [];
+        getCardCenter(id) {
+            const c = this.cards.find(c => c.id === id);
+            return c ? { x: c.x + CARD_W / 2, y: c.y + CARD_H / 2 } : { x: 0, y: 0 };
+        },
 
+        buildCanvas() {
+            const localId = '_local_';
+            const byServer = { [localId]: [] };
+            for (const s of this.servers) byServer[s.id] = [];
             for (const r of this.resources) {
                 const sid = r.server_id || localId;
                 if (!byServer[sid]) byServer[sid] = [];
                 byServer[sid].push(r);
             }
-            // Resources without server go to local
-            if (!byServer[localId]) byServer[localId] = [];
 
-            // Build server zones and cards
             this.serverZones = [];
             this.cards = [];
-            let zoneX = 40;
-
-            // Local server first
-            const serverOrder = [localId, ...this.servers.filter(s => !s.is_local).map(s => s.id)];
-            // Add local server info
+            let zoneX = 60;
             const localServer = this.servers.find(s => s.is_local);
+            const order = [localId, ...this.servers.filter(s => !s.is_local).map(s => s.id)];
 
-            for (const sid of serverOrder) {
+            for (const sid of order) {
                 const items = byServer[sid] || [];
                 const server = sid === localId
                     ? (localServer || { name: 'localhost', status: 'online', is_local: true })
                     : this.servers.find(s => s.id === sid);
                 if (!server) continue;
+                if (items.length === 0 && sid !== localId) continue;
 
-                // Calculate zone size
-                const cols = Math.max(2, Math.min(4, items.length));
+                const cols = Math.max(2, Math.min(4, items.length || 1));
                 const rows = Math.ceil(items.length / cols) || 1;
-                const zoneW = cols * (CARD_W + CARD_GAP) + ZONE_PAD * 2 - CARD_GAP;
-                const zoneH = rows * (CARD_H + CARD_GAP) + ZONE_PAD + 50 - CARD_GAP;
+                const zoneW = cols * (CARD_W + GAP) + ZONE_PAD * 2 - GAP;
+                const zoneH = rows * (CARD_H + GAP) + ZONE_PAD + 50;
 
                 this.serverZones.push({
                     id: sid,
@@ -229,33 +231,28 @@ function canvasApp() {
                     status: server.status || 'online',
                     is_local: server.is_local || sid === localId,
                     x: zoneX, y: 60,
-                    w: Math.max(zoneW, 280), h: Math.max(zoneH, 160),
-                    metrics: server.cpu_count ? `${server.cpu_count} CPU \u00B7 Docker ${server.docker_version || '?'}` : 'localhost',
+                    w: Math.max(zoneW, 300), h: Math.max(zoneH, 180),
+                    metrics: server.cpu_count
+                        ? server.cpu_count + ' CPU · Docker ' + (server.docker_version || '?')
+                        : 'Local server',
                 });
 
-                // Place cards inside zone
                 for (let i = 0; i < items.length; i++) {
                     const r = items[i];
                     const col = i % cols, row = Math.floor(i / cols);
                     const saved = this.positions[r.id];
                     this.cards.push({
-                        id: r.id,
-                        name: r.name,
-                        status: r.status,
-                        catalog_id: r.catalog_id,
-                        category: r.category,
-                        port: r.port,
-                        network_id: r.network_id,
-                        server_id: sid,
-                        x: saved ? saved.x : zoneX + ZONE_PAD + col * (CARD_W + CARD_GAP),
-                        y: saved ? saved.y : 60 + ZONE_PAD + 20 + row * (CARD_H + CARD_GAP),
+                        id: r.id, name: r.name, status: r.status,
+                        catalog_id: r.catalog_id, category: r.category,
+                        port: r.port, network_id: r.network_id, server_id: sid,
+                        x: saved ? saved.x : zoneX + ZONE_PAD + col * (CARD_W + GAP),
+                        y: saved ? saved.y : 120 + row * (CARD_H + GAP),
                     });
                 }
-
-                zoneX += Math.max(zoneW, 280) + 40;
+                zoneX += Math.max(zoneW, 300) + 50;
             }
 
-            // Build edges (services in same network)
+            // Edges
             this.edges = [];
             const netGroups = {};
             for (const c of this.cards) {
@@ -263,33 +260,19 @@ function canvasApp() {
                 if (!netGroups[nid]) netGroups[nid] = [];
                 netGroups[nid].push(c);
             }
-            let edgeIdx = 0;
-            for (const [nid, group] of Object.entries(netGroups)) {
+            let idx = 0;
+            for (const group of Object.values(netGroups)) {
                 for (let i = 0; i < group.length; i++) {
                     for (let j = i + 1; j < group.length; j++) {
-                        this.edges.push({
-                            id: 'e' + (edgeIdx++),
-                            from: group[i].id, to: group[j].id,
-                            get x1() { return group[i].x + CARD_W / 2; },
-                            get y1() { return group[i].y + CARD_H / 2; },
-                            get x2() { return group[j].x + CARD_W / 2; },
-                            get y2() { return group[j].y + CARD_H / 2; },
-                        });
+                        this.edges.push({ id: 'e' + idx++, from: group[i].id, to: group[j].id });
                     }
                 }
             }
         },
 
-        // --- Pan / Zoom ---
-        svgPoint(e) {
-            const svg = e.target.closest('svg');
-            const pt = svg.createSVGPoint();
-            pt.x = e.clientX; pt.y = e.clientY;
-            const ctm = svg.getScreenCTM().inverse();
-            return pt.matrixTransform(ctm);
-        },
+        // Pan & Zoom
         onCanvasMouseDown(e) {
-            if (e.button === 2) return; // right-click
+            if (e.button !== 0) return;
             this.panning = true;
             this.panStartX = e.clientX;
             this.panStartY = e.clientY;
@@ -298,11 +281,10 @@ function canvasApp() {
         },
         onMouseMove(e) {
             if (this.dragging) {
-                const p = this.svgPoint(e);
-                this.dragging.x = p.x - this.dragOffsetX;
-                this.dragging.y = p.y - this.dragOffsetY;
-                // Update edges reactively
-                this.edges = [...this.edges];
+                const dx = (e.clientX - this.dragStartClientX) / this.zoom;
+                const dy = (e.clientY - this.dragStartClientY) / this.zoom;
+                this.dragging.x = this.dragStartCardX + dx;
+                this.dragging.y = this.dragStartCardY + dy;
             } else if (this.panning) {
                 const dx = (e.clientX - this.panStartX) / this.zoom;
                 const dy = (e.clientY - this.panStartY) / this.zoom;
@@ -318,24 +300,24 @@ function canvasApp() {
             this.panning = false;
         },
         onWheel(e) {
-            const factor = e.deltaY > 0 ? 0.9 : 1.1;
-            this.zoom = Math.max(0.3, Math.min(3, this.zoom * factor));
+            const factor = e.deltaY > 0 ? 0.92 : 1.08;
+            this.zoom = Math.max(0.25, Math.min(3, this.zoom * factor));
         },
         zoomIn() { this.zoom = Math.min(3, this.zoom * 1.2); },
-        zoomOut() { this.zoom = Math.max(0.3, this.zoom * 0.8); },
-        resetView() { this.zoom = 1; this.panX = 0; this.panY = 0; },
+        zoomOut() { this.zoom = Math.max(0.25, this.zoom * 0.8); },
+        resetView() { this.zoom = 1; this.panX = -100; this.panY = -30; },
 
-        // --- Card Drag ---
+        // Card Drag
         onCardMouseDown(e, card) {
             if (e.button === 2) {
-                // Right-click → context menu
                 this.contextMenu = { show: true, x: e.clientX, y: e.clientY, id: card.id };
                 return;
             }
-            const p = this.svgPoint(e);
-            this.dragOffsetX = p.x - card.x;
-            this.dragOffsetY = p.y - card.y;
             this.dragging = card;
+            this.dragStartClientX = e.clientX;
+            this.dragStartClientY = e.clientY;
+            this.dragStartCardX = card.x;
+            this.dragStartCardY = card.y;
         },
 
         async savePosition(card) {
@@ -348,7 +330,7 @@ function canvasApp() {
             } catch {}
         },
 
-        // --- Context Menu Actions ---
+        // Context Menu
         async doAction(action) {
             const id = this.contextMenu.id;
             this.contextMenu.show = false;
