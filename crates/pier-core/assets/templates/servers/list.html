@@ -29,9 +29,12 @@
                     <div class="flex-1">
                         <!-- Editable name -->
                         <div x-data="{ editing: false, newName: srv.name }">
-                            <h3 x-show="!editing" @dblclick="editing = true; newName = srv.name"
-                                class="text-sm font-medium text-gray-900 dark:text-white cursor-pointer hover:text-blue-500 transition-colors"
-                                x-text="srv.name" title="Double-click to rename"></h3>
+                            <div class="flex items-center gap-2">
+                                <h3 x-show="!editing" @dblclick="editing = true; newName = srv.name"
+                                    class="text-sm font-medium text-gray-900 dark:text-white cursor-pointer hover:text-blue-500 transition-colors"
+                                    x-text="srv.name" title="Double-click to rename"></h3>
+                                <span x-show="!editing && srv.is_local" class="text-[10px] text-gray-500">(localhost)</span>
+                            </div>
                             <input x-show="editing" x-model="newName" x-ref="nameInput"
                                    @keydown.enter="renameServer(srv.id, newName); editing = false"
                                    @keydown.escape="editing = false"
