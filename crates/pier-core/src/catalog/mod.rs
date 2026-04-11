@@ -335,10 +335,14 @@ pub fn build_compose_yaml(
     yaml.push_str(&format!("      pier.service.id: \"{service_id}\"\n"));
     yaml.push_str(&format!("      pier.catalog.id: \"{}\"\n", item.meta.id));
 
-    // Service network reference
+    // Service networks: always include pier-net (shared) + optional project network
     let net = network_name.unwrap_or("pier-net");
     yaml.push_str("    networks:\n");
     yaml.push_str(&format!("      - {net}\n"));
+    if net != "pier-net" {
+        // Also connect to pier-net so services across networks can communicate
+        yaml.push_str("      - pier-net\n");
+    }
 
     // Named volumes
     if !item.volumes.is_empty() {
@@ -348,10 +352,14 @@ pub fn build_compose_yaml(
         }
     }
 
-    // Network definition (external — managed by Pier)
+    // Network definitions (external — managed by Pier)
     yaml.push_str("networks:\n");
     yaml.push_str(&format!("  {net}:\n"));
     yaml.push_str("    external: true\n");
+    if net != "pier-net" {
+        yaml.push_str("  pier-net:\n");
+        yaml.push_str("    external: true\n");
+    }
 
     yaml
 }

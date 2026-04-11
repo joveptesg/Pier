@@ -104,6 +104,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             put(resources::set_port_public),
         )
         .route(
+            "/resources/{id}/network",
+            put(resources::set_network),
+        )
+        .route(
             "/resources/{id}/deployment-logs",
             get(resources::deployment_logs),
         )

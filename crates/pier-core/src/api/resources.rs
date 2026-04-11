@@ -1220,8 +1220,8 @@ pub async fn get(
 
     let resource = db
         .query_row(
-            "SELECT id, project_id, name, service_type, status, port, image, catalog_id, category, env_json, compose_content, created_at, cluster_mode, cluster_config_json
-             FROM services WHERE id = ?1",
+            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image, s.catalog_id, s.category, s.env_json, s.compose_content, s.created_at, s.cluster_mode, s.cluster_config_json, s.network_id, n.name
+             FROM services s LEFT JOIN networks n ON s.network_id = n.id WHERE s.id = ?1",
             [&id],
             |row| {
                 Ok(serde_json::json!({
@@ -1239,6 +1239,8 @@ pub async fn get(
                     "created_at": row.get::<_, String>(11)?,
                     "cluster_mode": row.get::<_, Option<String>>(12)?,
                     "cluster_config_json": row.get::<_, Option<String>>(13)?,
+                    "network_id": row.get::<_, Option<String>>(14)?,
+                    "network_name": row.get::<_, Option<String>>(15)?,
                 }))
             },
         )
@@ -1889,4 +1891,167 @@ pub async fn set_port_public(
 #[derive(Deserialize)]
 pub struct SetPortPublicRequest {
     pub is_public: bool,
+}
+
+/// PUT /api/v1/resources/{id}/network — change network assignment.
+pub async fn set_network(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<SetNetworkRequest>,
+) -> AppResult<impl IntoResponse> {
+    // Resolve network name
+    let network_name = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let name: String = db
+            .query_row(
+                "SELECT name FROM networks WHERE id = ?1",
+                [&body.network_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| AppError::NotFound(format!("Network {} not found", body.network_id)))?;
+        db.execute(
+            "UPDATE services SET network_id = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![body.network_id, id],
+        )?;
+        name
+    };
+
+    // Regenerate compose YAML with new network
+    let (name, yaml, _catalog_id) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT name, compose_content, catalog_id FROM services WHERE id = ?1",
+            [&id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+    };
+
+    if let Some(yaml) = yaml {
+        // Replace network references in compose YAML
+        let new_yaml = replace_network_in_compose(&yaml, &network_name);
+
+        // Save and redeploy
+        {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            db.execute(
+                "UPDATE services SET compose_content = ?1, updated_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![new_yaml, id],
+            )?;
+        }
+
+        let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+        let _ = docker::compose::down_stack(&stack_name, &state.config).await;
+        let result = docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config).await;
+
+        let status = if result.is_ok() { "running" } else { "failed" };
+        {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            let _ = db.execute(
+                "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![status, id],
+            );
+        }
+        result?;
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "network_id": body.network_id,
+        "network_name": network_name,
+    })))
+}
+
+/// Replace network references in compose YAML with a new network name.
+fn replace_network_in_compose(yaml: &str, new_network: &str) -> String {
+    // Rebuild the networks section at the end of the YAML
+    let lines: Vec<&str> = yaml.lines().collect();
+
+    // Find where top-level "networks:" starts and remove everything after it
+    let mut cut_at = lines.len();
+    let mut in_service_networks = false;
+    let mut service_net_start = 0;
+    let mut service_net_end = 0;
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        // Top-level networks: section (not indented)
+        if trimmed == "networks:" && !line.starts_with(' ') {
+            cut_at = i;
+            break;
+        }
+        // Service-level networks: (indented with 4 spaces)
+        if trimmed == "networks:" && line.starts_with("    ") && !line.starts_with("      ") {
+            in_service_networks = true;
+            service_net_start = i;
+        } else if in_service_networks {
+            if trimmed.starts_with("- ") {
+                service_net_end = i + 1;
+            } else {
+                in_service_networks = false;
+            }
+        }
+    }
+
+    // Rebuild service-level networks
+    if service_net_start > 0 {
+        let mut new_lines: Vec<String> = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if i == service_net_start {
+                new_lines.push("    networks:".to_string());
+                new_lines.push(format!("      - {new_network}"));
+                if new_network != "pier-net" {
+                    new_lines.push("      - pier-net".to_string());
+                }
+            } else if i > service_net_start && i < service_net_end {
+                continue; // skip old network lines
+            } else if i >= cut_at {
+                continue; // skip old top-level networks section
+            } else {
+                new_lines.push(line.to_string());
+            }
+        }
+
+        // Add top-level networks section
+        new_lines.push(format!("networks:"));
+        new_lines.push(format!("  {new_network}:"));
+        new_lines.push("    external: true".to_string());
+        if new_network != "pier-net" {
+            new_lines.push("  pier-net:".to_string());
+            new_lines.push("    external: true".to_string());
+        }
+
+        return new_lines.join("\n");
+    }
+
+    // Fallback: just append networks section
+    let mut result: String = lines[..cut_at].join("\n");
+    result.push_str(&format!("\nnetworks:\n  {new_network}:\n    external: true\n"));
+    if new_network != "pier-net" {
+        result.push_str("  pier-net:\n    external: true\n");
+    }
+    result
+}
+
+#[derive(Deserialize)]
+pub struct SetNetworkRequest {
+    pub network_id: String,
 }

@@ -31,6 +31,12 @@ pub fn init_db(path: &Path) -> Result<Connection> {
         [],
     );
 
+    // Assign existing services without network to default
+    let _ = conn.execute(
+        "UPDATE services SET network_id = 'default-pier-net' WHERE network_id IS NULL",
+        [],
+    );
+
     tracing::info!("Database initialized at {}", path.display());
     Ok(conn)
 }

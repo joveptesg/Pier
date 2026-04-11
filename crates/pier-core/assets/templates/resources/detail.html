@@ -149,6 +149,15 @@
                     <div class="flex justify-between"><span class="text-gray-500">Mode</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="resource.cluster_mode === 'cluster' ? 'Cluster' : 'Standalone'"></span></div>
                     <div class="flex justify-between"><span class="text-gray-500">Created</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="resource.created_at || '-'"></span></div>
                     <div x-show="resource.project_id" class="flex justify-between"><span class="text-gray-500">Project</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="resource.project_id"></span></div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-500">Network</span>
+                        <select @change="changeNetwork($event.target.value)" :disabled="changingNetwork"
+                                class="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-gray-900 dark:text-gray-100">
+                            <template x-for="n in availableNetworks" :key="n.id">
+                                <option :value="n.id" :selected="n.id === resource.network_id" x-text="n.name"></option>
+                            </template>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
@@ -566,6 +575,8 @@ function resourceDetail(id) {
         gitSources: [], showWebhookSecret: false,
         ciDeployments: [], expandedLog: null,
         togglingPublic: false,
+        changingNetwork: false,
+        availableNetworks: [],
         get portIsPublic() { return this.resource.ports?.[0]?.is_public || false; },
         _buildConnStr(host, port, containerPort) {
             if (!this.resource.catalog_id) return '';
@@ -609,9 +620,21 @@ function resourceDetail(id) {
             this.togglingPublic = false;
         },
         isSecret(key) { const k=key.toUpperCase(); return k.includes('PASSWORD')||k.includes('SECRET')||k.includes('TOKEN')||k.includes('KEY'); },
+        async changeNetwork(networkId) {
+            if (networkId === this.resource.network_id) return;
+            if (!confirm('Change network? This will redeploy the service.')) { await this.refresh(); return; }
+            this.changingNetwork = true;
+            try {
+                await api('/api/v1/resources/'+this.id+'/network', { method: 'PUT', body: JSON.stringify({ network_id: networkId }) });
+                toast('Network changed');
+                await this.refresh();
+            } catch(e) { toast(e.message, 'error'); }
+            this.changingNetwork = false;
+        },
         async init() {
             await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster(); this.loadDomains();
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
+            this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
         },
         async refresh() { try { this.resource = await fetch('/api/v1/resources/'+this.id).then(r=>r.json()); } catch(e) { toast('Failed to load resource','error'); } },
         async loadCluster() { try { this.clusterInfo = await fetch('/api/v1/resources/'+this.id+'/nodes').then(r=>r.ok?r.json():null); } catch { this.clusterInfo = null; } },

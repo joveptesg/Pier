@@ -7,7 +7,7 @@ icon = "rabbitmq"
 tags = ["message-broker", "amqp", "queue", "messaging", "pubsub"]
 
 [docker]
-image = "rabbitmq:{{version}}-management-alpine"
+image = "rabbitmq:{{version}}"
 
 [ports.amqp]
 internal = 5672
@@ -34,8 +34,8 @@ retries = 5
 start_period = "30s"
 
 [versions]
-available = ["4.0", "3.13", "3.12"]
-default = "4.0"
+available = ["latest", "4.0-management-alpine", "3.13-management-alpine", "3.12-management-alpine"]
+default = "latest"
 
 [ui.fields.name]
 type = "text"
