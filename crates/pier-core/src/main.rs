@@ -123,8 +123,8 @@ async fn main() -> Result<()> {
         let proxy_data_dir = config.data_dir.clone();
         let proxy_port = config.port;
         tokio::spawn(async move {
-            // Auto-detect and cache public IP
-            match proxy::config::detect_public_ip().await {
+            // Auto-detect and cache public IP + geolocation
+            let public_ip = match proxy::config::detect_public_ip().await {
                 Ok(ip) => {
                     tracing::info!("Detected public IP: {ip}");
                     if let Ok(db) = proxy_state.db.lock() {
@@ -133,8 +133,62 @@ async fn main() -> Result<()> {
                             [&ip],
                         );
                     }
+                    Some(ip)
                 }
-                Err(e) => tracing::warn!("Could not detect public IP: {e}"),
+                Err(e) => {
+                    tracing::warn!("Could not detect public IP: {e}");
+                    None
+                }
+            };
+
+            // Ensure local server record exists + detect geolocation
+            if let Some(ref ip) = public_ip {
+                // Create or update local server record
+                if let Ok(db) = proxy_state.db.lock() {
+                    let exists: bool = db
+                        .query_row(
+                            "SELECT COUNT(*) FROM servers WHERE is_local = 1",
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .unwrap_or(0)
+                        > 0;
+
+                    if !exists {
+                        let hostname = sysinfo::System::host_name()
+                            .unwrap_or_else(|| "localhost".to_string());
+                        let _ = db.execute(
+                            "INSERT INTO servers (id, name, host, port, agent_token, status, is_local, os_info)
+                             VALUES ('local', ?1, ?2, 0, '', 'online', 1, ?3)",
+                            rusqlite::params![
+                                hostname,
+                                ip,
+                                format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+                            ],
+                        );
+                        tracing::info!("Created local server record: {hostname}");
+                    } else {
+                        // Update host IP
+                        let _ = db.execute(
+                            "UPDATE servers SET host = ?1, status = 'online', updated_at = datetime('now') WHERE is_local = 1",
+                            [ip.as_str()],
+                        );
+                    }
+                }
+
+                // Detect geolocation via ip-api.com (free, no key required)
+                match detect_geolocation(ip).await {
+                    Ok((country, city, code)) => {
+                        tracing::info!("Server location: {city}, {country} ({code})");
+                        if let Ok(db) = proxy_state.db.lock() {
+                            let _ = db.execute(
+                                "UPDATE servers SET country = ?1, city = ?2, country_code = ?3 WHERE is_local = 1",
+                                rusqlite::params![country, city, code],
+                            );
+                        }
+                    }
+                    Err(e) => tracing::warn!("Geolocation detection failed: {e}"),
+                }
             }
 
             // Deploy Traefik
@@ -184,4 +238,20 @@ async fn main() -> Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+/// Detect server geolocation from public IP using ip-api.com (free, no API key).
+async fn detect_geolocation(ip: &str) -> anyhow::Result<(String, String, String)> {
+    let url = format!("http://ip-api.com/json/{ip}?fields=country,city,countryCode");
+    let resp: serde_json::Value = reqwest::get(&url).await?.json().await?;
+    let country = resp["country"]
+        .as_str()
+        .unwrap_or("Unknown")
+        .to_string();
+    let city = resp["city"].as_str().unwrap_or("Unknown").to_string();
+    let code = resp["countryCode"]
+        .as_str()
+        .unwrap_or("XX")
+        .to_string();
+    Ok((country, city, code))
 }

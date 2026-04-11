@@ -66,10 +66,12 @@
                      :style="'left:' + zone.x + 'px; top:' + zone.y + 'px; width:' + zone.w + 'px; height:' + zone.h + 'px; z-index:2'">
                     <div class="flex items-center justify-between px-4 pt-3">
                         <div class="flex items-center gap-2">
-                            <span class="text-sm font-semibold text-gray-500" x-text="zone.name"></span>
+                            <span x-show="zone.country_code" class="text-sm" x-text="countryFlag(zone.country_code)"></span>
+                            <span class="text-sm font-semibold text-gray-400" x-text="zone.name"></span>
+                            <span class="text-[10px] text-gray-600" x-text="'(' + zone.host + ')'"></span>
                             <span class="w-2 h-2 rounded-full" :class="zone.is_local || zone.status === 'online' ? 'bg-green-500' : 'bg-gray-600'"></span>
                         </div>
-                        <span class="text-[10px] text-gray-600" x-text="zone.metrics"></span>
+                        <span class="text-[10px] text-gray-600" x-text="zone.location"></span>
                     </div>
                 </div>
             </template>
@@ -160,6 +162,12 @@ function canvasApp() {
         resources: [], servers: [], networks: [], positions: {},
         cards: [], edges: [], serverZones: [],
         zoom: 1, panX: -100, panY: -30,
+        // Country code → flag emoji
+        countryFlag(code) {
+            if (!code || code.length !== 2) return '';
+            const base = 0x1F1E6 - 65;
+            return String.fromCodePoint(code.charCodeAt(0) + base, code.charCodeAt(1) + base);
+        },
         dragging: null, dragOffsetX: 0, dragOffsetY: 0,
         panning: false, panStartX: 0, panStartY: 0, panStartPanX: 0, panStartPanY: 0,
         hoveredId: null,
@@ -228,13 +236,13 @@ function canvasApp() {
                 this.serverZones.push({
                     id: sid,
                     name: server.name || 'localhost',
+                    host: server.host || 'localhost',
                     status: server.status || 'online',
                     is_local: server.is_local || sid === localId,
+                    country_code: server.country_code || null,
                     x: zoneX, y: 60,
                     w: Math.max(zoneW, 300), h: Math.max(zoneH, 180),
-                    metrics: server.cpu_count
-                        ? server.cpu_count + ' CPU · Docker ' + (server.docker_version || '?')
-                        : 'Local server',
+                    location: [server.city, server.country].filter(Boolean).join(', ') || '',
                 });
 
                 for (let i = 0; i < items.length; i++) {

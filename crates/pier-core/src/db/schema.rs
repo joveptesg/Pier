@@ -275,6 +275,12 @@ const MIGRATIONS: &[&str] = &[
         updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
     "#,
+    // Migration 13: Server location + local server support
+    r#"
+    ALTER TABLE servers ADD COLUMN country TEXT;
+    ALTER TABLE servers ADD COLUMN city TEXT;
+    ALTER TABLE servers ADD COLUMN country_code TEXT;
+    "#,
 ];
 
 /// Run all pending database migrations.

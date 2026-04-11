@@ -42,7 +42,7 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
 
     // Servers
     let mut stmt = db.prepare(
-        "SELECT id, name, host, status, is_local, cpu_count, memory_total, docker_version
+        "SELECT id, name, host, status, is_local, cpu_count, memory_total, docker_version, country, city, country_code
          FROM servers ORDER BY is_local DESC, name",
     )?;
     let servers: Vec<serde_json::Value> = stmt
@@ -56,6 +56,9 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
                 "cpu_count": row.get::<_, Option<i64>>(5)?,
                 "memory_total": row.get::<_, Option<i64>>(6)?,
                 "docker_version": row.get::<_, Option<String>>(7)?,
+                "country": row.get::<_, Option<String>>(8)?,
+                "city": row.get::<_, Option<String>>(9)?,
+                "country_code": row.get::<_, Option<String>>(10)?,
             }))
         })?
         .filter_map(|r| r.ok())

@@ -159,6 +159,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Servers
         .route("/servers", get(servers::list).post(servers::create))
         .route("/servers/{id}", delete(servers::remove))
+        .route("/servers/{id}/name", put(servers::rename))
         .route("/servers/{id}/test", post(servers::test_connection))
         .route("/servers/{id}/metrics", get(servers::metrics))
         // Canvas (architect view)

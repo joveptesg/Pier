@@ -37,7 +37,7 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let mut stmt = db.prepare(
-        "SELECT id, name, host, port, status, last_heartbeat, os_info, cpu_count, memory_total, docker_version, is_local, created_at
+        "SELECT id, name, host, port, status, last_heartbeat, os_info, cpu_count, memory_total, docker_version, is_local, created_at, country, city, country_code
          FROM servers ORDER BY is_local DESC, created_at ASC",
     )?;
     let items: Vec<serde_json::Value> = stmt
@@ -55,6 +55,9 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
                 "docker_version": row.get::<_, Option<String>>(9)?,
                 "is_local": row.get::<_, bool>(10)?,
                 "created_at": row.get::<_, String>(11)?,
+                "country": row.get::<_, Option<String>>(12)?,
+                "city": row.get::<_, Option<String>>(13)?,
+                "country_code": row.get::<_, Option<String>>(14)?,
             }))
         })?
         .filter_map(|r| r.ok())
@@ -248,4 +251,37 @@ pub async fn heartbeat(
     }
 
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// PUT /api/v1/servers/{id}/name — rename server.
+pub async fn rename(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<RenameServerRequest>,
+) -> AppResult<impl IntoResponse> {
+    let name = body.name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("Name is required".into()));
+    }
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let rows = db.execute(
+        "UPDATE servers SET name = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![name, id],
+    )?;
+
+    if rows == 0 {
+        return Err(AppError::NotFound(format!("Server {id} not found")));
+    }
+
+    Ok(Json(serde_json::json!({"ok": true, "name": name})))
+}
+
+#[derive(Deserialize)]
+pub struct RenameServerRequest {
+    pub name: String,
 }
