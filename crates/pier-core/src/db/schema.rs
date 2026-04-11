@@ -266,6 +266,15 @@ const MIGRATIONS: &[&str] = &[
     VALUES ('default-pier-net', 'pier-net', 'Default network for all services', 'bridge', 1);
     ALTER TABLE services ADD COLUMN network_id TEXT REFERENCES networks(id) ON DELETE SET NULL;
     "#,
+    // Migration 12: Canvas positions for architect view
+    r#"
+    CREATE TABLE IF NOT EXISTS canvas_positions (
+        service_id  TEXT PRIMARY KEY REFERENCES services(id) ON DELETE CASCADE,
+        x           REAL NOT NULL DEFAULT 0,
+        y           REAL NOT NULL DEFAULT 0,
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    "#,
 ];
 
 /// Run all pending database migrations.

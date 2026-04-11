@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod backups;
+pub mod canvas;
 pub mod catalog;
 pub mod compose;
 pub mod containers;
@@ -160,6 +161,9 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/{id}", delete(servers::remove))
         .route("/servers/{id}/test", post(servers::test_connection))
         .route("/servers/{id}/metrics", get(servers::metrics))
+        // Canvas (architect view)
+        .route("/canvas", get(canvas::get_canvas))
+        .route("/canvas/positions", put(canvas::save_positions))
         // Networks
         .route("/networks", get(networks::list).post(networks::create))
         .route("/networks/{id}", delete(networks::delete))

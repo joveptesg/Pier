@@ -202,6 +202,18 @@ pub async fn proxy_page(
     )
 }
 
+/// GET /canvas
+pub async fn canvas_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "canvas.html",
+        minijinja::context! { user => user.username, page => "canvas" },
+    )
+}
+
 /// GET /networks
 pub async fn networks_page(
     State(state): State<SharedState>,

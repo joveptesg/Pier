@@ -4,9 +4,16 @@
 {% block content %}
 <div class="p-6 space-y-6" x-data="dashboardData()" x-init="init()">
     <!-- Header -->
-    <div>
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Dashboard</h2>
-        <p class="text-sm text-gray-500 mt-1">System overview and resource usage</p>
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Dashboard</h2>
+            <p class="text-sm text-gray-500 mt-1">System overview and resource usage</p>
+        </div>
+        <a href="/canvas"
+           class="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors border border-gray-200 dark:border-gray-700">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+            Canvas View
+        </a>
     </div>
 
     <!-- Server Health + Quick Stats -->
