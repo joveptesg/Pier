@@ -96,8 +96,8 @@
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-800/30">
                     <template x-for="svc in services" :key="svc.id">
-                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
-                            <td class="px-4 py-2 text-gray-800 dark:text-gray-200" x-text="svc.name"></td>
+                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer" @click="window.location.href='/resources/' + svc.id">
+                            <td class="px-4 py-2"><a :href="'/resources/' + svc.id" class="text-blue-600 dark:text-blue-400 hover:underline font-medium" x-text="svc.name"></a></td>
                             <td class="px-4 py-2 text-gray-500 dark:text-gray-400 text-xs" x-text="svc.service_type"></td>
                             <td class="px-4 py-2">
                                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs"

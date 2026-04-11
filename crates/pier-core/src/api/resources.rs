@@ -949,7 +949,7 @@ async fn create_git_deploy_github_app(
     state: &SharedState,
     body: &CreateResourceRequest,
     name: &str,
-    stack_name: &str,
+    _stack_name: &str,
     item: &catalog::CatalogItem,
 ) -> AppResult<Json<serde_json::Value>> {
     let source_id = body.source_id.as_deref().ok_or_else(|| {
@@ -993,7 +993,7 @@ async fn create_git_deploy_github_app(
     }
 
     // Inject token into clone URL: https://x-access-token:{token}@github.com/owner/repo.git
-    let clone_url = if git_url.starts_with("https://") {
+    let _clone_url = if git_url.starts_with("https://") {
         git_url.replacen("https://", &format!("https://x-access-token:{token}@"), 1)
     } else {
         return Err(AppError::BadRequest("GitHub App requires HTTPS URL".into()));
@@ -1005,25 +1005,53 @@ async fn create_git_deploy_github_app(
         .cloned()
         .filter(|b| !b.is_empty())
         .unwrap_or_else(|| "main".to_string());
-    let build_path = body
+    let _build_path = body
         .config
         .get("build_path")
         .cloned()
         .filter(|b| !b.is_empty())
         .unwrap_or_else(|| "/Dockerfile".to_string());
+    let _compose_path = body
+        .config
+        .get("compose_path")
+        .cloned()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "/docker-compose.yml".to_string());
+    let build_pack = body
+        .config
+        .get("build_pack")
+        .cloned()
+        .unwrap_or_else(|| "dockerfile".to_string());
     let container_port: u16 = body
         .config
         .get("port")
         .and_then(|p| p.parse().ok())
         .unwrap_or(3000);
 
+    let build_strategy = if build_pack == "docker-compose" {
+        "docker-compose"
+    } else {
+        "dockerfile"
+    };
+
     let service_id = uuid::Uuid::new_v4().to_string();
 
+    // Resolve network_id
+    let network_id = body.network_id.clone().or_else(|| {
+        state.db.lock().ok().and_then(|db| {
+            db.query_row("SELECT id FROM networks WHERE is_default = 1 LIMIT 1", [], |row| row.get(0)).ok()
+        })
+    });
+
+    // Create service record WITHOUT deploying (status = "created")
     let allocated_ports = with_db(state, |db| {
         db.execute(
-            "INSERT INTO services (id, project_id, name, service_type, status, catalog_id, category, image)
-             VALUES (?1, ?2, ?3, 'compose', 'deploying', ?4, ?5, ?6)",
-            rusqlite::params![service_id, body.project_id, name, body.catalog_id, item.meta.category, format!("git: {}", git_url)],
+            "INSERT INTO services (id, project_id, network_id, name, service_type, status, catalog_id, category, image, git_repo_url, git_branch, git_source_id, build_strategy)
+             VALUES (?1, ?2, ?3, ?4, 'compose', 'created', ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            rusqlite::params![
+                service_id, body.project_id, network_id, name, body.catalog_id, item.meta.category,
+                format!("git: {}", git_url), git_url, branch, source_id, build_strategy
+            ],
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
         Ok(ports::allocate_ports(
@@ -1049,128 +1077,18 @@ async fn create_git_deploy_github_app(
         Ok(())
     })?;
 
-    let stack_dir = state.config.data_dir.join("stacks").join(stack_name);
-    tokio::fs::create_dir_all(&stack_dir)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Create stack dir: {e}")))?;
-
-    let repo_dir = stack_dir.join("repo");
-
-    // Clone with token-injected URL
-    let clone_output = tokio::process::Command::new("git")
-        .args(["clone", "--depth", "1", "--branch", &branch, &clone_url])
-        .arg(repo_dir.to_string_lossy().as_ref())
-        .current_dir(&stack_dir)
-        .output()
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Git clone: {e}")))?;
-
-    if !clone_output.status.success() {
-        let stderr = String::from_utf8_lossy(&clone_output.stderr);
-        let sid = service_id.clone();
-        with_db(state, |db| {
-            let _ = db.execute(
-                "UPDATE services SET status = 'failed', updated_at = datetime('now') WHERE id = ?1",
-                rusqlite::params![sid],
-            );
-            Ok(())
-        })?;
-        return Err(AppError::Internal(anyhow::anyhow!(
-            "Git clone failed: {stderr}"
-        )));
-    }
-
-    // Verify Dockerfile
-    let dockerfile_rel = build_path.trim_start_matches('/');
-    let dockerfile_in_repo = if dockerfile_rel.is_empty() {
-        "Dockerfile".to_string()
-    } else {
-        dockerfile_rel.to_string()
-    };
-    let full_dockerfile_path = repo_dir.join(&dockerfile_in_repo);
-    if !full_dockerfile_path.exists() {
-        let sid = service_id.clone();
-        with_db(state, |db| {
-            let _ = db.execute(
-                "UPDATE services SET status = 'failed', updated_at = datetime('now') WHERE id = ?1",
-                rusqlite::params![sid],
-            );
-            Ok(())
-        })?;
-        return Err(AppError::BadRequest(format!(
-            "Dockerfile not found at {}",
-            dockerfile_in_repo
-        )));
-    }
-
-    // Build compose YAML
-    let (context_path, dockerfile_path) = if dockerfile_in_repo.contains('/') {
-        let parts: Vec<&str> = dockerfile_in_repo.rsplitn(2, '/').collect();
-        (format!("./repo/{}", parts[1]), parts[0].to_string())
-    } else {
-        ("./repo".to_string(), dockerfile_in_repo.clone())
-    };
-
-    let yaml = format!(
-        "services:\n\
-         \x20 app:\n\
-         \x20   build:\n\
-         \x20     context: {context_path}\n\
-         \x20     dockerfile: {dockerfile_path}\n\
-         \x20   container_name: {stack_name}\n\
-         \x20   ports:\n\
-         \x20     - \"{host_port}:{container_port}\"\n\
-         \x20   restart: unless-stopped\n\
-         \x20   labels:\n\
-         \x20     pier.service.id: \"{service_id}\"\n\
-         \x20     pier.catalog.id: \"git-github-app\"\n"
-    );
-
-    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config).await;
-
-    let status = if deploy_result.is_ok() {
-        "running"
-    } else {
-        "failed"
-    };
-    let log_output = match &deploy_result {
-        Ok(out) => out.clone(),
-        Err(e) => format!("{e}"),
-    };
-    let yaml_clone = yaml.clone();
-    let sid = service_id.clone();
-    let env_data = serde_json::json!({
-        "GIT_URL": git_url,
-        "GIT_BRANCH": branch,
-        "DOCKERFILE_PATH": build_path,
-        "SOURCE_ID": source_id,
-    });
-    with_db(state, |db| {
-        let _ = db.execute(
-            "UPDATE services SET status = ?1, compose_content = ?2, env_json = ?3, updated_at = datetime('now') WHERE id = ?4",
-            rusqlite::params![status, yaml_clone, env_data.to_string(), sid],
-        );
-        record_deployment_log(db, &sid, "deploy", status, &log_output);
-        Ok(())
-    })?;
-
-    deploy_result.map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy failed: {e}")))?;
-
-    // Auto-generate service domain
-    if let Some(first_port) = allocated_ports.first() {
-        try_create_service_domain(state, &service_id, name, first_port.host_port).await;
-    }
-
     let ports_json: Vec<serde_json::Value> = allocated_ports
         .iter()
         .map(|pa| serde_json::json!({"name": pa.port_name, "host": pa.host_port, "container": pa.container_port}))
         .collect();
 
+    tracing::info!("Created git resource '{name}' (no auto-deploy, status=created)");
+
     Ok(Json(serde_json::json!({
         "ok": true,
         "id": service_id,
         "name": name,
-        "status": "running",
+        "status": "created",
         "ports": ports_json,
     })))
 }
