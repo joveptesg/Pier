@@ -121,6 +121,42 @@
         </template>
     </div>
 
+    <!-- Repositories (from GitHub API) -->
+    <div x-show="source.type === 'github-app' && source.installation_id" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <div class="flex items-center justify-between mb-3">
+            <div>
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Repositories</h3>
+                <p class="text-xs text-gray-400">Repositories accessible via this GitHub App.</p>
+            </div>
+            <button @click="loadRepos()" :disabled="loadingRepos"
+                    class="px-3 py-1.5 text-xs font-medium bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors">
+                <span x-text="loadingRepos ? 'Loading...' : 'Refresh'"></span>
+            </button>
+        </div>
+        <div x-show="repos.length > 0" class="space-y-1 max-h-[300px] overflow-y-auto">
+            <template x-for="repo in repos" :key="repo.full_name">
+                <div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <svg class="w-4 h-4 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                        <a :href="repo.url" target="_blank" class="text-sm text-blue-600 dark:text-blue-400 hover:underline truncate" x-text="repo.full_name"></a>
+                        <span x-show="repo.is_private" class="text-[10px] px-1 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded">private</span>
+                    </div>
+                    <span class="text-[10px] text-gray-400 shrink-0 ml-2" x-text="repo.default_branch"></span>
+                </div>
+            </template>
+        </div>
+        <p x-show="repos.length === 0 && !loadingRepos" class="text-sm text-gray-400 text-center py-4">No repositories. Click Refresh or update installation.</p>
+    </div>
+
+    <!-- Installation needed notice -->
+    <div x-show="source.type === 'github-app' && !source.installation_id" class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/50 rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">Installation Required</h3>
+        <p class="text-xs text-yellow-700 dark:text-yellow-300 mb-3">This GitHub App needs to be installed on your repositories. After installation, the installation ID will be saved automatically via webhook.</p>
+        <a :href="'https://github.com/apps/' + (source.name?.replace('GitHub App: ', '') || '') + '/installations/new'"
+           target="_blank"
+           class="px-3 py-1.5 text-xs font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg inline-block">Install on Repositories →</a>
+    </div>
+
     <!-- Resources using this source -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
         <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Resources</h3>
@@ -162,13 +198,23 @@ function sourceDetail(sourceId) {
     return {
         source: {},
         resources: [],
+        repos: [],
+        loadingRepos: false,
         showSecrets: { client_id: false, client_secret: false, webhook: false },
         async init() {
             try {
                 const data = await fetch('/api/v1/sources/' + sourceId).then(r => r.json());
                 this.source = data.source || {};
                 this.resources = data.resources || [];
+                if (this.source.installation_id) this.loadRepos();
             } catch (e) { toast('Failed to load source', 'error'); }
+        },
+        async loadRepos() {
+            this.loadingRepos = true;
+            try {
+                this.repos = await fetch('/api/v1/sources/' + sourceId + '/repos').then(r => r.ok ? r.json() : []);
+            } catch { this.repos = []; }
+            this.loadingRepos = false;
         },
         async saveSource() {
             // For now just save the name

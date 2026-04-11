@@ -25,6 +25,32 @@ pub async fn github(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
+    // Handle installation events (GitHub App installed/updated)
+    if event == "installation" || event == "installation_repositories" {
+        let payload: serde_json::Value = serde_json::from_slice(&body)
+            .map_err(|e| AppError::BadRequest(format!("Invalid JSON: {e}")))?;
+
+        let action = payload["action"].as_str().unwrap_or("");
+        if action == "created" || action == "added" {
+            let installation_id = payload["installation"]["id"].as_i64().unwrap_or(0);
+            let app_id = payload["installation"]["app_id"].as_i64().unwrap_or(0);
+
+            if installation_id > 0 && app_id > 0 {
+                if let Ok(db) = state.db.lock() {
+                    let rows = db.execute(
+                        "UPDATE git_sources SET installation_id = ?1 WHERE app_id = ?2 AND source_type = 'github-app'",
+                        rusqlite::params![installation_id, app_id.to_string()],
+                    ).unwrap_or(0);
+                    if rows > 0 {
+                        tracing::info!("GitHub App installation_id {installation_id} saved for app {app_id}");
+                    }
+                }
+            }
+        }
+
+        return Ok(Json(serde_json::json!({"ok": true, "event": "installation"})));
+    }
+
     if event != "push" {
         return Ok(Json(
             serde_json::json!({"ok": true, "skipped": "not a push event"}),

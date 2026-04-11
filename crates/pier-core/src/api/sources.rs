@@ -155,7 +155,7 @@ pub async fn get(
 
     let source = db
         .query_row(
-            "SELECT id, name, source_type, base_url, app_id, installation_id, client_id, webhook_secret, project_id, created_at
+            "SELECT id, name, source_type, base_url, app_id, installation_id, client_id, webhook_secret, project_id, created_at, client_secret
              FROM git_sources WHERE id = ?1",
             [&id],
             |row| {
@@ -170,6 +170,7 @@ pub async fn get(
                     "webhook_secret": row.get::<_, Option<String>>(7)?,
                     "project_id": row.get::<_, Option<String>>(8)?,
                     "created_at": row.get::<_, String>(9)?,
+                    "client_secret": row.get::<_, Option<String>>(10)?,
                 }))
             },
         )

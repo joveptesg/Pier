@@ -68,9 +68,9 @@ pub async fn login(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-    // Find user by username
+    // Find user by username OR email
     let user_result = db.query_row(
-        "SELECT id, password FROM users WHERE username = ?1 AND is_active = 1",
+        "SELECT id, password FROM users WHERE (username = ?1 OR email = ?1) AND is_active = 1",
         [&body.username],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
     );
