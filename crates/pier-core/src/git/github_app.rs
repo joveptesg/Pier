@@ -213,6 +213,7 @@ pub fn generate_manifest(pier_url: &str, app_name: &str) -> serde_json::Value {
         },
         "redirect_url": format!("{pier_url}/api/v1/sources/github/callback"),
         "callback_urls": [format!("{pier_url}/api/v1/sources/github/callback")],
+        "setup_url": format!("{pier_url}/sources"),
         "public": false,
         "default_permissions": {
             "contents": "read",
