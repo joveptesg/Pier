@@ -46,16 +46,16 @@
     </div>
 
     <!-- Add Source Modal -->
-    <div x-show="showAdd" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showAdd = false">
-            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Git Source</h3>
+    <div x-show="showAdd" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm" @click.self="showAdd = false">
+            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md p-5 space-y-3 border border-gray-200 dark:border-gray-800 max-h-[85vh] overflow-y-auto">
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">Add Git Source</h3>
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">Name</label>
                     <input x-model="newSource.name" type="text" placeholder="My GitHub"
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Type</label>
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">Type</label>
                     <select x-model="newSource.type"
                             class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="github">GitHub (PAT)</option>
@@ -69,12 +69,12 @@
                 <template x-if="newSource.type !== 'github-app'">
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Base URL / Organization</label>
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">Base URL / Organization</label>
                             <input x-model="newSource.url" type="text" placeholder="https://github.com/my-org"
                                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Access Token (optional)</label>
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">Access Token (optional)</label>
                             <input x-model="newSource.token" type="password" placeholder="ghp_xxxxx"
                                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
@@ -84,18 +84,18 @@
                 <template x-if="newSource.type === 'github-app'">
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">App ID</label>
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">App ID</label>
                             <input x-model="newSource.app_id" type="text" placeholder="123456"
                                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Installation ID</label>
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">Installation ID</label>
                             <input x-model="newSource.installation_id" type="text" placeholder="78901234"
                                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Private Key (PEM)</label>
-                            <textarea x-model="newSource.private_key" rows="4" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;..."
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">Private Key (PEM)</label>
+                            <textarea x-model="newSource.private_key" rows="3" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;..."
                                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
                         </div>
                         <p class="text-xs text-gray-500">Create a GitHub App at github.com/settings/apps. Select repositories you want to grant access to during installation.</p>
@@ -103,7 +103,7 @@
                 </template>
                 <!-- Project binding -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Project (optional)</label>
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-0.5">Project (optional)</label>
                     <select x-model="newSource.project_id"
                             class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="">All projects</option>
