@@ -112,6 +112,7 @@ mkdir -p "${PIER_DIR}/bin"
 mkdir -p "${PIER_DATA}/stacks"
 mkdir -p "${PIER_DATA}/traefik/dynamic"
 mkdir -p "${PIER_DATA}/tmp"
+mkdir -p "${PIER_DIR}/.docker"
 
 # ── Install binary ───────────────────────────────────────────────────────────
 

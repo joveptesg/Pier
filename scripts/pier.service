@@ -16,7 +16,7 @@ RestartSec=5
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/pier/data
+ReadWritePaths=/opt/pier/data /opt/pier/.docker
 ProtectHome=true
 
 # Logging
