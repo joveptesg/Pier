@@ -2,19 +2,20 @@
 {% block title %}Architecture{% endblock %}
 
 {% block content %}
-<div x-data="canvasApp()" x-init="init()" class="absolute inset-0 overflow-hidden select-none"
-     style="background-color:#0a0e17; background-image: radial-gradient(circle, #1a2030 1px, transparent 1px); background-size: 30px 30px;">
+<div x-data="canvasApp()" x-init="init()" class="absolute inset-0 overflow-hidden select-none bg-gray-100 dark:bg-[#0a0e17]"
+     style="background-image: radial-gradient(circle, rgb(209 213 219 / 0.5) 1px, transparent 1px); background-size: 30px 30px;"
+     :style="document.documentElement.classList.contains('dark') ? 'background-image: radial-gradient(circle, #1a2030 1px, transparent 1px); background-size: 30px 30px;' : ''">
 
     <!-- Top bar -->
-    <div class="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-2 bg-[#0a0e17]/90 backdrop-blur-sm border-b border-gray-800/50">
+    <div class="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-2 bg-white/90 dark:bg-[#0a0e17]/90 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800/50">
         <div class="flex items-center gap-3">
-            <a href="/" class="text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-1">
+            <a href="/" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                 Dashboard
             </a>
-            <span class="text-gray-700">|</span>
-            <h2 class="text-sm font-medium text-white">Architecture</h2>
-            <span class="text-xs text-gray-500" x-text="resources.length + ' services'"></span>
+            <span class="text-gray-300 dark:text-gray-700">|</span>
+            <h2 class="text-sm font-medium text-gray-900 dark:text-white">Architecture</h2>
+            <span class="text-xs text-gray-400 dark:text-gray-500" x-text="resources.length + ' services'"></span>
         </div>
         <div class="flex items-center gap-2">
             <button @click="createModal.show = true; loadCatalog()"
@@ -22,15 +23,15 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"/></svg>
                 Create
             </button>
-            <span class="text-gray-700 ml-2">|</span>
-            <span class="text-xs text-gray-500" x-text="Math.round(zoom * 100) + '%'"></span>
-            <button @click="zoomIn()" class="p-1 text-gray-400 hover:text-white" title="Zoom in">
+            <span class="text-gray-300 dark:text-gray-700 ml-2">|</span>
+            <span class="text-xs text-gray-400 dark:text-gray-500" x-text="Math.round(zoom * 100) + '%'"></span>
+            <button @click="zoomIn()" class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Zoom in">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"/></svg>
             </button>
-            <button @click="zoomOut()" class="p-1 text-gray-400 hover:text-white" title="Zoom out">
+            <button @click="zoomOut()" class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Zoom out">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"/></svg>
             </button>
-            <button @click="resetView()" class="px-2 py-1 text-xs text-gray-400 hover:text-white border border-gray-700 rounded" title="Fit to view">Fit</button>
+            <button @click="resetView()" class="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-gray-700 rounded" title="Fit to view">Fit</button>
         </div>
     </div>
 
@@ -58,12 +59,12 @@
 
             <!-- Server zones -->
             <template x-for="zone in serverZones" :key="zone.id">
-                <div class="absolute rounded-2xl border-2 border-dashed border-gray-800/60"
+                <div class="absolute rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-800/60"
                      :style="'left:' + zone.x + 'px; top:' + zone.y + 'px; width:' + zone.w + 'px; height:' + zone.h + 'px; z-index:2'">
                     <div class="flex items-center justify-between px-4 pt-3">
                         <div class="flex items-center gap-2">
                             <span x-show="zone.country_code" class="text-sm" x-text="countryFlag(zone.country_code)"></span>
-                            <span class="text-sm font-semibold text-gray-400" x-text="zone.name"></span>
+                            <span class="text-sm font-semibold text-gray-600 dark:text-gray-400" x-text="zone.name"></span>
                             <span class="text-[10px] text-gray-600" x-text="'(' + zone.host + ')'"></span>
                             <span class="w-2 h-2 rounded-full" :class="zone.is_local || zone.status === 'online' ? 'bg-green-500' : 'bg-gray-600'"></span>
                         </div>
@@ -83,16 +84,16 @@
                      @contextmenu.prevent="contextMenu = { show: true, x: $event.clientX, y: $event.clientY, id: card.id }">
                     <div class="w-[210px] rounded-xl border p-3.5 shadow-lg backdrop-blur-sm transition-all duration-200"
                          :class="{
-                             'bg-gray-900/95 border-green-500/40 shadow-green-500/5': card.status === 'running',
-                             'bg-gray-900/95 border-red-500/40 shadow-red-500/5': card.status === 'failed',
-                             'bg-gray-900/95 border-gray-700/50': card.status === 'stopped' || card.status === 'unknown',
-                             'bg-gray-900/95 border-blue-500/40 shadow-blue-500/5': card.status === 'deploying',
+                             'bg-white dark:bg-gray-900/95 border-green-500/40 shadow-green-500/5': card.status === 'running',
+                             'bg-white dark:bg-gray-900/95 border-red-500/40 shadow-red-500/5': card.status === 'failed',
+                             'bg-white dark:bg-gray-900/95 border-gray-300 dark:border-gray-700/50': card.status === 'stopped' || card.status === 'unknown',
+                             'bg-white dark:bg-gray-900/95 border-blue-500/40 shadow-blue-500/5': card.status === 'deploying',
                              'ring-2 ring-blue-400/40 scale-105': hoveredId === card.id
                          }">
                         <div class="flex items-center gap-2.5 mb-1.5">
                             <img :src="'/static/icons/' + (card.catalog_id || 'docker') + '.svg'"
                                  class="w-6 h-6 rounded" onerror="this.style.display='none'">
-                            <span class="text-sm font-semibold text-white truncate flex-1" x-text="card.name"></span>
+                            <span class="text-sm font-semibold text-gray-900 dark:text-white truncate flex-1" x-text="card.name"></span>
                             <span class="w-2.5 h-2.5 rounded-full shrink-0"
                                   :class="{
                                       'bg-green-500 shadow-green-500/50 shadow-sm': card.status === 'running',
@@ -123,7 +124,7 @@
     <div x-show="createModal.show" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
          @click.self="createModal.show = false; createModal.step = 'catalog'">
-        <div class="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
             <!-- Step 1: Choose template -->
             <div x-show="createModal.step === 'catalog'" class="p-5">
                 <h3 class="text-lg font-semibold text-white mb-1">Create Resource</h3>
@@ -131,36 +132,36 @@
                 <div class="space-y-1">
                     <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-2">Databases</p>
                     <template x-for="item in catalogItems.filter(i => i.category === 'database')" :key="item.id">
-                        <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-800 transition-colors">
+                        <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                             <div class="w-6 h-6 rounded bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
                                 <img :src="'/static/icons/' + item.id + '.svg'" class="w-5 h-5" onerror="this.parentElement.innerHTML='<svg class=\'w-4 h-4 text-gray-500\' fill=\'none\' stroke=\'currentColor\' viewBox=\'0 0 24 24\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7c-2 0-3 1-3 3z\'/></svg>'">
                             </div>
                             <div class="min-w-0">
-                                <span class="text-sm text-white" x-text="item.name"></span>
+                                <span class="text-sm text-gray-900 dark:text-white" x-text="item.name"></span>
                                 <p class="text-[10px] text-gray-500 truncate" x-text="item.description"></p>
                             </div>
                         </button>
                     </template>
                     <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-3">Services</p>
                     <template x-for="item in catalogItems.filter(i => i.category === 'service')" :key="item.id">
-                        <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-800 transition-colors">
+                        <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                             <div class="w-6 h-6 rounded bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
                                 <img :src="'/static/icons/' + item.id + '.svg'" class="w-5 h-5" onerror="this.parentElement.innerHTML='<svg class=\'w-4 h-4 text-gray-500\' fill=\'none\' stroke=\'currentColor\' viewBox=\'0 0 24 24\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2\'/></svg>'">
                             </div>
                             <div class="min-w-0">
-                                <span class="text-sm text-white" x-text="item.name"></span>
+                                <span class="text-sm text-gray-900 dark:text-white" x-text="item.name"></span>
                                 <p class="text-[10px] text-gray-500 truncate" x-text="item.description"></p>
                             </div>
                         </button>
                     </template>
                     <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-3">Docker</p>
                     <template x-for="item in catalogItems.filter(i => !i.category || (i.category !== 'database' && i.category !== 'service'))" :key="item.id">
-                        <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-800 transition-colors">
+                        <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                             <div class="w-6 h-6 rounded bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
                                 <img :src="'/static/icons/' + (item.id || 'docker') + '.svg'" class="w-5 h-5" onerror="this.parentElement.innerHTML='<svg class=\'w-4 h-4 text-blue-400\' fill=\'none\' stroke=\'currentColor\' viewBox=\'0 0 24 24\'><path stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4\'/></svg>'">
                             </div>
                             <div class="min-w-0">
-                                <span class="text-sm text-white" x-text="item.name"></span>
+                                <span class="text-sm text-gray-900 dark:text-white" x-text="item.name"></span>
                                 <p class="text-[10px] text-gray-500 truncate" x-text="item.description"></p>
                             </div>
                         </button>
@@ -174,7 +175,7 @@
                     <button @click="createModal.step = 'catalog'" class="text-gray-400 hover:text-white">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                     </button>
-                    <h3 class="text-lg font-semibold text-white">Deploy <span x-text="createModal.template?.name"></span></h3>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Deploy <span x-text="createModal.template?.name"></span></h3>
                 </div>
                 <div class="space-y-3">
                     <template x-for="field in createModal.template?.fields || []" :key="field.key">
@@ -182,7 +183,7 @@
                             <label class="block text-xs font-medium text-gray-400 mb-1" x-text="field.label"></label>
                             <template x-if="field.type === 'select'">
                                 <select x-model="createModal.form[field.key]"
-                                        class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                                     <template x-for="opt in field.options || []" :key="opt">
                                         <option :value="opt" x-text="opt"></option>
                                     </template>
@@ -198,7 +199,7 @@
                             </template>
                             <template x-if="field.type !== 'select' && field.type !== 'password'">
                                 <input x-model="createModal.form[field.key]" type="text" :placeholder="field.placeholder || ''"
-                                       class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                             </template>
                         </div>
                     </template>
@@ -206,7 +207,7 @@
                     <div>
                         <label class="block text-xs font-medium text-gray-400 mb-1">Project (optional)</label>
                         <select x-model="createModal.projectId"
-                                class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                             <option value="">No project</option>
                             <template x-for="p in createModal.projects || []" :key="p.id">
                                 <option :value="p.id" x-text="p.name"></option>
@@ -217,7 +218,7 @@
                     <div>
                         <label class="block text-xs font-medium text-gray-400 mb-1">Network</label>
                         <select x-model="createModal.networkId"
-                                class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                             <template x-for="n in networks" :key="n.id">
                                 <option :value="n.id" x-text="n.name + (n.is_default ? ' (default)' : '')"></option>
                             </template>
@@ -240,7 +241,7 @@
                     <div class="flex items-center gap-2">
                         <div class="w-2 h-2 rounded-full animate-pulse"
                              :class="createModal.deployStatus === 'success' ? 'bg-green-500' : createModal.deployStatus === 'failed' ? 'bg-red-500' : 'bg-blue-500'"></div>
-                        <h3 class="text-lg font-semibold text-white" x-text="createModal.deployStatus === 'success' ? 'Deployed!' : createModal.deployStatus === 'failed' ? 'Deploy Failed' : 'Deploying...'"></h3>
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="createModal.deployStatus === 'success' ? 'Deployed!' : createModal.deployStatus === 'failed' ? 'Deploy Failed' : 'Deploying...'"></h3>
                     </div>
                     <span class="text-xs text-gray-500" x-text="createModal.template?.name"></span>
                 </div>
@@ -268,27 +269,27 @@
     <div x-show="contextMenu.show" x-cloak
          :style="'left:' + contextMenu.x + 'px; top:' + contextMenu.y + 'px'"
          @click.away="contextMenu.show = false"
-         class="fixed z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl py-1 min-w-[160px]">
-        <button @click="doAction('start')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+         class="fixed z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl py-1 min-w-[160px]">
+        <button @click="doAction('start')" class="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
             Start</button>
-        <button @click="doAction('stop')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+        <button @click="doAction('stop')" class="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
             Stop</button>
-        <button @click="doAction('restart')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+        <button @click="doAction('restart')" class="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             Restart</button>
-        <button @click="doAction('redeploy')" class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+        <button @click="doAction('redeploy')" class="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
             Redeploy</button>
-        <div class="border-t border-gray-700 my-1"></div>
-        <a :href="'/resources/' + contextMenu.id" class="block px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 flex items-center gap-2">
+        <div class="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+        <a :href="'/resources/' + contextMenu.id" class="block px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             Open Details</a>
     </div>
 
     <!-- Legend -->
-    <div class="absolute bottom-3 left-3 z-20 bg-gray-900/80 backdrop-blur-sm border border-gray-800/50 rounded-lg px-3 py-2 text-[10px] text-gray-500 flex items-center gap-3">
+    <div class="absolute bottom-3 left-3 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border border-gray-200 dark:border-gray-800/50 rounded-lg px-3 py-2 text-[10px] text-gray-500 flex items-center gap-3">
         <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> Running</span>
         <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> Failed</span>
         <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Deploying</span>
