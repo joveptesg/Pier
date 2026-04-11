@@ -202,6 +202,17 @@
                             </template>
                         </div>
                     </template>
+                    <!-- Project selector -->
+                    <div>
+                        <label class="block text-xs font-medium text-gray-400 mb-1">Project (optional)</label>
+                        <select x-model="createModal.projectId"
+                                class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="">No project</option>
+                            <template x-for="p in createModal.projects || []" :key="p.id">
+                                <option :value="p.id" x-text="p.name"></option>
+                            </template>
+                        </select>
+                    </div>
                     <!-- Network selector -->
                     <div>
                         <label class="block text-xs font-medium text-gray-400 mb-1">Network</label>
@@ -303,7 +314,7 @@ function canvasApp() {
         hoveredId: null,
         contextMenu: { show: false, x: 0, y: 0, id: null },
         catalogItems: [],
-        createModal: { show: false, step: 'catalog', template: null, form: {}, networkId: '', deploying: false, deployLog: '', deployStatus: '', deployedId: null },
+        createModal: { show: false, step: 'catalog', template: null, form: {}, networkId: '', projectId: '', projects: [], deploying: false, deployLog: '', deployStatus: '', deployedId: null },
 
         async init() {
             await this.loadData();
@@ -363,7 +374,7 @@ function canvasApp() {
                 const cols = Math.max(2, Math.min(4, items.length || 1));
                 const rows = Math.ceil(items.length / cols) || 1;
                 const zoneW = cols * (CARD_W + GAP) + ZONE_PAD * 2 - GAP;
-                const zoneH = rows * (CARD_H + GAP) + ZONE_PAD + 50;
+                const zoneH = (rows + 1) * (CARD_H + GAP) + ZONE_PAD + 50;
 
                 this.serverZones.push({
                     id: sid,
@@ -493,7 +504,14 @@ function canvasApp() {
         // Inline Creation
         async loadCatalog() {
             if (this.catalogItems.length) return;
-            try { this.catalogItems = await fetch('/api/v1/catalog').then(r => r.json()); } catch {}
+            try {
+                const [catalog, projects] = await Promise.all([
+                    fetch('/api/v1/catalog').then(r => r.json()),
+                    fetch('/api/v1/projects').then(r => r.json()),
+                ]);
+                this.catalogItems = catalog;
+                this.createModal.projects = projects;
+            } catch {}
             const def = this.networks.find(n => n.is_default);
             if (def) this.createModal.networkId = def.id;
         },
@@ -525,7 +543,7 @@ function canvasApp() {
             try {
                 m.deployLog += `Creating resource...\n`;
                 const result = await api('/api/v1/resources', { method: 'POST', body: JSON.stringify({
-                    catalog_id: m.template.id, name, network_id: m.networkId || null, config: { ...m.form },
+                    catalog_id: m.template.id, name, network_id: m.networkId || null, project_id: m.projectId || null, config: { ...m.form },
                 }) });
                 m.deployedId = result.id;
                 m.deployLog += `Container created successfully\n`;

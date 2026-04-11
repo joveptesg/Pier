@@ -18,6 +18,8 @@ pub struct CreateSourceRequest {
     pub app_id: Option<String>,
     pub installation_id: Option<i64>,
     pub private_key: Option<String>,
+    // Project binding
+    pub project_id: Option<String>,
 }
 
 /// GET /api/v1/sources
@@ -64,8 +66,8 @@ pub async fn create(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     db.execute(
-        "INSERT INTO git_sources (id, name, source_type, base_url, access_token, app_id, installation_id, private_key)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO git_sources (id, name, source_type, base_url, access_token, app_id, installation_id, private_key, project_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         rusqlite::params![
             id,
             body.name.trim(),
@@ -74,7 +76,8 @@ pub async fn create(
             token,
             body.app_id,
             body.installation_id,
-            body.private_key
+            body.private_key,
+            body.project_id
         ],
     )?;
     Ok(Json(serde_json::json!({"ok": true, "id": id})))

@@ -281,6 +281,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE servers ADD COLUMN city TEXT;
     ALTER TABLE servers ADD COLUMN country_code TEXT;
     "#,
+    // Migration 14: Project binding for git sources
+    r#"
+    ALTER TABLE git_sources ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+    "#,
 ];
 
 /// Run all pending database migrations.

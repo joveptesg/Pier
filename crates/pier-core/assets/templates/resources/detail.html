@@ -162,32 +162,41 @@
             </div>
         </div>
         <div x-show="connectionString" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Connection URLs</h3>
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Connection URLs</h3>
+                <button @click="showPasswords = !showPasswords"
+                        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-300 transition-colors"
+                        :title="showPasswords ? 'Hide passwords' : 'Show passwords'">
+                    <svg x-show="!showPasswords" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    <svg x-show="showPasswords" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                    <span x-text="showPasswords ? 'Hide' : 'Show'"></span>
+                </button>
+            </div>
             <div class="space-y-2">
-                <!-- Host URL (always shown) -->
+                <!-- Host URL -->
                 <div>
                     <span class="text-xs text-gray-400">Host (from server)</span>
                     <div class="flex items-center gap-2 mt-1">
                         <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto" x-text="connectionString"></code>
-                        <button @click="navigator.clipboard.writeText(connectionString); toast('Copied!')"
+                        <button @click="navigator.clipboard.writeText(connectionStringRaw); toast('Copied!')"
                                 class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
-                <!-- Docker URL (always shown) -->
+                <!-- Docker URL -->
                 <div x-show="dockerConnectionString">
                     <span class="text-xs text-gray-400">Docker (from containers in pier-net)</span>
                     <div class="flex items-center gap-2 mt-1">
                         <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto" x-text="dockerConnectionString"></code>
-                        <button @click="navigator.clipboard.writeText(dockerConnectionString); toast('Copied!')"
+                        <button @click="navigator.clipboard.writeText(dockerConnectionStringRaw); toast('Copied!')"
                                 class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
-                <!-- Public URL (only when is_public) -->
+                <!-- Public URL -->
                 <div x-show="portIsPublic && publicConnectionString">
                     <span class="text-xs text-green-500">Public (from anywhere)</span>
                     <div class="flex items-center gap-2 mt-1">
                         <code class="flex-1 text-xs font-mono bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 px-3 py-2 rounded-lg overflow-x-auto" x-text="publicConnectionString"></code>
-                        <button @click="navigator.clipboard.writeText(publicConnectionString); toast('Copied!')"
+                        <button @click="navigator.clipboard.writeText(publicConnectionStringRaw); toast('Copied!')"
                                 class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
@@ -578,15 +587,17 @@ function resourceDetail(id) {
         changingNetwork: false,
         availableNetworks: [],
         get portIsPublic() { return this.resource.ports?.[0]?.is_public || false; },
-        _buildConnStr(host, port, containerPort) {
+        showPasswords: false,
+        _buildConnStr(host, port, containerPort, masked) {
             if (!this.resource.catalog_id) return '';
             const p = containerPort || port;
             let envObj = {}; try { envObj = JSON.parse(this.resource.env_json || '{}'); } catch {}
+            const hide = (pw) => masked ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : pw;
             switch (this.resource.catalog_id) {
-                case 'postgresql': { const u=envObj.POSTGRES_USER||'postgres',pw=envObj.POSTGRES_PASSWORD||'',d=envObj.POSTGRES_DB||'postgres'; return `postgresql://${u}:${pw}@${host}:${p}/${d}`; }
-                case 'mysql': case 'mariadb': { const pw=envObj.MYSQL_ROOT_PASSWORD||envObj.MARIADB_ROOT_PASSWORD||'',d=envObj.MYSQL_DATABASE||envObj.MARIADB_DATABASE||''; return `mysql://root:${pw}@${host}:${p}/${d}`; }
-                case 'mongodb': { const u=envObj.MONGO_INITDB_ROOT_USERNAME||'root',pw=envObj.MONGO_INITDB_ROOT_PASSWORD||''; return `mongodb://${u}:${pw}@${host}:${p}`; }
-                case 'redis': return `redis://${host}:${p}`;
+                case 'postgresql': { const u=envObj.POSTGRES_USER||'postgres',pw=envObj.POSTGRES_PASSWORD||'',d=envObj.POSTGRES_DB||'postgres'; return `postgresql://${u}:${hide(pw)}@${host}:${p}/${d}`; }
+                case 'mysql': case 'mariadb': { const pw=envObj.MYSQL_ROOT_PASSWORD||envObj.MARIADB_ROOT_PASSWORD||'',d=envObj.MYSQL_DATABASE||envObj.MARIADB_DATABASE||''; return `mysql://root:${hide(pw)}@${host}:${p}/${d}`; }
+                case 'mongodb': { const u=envObj.MONGO_INITDB_ROOT_USERNAME||'root',pw=envObj.MONGO_INITDB_ROOT_PASSWORD||''; return `mongodb://${u}:${hide(pw)}@${host}:${p}`; }
+                case 'redis': { const pw=envObj.REDIS_PASSWORD||''; return pw ? `redis://:${hide(pw)}@${host}:${p}` : `redis://${host}:${p}`; }
                 case 'clickhouse': return `clickhouse://${host}:${p}`;
                 case 'cassandra': case 'scylladb': return `cql://${host}:${p}`;
                 default: return '';
@@ -595,17 +606,32 @@ function resourceDetail(id) {
         get connectionString() {
             if (!this.resource.ports?.length) return '';
             const p = this.resource.ports[0];
-            return this._buildConnStr('localhost', p.host, null);
+            return this._buildConnStr('localhost', p.host, null, !this.showPasswords);
+        },
+        get connectionStringRaw() {
+            if (!this.resource.ports?.length) return '';
+            const p = this.resource.ports[0];
+            return this._buildConnStr('localhost', p.host, null, false);
         },
         get dockerConnectionString() {
             if (!this.resource.ports?.length || !this.resource.container_name) return '';
             const p = this.resource.ports[0];
-            return this._buildConnStr(this.resource.container_name, p.container, null);
+            return this._buildConnStr(this.resource.container_name, p.container, null, !this.showPasswords);
+        },
+        get dockerConnectionStringRaw() {
+            if (!this.resource.ports?.length || !this.resource.container_name) return '';
+            const p = this.resource.ports[0];
+            return this._buildConnStr(this.resource.container_name, p.container, null, false);
         },
         get publicConnectionString() {
             if (!this.resource.ports?.length || !this.resource.public_ip) return '';
             const p = this.resource.ports[0];
-            return this._buildConnStr(this.resource.public_ip, p.host, null);
+            return this._buildConnStr(this.resource.public_ip, p.host, null, !this.showPasswords);
+        },
+        get publicConnectionStringRaw() {
+            if (!this.resource.ports?.length || !this.resource.public_ip) return '';
+            const p = this.resource.ports[0];
+            return this._buildConnStr(this.resource.public_ip, p.host, null, false);
         },
         async togglePublic() {
             const newState = !this.portIsPublic;

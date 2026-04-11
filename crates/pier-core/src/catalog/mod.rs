@@ -42,6 +42,8 @@ pub struct CatalogMeta {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DockerConfig {
     pub image: String,
+    #[serde(default)]
+    pub command: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -282,6 +284,16 @@ pub fn build_compose_yaml(
     yaml.push_str(&format!("  {}:\n", item.meta.id));
     yaml.push_str(&format!("    image: {image}\n"));
     yaml.push_str(&format!("    container_name: pier-{name}\n"));
+
+    // Command (e.g., redis-server --requirepass)
+    if !docker.command.is_empty() {
+        let cmd: Vec<String> = docker
+            .command
+            .iter()
+            .map(|c| format!("\"{}\"", substitute(c, env_vars)))
+            .collect();
+        yaml.push_str(&format!("    command: [{}]\n", cmd.join(", ")));
+    }
 
     // Ports — bind to 127.0.0.1 (private) by default; user can toggle to 0.0.0.0 (public)
     if !ports.is_empty() {
