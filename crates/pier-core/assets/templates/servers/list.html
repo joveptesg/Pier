@@ -83,23 +83,36 @@
                         <svg class="w-5 h-5" :class="srv.status === 'online' ? 'text-green-500' : 'text-gray-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
                     </div>
                     <div class="flex-1">
-                        <h3 class="text-sm font-medium text-gray-900 dark:text-white" x-text="srv.name"></h3>
+                        <!-- Editable name -->
+                        <div x-data="{ editing: false, newName: srv.name }">
+                            <h3 x-show="!editing" @dblclick="editing = true; newName = srv.name"
+                                class="text-sm font-medium text-gray-900 dark:text-white cursor-pointer hover:text-blue-500 transition-colors"
+                                x-text="srv.name" title="Double-click to rename"></h3>
+                            <input x-show="editing" x-model="newName" x-ref="nameInput"
+                                   @keydown.enter="renameServer(srv.id, newName); editing = false"
+                                   @keydown.escape="editing = false"
+                                   @blur="if(newName.trim() && newName !== srv.name) { renameServer(srv.id, newName); } editing = false"
+                                   x-init="$watch('editing', v => { if(v) $nextTick(() => $refs.nameInput?.focus()) })"
+                                   class="text-sm font-medium bg-gray-100 dark:bg-gray-800 border border-blue-500 rounded px-2 py-0.5 text-gray-900 dark:text-white outline-none w-full">
+                        </div>
                         <div class="flex items-center gap-1.5 mt-0.5">
                             <span class="w-2 h-2 rounded-full" :class="srv.status === 'online' ? 'bg-green-500' : 'bg-gray-400'"></span>
                             <span class="text-xs" :class="srv.status === 'online' ? 'text-green-600 dark:text-green-400' : 'text-gray-500'" x-text="srv.status"></span>
+                            <template x-if="srv.country_code">
+                                <span class="text-xs text-gray-500 ml-1" x-text="countryFlag(srv.country_code) + ' ' + [srv.city, srv.country].filter(Boolean).join(', ')"></span>
+                            </template>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div x-show="!srv.is_local" class="flex items-center gap-2">
                         <button @click="testServer(srv.id)" class="text-xs text-blue-500 hover:text-blue-700">Test</button>
-                        <button @click="removeServer(srv.id)" class="text-xs text-red-500 hover:text-red-700">Remove</button>
+                        <button @click="removeServer(srv.id, srv.name)" class="text-xs text-red-500 hover:text-red-700">Remove</button>
                     </div>
                 </div>
                 <div class="space-y-2 text-xs">
-                    <div class="flex justify-between"><span class="text-gray-500">Host</span><span class="text-gray-700 dark:text-gray-300 font-mono" x-text="srv.host + ':' + srv.port"></span></div>
+                    <div class="flex justify-between"><span class="text-gray-500">Host</span><span class="text-gray-700 dark:text-gray-300 font-mono" x-text="srv.host + (srv.is_local ? '' : ':' + srv.port)"></span></div>
                     <div class="flex justify-between"><span class="text-gray-500">OS</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.os_info || '--'"></span></div>
                     <div class="flex justify-between"><span class="text-gray-500">Docker</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.docker_version || '--'"></span></div>
-                    <div class="flex justify-between"><span class="text-gray-500">Last Heartbeat</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.last_heartbeat || 'Never'"></span></div>
-                </div>
+                    <div x-show="!srv.is_local" class="flex justify-between"><span class="text-gray-500">Last Heartbeat</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.last_heartbeat || 'Never'"></span></div>
             </div>
         </template>
     </div>
@@ -196,9 +209,19 @@ function serversData() {
         async testServer(id) {
             try { await api('/api/v1/servers/' + id + '/test', { method: 'POST' }); toast('Agent is online'); this.servers = await fetch('/api/v1/servers').then(r => r.json()); } catch (e) { toast(e.message, 'error'); }
         },
-        async removeServer(id) {
-            if (!confirm('Remove this server?')) return;
+        async removeServer(id, name) {
+            const input = prompt('Type "' + name + '" to confirm removal:');
+            if (input !== name) { if (input !== null) toast('Name does not match', 'error'); return; }
             try { await api('/api/v1/servers/' + id, { method: 'DELETE' }); toast('Server removed'); this.servers = await fetch('/api/v1/servers').then(r => r.json()); } catch (e) { toast(e.message, 'error'); }
+        },
+        async renameServer(id, newName) {
+            if (!newName || !newName.trim()) return;
+            try { await api('/api/v1/servers/' + id + '/name', { method: 'PUT', body: JSON.stringify({ name: newName.trim() }) }); toast('Server renamed'); this.servers = await fetch('/api/v1/servers').then(r => r.json()); } catch (e) { toast(e.message, 'error'); }
+        },
+        countryFlag(code) {
+            if (!code || code.length !== 2) return '';
+            const base = 0x1F1E6 - 65;
+            return String.fromCodePoint(code.charCodeAt(0) + base, code.charCodeAt(1) + base);
         },
         formatUptime(s) { if(!s) return '--'; const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60); if(d>0) return d+'d '+h+'h'; if(h>0) return h+'h '+m+'m'; return m+'m'; },
         diskPercent(disk) { if(!disk||!disk.total) return 0; return (((disk.total-disk.available)/disk.total)*100).toFixed(1); }

@@ -143,18 +143,33 @@ async fn main() -> Result<()> {
 
             // Ensure local server record exists + detect geolocation
             if let Some(ref ip) = public_ip {
-                // Create or update local server record
                 if let Ok(db) = proxy_state.db.lock() {
-                    let exists: bool = db
+                    // Deduplicate: keep only one local server
+                    let local_count: i64 = db
                         .query_row(
                             "SELECT COUNT(*) FROM servers WHERE is_local = 1",
                             [],
-                            |row| row.get::<_, i64>(0),
+                            |row| row.get(0),
                         )
-                        .unwrap_or(0)
-                        > 0;
+                        .unwrap_or(0);
 
-                    if !exists {
+                    if local_count > 1 {
+                        // Keep the first one, delete the rest
+                        let first_id: String = db
+                            .query_row(
+                                "SELECT id FROM servers WHERE is_local = 1 ORDER BY created_at ASC LIMIT 1",
+                                [],
+                                |row| row.get(0),
+                            )
+                            .unwrap_or_else(|_| "local".to_string());
+                        let _ = db.execute(
+                            "DELETE FROM servers WHERE is_local = 1 AND id != ?1",
+                            [&first_id],
+                        );
+                        tracing::info!("Removed duplicate local server records");
+                    }
+
+                    if local_count == 0 {
                         let hostname = sysinfo::System::host_name()
                             .unwrap_or_else(|| "localhost".to_string());
                         let _ = db.execute(
@@ -168,10 +183,10 @@ async fn main() -> Result<()> {
                         );
                         tracing::info!("Created local server record: {hostname}");
                     } else {
-                        // Update host IP
+                        // Update host IP and system info
                         let _ = db.execute(
-                            "UPDATE servers SET host = ?1, status = 'online', updated_at = datetime('now') WHERE is_local = 1",
-                            [ip.as_str()],
+                            "UPDATE servers SET host = ?1, status = 'online', os_info = ?2, updated_at = datetime('now') WHERE is_local = 1",
+                            rusqlite::params![ip, format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)],
                         );
                     }
                 }
