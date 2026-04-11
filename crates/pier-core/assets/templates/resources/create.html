@@ -354,16 +354,11 @@ function createResource(catalogId) {
         },
         randomStr(len) {
             const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-            let s = '';
-            for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
-            return s;
+            const arr = new Uint8Array(len);
+            crypto.getRandomValues(arr);
+            return Array.from(arr, b => chars[b % chars.length]).join('');
         },
-        generatePwd() {
-            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-            let pwd = '';
-            for (let i = 0; i < 24; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
-            return pwd;
-        },
+        generatePwd() { return generatePassword(32); },
         async deploy() {
             const name = this.form.name;
             if (!name || !name.trim()) {

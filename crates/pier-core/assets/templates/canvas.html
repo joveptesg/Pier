@@ -193,7 +193,7 @@
                                 <div class="flex gap-2">
                                     <input x-model="createModal.form[field.key]" type="text" :placeholder="field.placeholder || 'Auto-generated if empty'"
                                            class="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                                    <button @click="createModal.form[field.key] = Math.random().toString(36).slice(2,14)"
+                                    <button @click="createModal.form[field.key] = generatePassword(32)"
                                             class="px-2 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Generate</button>
                                 </div>
                             </template>

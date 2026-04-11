@@ -252,9 +252,11 @@ pub fn substitute(template: &str, vars: &HashMap<String, String>) -> String {
 /// Generate a random password of the given length.
 pub fn generate_password(len: usize) -> String {
     use rand::RngExt;
-    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    // Strong charset: upper + lower + digits + safe special chars (no quotes/backslash that break SQL/YAML)
+    const CHARSET: &[u8] =
+        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*-_+=";
     let mut rng = rand::rng();
-    (0..len)
+    (0..len.max(24))
         .map(|_| {
             let idx: usize = rng.random_range(0..CHARSET.len());
             CHARSET[idx] as char

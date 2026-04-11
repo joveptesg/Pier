@@ -282,7 +282,7 @@
                     <div class="flex gap-2">
                         <input x-model="newDb.password" type="text" placeholder="Auto-generated if empty"
                                class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <button @click="newDb.password = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)"
+                        <button @click="newDb.password = generatePassword(32)"
                                 class="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-xs text-gray-600 dark:text-gray-300">Generate</button>
                     </div>
                 </div>

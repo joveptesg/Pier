@@ -222,6 +222,13 @@
             window.dispatchEvent(new CustomEvent('toast', { detail: { message, type } }));
         }
 
+        function generatePassword(len = 32) {
+            const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*-_+=';
+            const arr = new Uint8Array(len);
+            crypto.getRandomValues(arr);
+            return Array.from(arr, b => charset[b % charset.length]).join('');
+        }
+
         async function api(url, opts = {}) {
             const res = await fetch(url, {
                 headers: { 'Content-Type': 'application/json', ...opts.headers },
