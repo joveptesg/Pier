@@ -142,3 +142,152 @@ pub async fn list_repos(
 
     Ok(Json(serde_json::json!(repos)))
 }
+
+/// GET /api/v1/sources/{id} — source detail (for source detail page)
+pub async fn get(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let source = db
+        .query_row(
+            "SELECT id, name, source_type, base_url, app_id, installation_id, client_id, webhook_secret, project_id, created_at
+             FROM git_sources WHERE id = ?1",
+            [&id],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "name": row.get::<_, String>(1)?,
+                    "type": row.get::<_, String>(2)?,
+                    "url": row.get::<_, String>(3)?,
+                    "app_id": row.get::<_, Option<String>>(4)?,
+                    "installation_id": row.get::<_, Option<i64>>(5)?,
+                    "client_id": row.get::<_, Option<String>>(6)?,
+                    "webhook_secret": row.get::<_, Option<String>>(7)?,
+                    "project_id": row.get::<_, Option<String>>(8)?,
+                    "created_at": row.get::<_, String>(9)?,
+                }))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Source {id} not found")))?;
+
+    // Get resources using this source
+    let mut stmt = db.prepare(
+        "SELECT id, name, status, catalog_id FROM services WHERE git_source_id = ?1",
+    )?;
+    let resources: Vec<serde_json::Value> = stmt
+        .query_map([&id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "name": row.get::<_, String>(1)?,
+                "status": row.get::<_, String>(2)?,
+                "catalog_id": row.get::<_, Option<String>>(3)?,
+            }))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "source": source,
+        "resources": resources,
+    })))
+}
+
+/// GET /api/v1/sources/github/manifest — generate manifest + redirect info
+pub async fn github_manifest(
+    State(state): State<SharedState>,
+) -> AppResult<impl IntoResponse> {
+    // Get platform domain for callback URL
+    let platform_url = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let domain = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'proxy.platform_domain'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_default();
+        let ip = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'server.public_ip'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_default();
+
+        if !domain.is_empty() {
+            format!("https://{domain}")
+        } else if !ip.is_empty() {
+            format!("http://{ip}:{}", state.config.port)
+        } else {
+            return Err(AppError::BadRequest(
+                "Configure a platform domain in Proxy settings first for GitHub App OAuth flow"
+                    .into(),
+            ));
+        }
+    };
+
+    let app_name = format!("pier-{}", uuid::Uuid::new_v4().to_string()[..8].to_string());
+    let manifest = crate::git::github_app::generate_manifest(&platform_url, &app_name);
+
+    Ok(Json(serde_json::json!({
+        "manifest": manifest,
+        "redirect_url": "https://github.com/settings/apps/new",
+        "pier_url": platform_url,
+    })))
+}
+
+/// GET /api/v1/sources/github/callback?code=CODE — GitHub App Manifest callback
+pub async fn github_callback(
+    State(state): State<SharedState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let code = match params.get("code") {
+        Some(c) => c.clone(),
+        None => {
+            return axum::response::Redirect::to("/sources?error=missing_code");
+        }
+    };
+
+    // Exchange code for app credentials
+    match crate::git::github_app::exchange_manifest_code(&code).await {
+        Ok(result) => {
+            // Save to database
+            let id = uuid::Uuid::new_v4().to_string();
+            let name = format!("GitHub App: {}", result.slug);
+
+            if let Ok(db) = state.db.lock() {
+                let _ = db.execute(
+                    "INSERT INTO git_sources (id, name, source_type, base_url, app_id, private_key, webhook_secret, client_id, client_secret)
+                     VALUES (?1, ?2, 'github-app', 'https://github.com', ?3, ?4, ?5, ?6, ?7)",
+                    rusqlite::params![
+                        id, name, result.app_id, result.pem, result.webhook_secret, result.client_id, result.client_secret
+                    ],
+                );
+                tracing::info!(
+                    "GitHub App created via manifest flow: {} ({})",
+                    result.slug,
+                    result.app_id
+                );
+            }
+
+            // Redirect to install page so user can select repositories
+            let install_url = format!(
+                "https://github.com/apps/{}/installations/new",
+                result.slug
+            );
+            axum::response::Redirect::to(&install_url)
+        }
+        Err(e) => {
+            tracing::error!("GitHub manifest exchange failed: {e}");
+            axum::response::Redirect::to("/sources?error=exchange_failed")
+        }
+    }
+}

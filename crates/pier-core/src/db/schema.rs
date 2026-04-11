@@ -289,6 +289,12 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE port_allocations ADD COLUMN public_port INTEGER;
     "#,
+    // Migration 16: GitHub App manifest flow fields
+    r#"
+    ALTER TABLE git_sources ADD COLUMN webhook_secret TEXT;
+    ALTER TABLE git_sources ADD COLUMN client_id TEXT;
+    ALTER TABLE git_sources ADD COLUMN client_secret TEXT;
+    "#,
 ];
 
 /// Run all pending database migrations.

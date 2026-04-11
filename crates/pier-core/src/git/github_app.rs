@@ -132,3 +132,73 @@ pub async fn list_repos(
 
     Ok(repos)
 }
+
+/// Exchange a GitHub App Manifest code for app credentials.
+/// Called after user creates an app via the manifest flow.
+/// Returns: (app_id, slug, pem, webhook_secret, client_id, client_secret, owner_login)
+pub async fn exchange_manifest_code(
+    code: &str,
+) -> Result<ManifestExchangeResult> {
+    let client = reqwest::Client::new();
+    let url = format!("https://api.github.com/app-manifests/{code}/conversions");
+
+    let resp = client
+        .post(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "Pier-PaaS")
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("GitHub manifest exchange failed: {body}"));
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+
+    Ok(ManifestExchangeResult {
+        app_id: data["id"].as_i64().unwrap_or(0).to_string(),
+        slug: data["slug"].as_str().unwrap_or("").to_string(),
+        pem: data["pem"].as_str().unwrap_or("").to_string(),
+        webhook_secret: data["webhook_secret"].as_str().unwrap_or("").to_string(),
+        client_id: data["client_id"].as_str().unwrap_or("").to_string(),
+        client_secret: data["client_secret"].as_str().unwrap_or("").to_string(),
+        owner_login: data["owner"]["login"].as_str().unwrap_or("").to_string(),
+        html_url: data["html_url"].as_str().unwrap_or("").to_string(),
+    })
+}
+
+/// Generate GitHub App manifest JSON for the manifest creation flow.
+pub fn generate_manifest(pier_url: &str, app_name: &str) -> serde_json::Value {
+    serde_json::json!({
+        "name": app_name,
+        "url": pier_url,
+        "hook_attributes": {
+            "url": format!("{pier_url}/api/v1/webhooks/github"),
+            "active": true
+        },
+        "redirect_url": format!("{pier_url}/api/v1/sources/github/callback"),
+        "callback_urls": [format!("{pier_url}/api/v1/sources/github/callback")],
+        "setup_url": format!("{pier_url}/sources"),
+        "public": false,
+        "default_permissions": {
+            "contents": "read",
+            "metadata": "read",
+            "pull_requests": "read"
+        },
+        "default_events": ["push"]
+    })
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct ManifestExchangeResult {
+    pub app_id: String,
+    pub slug: String,
+    pub pem: String,
+    pub webhook_secret: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub owner_login: String,
+    pub html_url: String,
+}

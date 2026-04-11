@@ -305,6 +305,19 @@ pub async fn sources_list(
     )
 }
 
+/// GET /sources/{id}
+pub async fn source_detail(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+) -> PageResult {
+    render(
+        &state,
+        "sources/detail.html",
+        minijinja::context! { user => user.username, page => "sources", source_id => id },
+    )
+}
+
 // ── S3 Storages Page ────────────────────────────────────────
 
 /// GET /s3

@@ -47,7 +47,12 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/heartbeat", post(servers::heartbeat))
         // Webhooks (public — GitHub/GitLab need to reach these)
         .route("/webhooks/github", post(webhooks::github))
-        .route("/webhooks/gitlab", post(webhooks::gitlab));
+        .route("/webhooks/gitlab", post(webhooks::gitlab))
+        // GitHub App manifest callback (public — GitHub redirects here)
+        .route(
+            "/sources/github/callback",
+            get(sources::github_callback),
+        );
 
     let protected = Router::new()
         // Auth
@@ -160,8 +165,9 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         // Sources
         .route("/sources", get(sources::list).post(sources::create))
-        .route("/sources/{id}", delete(sources::remove))
+        .route("/sources/{id}", get(sources::get).delete(sources::remove))
         .route("/sources/{id}/repos", get(sources::list_repos))
+        .route("/sources/github/manifest", get(sources::github_manifest))
         // S3 Storages
         .route("/s3", get(s3::list).post(s3::create))
         .route("/s3/{id}", delete(s3::remove))
