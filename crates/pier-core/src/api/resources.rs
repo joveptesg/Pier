@@ -1785,20 +1785,24 @@ pub async fn set_port_public(
 ) -> AppResult<impl IntoResponse> {
     let public_port = body.public_port.unwrap_or(0) as u16;
 
-    // Get host_port from port_allocations
-    let host_port = {
+    // Get host_port, container_port, and service name from DB
+    let (host_port, container_port, service_name) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-        let hp: i64 = db
+        let (hp, cp): (i64, i64) = db
             .query_row(
-                "SELECT host_port FROM port_allocations WHERE service_id = ?1 LIMIT 1",
+                "SELECT host_port, container_port FROM port_allocations WHERE service_id = ?1 LIMIT 1",
                 [&id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(|_| AppError::NotFound(format!("No ports for resource {id}")))?;
+
+        let svc_name: String = db
+            .query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| row.get(0))
+            .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
 
         // Update is_public and public_port
         if body.is_public {
@@ -1813,7 +1817,7 @@ pub async fn set_port_public(
                 [&id],
             )?;
         }
-        hp as u16
+        (hp as u16, cp as u16, svc_name)
     };
 
     let pp = if public_port > 0 {
@@ -1823,8 +1827,9 @@ pub async fn set_port_public(
     };
 
     if body.is_public {
-        // Create Traefik TCP route
-        crate::proxy::config::write_tcp_route(&state.config.data_dir, &id, pp, host_port)
+        // Create Traefik TCP route (target container via Docker network)
+        let container_name = format!("pier-{}", service_name.to_lowercase().replace(' ', "-"));
+        crate::proxy::config::write_tcp_route(&state.config.data_dir, &id, pp, &container_name, container_port)
             .map_err(|e| anyhow::anyhow!("Write TCP route: {e}"))?;
 
         // Collect all active public TCP ports for static config
@@ -1876,8 +1881,10 @@ pub async fn set_port_public(
         )
         .map_err(|e| anyhow::anyhow!("Regenerate static config: {e}"))?;
 
-        // Restart Traefik to pick up new TCP entryPoint (host network mode — no port rebinding needed)
-        let _ = crate::proxy::restart_traefik(&state.docker).await;
+        // Recreate Traefik with new TCP port binding (bridge mode needs port bindings)
+        if let Err(e) = crate::proxy::deploy_traefik(&state.docker, &state.config.data_dir, &acme_email, dashboard).await {
+            tracing::error!("Traefik redeploy for TCP port failed: {e}");
+        }
         tracing::info!("Public TCP port {pp} enabled for {id} → localhost:{host_port}");
     } else {
         // Remove Traefik TCP route

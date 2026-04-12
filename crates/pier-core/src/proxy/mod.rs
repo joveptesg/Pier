@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
-use bollard::models::{ContainerCreateBody, HostConfig, NetworkCreateRequest};
+use bollard::models::{ContainerCreateBody, HostConfig, NetworkCreateRequest, PortBinding};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, RemoveContainerOptions, StartContainerOptions,
 };
@@ -47,16 +47,57 @@ pub async fn deploy_traefik(
         )
         .await;
 
-    // Host network mode: Traefik listens directly on host ports.
-    // No port bindings needed — entryPoints in traefik.yml define which ports to listen on.
-    // New TCP ports are picked up instantly via config hot-reload, no container restart needed.
+    // Bridge mode + pier-net: Traefik accesses services via Docker DNS (container names).
+    // Port bindings: 80, 443, + all active TCP public ports.
+    // When new TCP port is added, Traefik is recreated with updated port bindings.
+    let mut port_bindings = std::collections::HashMap::new();
+    port_bindings.insert(
+        "80/tcp".to_string(),
+        Some(vec![PortBinding {
+            host_ip: Some("0.0.0.0".to_string()),
+            host_port: Some("80".to_string()),
+        }]),
+    );
+    port_bindings.insert(
+        "443/tcp".to_string(),
+        Some(vec![PortBinding {
+            host_ip: Some("0.0.0.0".to_string()),
+            host_port: Some("443".to_string()),
+        }]),
+    );
+    if dashboard {
+        port_bindings.insert(
+            "8080/tcp".to_string(),
+            Some(vec![PortBinding {
+                host_ip: Some("0.0.0.0".to_string()),
+                host_port: Some("8080".to_string()),
+            }]),
+        );
+    }
+    // Add TCP port bindings from traefik.yml entryPoints (e.g., 5432 for PostgreSQL)
+    let tcp_ports = config::read_tcp_ports_from_config(data_dir);
+    for port in &tcp_ports {
+        port_bindings.insert(
+            format!("{port}/tcp"),
+            Some(vec![PortBinding {
+                host_ip: Some("0.0.0.0".to_string()),
+                host_port: Some(port.to_string()),
+            }]),
+        );
+    }
+    if !tcp_ports.is_empty() {
+        tracing::info!("Traefik TCP port bindings: {:?}", tcp_ports);
+    }
+
     let host_config = HostConfig {
+        port_bindings: Some(port_bindings),
         binds: Some(vec![format!("{data_volume}:/data")]),
-        network_mode: Some("host".to_string()),
+        network_mode: Some(PIER_NETWORK.to_string()),
         restart_policy: Some(bollard::models::RestartPolicy {
             name: Some(bollard::models::RestartPolicyNameEnum::UNLESS_STOPPED),
             ..Default::default()
         }),
+        extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
         ..Default::default()
     };
 
@@ -91,6 +132,7 @@ pub async fn deploy_traefik(
 }
 
 /// Restart the Traefik container (for static config changes like new entryPoints).
+#[allow(dead_code)]
 pub async fn restart_traefik(docker: &Docker) -> Result<()> {
     docker
         .restart_container(TRAEFIK_CONTAINER, None)

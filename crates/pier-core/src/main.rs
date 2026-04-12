@@ -225,7 +225,7 @@ async fn main() -> Result<()> {
                     }
                     // Write platform domain config if set
                     if !proxy_platform_domain.is_empty() {
-                        let target = format!("http://127.0.0.1:{proxy_port}");
+                        let target = format!("http://host.docker.internal:{proxy_port}");
                         if let Err(e) = proxy::config::write_platform_domain_config(
                             &proxy_data_dir,
                             &proxy_platform_domain,

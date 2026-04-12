@@ -344,14 +344,15 @@ pub fn write_tcp_route(
     data_dir: &Path,
     service_id: &str,
     public_port: u16,
-    host_port: u16,
+    container_name: &str,
+    container_port: u16,
 ) -> Result<()> {
     let dynamic_dir = data_dir.join("traefik").join("dynamic");
     std::fs::create_dir_all(&dynamic_dir)?;
 
     let ep_name = format!("tcp-{public_port}");
     let config = format!(
-        r#"# TCP proxy for service {service_id} (port {public_port} -> {host_port})
+        r#"# TCP proxy for service {service_id} (port {public_port} -> {container_name}:{container_port})
 tcp:
   routers:
     tcp-{service_id}:
@@ -363,7 +364,7 @@ tcp:
     tcp-{service_id}:
       loadBalancer:
         servers:
-          - address: "127.0.0.1:{host_port}"
+          - address: "{container_name}:{container_port}"
 "#
     );
 

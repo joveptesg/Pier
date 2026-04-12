@@ -32,28 +32,22 @@ pub fn allocate_ports(
     let mut free = Vec::with_capacity(count);
     let mut newly_allocated = Vec::new(); // track ports we've already picked in this batch
 
-    for (_port_name, container_port) in port_specs {
-        let standard = *container_port;
-        if standard >= 1024 && !is_port_used(standard) && !newly_allocated.contains(&standard) {
-            // Use standard port (e.g. 5432 for PostgreSQL)
-            free.push(standard);
-            newly_allocated.push(standard);
-        } else {
-            // Fall back to pool range
-            let mut port = start;
-            let mut found = false;
-            while port < end {
-                if !is_port_used(port) && !newly_allocated.contains(&port) {
-                    free.push(port);
-                    newly_allocated.push(port);
-                    found = true;
-                    break;
-                }
-                port += 1;
+    for (_port_name, _container_port) in port_specs {
+        // Always allocate from pool range (10000+) to avoid conflicts with
+        // Traefik TCP proxy which needs standard ports (5432, 3306, etc.)
+        let mut port = start;
+        let mut found = false;
+        while port < end {
+            if !is_port_used(port) && !newly_allocated.contains(&port) {
+                free.push(port);
+                newly_allocated.push(port);
+                found = true;
+                break;
             }
-            if !found {
-                bail!("Not enough free ports in range {start}-{end}");
-            }
+            port += 1;
+        }
+        if !found {
+            bail!("Not enough free ports in range {start}-{end}");
         }
     }
 

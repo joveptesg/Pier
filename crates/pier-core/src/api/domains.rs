@@ -87,7 +87,7 @@ pub async fn create(
     })?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let target_url = format!("http://127.0.0.1:{port}");
+    let target_url = format!("http://pier-{}:{port}", service_name.to_lowercase().replace(' ', "-"));
 
     // Insert into DB
     {
@@ -169,18 +169,18 @@ pub async fn remove(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let (service_id, port) = {
+    let (service_id, port, svc_name) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let row = db
             .query_row(
-                "SELECT d.service_id, s.port FROM domains d
+                "SELECT d.service_id, s.port, s.name FROM domains d
                  LEFT JOIN services s ON d.service_id = s.id
                  WHERE d.id = ?1",
                 [&id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i32>>(1)?)),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i32>>(1)?, row.get::<_, String>(2)?)),
             )
             .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?;
         db.execute("DELETE FROM domains WHERE id = ?1", [&id])?;
@@ -202,7 +202,7 @@ pub async fn remove(
         rows
     };
 
-    let target_url = format!("http://127.0.0.1:{}", port.unwrap_or(0));
+    let target_url = format!("http://pier-{}:{}", svc_name.to_lowercase().replace(' ', "-"), port.unwrap_or(0));
     if let Err(e) = config::regenerate_service_config(
         &state.config.data_dir,
         &service_id,
@@ -278,7 +278,7 @@ pub async fn create_service_domain(
 
     // Generate domain
     let domain = config::generate_service_domain(service_name, service_id, &server_ip);
-    let target_url = format!("http://127.0.0.1:{port}");
+    let target_url = format!("http://pier-{}:{port}", service_name.to_lowercase().replace(' ', "-"));
     let id = uuid::Uuid::new_v4().to_string();
 
     // Insert into DB

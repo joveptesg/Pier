@@ -212,7 +212,7 @@ pub async fn update_settings(
         if domain.is_empty() {
             let _ = crate::proxy::config::remove_platform_domain_config(&state.config.data_dir);
         } else {
-            let target = format!("http://127.0.0.1:{}", state.config.port);
+            let target = format!("http://host.docker.internal:{}", state.config.port);
             crate::proxy::config::write_platform_domain_config(
                 &state.config.data_dir,
                 &domain,
