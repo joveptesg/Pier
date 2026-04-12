@@ -15,7 +15,7 @@ protocol = "tcp"
 description = "PostgreSQL wire protocol"
 
 [volumes.data]
-mount = "/var/lib/postgresql/data"
+mount = "/var/lib/postgresql"
 
 [env]
 POSTGRES_DB = { default = "{{name}}", description = "Default database" }
