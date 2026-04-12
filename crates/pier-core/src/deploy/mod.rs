@@ -178,7 +178,7 @@ pub async fn run_pipeline(
             }
         }
         "docker-compose" => {
-            // Use repo's own docker-compose.yml
+            // Use repo's own docker-compose.yml — run from repo dir (needed for build: context)
             let compose_file = repo_dir.join("docker-compose.yml");
             if !compose_file.exists() {
                 log.push_str("docker-compose.yml not found in repo\n");
@@ -187,32 +187,53 @@ pub async fn run_pipeline(
                 return;
             }
 
-            // Also copy .env from repo if it exists
-            let repo_env = repo_dir.join(".env");
-            if repo_env.exists() {
-                let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
-                let _ = tokio::fs::create_dir_all(&stack_dir).await;
-                let _ = tokio::fs::copy(&repo_env, stack_dir.join(".env")).await;
+            // Write .env from service env_json into repo dir
+            write_env_file(&state, &service_id, &stack_name).await;
+            // Also copy .env to repo dir for docker-compose build context
+            let stack_env = state.config.data_dir.join("stacks").join(&stack_name).join(".env");
+            if stack_env.exists() {
+                let _ = tokio::fs::copy(&stack_env, repo_dir.join(".env")).await;
             }
 
             match tokio::fs::read_to_string(&compose_file).await {
                 Ok(yaml) => {
-                    // Strip obsolete version field
                     let yaml = strip_compose_version(&yaml);
-                    // Copy to stacks dir and deploy
-                    match docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await {
-                        Ok(output) => log.push_str(&format!("Deploy: {output}\n")),
+
+                    // Move repo contents to stack dir so build context works from persistent location
+                    let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
+                    let _ = tokio::fs::remove_dir_all(&stack_dir).await;
+                    if let Err(e) = tokio::fs::rename(&repo_dir, &stack_dir).await {
+                        // rename may fail across filesystems, fall back to copy
+                        log.push_str(&format!("Move repo to stack dir: {e}, trying copy\n"));
+                        let _ = tokio::fs::create_dir_all(&stack_dir).await;
+                        let _ = copy_dir_all(&repo_dir, &stack_dir).await;
+                    }
+
+                    // Write cleaned compose YAML
+                    let _ = tokio::fs::write(stack_dir.join("docker-compose.yml"), &yaml).await;
+
+                    // Build and deploy from stack dir (contains source code + Dockerfile)
+                    let output = tokio::process::Command::new("docker")
+                        .args(["compose", "-p", &stack_name, "up", "-d", "--build"])
+                        .current_dir(&stack_dir)
+                        .env("HOME", state.config.data_dir.parent().unwrap_or(&state.config.data_dir))
+                        .output()
+                        .await;
+
+                    match output {
+                        Ok(out) => {
+                            let combined = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+                            if out.status.success() {
+                                log.push_str(&format!("Deploy: {combined}\n"));
+                            } else {
+                                log.push_str(&format!("Deploy failed: {combined}\n"));
+                                finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+                                return;
+                            }
+                        }
                         Err(e) => {
                             log.push_str(&format!("Deploy failed: {e}\n"));
-                            finish_deployment(
-                                &state,
-                                &deploy_id,
-                                &service_id,
-                                "failed",
-                                &log,
-                                start,
-                            );
-                            let _ = tokio::fs::remove_dir_all(&repo_dir).await;
+                            finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
                             return;
                         }
                     }
@@ -369,6 +390,22 @@ fn finish_deployment(
             rusqlite::params![service_status, service_id],
         );
     }
+}
+
+/// Recursively copy a directory.
+async fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
+    tokio::fs::create_dir_all(dst).await?;
+    let mut entries = tokio::fs::read_dir(src).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if entry.file_type().await?.is_dir() {
+            Box::pin(copy_dir_all(&src_path, &dst_path)).await?;
+        } else {
+            tokio::fs::copy(&src_path, &dst_path).await?;
+        }
+    }
+    Ok(())
 }
 
 /// Strip the obsolete `version:` field from docker-compose YAML.
