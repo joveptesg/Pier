@@ -37,6 +37,44 @@ pub async fn deploy_stack(name: &str, yaml_content: &str, config: &PierConfig) -
     Ok(combined)
 }
 
+/// Write compose YAML and run `docker compose up -d --force-recreate --pull always` (no cache).
+pub async fn deploy_stack_no_cache(name: &str, yaml_content: &str, config: &PierConfig) -> Result<String> {
+    let stack_dir = stacks_dir(config).join(name);
+    tokio::fs::create_dir_all(&stack_dir).await?;
+
+    let compose_file = stack_dir.join("docker-compose.yml");
+    tokio::fs::write(&compose_file, yaml_content).await?;
+
+    // Build without cache if there's a build context
+    let _ = Command::new("docker")
+        .args(["compose", "-f"])
+        .arg(&compose_file)
+        .args(["build", "--no-cache"])
+        .current_dir(&stack_dir)
+        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
+        .output()
+        .await;
+
+    let output = Command::new("docker")
+        .args(["compose", "-f"])
+        .arg(&compose_file)
+        .args(["up", "-d", "--force-recreate", "--pull", "always"])
+        .current_dir(&stack_dir)
+        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
+        .output()
+        .await?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+
+    if !output.status.success() {
+        anyhow::bail!("docker compose up (no-cache) failed: {combined}");
+    }
+
+    Ok(combined)
+}
+
 /// Run `docker compose down` for a stack.
 pub async fn down_stack(name: &str, config: &PierConfig) -> Result<String> {
     let stack_dir = stacks_dir(config).join(name);

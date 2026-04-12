@@ -1410,7 +1410,9 @@ pub async fn restart(
 pub async fn redeploy(
     State(state): State<SharedState>,
     Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult<impl IntoResponse> {
+    let no_cache = params.get("no_cache").map(|v| v == "true").unwrap_or(false);
     let (name, yaml) = {
         let db = state
             .db
@@ -1442,8 +1444,12 @@ pub async fn redeploy(
         );
     }
 
-    // Redeploy
-    let result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await;
+    // Redeploy (with optional --no-cache for force deploy)
+    let result = if no_cache {
+        docker::compose::deploy_stack_no_cache(&stack_name, &yaml, &state.config).await
+    } else {
+        docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await
+    };
 
     let status = if result.is_ok() { "running" } else { "failed" };
     let log_output = match &result {

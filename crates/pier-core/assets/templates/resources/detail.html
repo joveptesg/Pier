@@ -35,10 +35,26 @@
             </div>
         </div>
         <div class="flex items-center gap-2">
-            <button @click="redeployResource()" x-show="resource.status !== 'created'"
-                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">
-                Redeploy
-            </button>
+            <!-- Redeploy dropdown -->
+            <div x-show="resource.status !== 'created'" class="relative" x-data="{ redeployOpen: false }" @click.away="redeployOpen = false">
+                <div class="flex">
+                    <button @click="redeployResource()"
+                            class="px-3 py-1.5 text-xs font-medium rounded-l-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">
+                        Redeploy
+                    </button>
+                    <button @click="redeployOpen = !redeployOpen"
+                            class="px-1.5 py-1.5 text-xs font-medium rounded-r-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors border-l border-blue-200 dark:border-blue-500/30">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                </div>
+                <div x-show="redeployOpen" x-cloak class="absolute right-0 mt-1 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                    <button @click="forceDeployResource(); redeployOpen = false"
+                            class="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        Force deploy (without cache)
+                    </button>
+                </div>
+            </div>
             <button @click="manualDeploy()" x-show="resource.status === 'created'"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-100 dark:bg-green-600/20 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-600/30 transition-colors">
                 Deploy
@@ -54,10 +70,6 @@
             <button @click="restartResource()" x-show="resource.status === 'running'"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
                 Restart
-            </button>
-            <button @click="showDeleteModal = true; deleteConfirmName = ''"
-                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 dark:bg-red-600/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-600/30 transition-colors">
-                Delete
             </button>
         </div>
     </div>
@@ -81,6 +93,8 @@
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Logs</button>
         <button @click="tab = 'backups'" :class="tab === 'backups' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Backups</button>
+        <button @click="tab = 'danger'" :class="tab === 'danger' ? 'border-red-500 text-red-600 dark:text-red-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Danger Zone</button>
     </div>
 
     <!-- Overview Tab -->
@@ -740,6 +754,23 @@ NODE_ENV=production"></textarea>
         </div>
     </div>
 
+    <!-- Danger Zone Tab -->
+    <div x-show="tab === 'danger'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-red-200 dark:border-red-800/50 rounded-xl p-6">
+            <h3 class="text-lg font-semibold text-red-600 dark:text-red-400 mb-1">Danger Zone</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">Woah. I hope you know what you are doing.</p>
+
+            <div class="border-t border-red-100 dark:border-red-900/30 pt-4">
+                <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Delete Resource</h4>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">This will stop your containers, delete all related data, etc. Beware! There is no coming back!</p>
+                <button @click="showDeleteModal = true; deleteConfirmName = ''; deleteVolumes = false"
+                        class="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Delete Confirmation Modal -->
     <div x-show="showDeleteModal" x-cloak
          class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
@@ -1017,6 +1048,7 @@ function resourceDetail(id) {
         async stopResource() { try{await api('/api/v1/resources/'+this.id+'/stop',{method:'POST'});toast('Resource stopped');await this.refresh();}catch(e){toast(e.message,'error');} },
         async restartResource() { try{await api('/api/v1/resources/'+this.id+'/restart',{method:'POST'});toast('Resource restarted');await this.refresh();}catch(e){toast(e.message,'error');} },
         async redeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy',{method:'POST'});toast('Redeploying...');await this.refresh();}catch(e){toast(e.message,'error');} },
+        async forceDeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy?no_cache=true',{method:'POST'});toast('Force deploying (no cache)...');await this.refresh();}catch(e){toast(e.message,'error');} },
         async removeResource() {
             const url = '/api/v1/resources/'+this.id + (this.deleteVolumes ? '?delete_volumes=true' : '');
             try{await api(url,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');}
