@@ -641,28 +641,64 @@ NODE_ENV=production"></textarea>
     </div>
 
     <!-- Logs Tab -->
-    <div x-show="tab === 'logs'" class="space-y-4">
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <div class="flex items-center justify-between mb-3">
+    <div x-show="tab === 'logs'" @keydown.escape.window="logFullscreen = false"
+         :class="logFullscreen ? 'fixed inset-0 z-[9998] bg-gray-950 flex flex-col' : 'space-y-4'"
+        <div :class="logFullscreen ? 'flex flex-col flex-1 p-2' : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5'">
+            <!-- Toolbar -->
+            <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
-                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Logs</h3>
-                    <span class="text-xs text-gray-400">Server: localhost</span>
+                    <span :class="logFullscreen ? 'text-gray-400' : 'text-gray-700 dark:text-gray-300'" class="text-sm font-medium">Logs</span>
+                    <span class="text-xs text-gray-500">localhost</span>
                 </div>
-                <div class="flex items-center gap-2">
-                    <select x-model="logLines" @change="loadContainerLogs()"
-                            class="text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 text-gray-600 dark:text-gray-400">
-                        <option value="100">Last 100</option>
-                        <option value="500">Last 500</option>
-                        <option value="1000">Last 1000</option>
-                    </select>
-                    <button @click="loadContainerLogs()" class="px-3 py-1 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                        Refresh
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    <!-- Lines -->
+                    <div class="flex items-center gap-1">
+                        <label class="text-[10px] text-gray-500">Lines:</label>
+                        <input type="number" x-model.number="logLines" min="10" max="10000" @change="loadContainerLogs()"
+                               class="w-16 px-1.5 py-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-700 dark:text-gray-300 text-center">
+                    </div>
+                    <!-- Search -->
+                    <div class="relative">
+                        <input type="text" x-model="logSearch" placeholder="Find in logs"
+                               class="w-36 pl-6 pr-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-700 dark:text-gray-300 focus:ring-1 focus:ring-blue-500">
+                        <svg class="w-3 h-3 text-gray-400 absolute left-2 top-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </div>
+                    <!-- Refresh -->
+                    <button @click="loadContainerLogs()" class="p-1.5 text-gray-500 hover:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors" title="Refresh">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                    <!-- Stream toggle -->
+                    <button @click="toggleLogStream()" :class="logStreaming ? 'bg-green-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-300'"
+                            class="p-1.5 rounded transition-colors" :title="logStreaming ? 'Stop streaming' : 'Start streaming'">
+                        <svg x-show="!logStreaming" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        <svg x-show="logStreaming" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                    </button>
+                    <!-- Download -->
+                    <button @click="downloadLogs()" class="p-1.5 text-gray-500 hover:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors" title="Download logs">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    </button>
+                    <!-- Follow -->
+                    <button @click="logFollow = !logFollow; if(logFollow) scrollLogsToBottom()"
+                            :class="logFollow ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-300'"
+                            class="p-1.5 rounded transition-colors" title="Follow (auto-scroll)">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+                    </button>
+                    <!-- Fullscreen -->
+                    <button @click="logFullscreen = !logFullscreen" class="p-1.5 text-gray-500 hover:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors" title="Fullscreen">
+                        <svg x-show="!logFullscreen" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                        <svg x-show="logFullscreen" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
             </div>
-            <div class="bg-gray-100 dark:bg-gray-950 rounded-lg p-4 max-h-[600px] overflow-auto">
-                <pre class="text-xs text-gray-800 dark:text-green-400 font-mono whitespace-pre-wrap" x-text="containerLogs || 'No logs available'"></pre>
+            <!-- Log content -->
+            <div x-ref="logContainer" :class="logFullscreen ? 'flex-1 overflow-auto' : 'max-h-[600px] overflow-auto'" class="bg-gray-100 dark:bg-gray-950 rounded-lg p-3">
+                <div x-show="!containerLogs && !logStreaming" class="text-xs text-gray-500 text-center py-8">No logs available</div>
+                <pre x-show="containerLogs || logStreaming" class="text-xs font-mono whitespace-pre-wrap leading-relaxed"
+                     :class="logFullscreen ? 'text-green-400' : 'text-gray-800 dark:text-green-400'"
+                     x-html="highlightLogSearch(containerLogs || '')"></pre>
             </div>
+            <!-- Search match count -->
+            <div x-show="logSearch" class="mt-1 text-[10px] text-gray-500" x-text="logSearchCount + ' matches'"></div>
         </div>
     </div>
 
@@ -780,7 +816,8 @@ function resourceDetail(id) {
         scheduleForm: { s3_storage_id: '', cron_expression: '0 2 * * *', retention_count: 7 },
         clusterInfo: null,
         domains: [], showAddDomain: false, newDomainName: '',
-        containerLogs: '', deploymentLogs: [], logLines: '100',
+        containerLogs: '', deploymentLogs: [], logLines: 100,
+        logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0,
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitSources: [], showWebhookSecret: false,
@@ -909,6 +946,8 @@ function resourceDetail(id) {
         },
         async init() {
             await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster(); this.loadDomains(); this.loadGitConfig();
+            // Stop log streaming when leaving Logs tab
+            this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
@@ -993,8 +1032,59 @@ function resourceDetail(id) {
                     return;
                 }
                 const lines = await resp.json();
-                this.containerLogs = lines && lines.length > 0 ? lines.join('\n') : 'No log output yet';
+                this.containerLogs = lines && lines.length > 0 ? lines.join('\n') : '';
+                if (this.logFollow) this.$nextTick(() => this.scrollLogsToBottom());
             } catch { this.containerLogs = 'Failed to load logs'; }
+        },
+        toggleLogStream() {
+            if (this.logStreaming) { this.stopLogStream(); } else { this.startLogStream(); }
+        },
+        startLogStream() {
+            const containerName = 'pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-');
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = proto + '//' + location.host + '/api/v1/containers/' + encodeURIComponent(containerName) + '/logs/ws';
+            try {
+                this.logSocket = new WebSocket(url);
+                this.logStreaming = true;
+                this.logSocket.onmessage = (e) => {
+                    const line = e.data.trim();
+                    if (line) {
+                        this.containerLogs = (this.containerLogs ? this.containerLogs + '\n' : '') + line;
+                        if (this.logFollow) this.$nextTick(() => this.scrollLogsToBottom());
+                    }
+                };
+                this.logSocket.onclose = () => { this.logStreaming = false; this.logSocket = null; };
+                this.logSocket.onerror = () => { this.logStreaming = false; this.logSocket = null; };
+            } catch { this.logStreaming = false; }
+        },
+        stopLogStream() {
+            if (this.logSocket) { this.logSocket.close(); this.logSocket = null; }
+            this.logStreaming = false;
+        },
+        scrollLogsToBottom() {
+            const el = this.$refs.logContainer;
+            if (el) el.scrollTop = el.scrollHeight;
+        },
+        downloadLogs() {
+            const blob = new Blob([this.containerLogs || ''], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = (this.resource.name || 'logs') + '.log';
+            a.click();
+            URL.revokeObjectURL(url);
+        },
+        highlightLogSearch(text) {
+            if (!this.logSearch || !text) { this.logSearchCount = 0; return this.escapeHtml(text); }
+            const escaped = this.escapeHtml(text);
+            const query = this.logSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp('(' + query + ')', 'gi');
+            const matches = escaped.match(regex);
+            this.logSearchCount = matches ? matches.length : 0;
+            return escaped.replace(regex, '<mark class="bg-yellow-300 dark:bg-yellow-600 text-black dark:text-white rounded px-0.5">$1</mark>');
+        },
+        escapeHtml(text) {
+            return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         },
         async loadDeploymentLogs() {
             try { this.deploymentLogs = await fetch('/api/v1/resources/'+this.id+'/deployment-logs').then(r=>r.ok?r.json():[]); } catch { this.deploymentLogs = []; }

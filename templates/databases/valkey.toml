@@ -1,0 +1,49 @@
+[meta]
+id = "valkey"
+name = "Valkey"
+description = "Open-source in-memory data store (Redis fork, BSD-3 licensed)"
+category = "database"
+icon = "valkey"
+tags = ["cache", "nosql", "key-value", "redis-compatible"]
+
+[docker]
+image = "valkey/valkey:{{version}}"
+command = ["valkey-server", "--requirepass", "{{VALKEY_PASSWORD}}"]
+
+[ports.primary]
+internal = 6379
+protocol = "tcp"
+description = "Valkey protocol (Redis-compatible)"
+
+[volumes.data]
+mount = "/data"
+
+[env]
+VALKEY_PASSWORD = { default = "{{password}}", description = "Valkey password", secret = true }
+
+[healthcheck]
+test = ["CMD", "valkey-cli", "-a", "{{VALKEY_PASSWORD}}", "ping"]
+interval = "10s"
+timeout = "5s"
+retries = 5
+
+[versions]
+available = ["latest", "8.1-alpine", "8.0-alpine", "7.2-alpine"]
+default = "latest"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-valkey"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.password]
+type = "password"
+label = "Password"
+auto_generate = true
+maps_to = "VALKEY_PASSWORD"
