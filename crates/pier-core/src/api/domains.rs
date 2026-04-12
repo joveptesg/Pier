@@ -74,7 +74,7 @@ pub async fn create(
     })?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let target_url = format!("http://host.docker.internal:{port}");
+    let target_url = format!("http://127.0.0.1:{port}");
 
     // Insert into DB
     {
@@ -187,7 +187,7 @@ pub async fn remove(
         rows
     };
 
-    let target_url = format!("http://host.docker.internal:{}", port.unwrap_or(0));
+    let target_url = format!("http://127.0.0.1:{}", port.unwrap_or(0));
     if let Err(e) = config::regenerate_service_config(
         &state.config.data_dir,
         &service_id,
@@ -263,7 +263,7 @@ pub async fn create_service_domain(
 
     // Generate domain
     let domain = config::generate_service_domain(service_name, service_id, &server_ip);
-    let target_url = format!("http://host.docker.internal:{port}");
+    let target_url = format!("http://127.0.0.1:{port}");
     let id = uuid::Uuid::new_v4().to_string();
 
     // Insert into DB

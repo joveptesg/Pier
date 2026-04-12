@@ -48,7 +48,7 @@ log:
 ///
 /// `service_id`: unique key for the router/service name
 /// `domain`: the FQDN to route (e.g. "app.example.com")
-/// `target_url`: upstream URL (e.g. "http://host.docker.internal:10042")
+/// `target_url`: upstream URL (e.g. "http://127.0.0.1:10042")
 /// `use_tls`: whether to enable Let's Encrypt TLS
 #[allow(dead_code)]
 pub fn generate_dynamic_config(
@@ -292,7 +292,7 @@ tcp:
     tcp-{service_id}:
       loadBalancer:
         servers:
-          - address: "host.docker.internal:{host_port}"
+          - address: "127.0.0.1:{host_port}"
 "#
     );
 
@@ -376,6 +376,7 @@ log:
 }
 
 /// Read TCP port numbers from traefik.yml entryPoints (tcp-NNNN entries).
+#[allow(dead_code)]
 pub fn read_tcp_ports_from_config(data_dir: &Path) -> Vec<u16> {
     let config_path = data_dir.join("traefik").join("traefik.yml");
     let content = match std::fs::read_to_string(&config_path) {
