@@ -429,7 +429,7 @@ function createResource(catalogId) {
             if (repo) {
                 this.form.git_url = repo.clone_url;
                 this.form.branch = repo.default_branch || 'main';
-                this.form.name = this.form.name || repo.name;
+                this.form.name = repo.name;
                 this.form.build_pack = this.form.build_pack || 'dockerfile';
                 this.form.build_path = this.form.build_path || '/Dockerfile';
                 this.form.compose_path = this.form.compose_path || '/docker-compose.yml';
