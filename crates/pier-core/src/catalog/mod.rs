@@ -106,7 +106,7 @@ pub struct VersionsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiConfig {
-    pub fields: HashMap<String, UiField>,
+    pub fields: indexmap::IndexMap<String, UiField>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
