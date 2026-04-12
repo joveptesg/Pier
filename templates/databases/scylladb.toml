@@ -28,8 +28,8 @@ retries = 10
 start_period = "90s"
 
 [versions]
-available = ["6.2", "6.1", "6.0", "5.4"]
-default = "6.2"
+available = ["latest", "6.2", "6.1", "6.0", "5.4"]
+default = "latest"
 
 [cluster]
 supported = true

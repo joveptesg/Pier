@@ -61,6 +61,30 @@ pub async fn down_stack(name: &str, config: &PierConfig) -> Result<String> {
     Ok(format!("{stdout}{stderr}"))
 }
 
+/// Run `docker compose down -v` for a stack (removes named volumes too).
+pub async fn down_stack_with_volumes(name: &str, config: &PierConfig) -> Result<String> {
+    let stack_dir = stacks_dir(config).join(name);
+    let compose_file = stack_dir.join("docker-compose.yml");
+
+    if !compose_file.exists() {
+        anyhow::bail!("Stack '{name}' not found");
+    }
+
+    let output = Command::new("docker")
+        .args(["compose", "-f"])
+        .arg(&compose_file)
+        .args(["down", "-v"])
+        .current_dir(&stack_dir)
+        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
+        .output()
+        .await?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    Ok(format!("{stdout}{stderr}"))
+}
+
 /// List all stacks by scanning the stacks directory.
 #[allow(dead_code)]
 pub async fn list_stacks_on_disk(config: &PierConfig) -> Result<Vec<String>> {

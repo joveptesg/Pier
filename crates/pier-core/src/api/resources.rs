@@ -1205,6 +1205,7 @@ pub async fn get(
 pub async fn remove(
     State(state): State<SharedState>,
     Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult<impl IntoResponse> {
     let name = {
         let db = state
@@ -1218,9 +1219,46 @@ pub async fn remove(
     };
 
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+    let delete_volumes = params.get("delete_volumes").map(|v| v == "true").unwrap_or(false);
 
-    let _ = docker::compose::down_stack(&stack_name, &state.config).await;
-    let _ = docker::compose::remove_stack(&stack_name, &state.config).await;
+    tracing::info!("Deleting resource '{name}' (id={id}, stack={stack_name}, delete_volumes={delete_volumes})");
+
+    // Verify compose YAML belongs to this service before removing
+    let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
+    let compose_file = stack_dir.join("docker-compose.yml");
+    if compose_file.exists() {
+        let yaml_content = std::fs::read_to_string(&compose_file).unwrap_or_default();
+        if !yaml_content.contains(&id) && !yaml_content.is_empty() {
+            tracing::error!(
+                "SAFETY: compose YAML in {stack_name} does NOT contain service id {id}! Skipping removal to prevent data loss."
+            );
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "Stack {stack_name} belongs to a different service. Skipping removal."
+            )));
+        }
+    }
+
+    // Stop containers (with or without volumes)
+    if delete_volumes {
+        // docker compose down -v (removes named volumes)
+        let result = docker::compose::down_stack_with_volumes(&stack_name, &state.config).await;
+        match &result {
+            Ok(out) => tracing::info!("Stack {stack_name} down -v: {out}"),
+            Err(e) => tracing::warn!("Stack {stack_name} down -v failed: {e}"),
+        }
+    } else {
+        let result = docker::compose::down_stack(&stack_name, &state.config).await;
+        match &result {
+            Ok(out) => tracing::info!("Stack {stack_name} down: {out}"),
+            Err(e) => tracing::warn!("Stack {stack_name} down failed: {e}"),
+        }
+    }
+
+    // Remove stack directory
+    match docker::compose::remove_stack(&stack_name, &state.config).await {
+        Ok(()) => tracing::info!("Stack {stack_name} directory removed"),
+        Err(e) => tracing::warn!("Stack {stack_name} dir remove failed: {e}"),
+    }
 
     let db = state
         .db
@@ -1229,6 +1267,7 @@ pub async fn remove(
     ports::free_ports(&db, &id)?;
     db.execute("DELETE FROM services WHERE id = ?1", [&id])?;
 
+    tracing::info!("Resource '{name}' ({id}) fully removed");
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -2042,4 +2081,93 @@ pub async fn update_settings(
     }
 
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub struct RenameRequest {
+    pub name: String,
+}
+
+/// PUT /api/v1/resources/{id}/rename — rename a service (restarts container).
+pub async fn rename(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<RenameRequest>,
+) -> AppResult<impl IntoResponse> {
+    let new_name = body.name.trim().to_lowercase().replace(' ', "-");
+
+    if new_name.is_empty() || !new_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(AppError::BadRequest("Name must contain only lowercase letters, numbers, hyphens".into()));
+    }
+
+    let old_name = {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| row.get::<_, String>(0))
+            .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+    };
+
+    if old_name == new_name {
+        return Ok(Json(serde_json::json!({"ok": true, "name": new_name})));
+    }
+
+    let old_stack = format!("pier-{}", old_name.to_lowercase().replace(' ', "-"));
+    let new_stack = format!("pier-{new_name}");
+
+    tracing::info!("Renaming resource '{old_name}' → '{new_name}' (stack: {old_stack} → {new_stack})");
+
+    // 1. Stop old stack
+    let _ = docker::compose::down_stack(&old_stack, &state.config).await;
+
+    // 2. Read compose YAML and update container_name
+    let stack_dir = state.config.data_dir.join("stacks").join(&old_stack);
+    let compose_file = stack_dir.join("docker-compose.yml");
+    let mut yaml = if compose_file.exists() {
+        std::fs::read_to_string(&compose_file).unwrap_or_default()
+    } else {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row("SELECT compose_content FROM services WHERE id = ?1", [&id], |row| row.get::<_, Option<String>>(0))
+            .unwrap_or(None)
+            .unwrap_or_default()
+    };
+
+    if yaml.is_empty() {
+        return Err(AppError::BadRequest("No compose content found for this service".into()));
+    }
+
+    // Replace container_name
+    yaml = yaml.replace(
+        &format!("container_name: {old_stack}"),
+        &format!("container_name: {new_stack}"),
+    );
+
+    // 3. Move stack directory
+    let new_stack_dir = state.config.data_dir.join("stacks").join(&new_stack);
+    if stack_dir.exists() {
+        if let Err(e) = std::fs::rename(&stack_dir, &new_stack_dir) {
+            tracing::warn!("Could not rename stack dir: {e}, will create new");
+            let _ = std::fs::create_dir_all(&new_stack_dir);
+        }
+    } else {
+        let _ = std::fs::create_dir_all(&new_stack_dir);
+    }
+
+    // 4. Update DB
+    {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "UPDATE services SET name = ?1, compose_content = ?2, updated_at = datetime('now') WHERE id = ?3",
+            rusqlite::params![new_name, yaml, id],
+        )?;
+    }
+
+    // 5. Deploy with new name
+    match docker::compose::deploy_stack(&new_stack, &yaml, &state.config).await {
+        Ok(out) => tracing::info!("Stack {new_stack} deployed: {out}"),
+        Err(e) => {
+            tracing::error!("Failed to deploy renamed stack {new_stack}: {e}");
+            return Err(AppError::Internal(anyhow::anyhow!("Deploy after rename failed: {e}")));
+        }
+    }
+
+    Ok(Json(serde_json::json!({"ok": true, "name": new_name})))
 }

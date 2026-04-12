@@ -11,7 +11,15 @@
             </a>
             <div>
                 <div class="flex items-center gap-2">
-                    <h2 class="text-xl font-semibold text-gray-900 dark:text-white" x-text="resource.name || 'Loading...'"></h2>
+                    <h2 x-show="!editingName" @dblclick="editingName = true; editName = resource.name"
+                        class="text-xl font-semibold text-gray-900 dark:text-white cursor-pointer hover:underline hover:decoration-dotted" x-text="resource.name || 'Loading...'" title="Double-click to rename"></h2>
+                    <div x-show="editingName" x-cloak class="flex items-center gap-2">
+                        <input x-model="editName" type="text" x-ref="renameInput"
+                               @keydown.enter="renameResource()" @keydown.escape="editingName = false"
+                               class="text-xl font-semibold px-2 py-0.5 bg-gray-50 dark:bg-gray-800 border border-blue-500 rounded-lg text-gray-900 dark:text-white focus:outline-none w-64">
+                        <button @click="renameResource()" class="px-2 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
+                        <button @click="editingName = false" class="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400">Cancel</button>
+                    </div>
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
                           :class="resource.status === 'running' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' :
                                   resource.status === 'stopped' ? 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400' :
@@ -703,13 +711,18 @@ NODE_ENV=production"></textarea>
          @click.self="showDeleteModal = false">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
             <h3 class="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">Delete Resource</h3>
-            <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">This will permanently stop and remove the container and all its data.</p>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">This will permanently stop and remove the container.</p>
             <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Type <strong class="text-gray-900 dark:text-white" x-text="resource.name"></strong> to confirm:</p>
             <input x-model="deleteConfirmName" type="text"
                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                           text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-mono"
                    :placeholder="resource.name"
                    @keydown.enter="if(deleteConfirmName === resource.name){ showDeleteModal = false; removeResource(); }">
+            <label class="flex items-center gap-2 mt-3 cursor-pointer">
+                <input type="checkbox" x-model="deleteVolumes"
+                       class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
+                <span class="text-sm text-gray-600 dark:text-gray-400">Also delete volumes (permanent data loss)</span>
+            </label>
             <div class="flex justify-end gap-2 mt-5">
                 <button @click="showDeleteModal = false"
                         class="px-4 py-2 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
@@ -768,7 +781,7 @@ function resourceDetail(id) {
         clusterInfo: null,
         domains: [], showAddDomain: false, newDomainName: '',
         containerLogs: '', deploymentLogs: [], logLines: '100',
-        showDeleteModal: false, deleteConfirmName: '', showCompose: false,
+        showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitSources: [], showWebhookSecret: false,
         ciDeployments: [], expandedLog: null,
@@ -965,7 +978,10 @@ function resourceDetail(id) {
         async stopResource() { try{await api('/api/v1/resources/'+this.id+'/stop',{method:'POST'});toast('Resource stopped');await this.refresh();}catch(e){toast(e.message,'error');} },
         async restartResource() { try{await api('/api/v1/resources/'+this.id+'/restart',{method:'POST'});toast('Resource restarted');await this.refresh();}catch(e){toast(e.message,'error');} },
         async redeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy',{method:'POST'});toast('Redeploying...');await this.refresh();}catch(e){toast(e.message,'error');} },
-        async removeResource() { try{await api('/api/v1/resources/'+this.id,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');} },
+        async removeResource() {
+            const url = '/api/v1/resources/'+this.id + (this.deleteVolumes ? '?delete_volumes=true' : '');
+            try{await api(url,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');}
+        },
         async loadDomains() { try { this.domains=await fetch('/api/v1/resources/'+this.id+'/domains').then(r=>r.ok?r.json():[]); } catch{this.domains=[];} },
         async loadContainerLogs() {
             const containerName = 'pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-');
@@ -1019,6 +1035,17 @@ function resourceDetail(id) {
             if(dep && !dep._build_log) {
                 try { const detail = await fetch('/api/v1/resources/'+this.id+'/deployments/'+depId).then(r=>r.json()); dep._build_log = detail.build_log || 'No logs'; } catch { dep._build_log = 'Failed to load logs'; }
             }
+        },
+        async renameResource() {
+            if (!this.editName.trim()) { toast('Name is required', 'error'); return; }
+            if (this.editName.trim() === this.resource.name) { this.editingName = false; return; }
+            if (!confirm('Rename will restart the container. Continue?')) return;
+            try {
+                await api('/api/v1/resources/'+this.id+'/rename', { method: 'PUT', body: JSON.stringify({ name: this.editName.trim() }) });
+                toast('Service renamed');
+                this.editingName = false;
+                await this.refresh();
+            } catch(e) { toast(e.message, 'error'); }
         },
         async toggleSetting(key) {
             const newVal = !this.resource[key];

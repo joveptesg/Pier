@@ -32,8 +32,8 @@ retries = 10
 start_period = "60s"
 
 [versions]
-available = ["5.0", "4.1", "4.0"]
-default = "5.0"
+available = ["latest", "5.0", "4.1", "4.0"]
+default = "latest"
 
 [cluster]
 supported = true

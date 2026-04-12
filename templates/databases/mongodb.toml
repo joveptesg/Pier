@@ -29,8 +29,8 @@ retries = 5
 start_period = "30s"
 
 [versions]
-available = ["8.0", "7.0"]
-default = "8.0"
+available = ["latest", "8.0", "7.0"]
+default = "latest"
 
 [cluster]
 supported = true

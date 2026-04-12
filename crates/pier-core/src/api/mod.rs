@@ -119,6 +119,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             put(resources::update_settings),
         )
         .route(
+            "/resources/{id}/rename",
+            put(resources::rename),
+        )
+        .route(
             "/resources/{id}/deployment-logs",
             get(resources::deployment_logs),
         )

@@ -7,7 +7,7 @@ icon = "postgresql"
 tags = ["sql", "relational"]
 
 [docker]
-image = "postgres:{{version}}-alpine"
+image = "postgres:{{version}}"
 
 [ports.primary]
 internal = 5432
@@ -30,8 +30,8 @@ retries = 5
 start_period = "30s"
 
 [versions]
-available = ["18", "17", "16"]
-default = "17"
+available = ["latest", "18-alpine", "17-alpine", "16-alpine"]
+default = "latest"
 
 [cluster]
 supported = true
