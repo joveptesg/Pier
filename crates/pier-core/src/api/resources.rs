@@ -285,7 +285,7 @@ pub async fn create(
 
     // Update service with first allocated port
     if let Some(first_port) = allocated_ports.first() {
-        let hp = first_port.host_port;
+        let hp = first_port.container_port as i64;
         let sid = service_id.clone();
         with_db(&state, |db| {
             let _ = db.execute(
@@ -382,7 +382,7 @@ pub async fn create(
         // Auto-generate service domain (skip for databases — no HTTP to proxy)
         if item.meta.category != "database" {
             if let Some(first_port) = allocated_ports.first() {
-                try_create_service_domain(&state, &service_id, &name, first_port.host_port).await;
+                try_create_service_domain(&state, &service_id, &name, first_port.container_port as i64).await;
             }
         }
 
@@ -445,7 +445,7 @@ pub async fn create(
     // Auto-generate service domain (skip for databases — no HTTP to proxy)
     if item.meta.category != "database" {
         if let Some(first_port) = allocated_ports.first() {
-            try_create_service_domain(&state, &service_id, &name, first_port.host_port).await;
+            try_create_service_domain(&state, &service_id, &name, first_port.container_port as i64).await;
         }
     }
 
@@ -645,7 +645,7 @@ async fn create_dockerfile(
     deploy_result.map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy failed: {e}")))?;
 
     // Auto-generate service domain
-    try_create_service_domain(state, &service_id, name, host_port as i64).await;
+    try_create_service_domain(state, &service_id, name, container_port as i64).await;
 
     let ports_json: Vec<serde_json::Value> = allocated_ports
         .iter()
@@ -920,7 +920,7 @@ async fn create_git_deploy(
 
     // Auto-generate service domain
     if let Some(first_port) = allocated_ports.first() {
-        try_create_service_domain(state, &service_id, name, first_port.host_port).await;
+        try_create_service_domain(state, &service_id, name, first_port.container_port as i64).await;
     }
 
     let ports_json: Vec<serde_json::Value> = allocated_ports
