@@ -50,7 +50,17 @@ pub async fn create(
     State(state): State<SharedState>,
     Json(body): Json<CreateDomainRequest>,
 ) -> AppResult<impl IntoResponse> {
-    let domain = body.domain.trim().to_lowercase();
+    // Sanitize domain: strip protocol, path, trailing slashes
+    let mut domain = body.domain.trim().to_lowercase();
+    domain = domain
+        .strip_prefix("https://").unwrap_or(&domain).to_string();
+    domain = domain
+        .strip_prefix("http://").unwrap_or(&domain).to_string();
+    // Remove path (keep only hostname)
+    if let Some(slash_pos) = domain.find('/') {
+        domain = domain[..slash_pos].to_string();
+    }
+    domain = domain.trim_end_matches('.').to_string();
     if domain.is_empty() {
         return Err(AppError::BadRequest("Domain is required".into()));
     }

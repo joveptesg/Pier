@@ -90,7 +90,55 @@ pub fn write_static_config(data_dir: &Path, acme_email: &str, dashboard: bool) -
     std::fs::create_dir_all(&traefik_dir)?;
     std::fs::create_dir_all(traefik_dir.join("dynamic"))?;
 
-    let config = generate_static_config(acme_email, dashboard);
+    // Preserve existing TCP entryPoints from current config
+    let existing_tcp_ports = read_tcp_ports_from_config(data_dir);
+    let config = if existing_tcp_ports.is_empty() {
+        generate_static_config(acme_email, dashboard)
+    } else {
+        // Use regenerate_static_config_with_tcp to keep TCP ports
+        let mut tcp_entries = String::new();
+        for port in &existing_tcp_ports {
+            tcp_entries.push_str(&format!("  tcp-{port}:\n    address: \":{port}\"\n"));
+        }
+        let dashboard_section = if dashboard {
+            "api:\n  dashboard: true\n  insecure: true"
+        } else {
+            "api:\n  dashboard: false"
+        };
+        let cfg = format!(
+            r#"# Pier-managed Traefik configuration — do not edit manually
+{dashboard_section}
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+{tcp_entries}
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "{acme_email}"
+      storage: /data/traefik/acme.json
+      httpChallenge:
+        entryPoint: web
+
+providers:
+  file:
+    directory: /data/traefik/dynamic
+    watch: true
+
+log:
+  level: WARN
+"#
+        );
+        cfg
+    };
     std::fs::write(traefik_dir.join("traefik.yml"), config)?;
 
     // Ensure acme.json exists with correct permissions (600 required by Traefik)
