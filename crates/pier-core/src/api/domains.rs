@@ -128,6 +128,18 @@ pub async fn create(
         )));
     }
 
+    // Traefik config written — SSL will be provisioned automatically by Let's Encrypt
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let _ = db.execute(
+            "UPDATE domains SET ssl_status = 'active' WHERE id = ?1",
+            [&id],
+        );
+    }
+
     tracing::info!("Domain {domain} → service {service_name} (:{port})");
 
     Ok(Json(serde_json::json!({
@@ -304,6 +316,18 @@ pub async fn create_service_domain(
         &target_url,
     )
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Write proxy config: {e}")))?;
+
+    // Mark as active — Traefik handles SSL automatically
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let _ = db.execute(
+            "UPDATE domains SET ssl_status = 'active' WHERE id = ?1",
+            [&id],
+        );
+    }
 
     tracing::info!("Auto-generated domain: {domain} → :{port}");
     Ok(domain)
