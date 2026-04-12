@@ -302,7 +302,13 @@ async fn exec_in_container(
             },
         )
         .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Docker exec create: {e}")))?;
+        .map_err(|e| {
+            if e.to_string().contains("404") || e.to_string().contains("No such container") {
+                AppError::BadRequest(format!("Container '{container}' not found. Make sure the service is running."))
+            } else {
+                AppError::Internal(anyhow::anyhow!("Docker exec: {e}"))
+            }
+        })?;
 
     let output = docker
         .start_exec(&exec.id, None)
