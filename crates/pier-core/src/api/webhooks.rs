@@ -84,9 +84,7 @@ pub async fn github(
     }
 
     // Find matching service
-    let service = find_service_by_repo(&state, repo_url, branch)?;
-
-    let (service_id, webhook_secret) = match service {
+    let svc = match find_service_by_repo(&state, repo_url, branch)? {
         Some(s) => s,
         None => {
             tracing::debug!("No matching service for {repo_url} branch {branch}");
@@ -97,8 +95,16 @@ pub async fn github(
     };
 
     // Verify signature
-    if let Some(secret) = &webhook_secret {
+    if let Some(secret) = &svc.webhook_secret {
         verify_github_signature(secret, &body, signature)?;
+    }
+
+    // Check auto_deploy flag
+    if !svc.auto_deploy {
+        tracing::info!("Auto-deploy disabled for service {}, skipping", svc.id);
+        return Ok(Json(
+            serde_json::json!({"ok": true, "skipped": "auto_deploy disabled", "service_id": svc.id}),
+        ));
     }
 
     let commit = CommitInfo {
@@ -109,14 +115,14 @@ pub async fn github(
 
     // Spawn pipeline in background
     let state_clone = Arc::clone(&state);
-    let sid = service_id.clone();
+    let sid = svc.id.clone();
     tokio::spawn(async move {
         deploy::run_pipeline(state_clone, sid, commit, "webhook").await;
     });
 
     Ok(Json(serde_json::json!({
         "ok": true,
-        "service_id": service_id,
+        "service_id": svc.id,
         "message": "Deploy pipeline started",
     })))
 }
@@ -166,9 +172,7 @@ pub async fn gitlab(
     }
 
     // Find matching service
-    let service = find_service_by_repo(&state, repo_url, branch)?;
-
-    let (service_id, webhook_secret) = match service {
+    let svc = match find_service_by_repo(&state, repo_url, branch)? {
         Some(s) => s,
         None => {
             return Ok(Json(
@@ -178,10 +182,18 @@ pub async fn gitlab(
     };
 
     // Verify GitLab token
-    if let Some(secret) = &webhook_secret {
+    if let Some(secret) = &svc.webhook_secret {
         if gitlab_token != secret.as_str() {
             return Err(AppError::Unauthorized);
         }
+    }
+
+    // Check auto_deploy flag
+    if !svc.auto_deploy {
+        tracing::info!("Auto-deploy disabled for service {}, skipping", svc.id);
+        return Ok(Json(
+            serde_json::json!({"ok": true, "skipped": "auto_deploy disabled", "service_id": svc.id}),
+        ));
     }
 
     let commit = CommitInfo {
@@ -191,16 +203,23 @@ pub async fn gitlab(
     };
 
     let state_clone = Arc::clone(&state);
-    let sid = service_id.clone();
+    let sid = svc.id.clone();
     tokio::spawn(async move {
         deploy::run_pipeline(state_clone, sid, commit, "webhook").await;
     });
 
     Ok(Json(serde_json::json!({
         "ok": true,
-        "service_id": service_id,
+        "service_id": svc.id,
         "message": "Deploy pipeline started",
     })))
+}
+
+/// Service match result with auto_deploy flag.
+struct ServiceMatch {
+    id: String,
+    webhook_secret: Option<String>,
+    auto_deploy: bool,
 }
 
 /// Find a service matching the given repo URL and branch.
@@ -208,7 +227,7 @@ fn find_service_by_repo(
     state: &SharedState,
     repo_url: &str,
     branch: &str,
-) -> AppResult<Option<(String, Option<String>)>> {
+) -> AppResult<Option<ServiceMatch>> {
     let db = state
         .db
         .lock()
@@ -218,12 +237,18 @@ fn find_service_by_repo(
     let normalized = repo_url.trim_end_matches(".git");
 
     let result = db.query_row(
-        "SELECT id, git_webhook_secret FROM services
+        "SELECT id, git_webhook_secret, auto_deploy FROM services
          WHERE (git_repo_url = ?1 OR git_repo_url = ?2 OR git_repo_url = ?3)
          AND (git_branch = ?4 OR git_branch IS NULL)
          LIMIT 1",
         rusqlite::params![repo_url, normalized, format!("{normalized}.git"), branch,],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        |row| {
+            Ok(ServiceMatch {
+                id: row.get(0)?,
+                webhook_secret: row.get(1)?,
+                auto_deploy: row.get::<_, Option<bool>>(2)?.unwrap_or(true),
+            })
+        },
     );
 
     match result {

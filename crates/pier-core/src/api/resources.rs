@@ -1138,7 +1138,7 @@ pub async fn get(
 
     let resource = db
         .query_row(
-            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image, s.catalog_id, s.category, s.env_json, s.compose_content, s.created_at, s.cluster_mode, s.cluster_config_json, s.network_id, n.name
+            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image, s.catalog_id, s.category, s.env_json, s.compose_content, s.created_at, s.cluster_mode, s.cluster_config_json, s.network_id, n.name, s.auto_deploy, s.force_https
              FROM services s LEFT JOIN networks n ON s.network_id = n.id WHERE s.id = ?1",
             [&id],
             |row| {
@@ -1159,6 +1159,8 @@ pub async fn get(
                     "cluster_config_json": row.get::<_, Option<String>>(13)?,
                     "network_id": row.get::<_, Option<String>>(14)?,
                     "network_name": row.get::<_, Option<String>>(15)?,
+                    "auto_deploy": row.get::<_, Option<bool>>(16)?.unwrap_or(true),
+                    "force_https": row.get::<_, Option<bool>>(17)?.unwrap_or(true),
                 }))
             },
         )
@@ -2007,4 +2009,37 @@ fn replace_network_in_compose(yaml: &str, new_network: &str) -> String {
 #[derive(Deserialize)]
 pub struct SetNetworkRequest {
     pub network_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateSettingsRequest {
+    pub auto_deploy: Option<bool>,
+    pub force_https: Option<bool>,
+}
+
+/// PUT /api/v1/resources/{id}/settings — update advanced settings.
+pub async fn update_settings(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateSettingsRequest>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    if let Some(auto_deploy) = body.auto_deploy {
+        db.execute(
+            "UPDATE services SET auto_deploy = ?1 WHERE id = ?2",
+            rusqlite::params![auto_deploy, id],
+        )?;
+    }
+    if let Some(force_https) = body.force_https {
+        db.execute(
+            "UPDATE services SET force_https = ?1 WHERE id = ?2",
+            rusqlite::params![force_https, id],
+        )?;
+    }
+
+    Ok(Json(serde_json::json!({"ok": true})))
 }

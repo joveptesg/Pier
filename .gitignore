@@ -27,6 +27,7 @@ desktop.ini
 ARCHITECTURE.md
 CLAUDE.md
 plan_output.md
+INSTALL.md
 
 # SQLite databases
 *.db

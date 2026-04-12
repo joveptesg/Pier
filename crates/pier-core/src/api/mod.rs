@@ -115,6 +115,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             put(resources::set_network),
         )
         .route(
+            "/resources/{id}/settings",
+            put(resources::update_settings),
+        )
+        .route(
             "/resources/{id}/deployment-logs",
             get(resources::deployment_logs),
         )

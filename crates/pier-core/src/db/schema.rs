@@ -295,6 +295,11 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE git_sources ADD COLUMN client_id TEXT;
     ALTER TABLE git_sources ADD COLUMN client_secret TEXT;
     "#,
+    // Migration 17: Advanced service settings (auto_deploy, force_https)
+    r#"
+    ALTER TABLE services ADD COLUMN auto_deploy INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE services ADD COLUMN force_https INTEGER NOT NULL DEFAULT 1;
+    "#,
 ];
 
 /// Run all pending database migrations.

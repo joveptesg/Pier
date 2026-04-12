@@ -27,9 +27,13 @@
             </div>
         </div>
         <div class="flex items-center gap-2">
-            <button @click="redeployResource()"
+            <button @click="redeployResource()" x-show="resource.status !== 'created'"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">
                 Redeploy
+            </button>
+            <button @click="manualDeploy()" x-show="resource.status === 'created'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-100 dark:bg-green-600/20 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-600/30 transition-colors">
+                Deploy
             </button>
             <button @click="startResource()" x-show="resource.status === 'stopped' || resource.status === 'failed'"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-100 dark:bg-green-600/20 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-600/30 transition-colors">
@@ -171,6 +175,31 @@
                 </div>
             </div>
         </div>
+        <!-- Domains summary on Overview -->
+        <div x-show="domains.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Domains</h3>
+                <button @click="showAddDomain = true"
+                        class="px-2 py-1 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    + Add Domain
+                </button>
+            </div>
+            <div class="space-y-1.5">
+                <template x-for="d in domains" :key="d.id">
+                    <div class="flex items-center justify-between text-sm">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                            <a :href="'https://' + d.domain" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline text-xs font-mono" x-text="d.domain"></a>
+                            <span x-show="d.is_generated" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">auto</span>
+                        </div>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded-full"
+                              :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
+                              x-text="d.ssl_status"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+
         <div x-show="connectionString" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Connection URLs</h3>
@@ -210,6 +239,54 @@
                                 class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
+            </div>
+        </div>
+        <!-- Advanced Settings -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Advanced</h3>
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-sm text-gray-700 dark:text-gray-300">Auto Deploy</span>
+                        <p class="text-xs text-gray-400 mt-0.5">Automatically deploy when a git push is received</p>
+                    </div>
+                    <button @click="toggleSetting('auto_deploy')"
+                            class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200"
+                            :class="resource.auto_deploy ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'">
+                        <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200"
+                              :class="resource.auto_deploy ? 'translate-x-5' : 'translate-x-0'"></span>
+                    </button>
+                </div>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-sm text-gray-700 dark:text-gray-300">Force HTTPS</span>
+                        <p class="text-xs text-gray-400 mt-0.5">Redirect HTTP to HTTPS for all domains</p>
+                    </div>
+                    <button @click="toggleSetting('force_https')"
+                            class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200"
+                            :class="resource.force_https ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'">
+                        <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200"
+                              :class="resource.force_https ? 'translate-x-5' : 'translate-x-0'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Docker Compose -->
+        <div x-show="resource.compose_content" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-800/50 cursor-pointer" @click="showCompose = !showCompose">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Docker Compose</h3>
+                    <span class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">raw</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button @click.stop="navigator.clipboard.writeText(resource.compose_content); toast('Copied!')"
+                            class="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 rounded transition-colors">Copy</button>
+                    <svg class="w-4 h-4 text-gray-400 transition-transform" :class="showCompose ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </div>
+            </div>
+            <div x-show="showCompose" x-cloak class="p-4 bg-gray-50 dark:bg-gray-950">
+                <pre class="text-xs font-mono text-gray-800 dark:text-gray-300 whitespace-pre-wrap leading-relaxed" x-text="resource.compose_content"></pre>
             </div>
         </div>
     </div>
@@ -303,26 +380,45 @@
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Environment Variables</h3>
                 <div class="flex items-center gap-2">
-                    <button @click="addEnvRow()" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">+ Add</button>
+                    <button x-show="envViewMode === 'normal'" @click="addEnvRow()" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">+ Add</button>
                     <button @click="showSecrets = !showSecrets" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                             x-text="showSecrets ? 'Hide Values' : 'Show Values'"></button>
+                    <button @click="toggleEnvView()" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                            x-text="envViewMode === 'normal' ? 'Developer view' : 'Normal view'"></button>
                 </div>
             </div>
-            <div x-show="editableEnv.length === 0" class="text-sm text-gray-400 py-4 text-center">No environment variables</div>
-            <div x-show="editableEnv.length > 0" class="space-y-2">
-                <template x-for="(row, idx) in editableEnv" :key="idx">
-                    <div class="flex items-center gap-2">
-                        <input :value="row.key" @input="row.key = $event.target.value"
-                               class="w-48 shrink-0 px-2 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="KEY">
-                        <input :value="row.value" @input="row.value = $event.target.value"
-                               :type="showSecrets ? 'text' : (isSecret(row.key) ? 'password' : 'text')"
-                               class="flex-1 px-2 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="value">
-                        <button @click="editableEnv.splice(idx, 1)" class="text-red-400 hover:text-red-600 p-1">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                        </button>
-                    </div>
-                </template>
+
+            <!-- Normal View (key-value) -->
+            <div x-show="envViewMode === 'normal'">
+                <div x-show="editableEnv.length === 0" class="text-sm text-gray-400 py-4 text-center">No environment variables</div>
+                <div x-show="editableEnv.length > 0" class="space-y-2">
+                    <template x-for="(row, idx) in editableEnv" :key="idx">
+                        <div class="flex items-center gap-2">
+                            <input :value="row.key" @input="row.key = $event.target.value"
+                                   class="w-48 shrink-0 px-2 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="KEY">
+                            <input :value="row.value" @input="row.value = $event.target.value"
+                                   :type="showSecrets ? 'text' : (isSecret(row.key) ? 'password' : 'text')"
+                                   class="flex-1 px-2 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="value">
+                            <button @click="editableEnv.splice(idx, 1)" class="text-red-400 hover:text-red-600 p-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+                    </template>
+                </div>
             </div>
+
+            <!-- Developer View (textarea) -->
+            <div x-show="envViewMode === 'developer'">
+                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/30 rounded-lg p-2 mb-3">
+                    <p class="text-xs text-blue-700 dark:text-blue-300">Inline comments with space before # (e.g., KEY=value #comment) are stripped.</p>
+                </div>
+                <textarea x-model="envRawText" rows="14"
+                          class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"
+                          placeholder="KEY=value
+DATABASE_URL=postgresql://user:pass@localhost:5432/db
+NODE_ENV=production"></textarea>
+            </div>
+
             <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
                 <button @click="resetEnv()" class="px-4 py-2 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Reset</button>
                 <button @click="saveEnv(false)" class="px-4 py-2 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">Save</button>
@@ -666,13 +762,13 @@
 <script>
 function resourceDetail(id) {
     return {
-        id, resource: {}, tab: 'overview', showEnv: false, showSecrets: false, editableEnv: [],
+        id, resource: {}, tab: 'overview', showEnv: false, showSecrets: false, editableEnv: [], envViewMode: 'normal', envRawText: '',
         schedule: null, backupHistory: [], s3Storages: [], showScheduleModal: false,
         scheduleForm: { s3_storage_id: '', cron_expression: '0 2 * * *', retention_count: 7 },
         clusterInfo: null,
         domains: [], showAddDomain: false, newDomainName: '',
         containerLogs: '', deploymentLogs: [], logLines: '100',
-        showDeleteModal: false, deleteConfirmName: '',
+        showDeleteModal: false, deleteConfirmName: '', showCompose: false,
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitSources: [], showWebhookSecret: false,
         ciDeployments: [], expandedLog: null,
@@ -732,13 +828,13 @@ function resourceDetail(id) {
         },
         async togglePublic() {
             const newState = !this.portIsPublic;
-            const port = this.publicPort || this.resource.ports?.[0]?.host || 0;
+            const port = this.publicPort || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
             this.togglingPublic = true;
             try {
                 await api('/api/v1/resources/'+this.id+'/port-public', { method: 'PUT', body: JSON.stringify({ is_public: newState, public_port: port }) });
                 toast(newState ? 'Public access enabled (port ' + port + ')' : 'Public access disabled');
                 await this.refresh();
-                this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.host || 0;
+                this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
             } catch(e) { toast(e.message, 'error'); }
             this.togglingPublic = false;
         },
@@ -799,10 +895,10 @@ function resourceDetail(id) {
             return this._buildConnStr('localhost', p.host, null, false).replace(/\/[^/]*$/, '/' + dbName).replace(/\/\/[^:]+:/, '//' + owner + ':');
         },
         async init() {
-            await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster(); this.loadDomains();
+            await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster(); this.loadDomains(); this.loadGitConfig();
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
-            this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.host || 0;
+            this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
         },
         async refresh() { try { this.resource = await fetch('/api/v1/resources/'+this.id).then(r=>r.json()); } catch(e) { toast('Failed to load resource','error'); } },
         async loadCluster() { try { this.clusterInfo = await fetch('/api/v1/resources/'+this.id+'/nodes').then(r=>r.ok?r.json():null); } catch { this.clusterInfo = null; } },
@@ -824,8 +920,31 @@ function resourceDetail(id) {
             } catch { this.editableEnv=[]; }
         },
         addEnvRow() { this.editableEnv.push({key:'',value:''}); },
-        resetEnv() { this.loadEnv(); },
+        resetEnv() { this.loadEnv(); this.envRawText = this.editableEnv.map(r => r.key + '=' + r.value).join('\n'); },
+        toggleEnvView() {
+            if (this.envViewMode === 'normal') {
+                this.envRawText = this.editableEnv.map(r => r.key + '=' + r.value).join('\n');
+                this.envViewMode = 'developer';
+            } else {
+                this.parseRawEnv();
+                this.envViewMode = 'normal';
+            }
+        },
+        parseRawEnv() {
+            const lines = this.envRawText.split('\n');
+            this.editableEnv = [];
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith('#')) continue;
+                // Strip inline comment (space + #)
+                const cleaned = trimmed.replace(/\s+#.*$/, '');
+                const eqIdx = cleaned.indexOf('=');
+                if (eqIdx < 1) continue;
+                this.editableEnv.push({ key: cleaned.substring(0, eqIdx), value: cleaned.substring(eqIdx + 1) });
+            }
+        },
         async saveEnv(redeploy) {
+            if (this.envViewMode === 'developer') this.parseRawEnv();
             const env={}; for(const r of this.editableEnv) if(r.key.trim()) env[r.key.trim()]=r.value;
             try { await api('/api/v1/resources/'+this.id+'/env',{method:'PUT',body:JSON.stringify({env,redeploy})});
                 toast(redeploy?'Saved & redeploying...':'Environment saved');
@@ -894,6 +1013,14 @@ function resourceDetail(id) {
             if(dep && !dep._build_log) {
                 try { const detail = await fetch('/api/v1/resources/'+this.id+'/deployments/'+depId).then(r=>r.json()); dep._build_log = detail.build_log || 'No logs'; } catch { dep._build_log = 'Failed to load logs'; }
             }
+        },
+        async toggleSetting(key) {
+            const newVal = !this.resource[key];
+            try {
+                await api('/api/v1/resources/'+this.id+'/settings', { method: 'PUT', body: JSON.stringify({ [key]: newVal }) });
+                this.resource[key] = newVal;
+                toast(key.replace('_', ' ') + ' ' + (newVal ? 'enabled' : 'disabled'));
+            } catch(e) { toast(e.message, 'error'); }
         },
         async rollbackDeploy() {
             if(!confirm('Rollback to the previous version?'))return;
