@@ -1870,7 +1870,10 @@ pub async fn set_port_public(
         )
         .map_err(|e| anyhow::anyhow!("Regenerate static config: {e}"))?;
 
-        let _ = crate::proxy::restart_traefik(&state.docker).await;
+        // Redeploy Traefik to apply new TCP port bindings (restart alone won't add ports)
+        if let Err(e) = crate::proxy::deploy_traefik(&state.docker, &state.config.data_dir, &acme_email, dashboard).await {
+            tracing::error!("Traefik redeploy failed: {e}");
+        }
         tracing::info!("Public TCP port {pp} enabled for {id} → localhost:{host_port}");
     } else {
         // Remove Traefik TCP route

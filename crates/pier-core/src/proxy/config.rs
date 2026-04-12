@@ -375,6 +375,28 @@ log:
     Ok(())
 }
 
+/// Read TCP port numbers from traefik.yml entryPoints (tcp-NNNN entries).
+pub fn read_tcp_ports_from_config(data_dir: &Path) -> Vec<u16> {
+    let config_path = data_dir.join("traefik").join("traefik.yml");
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let mut ports = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        // Match lines like "tcp-5432:" under entryPoints
+        if let Some(rest) = trimmed.strip_prefix("tcp-") {
+            if let Some(port_str) = rest.strip_suffix(':') {
+                if let Ok(port) = port_str.parse::<u16>() {
+                    ports.push(port);
+                }
+            }
+        }
+    }
+    ports
+}
+
 /// Detect the public IP of this server.
 pub async fn detect_public_ip() -> Result<String> {
     let client = reqwest::Client::builder()

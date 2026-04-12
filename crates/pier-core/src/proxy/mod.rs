@@ -73,6 +73,21 @@ pub async fn deploy_traefik(
         );
     }
 
+    // Add TCP port bindings from traefik.yml entryPoints (tcp-NNNN)
+    let tcp_ports = config::read_tcp_ports_from_config(data_dir);
+    for port in &tcp_ports {
+        port_bindings.insert(
+            format!("{port}/tcp"),
+            Some(vec![PortBinding {
+                host_ip: Some("0.0.0.0".to_string()),
+                host_port: Some(port.to_string()),
+            }]),
+        );
+    }
+    if !tcp_ports.is_empty() {
+        tracing::info!("Traefik TCP port bindings: {:?}", tcp_ports);
+    }
+
     // Use the same named volume as Pier so Traefik can read configs written by Pier.
     // Bind-mount paths don't work because Pier runs in a container — the host doesn't
     // have /app/data. Named volumes are shared correctly between sibling containers.
@@ -119,6 +134,7 @@ pub async fn deploy_traefik(
 }
 
 /// Restart the Traefik container (for static config changes like new entryPoints).
+#[allow(dead_code)]
 pub async fn restart_traefik(docker: &Docker) -> Result<()> {
     docker
         .restart_container(TRAEFIK_CONTAINER, None)
