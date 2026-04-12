@@ -50,17 +50,20 @@ pub async fn create(
     State(state): State<SharedState>,
     Json(body): Json<CreateDomainRequest>,
 ) -> AppResult<impl IntoResponse> {
-    // Sanitize domain: strip protocol, path, trailing slashes
-    let mut domain = body.domain.trim().to_lowercase();
-    domain = domain
-        .strip_prefix("https://").unwrap_or(&domain).to_string();
-    domain = domain
-        .strip_prefix("http://").unwrap_or(&domain).to_string();
-    // Remove path (keep only hostname)
-    if let Some(slash_pos) = domain.find('/') {
-        domain = domain[..slash_pos].to_string();
-    }
-    domain = domain.trim_end_matches('.').to_string();
+    // Parse full URL: extract hostname and optional path prefix
+    // Input examples: "https://api.voxly.one/v1", "api.voxly.one", "http://example.com/api/v2"
+    let mut raw = body.domain.trim().to_lowercase();
+    raw = raw.strip_prefix("https://").unwrap_or(&raw).to_string();
+    raw = raw.strip_prefix("http://").unwrap_or(&raw).to_string();
+    raw = raw.trim_end_matches('/').to_string();
+
+    let (domain, path_prefix) = if let Some(slash_pos) = raw.find('/') {
+        (raw[..slash_pos].to_string(), raw[slash_pos..].to_string())
+    } else {
+        (raw.clone(), String::new())
+    };
+    let domain = domain.trim_end_matches('.').to_string();
+
     if domain.is_empty() {
         return Err(AppError::BadRequest("Domain is required".into()));
     }
@@ -92,14 +95,16 @@ pub async fn create(
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        // Store full domain+path for uniqueness (same domain with different paths = different routes)
+        let domain_with_path = if path_prefix.is_empty() { domain.clone() } else { format!("{domain}{path_prefix}") };
         db.execute(
-            "INSERT INTO domains (id, domain, service_id, ssl_provider)
-             VALUES (?1, ?2, ?3, 'letsencrypt')",
-            rusqlite::params![id, domain, body.service_id],
+            "INSERT INTO domains (id, domain, service_id, ssl_provider, path_prefix)
+             VALUES (?1, ?2, ?3, 'letsencrypt', ?4)",
+            rusqlite::params![id, domain_with_path, body.service_id, path_prefix],
         )
         .map_err(|e| {
             if e.to_string().contains("UNIQUE") {
-                AppError::Conflict(format!("Domain {domain} is already registered"))
+                AppError::Conflict(format!("Domain {domain}{path_prefix} is already registered"))
             } else {
                 AppError::Database(e)
             }

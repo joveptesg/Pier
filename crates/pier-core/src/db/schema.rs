@@ -300,6 +300,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE services ADD COLUMN auto_deploy INTEGER NOT NULL DEFAULT 1;
     ALTER TABLE services ADD COLUMN force_https INTEGER NOT NULL DEFAULT 1;
     "#,
+    // Migration 18: Path prefix for domains (path-based routing)
+    r#"
+    ALTER TABLE domains ADD COLUMN path_prefix TEXT DEFAULT '';
+    "#,
 ];
 
 /// Run all pending database migrations.
