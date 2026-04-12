@@ -14,6 +14,17 @@ use crate::state::SharedState;
 
 use super::domains;
 
+/// Pick the best port for HTTP proxy from a list of allocated ports.
+/// Prefers ports named "management", "http", "web", "ui"; falls back to first port.
+fn pick_http_port(ports: &[crate::db::models::PortAllocation]) -> Option<i64> {
+    let http_keywords = ["management", "http", "web", "ui", "dashboard", "console"];
+    ports
+        .iter()
+        .find(|p| http_keywords.iter().any(|k| p.port_name.to_lowercase().contains(k)))
+        .or(ports.first())
+        .map(|p| p.container_port)
+}
+
 /// Try to auto-generate a service domain (sslip.io) after deploy.
 /// Non-blocking: logs errors but does not fail the deploy.
 async fn try_create_service_domain(state: &SharedState, service_id: &str, name: &str, port: i64) {
@@ -381,8 +392,8 @@ pub async fn create(
 
         // Auto-generate service domain (skip for databases — no HTTP to proxy)
         if item.meta.category != "database" {
-            if let Some(first_port) = allocated_ports.first() {
-                try_create_service_domain(&state, &service_id, &name, first_port.container_port as i64).await;
+            if let Some(http_port) = pick_http_port(&allocated_ports) {
+                try_create_service_domain(&state, &service_id, &name, http_port).await;
             }
         }
 
@@ -444,8 +455,8 @@ pub async fn create(
 
     // Auto-generate service domain (skip for databases — no HTTP to proxy)
     if item.meta.category != "database" {
-        if let Some(first_port) = allocated_ports.first() {
-            try_create_service_domain(&state, &service_id, &name, first_port.container_port as i64).await;
+        if let Some(http_port) = pick_http_port(&allocated_ports) {
+            try_create_service_domain(&state, &service_id, &name, http_port).await;
         }
     }
 
@@ -919,8 +930,8 @@ async fn create_git_deploy(
     deploy_result.map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy failed: {e}")))?;
 
     // Auto-generate service domain
-    if let Some(first_port) = allocated_ports.first() {
-        try_create_service_domain(state, &service_id, name, first_port.container_port as i64).await;
+    if let Some(http_port) = pick_http_port(&allocated_ports) {
+        try_create_service_domain(state, &service_id, name, http_port).await;
     }
 
     let ports_json: Vec<serde_json::Value> = allocated_ports

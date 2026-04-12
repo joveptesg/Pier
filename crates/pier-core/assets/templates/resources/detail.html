@@ -877,6 +877,8 @@ function resourceDetail(id) {
                 case 'mysql': case 'mariadb': { const pw=envObj.MYSQL_ROOT_PASSWORD||envObj.MARIADB_ROOT_PASSWORD||'',d=envObj.MYSQL_DATABASE||envObj.MARIADB_DATABASE||''; return `mysql://root:${hide(pw)}@${host}:${p}/${d}`; }
                 case 'mongodb': { const u=envObj.MONGO_INITDB_ROOT_USERNAME||'root',pw=envObj.MONGO_INITDB_ROOT_PASSWORD||''; return `mongodb://${u}:${hide(pw)}@${host}:${p}`; }
                 case 'redis': { const pw=envObj.REDIS_PASSWORD||''; return pw ? `redis://:${hide(pw)}@${host}:${p}` : `redis://${host}:${p}`; }
+                case 'valkey': { const pw=envObj.VALKEY_PASSWORD||''; return pw ? `redis://:${hide(pw)}@${host}:${p}` : `redis://${host}:${p}`; }
+                case 'rabbitmq': { const u=envObj.RABBITMQ_DEFAULT_USER||'admin',pw=envObj.RABBITMQ_DEFAULT_PASS||''; return `amqp://${u}:${hide(pw)}@${host}:${p}`; }
                 case 'clickhouse': return `clickhouse://${host}:${p}`;
                 case 'cassandra': case 'scylladb': return `cql://${host}:${p}`;
                 default: return '';
