@@ -1646,11 +1646,16 @@ fn record_deployment_log(
     status: &str,
     output: &str,
 ) {
+    // Map service status to deployment status (running → success)
+    let deploy_status = match status {
+        "running" => "success",
+        other => other,
+    };
     let id = uuid::Uuid::new_v4().to_string();
     let _ = db.execute(
         "INSERT INTO deployment_logs (id, service_id, action, status, output, started_at, finished_at)
          VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'), datetime('now'))",
-        rusqlite::params![id, service_id, action, status, output],
+        rusqlite::params![id, service_id, action, deploy_status, output],
     );
 }
 

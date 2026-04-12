@@ -245,6 +245,24 @@ async fn main() -> Result<()> {
         .merge(api::api_router(state.clone()))
         .with_state(state);
 
+    // Scheduled cleanup: prune unused Docker images every 24h
+    tokio::spawn(async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(86400)).await;
+            match tokio::process::Command::new("docker")
+                .args(["image", "prune", "-f"])
+                .output()
+                .await
+            {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    tracing::info!("Docker image prune: {}", stdout.trim());
+                }
+                Err(e) => tracing::warn!("Docker image prune failed: {e}"),
+            }
+        }
+    });
+
     // Start server
     let addr = config.listen_addr();
     tracing::info!("Listening on http://{addr}");

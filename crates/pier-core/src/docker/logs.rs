@@ -61,7 +61,12 @@ pub async fn get_logs(
 
     while let Some(result) = stream.next().await {
         match result {
-            Ok(output) => lines.push(output.to_string()),
+            Ok(output) => {
+                let line = output.to_string();
+                if !line.trim().is_empty() {
+                    lines.push(line);
+                }
+            }
             Err(e) => {
                 tracing::warn!("Log stream error for {container_id}: {e}");
                 break;
