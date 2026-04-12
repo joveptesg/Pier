@@ -108,6 +108,9 @@ pub async fn run_pipeline(
     let stack_name = format!("pier-{}", svc.name.to_lowercase().replace(' ', "-"));
     let strategy = svc.build_strategy.as_deref().unwrap_or("dockerfile");
 
+    // Write .env file from service env_json
+    write_env_file(&state, &service_id, &stack_name).await;
+
     // Get clone URL (may need GitHub App token injection)
     let clone_url = match resolve_clone_url(&state, &svc).await {
         Ok(url) => url,
@@ -184,8 +187,18 @@ pub async fn run_pipeline(
                 return;
             }
 
+            // Also copy .env from repo if it exists
+            let repo_env = repo_dir.join(".env");
+            if repo_env.exists() {
+                let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
+                let _ = tokio::fs::create_dir_all(&stack_dir).await;
+                let _ = tokio::fs::copy(&repo_env, stack_dir.join(".env")).await;
+            }
+
             match tokio::fs::read_to_string(&compose_file).await {
                 Ok(yaml) => {
+                    // Strip obsolete version field
+                    let yaml = strip_compose_version(&yaml);
                     // Copy to stacks dir and deploy
                     match docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await {
                         Ok(output) => log.push_str(&format!("Deploy: {output}\n")),
@@ -220,12 +233,17 @@ pub async fn run_pipeline(
         }
     }
 
-    // Save previous image tag for rollback
+    // Save previous image tag and compose content for rollback
     {
         if let Ok(db) = state.db.lock() {
+            // Read the compose YAML that was actually deployed from the stack dir
+            let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
+            let compose_path = stack_dir.join("docker-compose.yml");
+            let compose_content = std::fs::read_to_string(&compose_path).unwrap_or_default();
+
             let _ = db.execute(
-                "UPDATE services SET previous_image_tag = image, image = ?1, compose_content = (SELECT compose_content FROM services WHERE id = ?2), updated_at = datetime('now') WHERE id = ?2",
-                rusqlite::params![image_tag, service_id],
+                "UPDATE services SET previous_image_tag = image, image = ?1, compose_content = ?3, updated_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![image_tag, service_id, compose_content],
             );
         }
     }
@@ -350,6 +368,61 @@ fn finish_deployment(
             "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
             rusqlite::params![service_status, service_id],
         );
+    }
+}
+
+/// Strip the obsolete `version:` field from docker-compose YAML.
+fn strip_compose_version(yaml: &str) -> String {
+    yaml.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.starts_with("version:")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Write an .env file to the stack directory from the service's env_json.
+async fn write_env_file(state: &AppState, service_id: &str, stack_name: &str) {
+    let env_json: Option<String> = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| {
+            db.query_row(
+                "SELECT env_json FROM services WHERE id = ?1",
+                [service_id],
+                |row| row.get(0),
+            )
+            .ok()
+        })
+        .flatten();
+
+    let env_content = match env_json {
+        Some(json_str) => {
+            match serde_json::from_str::<serde_json::Value>(&json_str) {
+                Ok(serde_json::Value::Object(map)) => {
+                    let mut lines = Vec::new();
+                    for (k, v) in &map {
+                        let val = match v {
+                            serde_json::Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        lines.push(format!("{k}={val}"));
+                    }
+                    lines.join("\n")
+                }
+                _ => String::new(),
+            }
+        }
+        None => String::new(),
+    };
+
+    let stack_dir = state.config.data_dir.join("stacks").join(stack_name);
+    let env_path = stack_dir.join(".env");
+    let _ = tokio::fs::create_dir_all(&stack_dir).await;
+    if let Err(e) = tokio::fs::write(&env_path, &env_content).await {
+        tracing::warn!("Failed to write .env for {stack_name}: {e}");
     }
 }
 

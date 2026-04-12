@@ -149,15 +149,48 @@ pub fn generate_compose_for_image(
         })
         .unwrap_or(3000);
 
-    format!(
+    // Read network for this service
+    let network_name: String = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| {
+            db.query_row(
+                "SELECT n.name FROM networks n JOIN services s ON s.network_id = n.id WHERE s.id = ?1",
+                [service_id],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+        })
+        .unwrap_or_else(|| "pier-net".to_string());
+
+    let mut yaml = format!(
         "services:\n\
          \x20 app:\n\
          \x20   image: {image_tag}\n\
          \x20   container_name: {stack_name}\n\
          \x20   ports:\n\
-         \x20     - \"{port}:{container_port}\"\n\
+         \x20     - \"127.0.0.1:{port}:{container_port}\"\n\
+         \x20   env_file: .env\n\
          \x20   restart: unless-stopped\n\
+         \x20   dns:\n\
+         \x20     - 8.8.8.8\n\
+         \x20     - 1.1.1.1\n\
+         \x20   networks:\n\
+         \x20     - {network_name}\n\
          \x20   labels:\n\
          \x20     pier.service.id: \"{service_id}\"\n"
-    )
+    );
+    yaml.push_str(&format!(
+        "networks:\n\
+         \x20 {network_name}:\n\
+         \x20   external: true\n"
+    ));
+    if network_name != "pier-net" {
+        yaml.push_str(&format!(
+            "\x20 pier-net:\n\
+             \x20   external: true\n"
+        ));
+    }
+    yaml
 }
