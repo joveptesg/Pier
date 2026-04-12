@@ -62,7 +62,7 @@ pub async fn get_logs(
     while let Some(result) = stream.next().await {
         match result {
             Ok(output) => {
-                let line = output.to_string();
+                let line = output.to_string().trim_end().to_string();
                 if !line.trim().is_empty() {
                     lines.push(line);
                 }
