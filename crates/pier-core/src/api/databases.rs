@@ -140,16 +140,15 @@ pub async fn create_database(
 
     match catalog.as_str() {
         "postgresql" => {
-            // Create user
-            let sql = format!(
-                "CREATE USER {username} WITH PASSWORD '{password}'; CREATE DATABASE {db_name} OWNER {username}; GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {username};"
-            );
-            exec_in_container(
-                &state.docker,
-                &container,
-                &["psql", "-U", "postgres", "-c", &sql],
-            )
-            .await?;
+            // Each command must run separately — CREATE DATABASE cannot run inside a transaction
+            let create_user = format!("CREATE USER {username} WITH PASSWORD '{password}'");
+            exec_in_container(&state.docker, &container, &["psql", "-U", "postgres", "-c", &create_user]).await?;
+
+            let create_db = format!("CREATE DATABASE {db_name} OWNER {username}");
+            exec_in_container(&state.docker, &container, &["psql", "-U", "postgres", "-c", &create_db]).await?;
+
+            let grant = format!("GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {username}");
+            exec_in_container(&state.docker, &container, &["psql", "-U", "postgres", "-c", &grant]).await?;
         }
         "mysql" | "mariadb" => {
             let sql = format!(
