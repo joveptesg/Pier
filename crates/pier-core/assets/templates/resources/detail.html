@@ -970,8 +970,14 @@ function resourceDetail(id) {
         async loadContainerLogs() {
             const containerName = 'pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-');
             try {
-                const lines = await fetch('/api/v1/containers/'+encodeURIComponent(containerName)+'/logs?tail='+this.logLines+'&timestamps=true').then(r=>r.ok?r.json():null);
-                this.containerLogs = lines ? lines.join('\n') : 'Container not found';
+                const resp = await fetch('/api/v1/containers/'+encodeURIComponent(containerName)+'/logs?tail='+this.logLines+'&timestamps=true');
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    this.containerLogs = err.error || 'Container not found: ' + containerName;
+                    return;
+                }
+                const lines = await resp.json();
+                this.containerLogs = lines && lines.length > 0 ? lines.join('\n') : 'No log output yet';
             } catch { this.containerLogs = 'Failed to load logs'; }
         },
         async loadDeploymentLogs() {

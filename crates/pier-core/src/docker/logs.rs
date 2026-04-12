@@ -42,6 +42,11 @@ pub async fn get_logs(
     tail: u64,
     timestamps: bool,
 ) -> Result<Vec<String>> {
+    // First check if container exists
+    if let Err(e) = docker.inspect_container(container_id, None).await {
+        anyhow::bail!("Container '{container_id}' not found: {e}");
+    }
+
     let options = LogsOptions {
         follow: false,
         stdout: true,
@@ -57,7 +62,10 @@ pub async fn get_logs(
     while let Some(result) = stream.next().await {
         match result {
             Ok(output) => lines.push(output.to_string()),
-            Err(_) => break,
+            Err(e) => {
+                tracing::warn!("Log stream error for {container_id}: {e}");
+                break;
+            }
         }
     }
 
