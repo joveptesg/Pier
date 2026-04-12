@@ -23,7 +23,7 @@
     <div x-show="!loading" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6 max-w-2xl">
         <div class="space-y-4">
             <!-- Dynamic fields from catalog template (hidden for git-github-app — wizard handles it) -->
-            <template x-for="field in (catalogId === 'git-github-app' ? [] : (template.fields || []))" :key="field.key">
+            <template x-for="field in (catalogId === 'git-github-app' ? [] : (template.fields || []).filter(f => f.key !== 'name'))" :key="field.key">
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1" x-text="field.label"></label>
 
