@@ -1122,7 +1122,12 @@ function resourceDetail(id) {
                 const cleaned = trimmed.replace(/\s+#.*$/, '');
                 const eqIdx = cleaned.indexOf('=');
                 if (eqIdx < 1) continue;
-                this.editableEnv.push({ key: cleaned.substring(0, eqIdx), value: cleaned.substring(eqIdx + 1) });
+                let val = cleaned.substring(eqIdx + 1);
+                // Strip surrounding quotes ("value" or 'value')
+                if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                    val = val.slice(1, -1);
+                }
+                this.editableEnv.push({ key: cleaned.substring(0, eqIdx), value: val });
             }
         },
         async saveEnv(redeploy) {

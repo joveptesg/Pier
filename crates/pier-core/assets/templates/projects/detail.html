@@ -80,37 +80,31 @@
     </div>
 
     <!-- Services -->
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
-        <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-800/50">
+    <div>
+        <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Services</h3>
         </div>
-        <div x-show="services.length > 0">
-            <table class="w-full text-sm">
-                <thead>
-                    <tr class="border-b border-gray-100 dark:border-gray-800/30">
-                        <th class="text-left px-4 py-2 text-xs font-medium text-gray-500">Name</th>
-                        <th class="text-left px-4 py-2 text-xs font-medium text-gray-500">Type</th>
-                        <th class="text-left px-4 py-2 text-xs font-medium text-gray-500">Status</th>
-                        <th class="text-left px-4 py-2 text-xs font-medium text-gray-500">Port</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100 dark:divide-gray-800/30">
-                    <template x-for="svc in services" :key="svc.id">
-                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer" @click="window.location.href='/resources/' + svc.id">
-                            <td class="px-4 py-2"><a :href="'/resources/' + svc.id" class="text-blue-600 dark:text-blue-400 hover:underline font-medium" x-text="svc.name"></a></td>
-                            <td class="px-4 py-2 text-gray-500 dark:text-gray-400 text-xs" x-text="svc.service_type"></td>
-                            <td class="px-4 py-2">
-                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs"
-                                      :class="svc.status === 'running' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400'"
-                                      x-text="svc.status"></span>
-                            </td>
-                            <td class="px-4 py-2 text-gray-500 dark:text-gray-400 text-xs" x-text="svc.port || '-'"></td>
-                        </tr>
-                    </template>
-                </tbody>
-            </table>
+        <div x-show="services.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <template x-for="svc in services" :key="svc.id">
+                <a :href="'/resources/' + svc.id"
+                   class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition-all cursor-pointer block">
+                    <div class="flex items-center gap-3 mb-2">
+                        <img :src="'/static/icons/' + (svc.catalog_id || 'container') + '.svg'" class="w-6 h-6" onerror="this.style.display='none'">
+                        <span class="text-sm font-semibold text-gray-900 dark:text-white truncate" x-text="svc.name"></span>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-2" x-text="(svc.catalog_id || svc.service_type || 'service') + (svc.category ? ' · ' + svc.category : '')"></p>
+                    <div class="flex items-center justify-between">
+                        <span class="inline-flex items-center gap-1 text-xs"
+                              :class="svc.status === 'running' ? 'text-green-600 dark:text-green-400' : svc.status === 'failed' ? 'text-red-500' : 'text-gray-500'">
+                            <span class="w-1.5 h-1.5 rounded-full" :class="svc.status === 'running' ? 'bg-green-500' : svc.status === 'failed' ? 'bg-red-500' : 'bg-gray-400'"></span>
+                            <span x-text="svc.status"></span>
+                        </span>
+                        <span class="text-xs text-gray-400 font-mono" x-text="svc.port ? ':' + svc.port : ''"></span>
+                    </div>
+                </a>
+            </template>
         </div>
-        <div x-show="services.length === 0" class="text-center py-6 text-gray-500 text-sm">
+        <div x-show="services.length === 0" class="text-center py-8 text-gray-500 text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl">
             No services in this project
         </div>
     </div>
