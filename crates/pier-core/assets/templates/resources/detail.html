@@ -833,11 +833,15 @@ NODE_ENV=production"></textarea>
     <!-- Add Domain Modal (global — works from any tab) -->
     <div x-show="showAddDomain" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" @click.self="showAddDomain = false">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Custom Domain</h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Domain</h3>
             <div>
                 <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Domain</label>
-                <input type="text" x-model="newDomainName" placeholder="https://api.example.com/v1"
-                       class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white">
+                <div class="flex gap-2">
+                    <input type="text" x-model="newDomainName" placeholder="https://api.example.com/v1"
+                           class="flex-1 px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white">
+                    <button @click="generateRandomDomain()"
+                            class="px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 whitespace-nowrap">Generate</button>
+                </div>
                 <p class="text-xs text-gray-400 mt-1">Supports: domain, https://domain, https://domain/path</p>
             </div>
             <div class="flex justify-end gap-2 pt-2">
@@ -1240,6 +1244,12 @@ function resourceDetail(id) {
         },
         async loadDeploymentLogs() {
             try { this.deploymentLogs = await fetch('/api/v1/resources/'+this.id+'/deployment-logs').then(r=>r.ok?r.json():[]); } catch { this.deploymentLogs = []; }
+        },
+        generateRandomDomain() {
+            const name = (this.resource.name || 'svc').toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 20);
+            const rand = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, '0')).join('');
+            const ip = this.resource.public_ip || '127.0.0.1';
+            this.newDomainName = name + '-' + rand + '.' + ip + '.sslip.io';
         },
         async addDomain() {
             if(!this.newDomainName.trim()){toast('Domain is required','error');return;}

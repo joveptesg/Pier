@@ -259,18 +259,18 @@
     </script>
 
     <!-- Global deploy badge (visible on all pages) -->
-    <div x-data="globalDeployBadge()" x-init="startPolling()" class="fixed bottom-4 left-4 z-[9990]">
+    <div x-data="globalDeployBadge()" x-init="startPolling()" class="fixed bottom-4 right-4 z-[9990]">
         <div x-show="deploying.length > 0" x-cloak>
             <!-- Badge button -->
             <button @click="open = !open"
-                    class="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg hover:shadow-xl transition-shadow">
+                    class="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl shadow-lg hover:shadow-xl transition-shadow">
                 <svg class="w-4 h-4 text-blue-500 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 <span class="text-sm text-gray-700 dark:text-gray-300" x-text="deploying.length + ' deployment' + (deploying.length > 1 ? 's' : '')"></span>
                 <svg class="w-3 h-3 text-gray-400 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
             <!-- Dropdown -->
             <div x-show="open" x-cloak @click.away="open = false"
-                 class="absolute bottom-full left-0 mb-2 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden">
+                 class="absolute bottom-full right-0 mb-2 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden">
                 <template x-for="svc in deploying" :key="svc.id">
                     <a :href="'/resources/' + svc.id + '#deployments'"
                        class="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700/50 last:border-0">
