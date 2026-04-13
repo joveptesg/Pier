@@ -223,7 +223,7 @@
         }
 
         function generatePassword(len = 32) {
-            const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*-_+=';
+            const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
             const arr = new Uint8Array(len);
             crypto.getRandomValues(arr);
             return Array.from(arr, b => charset[b % charset.length]).join('');
