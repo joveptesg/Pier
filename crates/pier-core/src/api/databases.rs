@@ -339,15 +339,38 @@ pub async fn change_password(
     let container = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
     let catalog = catalog_id.unwrap_or_default();
 
-    // Get username for this database from credentials or from DB query
+    // Get username: from stored credentials, or query PostgreSQL for DB owner
     let username: String = {
         let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
             "SELECT username FROM database_credentials WHERE service_id = ?1 AND db_name = ?2",
             rusqlite::params![id, dbname],
             |row| row.get(0),
-        ).unwrap_or_else(|_| dbname.clone())
+        ).ok()
+    }.unwrap_or_else(|| {
+        // Fallback: query DB owner from PostgreSQL
+        String::new()
+    });
+
+    // If no stored username, get it from the database engine
+    let username = if username.is_empty() {
+        match catalog.as_str() {
+            "postgresql" => {
+                let output = exec_in_container(&state.docker, &container, &[
+                    "psql", "-U", "postgres", "-t", "-A", "-c",
+                    &format!("SELECT r.rolname FROM pg_database d JOIN pg_roles r ON d.datdba = r.oid WHERE d.datname = '{dbname}'"),
+                ]).await?;
+                output.trim().to_string()
+            }
+            _ => dbname.clone(),
+        }
+    } else {
+        username
     };
+
+    if username.is_empty() {
+        return Err(AppError::BadRequest(format!("Could not find owner for database {dbname}")));
+    }
 
     match catalog.as_str() {
         "postgresql" => {
@@ -361,13 +384,21 @@ pub async fn change_password(
         _ => return Err(AppError::BadRequest("Unsupported database type".into())),
     }
 
-    // Update stored credentials
+    // Upsert stored credentials
     {
         let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let _ = db.execute(
+        let updated = db.execute(
             "UPDATE database_credentials SET password = ?1 WHERE service_id = ?2 AND db_name = ?3",
             rusqlite::params![password, id, dbname],
-        );
+        ).unwrap_or(0);
+        if updated == 0 {
+            // No existing record — insert new one
+            let cred_id = uuid::Uuid::new_v4().to_string();
+            let _ = db.execute(
+                "INSERT INTO database_credentials (id, service_id, db_name, username, password) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![cred_id, id, dbname, username, password],
+            );
+        }
     }
 
     tracing::info!("Changed password for user {username} (db: {dbname}) in {container}");
