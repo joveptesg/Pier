@@ -229,6 +229,24 @@
             return Array.from(arr, b => charset[b % charset.length]).join('');
         }
 
+        function copyText(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => toast('Copied!')).catch(() => fallbackCopy(text));
+            } else {
+                fallbackCopy(text);
+            }
+        }
+        function fallbackCopy(text) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); toast('Copied!'); } catch { toast('Copy failed', 'error'); }
+            document.body.removeChild(ta);
+        }
+
         async function api(url, opts = {}) {
             const res = await fetch(url, {
                 headers: { 'Content-Type': 'application/json', ...opts.headers },

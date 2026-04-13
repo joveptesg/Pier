@@ -246,7 +246,7 @@
                     <span class="text-xs text-gray-400">Host (from server)</span>
                     <div class="flex items-center gap-2 mt-1">
                         <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto" x-text="connectionString"></code>
-                        <button @click="navigator.clipboard.writeText(connectionStringRaw); toast('Copied!')"
+                        <button @click="copyText(connectionStringRaw)"
                                 class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
@@ -255,7 +255,7 @@
                     <span class="text-xs text-gray-400">Docker (from containers in pier-net)</span>
                     <div class="flex items-center gap-2 mt-1">
                         <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto" x-text="dockerConnectionString"></code>
-                        <button @click="navigator.clipboard.writeText(dockerConnectionStringRaw); toast('Copied!')"
+                        <button @click="copyText(dockerConnectionStringRaw)"
                                 class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
@@ -264,7 +264,7 @@
                     <span class="text-xs text-green-500">Public (from anywhere)</span>
                     <div class="flex items-center gap-2 mt-1">
                         <code class="flex-1 text-xs font-mono bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 px-3 py-2 rounded-lg overflow-x-auto" x-text="publicConnectionString"></code>
-                        <button @click="navigator.clipboard.writeText(publicConnectionStringRaw); toast('Copied!')"
+                        <button @click="copyText(publicConnectionStringRaw)"
                                 class="shrink-0 px-2 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
@@ -309,7 +309,7 @@
                     <span class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">raw</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button @click.stop="navigator.clipboard.writeText(resource.compose_content); toast('Copied!')"
+                    <button @click.stop="copyText(resource.compose_content)"
                             class="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 rounded transition-colors">Copy</button>
                     <svg class="w-4 h-4 text-gray-400 transition-transform" :class="showCompose ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </div>
@@ -349,7 +349,7 @@
                                     <div class="flex items-center gap-1">
                                         <code class="text-[10px] font-mono text-gray-600 dark:text-gray-400 truncate max-w-[300px]"
                                               x-text="buildDbConnStr(d.name, d.owner)"></code>
-                                        <button @click="navigator.clipboard.writeText(buildDbConnStrRaw(d.name, d.owner)); toast('Copied!')"
+                                        <button @click="copyText(buildDbConnStrRaw(d.name, d.owner))"
                                                 class="shrink-0 px-1.5 py-0.5 text-[10px] bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-gray-500 transition-colors">Copy</button>
                                     </div>
                                 </td>
@@ -553,7 +553,7 @@ NODE_ENV=production"></textarea>
                     <div class="flex items-center gap-2">
                         <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto"
                               x-text="location.origin + '/api/v1/webhooks/github'"></code>
-                        <button @click="navigator.clipboard.writeText(location.origin + '/api/v1/webhooks/github'); toast('Copied!')"
+                        <button @click="copyText(location.origin + '/api/v1/webhooks/github')"
                                 class="shrink-0 px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
@@ -562,7 +562,7 @@ NODE_ENV=production"></textarea>
                     <div class="flex items-center gap-2">
                         <code class="flex-1 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 rounded-lg overflow-x-auto"
                               x-text="location.origin + '/api/v1/webhooks/gitlab'"></code>
-                        <button @click="navigator.clipboard.writeText(location.origin + '/api/v1/webhooks/gitlab'); toast('Copied!')"
+                        <button @click="copyText(location.origin + '/api/v1/webhooks/gitlab')"
                                 class="shrink-0 px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
@@ -574,7 +574,7 @@ NODE_ENV=production"></textarea>
                         <button @click="showWebhookSecret = !showWebhookSecret"
                                 class="shrink-0 px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors"
                                 x-text="showWebhookSecret ? 'Hide' : 'Show'"></button>
-                        <button @click="navigator.clipboard.writeText(gitConfig.webhook_secret); toast('Copied!')"
+                        <button @click="copyText(gitConfig.webhook_secret)"
                                 class="shrink-0 px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors">Copy</button>
                     </div>
                 </div>
