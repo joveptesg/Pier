@@ -134,6 +134,38 @@ pub async fn list_repos(
 }
 
 /// List branches for a repository using GitHub App installation token.
+/// Get file content from a GitHub repo via API.
+pub async fn get_file_content(
+    app_id: &str,
+    installation_id: i64,
+    private_key: &str,
+    repo_full_name: &str,
+    branch: &str,
+    file_path: &str,
+) -> Result<String> {
+    let token = get_installation_token(app_id, installation_id, private_key).await?;
+    let client = reqwest::Client::new();
+
+    let path = file_path.trim_start_matches('/');
+    let resp = client
+        .get(format!(
+            "https://api.github.com/repos/{repo_full_name}/contents/{path}?ref={branch}"
+        ))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github.raw+json")
+        .header("User-Agent", "Pier-PaaS")
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("GitHub get file error ({status}): {body}"));
+    }
+
+    Ok(resp.text().await?)
+}
+
 pub async fn list_branches(
     app_id: &str,
     installation_id: i64,

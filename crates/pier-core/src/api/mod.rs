@@ -180,6 +180,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/sources/{id}", get(sources::get).delete(sources::remove))
         .route("/sources/{id}/repos", get(sources::list_repos))
         .route("/sources/{id}/branches/{*repo}", get(sources::list_branches))
+        .route("/sources/{id}/file/{repo}/{branch}", get(sources::get_file))
         .route("/sources/github/manifest", get(sources::github_manifest))
         // S3 Storages
         .route("/s3", get(s3::list).post(s3::create))

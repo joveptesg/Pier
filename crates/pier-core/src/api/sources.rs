@@ -330,3 +330,38 @@ pub async fn github_callback(
         }
     }
 }
+
+/// GET /api/v1/sources/{id}/file/{repo}/{branch}/{path} — get file content from GitHub repo.
+pub async fn get_file(
+    State(state): State<SharedState>,
+    Path((source_id, repo, branch)): Path<(String, String, String)>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> AppResult<impl IntoResponse> {
+    let file_path = params.get("path").map(|s| s.as_str()).unwrap_or("docker-compose.yml");
+
+    let (app_id, installation_id, private_key) = {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT app_id, installation_id, private_key FROM git_sources WHERE id = ?1",
+            [&source_id],
+            |row| Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            )),
+        ).map_err(|_| AppError::NotFound(format!("Source {source_id} not found")))?
+    };
+
+    let app_id = app_id.ok_or_else(|| AppError::BadRequest("Missing app_id".into()))?;
+    let inst_id = installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
+    let pk = private_key.ok_or_else(|| AppError::BadRequest("Missing private_key".into()))?;
+
+    let content = crate::git::github_app::get_file_content(&app_id, inst_id, &pk, &repo, &branch, file_path)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{e}")))?;
+
+    Ok(Json(serde_json::json!({
+        "content": content,
+        "path": file_path,
+    })))
+}

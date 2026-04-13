@@ -307,21 +307,27 @@
             </div>
         </div>
 
-        <!-- Docker Compose -->
-        <div x-show="resource.compose_content" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+        <!-- Docker Compose / Dockerfile -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
             <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-800/50 cursor-pointer" @click="showCompose = !showCompose">
                 <div class="flex items-center gap-2">
                     <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Docker Compose</h3>
-                    <span class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">raw</span>
+                    <span x-show="resource.compose_content" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">raw</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button @click.stop="copyText(resource.compose_content)"
+                    <button x-show="!resource.compose_content && gitConfig.git_source_id && gitConfig.git_repo_url"
+                            @click.stop="loadComposeFromGit()" :disabled="loadingCompose"
+                            class="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 rounded transition-colors">
+                        <span x-text="loadingCompose ? 'Loading...' : 'Load from Git'"></span>
+                    </button>
+                    <button x-show="resource.compose_content" @click.stop="copyText(resource.compose_content)"
                             class="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 rounded transition-colors">Copy</button>
                     <svg class="w-4 h-4 text-gray-400 transition-transform" :class="showCompose ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </div>
             </div>
             <div x-show="showCompose" x-cloak class="p-4 bg-gray-50 dark:bg-gray-950">
-                <pre class="text-xs font-mono text-gray-800 dark:text-gray-300 whitespace-pre-wrap leading-relaxed" x-text="resource.compose_content"></pre>
+                <pre x-show="resource.compose_content || gitComposeContent" class="text-xs font-mono text-gray-800 dark:text-gray-300 whitespace-pre-wrap leading-relaxed" x-text="resource.compose_content || gitComposeContent || ''"></pre>
+                <p x-show="!resource.compose_content && !gitComposeContent" class="text-xs text-gray-400">Deploy to see compose content, or click "Load from Git" to preview.</p>
             </div>
         </div>
     </div>
@@ -916,7 +922,7 @@ function resourceDetail(id) {
         domains: [], showAddDomain: false, newDomainName: '',
         containerLogs: '', deploymentLogs: [], logLines: 100,
         logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0,
-        showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '',
+        showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitSources: [], showWebhookSecret: false,
         ciDeployments: [], expandedLog: null, selectedDeploy: null, deploysPage: 1, deploysPerPage: 10,
@@ -1282,6 +1288,47 @@ function resourceDetail(id) {
             if(dep && !dep._build_log) {
                 try { const detail = await fetch('/api/v1/resources/'+this.id+'/deployments/'+depId).then(r=>r.json()); dep._build_log = detail.build_log || 'No logs'; } catch { dep._build_log = 'Failed to load logs'; }
             }
+        },
+        async loadComposeFromGit() {
+            if (!this.gitConfig.git_source_id || !this.gitConfig.git_repo_url) { toast('No git source configured', 'error'); return; }
+            this.loadingCompose = true;
+            try {
+                // Extract repo name from URL: https://github.com/user/repo.git → user/repo
+                let repo = this.gitConfig.git_repo_url.replace('https://github.com/', '').replace('.git', '');
+                const branch = this.gitConfig.git_branch || 'main';
+                const buildStrategy = this.gitConfig.build_strategy || 'dockerfile';
+                const filePath = buildStrategy === 'docker-compose' ? 'docker-compose.yml' : 'Dockerfile';
+
+                const result = await api('/api/v1/sources/' + this.gitConfig.git_source_id + '/file/' + repo + '/' + branch + '?path=' + encodeURIComponent(filePath));
+                this.gitComposeContent = result.content || '';
+                this.showCompose = true;
+
+                // Parse ports from compose content and update UI
+                if (buildStrategy === 'docker-compose' && this.gitComposeContent) {
+                    const ports = [];
+                    let inPorts = false;
+                    for (const line of this.gitComposeContent.split('\n')) {
+                        const t = line.trim();
+                        if (t === 'ports:') { inPorts = true; continue; }
+                        if (inPorts && t.startsWith('- ')) {
+                            const portStr = t.substring(2).trim().replace(/['"]/g, '').split('/')[0];
+                            const parts = portStr.split(':');
+                            if (parts.length >= 2) {
+                                const container = parseInt(parts[parts.length - 1]);
+                                const host = parseInt(parts[parts.length - 2]);
+                                if (container > 0) ports.push({ host, container });
+                            }
+                        } else if (inPorts && t && !t.startsWith('#')) {
+                            inPorts = false;
+                        }
+                    }
+                    if (ports.length > 0) {
+                        this.publicPort = ports[0].container;
+                        toast('Detected ports: ' + ports.map(p => p.host + ':' + p.container).join(', '));
+                    }
+                }
+            } catch(e) { toast(e.message, 'error'); }
+            this.loadingCompose = false;
         },
         async deployAndWatch() {
             try {
