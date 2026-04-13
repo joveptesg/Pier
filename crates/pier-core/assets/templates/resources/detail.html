@@ -656,7 +656,7 @@ NODE_ENV=production"></textarea>
             </div>
             <!-- Deployment list OR detail view -->
             <div x-show="!selectedDeploy" class="space-y-3">
-                <template x-for="dep in ciDeployments" :key="dep.id">
+                <template x-for="dep in ciDeployments.slice((deploysPage-1)*deploysPerPage, deploysPage*deploysPerPage)" :key="dep.id">
                     <div class="border-l-2 pl-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-r-lg transition-colors" @click="openDeployDetail(dep.id)"
                          :class="dep.status === 'success' ? 'border-green-500' : dep.status === 'failed' ? 'border-red-500' : dep.status === 'building' ? 'border-blue-500' : 'border-yellow-400'">
                         <div class="flex items-center gap-2 mb-1">
@@ -702,36 +702,15 @@ NODE_ENV=production"></textarea>
                 </div>
             </div>
         </div>
-        <!-- Legacy Deployment Logs -->
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-2">
-                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Activity Log</h3>
-                    <span class="text-xs text-gray-400" x-text="'(' + deploymentLogs.length + ')'"></span>
-                </div>
-                <button @click="loadDeploymentLogs()" class="px-3 py-1 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                    Refresh
-                </button>
-            </div>
-            <div x-show="deploymentLogs.length === 0" class="text-sm text-gray-400 py-8 text-center">No deployment history yet</div>
-            <div class="space-y-3">
-                <template x-for="log in deploymentLogs" :key="log.id">
-                    <div class="border-l-2 pl-4 py-3" :class="log.status === 'success' ? 'border-green-500' : log.status === 'failed' ? 'border-red-500' : 'border-yellow-400'">
-                        <div class="flex items-center gap-2 mb-1">
-                            <span class="text-xs font-medium px-2 py-0.5 rounded-full"
-                                  :class="log.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : log.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'"
-                                  x-text="log.status.charAt(0).toUpperCase() + log.status.slice(1)"></span>
-                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize" x-text="log.action"></span>
-                        </div>
-                        <div class="text-xs text-gray-500 space-y-0.5">
-                            <div x-text="'Started: ' + log.started_at"></div>
-                            <div x-show="log.finished_at" x-text="'Ended: ' + log.finished_at"></div>
-                        </div>
-                        <div x-show="log.output" class="mt-2">
-                            <pre class="text-xs font-mono bg-gray-100 dark:bg-gray-950 text-gray-800 dark:text-gray-300 rounded-lg p-3 max-h-40 overflow-auto whitespace-pre-wrap" x-text="log.output"></pre>
-                        </div>
-                    </div>
-                </template>
+        <!-- Pagination -->
+        <div x-show="ciDeployments.length > deploysPerPage" class="flex items-center justify-between mt-4">
+            <span class="text-xs text-gray-500" x-text="'Page ' + deploysPage + ' of ' + Math.ceil(ciDeployments.length / deploysPerPage)"></span>
+            <div class="flex items-center gap-2">
+                <button @click="deploysPage = Math.max(1, deploysPage - 1)" :disabled="deploysPage <= 1"
+                        class="px-3 py-1 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 disabled:opacity-30">Prev</button>
+                <button @click="deploysPage = Math.min(Math.ceil(ciDeployments.length / deploysPerPage), deploysPage + 1)"
+                        :disabled="deploysPage >= Math.ceil(ciDeployments.length / deploysPerPage)"
+                        class="px-3 py-1 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 disabled:opacity-30">Next</button>
             </div>
         </div>
     </div>
@@ -934,7 +913,7 @@ function resourceDetail(id) {
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitSources: [], showWebhookSecret: false,
-        ciDeployments: [], expandedLog: null, selectedDeploy: null,
+        ciDeployments: [], expandedLog: null, selectedDeploy: null, deploysPage: 1, deploysPerPage: 10,
         togglingPublic: false,
         publicPort: 0,
         changingNetwork: false,
