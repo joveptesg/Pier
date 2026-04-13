@@ -1255,21 +1255,6 @@ pub async fn remove(
 
     tracing::info!("Deleting resource '{name}' (id={id}, stack={stack_name}, delete_volumes={delete_volumes})");
 
-    // Verify compose YAML belongs to this service before removing
-    let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
-    let compose_file = stack_dir.join("docker-compose.yml");
-    if compose_file.exists() {
-        let yaml_content = std::fs::read_to_string(&compose_file).unwrap_or_default();
-        if !yaml_content.contains(&id) && !yaml_content.is_empty() {
-            tracing::error!(
-                "SAFETY: compose YAML in {stack_name} does NOT contain service id {id}! Skipping removal to prevent data loss."
-            );
-            return Err(AppError::Internal(anyhow::anyhow!(
-                "Stack {stack_name} belongs to a different service. Skipping removal."
-            )));
-        }
-    }
-
     // Stop containers (with or without volumes)
     if delete_volumes {
         // docker compose down -v (removes named volumes)
@@ -1297,6 +1282,42 @@ pub async fn remove(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     ports::free_ports(&db, &id)?;
+
+    // Clean up related records
+    let _ = db.execute("DELETE FROM canvas_positions WHERE service_id = ?1", [&id]);
+    let _ = db.execute("DELETE FROM port_allocations WHERE service_id = ?1", [&id]);
+
+    // Remove Traefik dynamic configs for domains and TCP proxies
+    let domain_ids: Vec<String> = db
+        .prepare("SELECT id FROM domains WHERE service_id = ?1")
+        .ok()
+        .map(|mut stmt| {
+            stmt.query_map([&id], |row| row.get(0))
+                .unwrap_or_else(|_| panic!())
+                .filter_map(|r| r.ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    for did in &domain_ids {
+        let config_path = state
+            .config
+            .data_dir
+            .join("traefik")
+            .join("dynamic")
+            .join(format!("{did}.yml"));
+        let _ = std::fs::remove_file(&config_path);
+    }
+    let _ = db.execute("DELETE FROM domains WHERE service_id = ?1", [&id]);
+
+    // Remove TCP proxy configs
+    let tcp_config = state
+        .config
+        .data_dir
+        .join("traefik")
+        .join("dynamic")
+        .join(format!("tcp-{id}.yml"));
+    let _ = std::fs::remove_file(&tcp_config);
+
     db.execute("DELETE FROM services WHERE id = ?1", [&id])?;
 
     tracing::info!("Resource '{name}' ({id}) fully removed");
