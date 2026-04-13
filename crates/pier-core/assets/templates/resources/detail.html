@@ -27,6 +27,12 @@
                                   resource.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' :
                                   'bg-gray-100 dark:bg-gray-500/10 text-gray-500'"
                           x-text="resource.status"></span>
+                    <!-- Active deploy badge -->
+                    <span x-show="activeDeployCount > 0" @click="tab = 'deployments'; selectedDeploy = null"
+                          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-500/20">
+                        <span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                        <span x-text="activeDeployCount + ' deploying'"></span>
+                    </span>
                 </div>
                 <p class="text-sm text-gray-500 mt-0.5">
                     <span x-text="resource.catalog_id || ''"></span>
@@ -1006,13 +1012,34 @@ function resourceDetail(id) {
             const p = this.resource.ports?.[0]; if (!p) return '';
             return this._buildConnStr('localhost', p.host, null, false).replace(/\/[^/]*$/, '/' + dbName).replace(/\/\/[^:]+:/, '//' + owner + ':');
         },
+        _bgInterval: null,
+        activeDeployCount: 0,
         async init() {
             await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster(); this.loadDomains(); this.loadGitConfig();
-            // Stop log streaming when leaving Logs tab
             this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
+            // Background polling: check for status changes + new deployments every 5s
+            this._bgInterval = setInterval(async () => {
+                const oldStatus = this.resource.status;
+                const oldCount = this.ciDeployments.length;
+                await this.refresh();
+                await this.loadDeployments();
+                // Count active (building) deployments
+                this.activeDeployCount = this.ciDeployments.filter(d => d.status === 'building' || d.status === 'pending').length;
+                // Auto-open new deployment if one appeared
+                if (this.ciDeployments.length > oldCount && this.tab === 'deployments' && !this.selectedDeploy) {
+                    await this.openDeployDetail(this.ciDeployments[0].id);
+                }
+                // If deploy just finished, update detail view
+                if (this.selectedDeploy && this.selectedDeploy.status === 'building') {
+                    const latest = this.ciDeployments.find(d => d.id === this.selectedDeploy.id);
+                    if (latest) {
+                        try { const detail = await fetch('/api/v1/resources/'+this.id+'/deployments/'+latest.id).then(r=>r.json()); latest._build_log = detail.build_log || 'Building...'; latest.status = detail.status; latest.duration_secs = detail.duration_secs; latest.finished_at = detail.finished_at; this.selectedDeploy = {...latest}; } catch {}
+                    }
+                }
+            }, 5000);
         },
         async refresh() { try { this.resource = await fetch('/api/v1/resources/'+this.id).then(r=>r.json()); } catch(e) { toast('Failed to load resource','error'); } },
         async loadCluster() { try { this.clusterInfo = await fetch('/api/v1/resources/'+this.id+'/nodes').then(r=>r.ok?r.json():null); } catch { this.clusterInfo = null; } },
