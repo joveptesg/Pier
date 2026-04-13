@@ -49,11 +49,39 @@
 
             <!-- SVG layer for connection lines -->
             <svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index:1">
+                <!-- Arrowhead marker -->
+                <defs>
+                    <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6" />
+                    </marker>
+                    <marker id="arrowhead-purple" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="#8b5cf6" />
+                    </marker>
+                </defs>
+
+                <!-- Network edges (dashed gray mesh) -->
                 <template x-for="edge in edges" :key="edge.id">
                     <line :x1="getCardCenter(edge.from).x" :y1="getCardCenter(edge.from).y"
                           :x2="getCardCenter(edge.to).x" :y2="getCardCenter(edge.to).y"
-                          stroke="#374151" stroke-width="1.5" stroke-dasharray="6,4"
-                          :opacity="hoveredId && (hoveredId === edge.from || hoveredId === edge.to) ? 0.8 : 0.25" />
+                          stroke="#374151" stroke-width="1" stroke-dasharray="6,4"
+                          :opacity="hoveredId && (hoveredId === edge.from || hoveredId === edge.to) ? 0.5 : 0.12" />
+                </template>
+
+                <!-- Dependency arrows (solid colored with arrowheads) -->
+                <template x-for="dep in depEdges" :key="dep.id">
+                    <g>
+                        <line :x1="getCardCenter(dep.from).x" :y1="getCardCenter(dep.from).y"
+                              :x2="getCardCenter(dep.to).x" :y2="getCardCenter(dep.to).y"
+                              :stroke="dep.label.toLowerCase().includes('db') || dep.label.toLowerCase().includes('postgres') || dep.label.toLowerCase().includes('mysql') || dep.label.toLowerCase().includes('redis') ? '#3b82f6' : dep.label.toLowerCase().includes('amqp') || dep.label.toLowerCase().includes('rabbit') || dep.label.toLowerCase().includes('queue') ? '#8b5cf6' : '#6b7280'"
+                              stroke-width="2"
+                              :marker-end="dep.label.toLowerCase().includes('amqp') || dep.label.toLowerCase().includes('rabbit') ? 'url(#arrowhead-purple)' : 'url(#arrowhead-blue)'"
+                              :opacity="hoveredId && (hoveredId === dep.from || hoveredId === dep.to) ? 1 : 0.6" />
+                        <text :x="(getCardCenter(dep.from).x + getCardCenter(dep.to).x) / 2"
+                              :y="(getCardCenter(dep.from).y + getCardCenter(dep.to).y) / 2 - 6"
+                              text-anchor="middle" class="text-[9px]" fill="#9ca3af"
+                              :opacity="hoveredId && (hoveredId === dep.from || hoveredId === dep.to) ? 1 : 0.5"
+                              x-text="dep.label"></text>
+                    </g>
                 </template>
             </svg>
 
@@ -302,7 +330,7 @@ function canvasApp() {
     const CARD_W = 210, CARD_H = 100, GAP = 28, ZONE_PAD = 50;
     return {
         resources: [], servers: [], networks: [], positions: {},
-        cards: [], edges: [], serverZones: [],
+        cards: [], edges: [], depEdges: [], serverZones: [],
         zoom: 1, panX: -100, panY: -30,
         // Country code → flag emoji
         countryFlag(code) {
@@ -404,7 +432,7 @@ function canvasApp() {
                 zoneX += Math.max(zoneW, 300) + 50;
             }
 
-            // Edges
+            // Network edges (mesh within same network)
             this.edges = [];
             const netGroups = {};
             for (const c of this.cards) {
@@ -419,6 +447,36 @@ function canvasApp() {
                         this.edges.push({ id: 'e' + idx++, from: group[i].id, to: group[j].id });
                     }
                 }
+            }
+
+            // Dependency edges (from env vars referencing other services)
+            this.depEdges = [];
+            const seen = new Set();
+            for (const card of this.cards) {
+                if (!card.env_json) continue;
+                try {
+                    const env = JSON.parse(card.env_json);
+                    for (const [key, val] of Object.entries(env)) {
+                        if (typeof val !== 'string') continue;
+                        const valLower = val.toLowerCase();
+                        for (const target of this.cards) {
+                            if (target.id === card.id) continue;
+                            const cn = 'pier-' + target.name.toLowerCase().replace(/\s+/g, '-');
+                            if (valLower.includes(cn) || valLower.includes(target.name.toLowerCase())) {
+                                const edgeKey = card.id + '->' + target.id;
+                                if (!seen.has(edgeKey)) {
+                                    seen.add(edgeKey);
+                                    this.depEdges.push({
+                                        id: 'dep-' + card.id.substring(0,8) + '-' + target.id.substring(0,8),
+                                        from: card.id,
+                                        to: target.id,
+                                        label: key
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } catch {}
             }
         },
 

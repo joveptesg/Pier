@@ -16,7 +16,7 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
     // Resources with network and server info
     let mut stmt = db.prepare(
         "SELECT s.id, s.name, s.status, s.catalog_id, s.category, s.port, s.image,
-                s.network_id, n.name, s.server_id, s.project_id
+                s.network_id, n.name, s.server_id, s.project_id, s.env_json
          FROM services s
          LEFT JOIN networks n ON s.network_id = n.id
          ORDER BY s.name",
@@ -35,6 +35,7 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
                 "network_name": row.get::<_, Option<String>>(8)?,
                 "server_id": row.get::<_, Option<String>>(9)?,
                 "project_id": row.get::<_, Option<String>>(10)?,
+                "env_json": row.get::<_, Option<String>>(11)?,
             }))
         })?
         .filter_map(|r| r.ok())
