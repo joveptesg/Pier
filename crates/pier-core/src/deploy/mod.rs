@@ -218,8 +218,12 @@ pub async fn run_pipeline(
             match tokio::fs::read_to_string(&compose_file).await {
                 Ok(yaml) => {
                     let yaml = strip_compose_version(&yaml);
+                    // Extract ports before stripping (for port_allocations DB update)
+                    extract_and_save_ports(&state, &service_id, &yaml);
                     // Inject pier-net (and project network) so services can communicate across stacks
                     let yaml = inject_pier_networks(&state, &service_id, &yaml);
+                    // Remove host port bindings (Traefik handles public access via Docker network)
+                    let yaml = strip_compose_ports(&yaml);
 
                     // Move repo contents to stack dir so build context works from persistent location
                     let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
@@ -298,7 +302,7 @@ pub async fn run_pipeline(
         }
     }
 
-    // Parse ports from compose YAML and update port_allocations
+    // Update ports from compose (works for dockerfile strategy; docker-compose ports already extracted before strip)
     update_ports_from_compose(&state, &service_id, &compose_content);
 
     finish_deployment(&state, &deploy_id, &service_id, "success", &log, start);
@@ -557,6 +561,10 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
 
 /// Parse ports from compose YAML and update port_allocations in DB.
 /// Handles formats: "5201:5201", "127.0.0.1:5201:5201", "3000:3000/tcp"
+fn extract_and_save_ports(state: &AppState, service_id: &str, yaml: &str) {
+    update_ports_from_compose(state, service_id, yaml);
+}
+
 fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
     let mut ports = Vec::new();
     let mut in_ports = false;
@@ -666,6 +674,32 @@ async fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> anyhow::R
         }
     }
     Ok(())
+}
+
+/// Strip `ports:` sections from service blocks in docker-compose YAML.
+/// Ports are extracted separately and managed by Pier (no host port bindings needed).
+fn strip_compose_ports(yaml: &str) -> String {
+    let lines: Vec<&str> = yaml.lines().collect();
+    let mut result = Vec::new();
+    let mut skip_ports = false;
+
+    for line in &lines {
+        let trimmed = line.trim();
+        // Detect service-level ports: (indented with 4+ spaces)
+        if trimmed == "ports:" && (line.starts_with("    ") || line.starts_with("\t\t")) {
+            skip_ports = true;
+            continue;
+        }
+        if skip_ports {
+            if trimmed.starts_with("- ") {
+                continue; // skip port entries
+            }
+            skip_ports = false;
+        }
+        result.push(*line);
+    }
+
+    result.join("\n")
 }
 
 /// Strip the obsolete `version:` field from docker-compose YAML.

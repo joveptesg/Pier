@@ -1940,6 +1940,7 @@ pub async fn set_port_public(
         // Recreate Traefik with new TCP port binding (bridge mode needs port bindings)
         if let Err(e) = crate::proxy::deploy_traefik(&state.docker, &state.config.data_dir, &acme_email, dashboard).await {
             tracing::error!("Traefik redeploy for TCP port failed: {e}");
+            return Err(AppError::Internal(anyhow::anyhow!("Failed to enable public port {pp}: {e}")));
         }
         tracing::info!("Public TCP port {pp} enabled for {id} → localhost:{host_port}");
     } else {
