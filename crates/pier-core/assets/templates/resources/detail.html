@@ -715,7 +715,7 @@ NODE_ENV=production"></textarea>
 
     <!-- Logs Tab -->
     <div x-show="tab === 'logs'" @keydown.escape.window="logFullscreen = false"
-         :class="logFullscreen ? 'fixed inset-0 z-[9998] bg-gray-950 flex flex-col' : 'space-y-4'">
+         :class="logFullscreen ? 'fixed inset-0 z-[99999] bg-gray-950 flex flex-col' : 'space-y-4'">
         <div :class="logFullscreen ? 'flex flex-col flex-1 p-2' : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5'">
             <!-- Toolbar -->
             <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">

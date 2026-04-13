@@ -68,18 +68,23 @@ pub async fn create(
         return Err(AppError::BadRequest("Domain is required".into()));
     }
 
-    // Look up the service to get its port
+    // Look up the service and its container port (for Docker network access)
     let (service_name, port) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row(
-            "SELECT name, port FROM services WHERE id = ?1",
-            [&body.service_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i32>>(1)?)),
-        )
-        .map_err(|_| AppError::NotFound(format!("Service {} not found", body.service_id)))?
+        let name: String = db.query_row("SELECT name FROM services WHERE id = ?1", [&body.service_id], |row| row.get(0))
+            .map_err(|_| AppError::NotFound(format!("Service {} not found", body.service_id)))?;
+        // Use container_port from port_allocations (prefer non-management HTTP port)
+        let http_keywords = ["management", "metrics", "prometheus"];
+        let mut stmt = db.prepare("SELECT port_name, container_port FROM port_allocations WHERE service_id = ?1")?;
+        let ports: Vec<(String, i32)> = stmt.query_map([&body.service_id], |row| Ok((row.get(0)?, row.get(1)?)))?.filter_map(|r| r.ok()).collect();
+        let cp = ports.iter()
+            .find(|(n, _)| !http_keywords.iter().any(|k| n.to_lowercase().contains(k)))
+            .or(ports.first())
+            .map(|(_, p)| *p);
+        (name, cp)
     };
 
     let port = port.ok_or_else(|| {
@@ -174,15 +179,21 @@ pub async fn remove(
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let row = db
+        let (sid, sname): (String, String) = db
             .query_row(
-                "SELECT d.service_id, s.port, s.name FROM domains d
+                "SELECT d.service_id, s.name FROM domains d
                  LEFT JOIN services s ON d.service_id = s.id
                  WHERE d.id = ?1",
                 [&id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i32>>(1)?, row.get::<_, String>(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?;
+        // Use container_port from port_allocations
+        let cp: Option<i32> = db.query_row(
+            "SELECT container_port FROM port_allocations WHERE service_id = ?1 LIMIT 1",
+            [&sid], |row| row.get(0),
+        ).ok();
+        let row = (sid, cp, sname);
         db.execute("DELETE FROM domains WHERE id = ?1", [&id])?;
         row
     };

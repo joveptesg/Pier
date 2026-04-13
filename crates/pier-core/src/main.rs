@@ -117,6 +117,22 @@ async fn main() -> Result<()> {
     backup::scheduler::start_scheduler(state.clone());
     tracing::info!("Backup scheduler started");
 
+    // Cleanup invalid domains (with https:// prefix) and their Traefik configs
+    {
+        if let Ok(db) = state.db.lock() {
+            let mut stmt = db.prepare("SELECT id FROM domains WHERE domain LIKE 'https://%' OR domain LIKE 'http://%'").unwrap();
+            let invalid_ids: Vec<String> = stmt.query_map([], |row| row.get(0)).unwrap().filter_map(|r| r.ok()).collect();
+            for did in &invalid_ids {
+                let _ = db.execute("DELETE FROM domains WHERE id = ?1", [did]);
+                let config_path = state.config.data_dir.join("traefik").join("dynamic").join(format!("{did}.yml"));
+                let _ = std::fs::remove_file(&config_path);
+            }
+            if !invalid_ids.is_empty() {
+                tracing::info!("Cleaned up {} invalid domain(s) with protocol prefix", invalid_ids.len());
+            }
+        }
+    }
+
     // Auto-start proxy (Traefik) in background
     if docker_ok {
         let proxy_state = state.clone();
