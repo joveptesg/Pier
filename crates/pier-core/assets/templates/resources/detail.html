@@ -1214,22 +1214,44 @@ function resourceDetail(id) {
             } catch(e) { toast(e.message, 'error'); }
         },
         pollDeployStatus() {
-            // Poll deployments + resource status until deploy finishes
+            let prevCount = this.ciDeployments.length;
             const poll = async (attempts) => {
                 await this.loadDeployments();
                 await this.refresh();
                 const latest = this.ciDeployments[0];
+
+                // Auto-open the latest deploy detail
                 if (latest && !this.selectedDeploy) {
                     await this.openDeployDetail(latest.id);
-                } else if (this.selectedDeploy && latest) {
-                    // Refresh build log of selected deploy
-                    try { const detail = await fetch('/api/v1/resources/'+this.id+'/deployments/'+latest.id).then(r=>r.json()); latest._build_log = detail.build_log || 'Building...'; latest.status = detail.status; latest.duration_secs = detail.duration_secs; latest.finished_at = detail.finished_at; this.selectedDeploy = latest; } catch {}
                 }
-                if (attempts > 0 && (this.resource.status === 'deploying' || (latest && latest.status === 'building'))) {
-                    setTimeout(() => poll(attempts - 1), 3000);
+
+                // Refresh build log if detail is open
+                if (this.selectedDeploy && latest && latest.id === this.selectedDeploy.id) {
+                    try {
+                        const detail = await fetch('/api/v1/resources/'+this.id+'/deployments/'+latest.id).then(r=>r.json());
+                        latest._build_log = detail.build_log || 'Building...';
+                        latest.status = detail.status;
+                        latest.duration_secs = detail.duration_secs;
+                        latest.finished_at = detail.finished_at;
+                        this.selectedDeploy = {...latest};
+                    } catch {}
+                }
+
+                // Keep polling while deploy is in progress
+                const inProgress = this.resource.status === 'deploying' ||
+                    (latest && (latest.status === 'building' || latest.status === 'pending'));
+                if (attempts > 0 && inProgress) {
+                    setTimeout(() => poll(attempts - 1), 2000);
+                } else {
+                    // Final refresh
+                    await this.refresh();
+                    await this.loadDeployments();
+                    if (this.selectedDeploy && latest) {
+                        try { const d = await fetch('/api/v1/resources/'+this.id+'/deployments/'+latest.id).then(r=>r.json()); latest._build_log = d.build_log; latest.status = d.status; latest.duration_secs = d.duration_secs; latest.finished_at = d.finished_at; this.selectedDeploy = {...latest}; } catch {}
+                    }
                 }
             };
-            setTimeout(() => poll(30), 2000);
+            setTimeout(() => poll(60), 1500);
         },
         async renameResource() {
             if (!this.editName.trim()) { toast('Name is required', 'error'); return; }
