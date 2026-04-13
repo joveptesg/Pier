@@ -101,6 +101,14 @@
                 </div>
             </template>
 
+            <!-- Project zones -->
+            <template x-for="pz in projectZones" :key="pz.id">
+                <div class="absolute rounded-xl border border-dashed border-blue-300/40 dark:border-blue-700/30 bg-blue-50/30 dark:bg-blue-900/10"
+                     :style="'left:' + pz.x + 'px; top:' + pz.y + 'px; width:' + pz.w + 'px; height:' + pz.h + 'px; z-index:3'">
+                    <span class="absolute -top-2.5 left-3 px-2 text-[10px] font-medium text-blue-500 dark:text-blue-400 bg-white dark:bg-gray-950 rounded" x-text="pz.name"></span>
+                </div>
+            </template>
+
             <!-- Service cards -->
             <template x-for="card in cards" :key="card.id">
                 <div class="absolute cursor-grab active:cursor-grabbing"
@@ -330,7 +338,7 @@ function canvasApp() {
     const CARD_W = 210, CARD_H = 100, GAP = 28, ZONE_PAD = 50;
     return {
         resources: [], servers: [], networks: [], positions: {},
-        cards: [], edges: [], depEdges: [], serverZones: [],
+        cards: [], edges: [], depEdges: [], serverZones: [], projectZones: [],
         zoom: 1, panX: -100, panY: -30,
         // Country code → flag emoji
         countryFlag(code) {
@@ -378,59 +386,82 @@ function canvasApp() {
 
         buildCanvas() {
             const localId = '_local_';
-            const byServer = { [localId]: [] };
-            for (const s of this.servers) byServer[s.id] = [];
-            for (const r of this.resources) {
-                const sid = r.server_id || localId;
-                if (!byServer[sid]) byServer[sid] = [];
-                byServer[sid].push(r);
-            }
+            const localServer = this.servers.find(s => s.is_local) || { name: 'localhost', status: 'online', is_local: true, host: 'localhost' };
 
             this.serverZones = [];
             this.cards = [];
-            let zoneX = 60;
-            const localServer = this.servers.find(s => s.is_local);
-            const order = [localId, ...this.servers.filter(s => !s.is_local).map(s => s.id)];
+            this.projectZones = [];
 
-            for (const sid of order) {
-                const items = byServer[sid] || [];
-                const server = sid === localId
-                    ? (localServer || { name: 'localhost', status: 'online', is_local: true })
-                    : this.servers.find(s => s.id === sid);
-                if (!server) continue;
-                if (items.length === 0 && sid !== localId) continue;
+            // Split: standalone (no project) on top, project groups below
+            const standalone = this.resources.filter(r => !r.project_id);
+            const byProject = {};
+            for (const r of this.resources) {
+                if (r.project_id) {
+                    if (!byProject[r.project_id]) byProject[r.project_id] = [];
+                    byProject[r.project_id].push(r);
+                }
+            }
 
-                const cols = Math.max(2, Math.min(4, items.length || 1));
-                const rows = Math.ceil(items.length / cols) || 1;
-                const zoneW = cols * (CARD_W + GAP) + ZONE_PAD * 2 - GAP;
-                const zoneH = (rows + 1) * (CARD_H + GAP) + ZONE_PAD + 50;
+            const ZX = 60, ZY = 60;
+            let curY = ZY + 50;
 
-                this.serverZones.push({
-                    id: sid,
-                    name: server.name || 'localhost',
-                    host: server.host || 'localhost',
-                    status: server.status || 'online',
-                    is_local: server.is_local || sid === localId,
-                    country_code: server.country_code || null,
-                    x: zoneX, y: 60,
-                    w: Math.max(zoneW, 300), h: Math.max(zoneH, 180),
-                    location: [server.city, server.country].filter(Boolean).join(', ') || '',
+            // Standalone row
+            const stCols = Math.max(3, Math.min(5, standalone.length || 1));
+            for (let i = 0; i < standalone.length; i++) {
+                const r = standalone[i];
+                const col = i % stCols, row = Math.floor(i / stCols);
+                const saved = this.positions[r.id];
+                this.cards.push({
+                    id: r.id, name: r.name, status: r.status,
+                    catalog_id: r.catalog_id, category: r.category,
+                    port: r.port, network_id: r.network_id, server_id: localId,
+                    env_json: r.env_json, project_id: r.project_id,
+                    x: saved ? saved.x : ZX + ZONE_PAD + col * (CARD_W + GAP),
+                    y: saved ? saved.y : curY + row * (CARD_H + GAP),
+                });
+            }
+            curY += (Math.ceil(standalone.length / stCols) || 0) * (CARD_H + GAP) + 40;
+
+            // Project groups
+            let projX = ZX + ZONE_PAD;
+            for (const pid of Object.keys(byProject)) {
+                const items = byProject[pid];
+                const pCols = Math.max(1, Math.min(3, items.length));
+                const pRows = Math.ceil(items.length / pCols);
+                const pW = pCols * (CARD_W + GAP) + 40;
+                const pH = pRows * (CARD_H + GAP) + 45;
+
+                this.projectZones.push({
+                    id: pid, name: items[0]?.project_name || pid.substring(0, 8),
+                    x: projX, y: curY, w: pW, h: pH,
                 });
 
                 for (let i = 0; i < items.length; i++) {
                     const r = items[i];
-                    const col = i % cols, row = Math.floor(i / cols);
+                    const col = i % pCols, row = Math.floor(i / pCols);
                     const saved = this.positions[r.id];
                     this.cards.push({
                         id: r.id, name: r.name, status: r.status,
                         catalog_id: r.catalog_id, category: r.category,
-                        port: r.port, network_id: r.network_id, server_id: sid,
-                        x: saved ? saved.x : zoneX + ZONE_PAD + col * (CARD_W + GAP),
-                        y: saved ? saved.y : 120 + row * (CARD_H + GAP),
+                        port: r.port, network_id: r.network_id, server_id: localId,
+                        env_json: r.env_json, project_id: r.project_id,
+                        x: saved ? saved.x : projX + 20 + col * (CARD_W + GAP),
+                        y: saved ? saved.y : curY + 35 + row * (CARD_H + GAP),
                     });
                 }
-                zoneX += Math.max(zoneW, 300) + 50;
+                projX += pW + 30;
             }
+
+            // Server zone wrapping everything
+            const maxX = Math.max(...this.cards.map(c => c.x + CARD_W), ZX + 400);
+            const maxY = Math.max(...this.cards.map(c => c.y + CARD_H), curY + 150);
+            this.serverZones.push({
+                id: localId, name: localServer.name || 'localhost',
+                host: localServer.host || 'localhost', status: localServer.status || 'online',
+                is_local: true, country_code: localServer.country_code || null,
+                x: ZX, y: ZY, w: maxX - ZX + ZONE_PAD + 40, h: maxY - ZY + ZONE_PAD + 40,
+                location: [localServer.city, localServer.country].filter(Boolean).join(', ') || '',
+            });
 
             // Network edges (mesh within same network)
             this.edges = [];

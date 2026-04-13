@@ -16,9 +16,10 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
     // Resources with network and server info
     let mut stmt = db.prepare(
         "SELECT s.id, s.name, s.status, s.catalog_id, s.category, s.port, s.image,
-                s.network_id, n.name, s.server_id, s.project_id, s.env_json
+                s.network_id, n.name, s.server_id, s.project_id, s.env_json, p.name
          FROM services s
          LEFT JOIN networks n ON s.network_id = n.id
+         LEFT JOIN projects p ON s.project_id = p.id
          ORDER BY s.name",
     )?;
     let resources: Vec<serde_json::Value> = stmt
@@ -36,6 +37,7 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
                 "server_id": row.get::<_, Option<String>>(9)?,
                 "project_id": row.get::<_, Option<String>>(10)?,
                 "env_json": row.get::<_, Option<String>>(11)?,
+                "project_name": row.get::<_, Option<String>>(12)?,
             }))
         })?
         .filter_map(|r| r.ok())
