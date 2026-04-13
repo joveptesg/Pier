@@ -101,10 +101,11 @@
                 </div>
             </template>
 
-            <!-- Project zones -->
+            <!-- Project zones (draggable) -->
             <template x-for="pz in projectZones" :key="pz.id">
-                <div class="absolute rounded-xl border border-dashed border-blue-300/40 dark:border-blue-700/30 bg-blue-50/30 dark:bg-blue-900/10"
-                     :style="'left:' + pz.x + 'px; top:' + pz.y + 'px; width:' + pz.w + 'px; height:' + pz.h + 'px; z-index:3'">
+                <div class="absolute rounded-xl border border-dashed border-blue-300/40 dark:border-blue-700/30 bg-blue-50/30 dark:bg-blue-900/10 cursor-grab active:cursor-grabbing"
+                     :style="'left:' + pz.x + 'px; top:' + pz.y + 'px; width:' + pz.w + 'px; height:' + pz.h + 'px; z-index:3'"
+                     @mousedown.stop="onZoneMouseDown($event, pz)">
                     <span class="absolute -top-2.5 left-3 px-2 text-[10px] font-medium text-blue-500 dark:text-blue-400 bg-white dark:bg-gray-950 rounded" x-text="pz.name"></span>
                 </div>
             </template>
@@ -346,7 +347,7 @@ function canvasApp() {
             const base = 0x1F1E6 - 65;
             return String.fromCodePoint(code.charCodeAt(0) + base, code.charCodeAt(1) + base);
         },
-        dragging: null, dragOffsetX: 0, dragOffsetY: 0,
+        dragging: null, draggingZone: null, dragOffsetX: 0, dragOffsetY: 0,
         panning: false, panStartX: 0, panStartY: 0, panStartPanX: 0, panStartPanY: 0,
         hoveredId: null,
         contextMenu: { show: false, x: 0, y: 0, id: null },
@@ -453,9 +454,17 @@ function canvasApp() {
                 projX += pW + 30;
             }
 
-            // Server zone wrapping everything
-            const maxX = Math.max(...this.cards.map(c => c.x + CARD_W), ZX + 400);
-            const maxY = Math.max(...this.cards.map(c => c.y + CARD_H), curY + 150);
+            // Server zone wrapping everything (cards + project zones)
+            const allRight = [
+                ...this.cards.map(c => c.x + CARD_W),
+                ...this.projectZones.map(pz => pz.x + pz.w),
+            ];
+            const allBottom = [
+                ...this.cards.map(c => c.y + CARD_H),
+                ...this.projectZones.map(pz => pz.y + pz.h),
+            ];
+            const maxX = Math.max(...allRight, ZX + 400);
+            const maxY = Math.max(...allBottom, curY + 150);
             this.serverZones.push({
                 id: localId, name: localServer.name || 'localhost',
                 host: localServer.host || 'localhost', status: localServer.status || 'online',
@@ -493,8 +502,10 @@ function canvasApp() {
                         const valLower = val.toLowerCase();
                         for (const target of this.cards) {
                             if (target.id === card.id) continue;
-                            const cn = 'pier-' + target.name.toLowerCase().replace(/\s+/g, '-');
-                            if (valLower.includes(cn) || valLower.includes(target.name.toLowerCase())) {
+                            const tName = target.name.toLowerCase().replace(/\s+/g, '-');
+                            const cn = 'pier-' + tName;
+                            // Match: pier-name, name, or container_name patterns in value
+                            if (valLower.includes(cn) || valLower.includes(tName)) {
                                 const edgeKey = card.id + '->' + target.id;
                                 if (!seen.has(edgeKey)) {
                                     seen.add(edgeKey);
@@ -508,8 +519,9 @@ function canvasApp() {
                             }
                         }
                     }
-                } catch {}
+                } catch (ex) { console.warn('depEdge parse error for', card.name, ex); }
             }
+            console.log('Canvas: depEdges=', this.depEdges.length, 'cards with env=', this.cards.filter(c => c.env_json).length);
         },
 
         // Pan & Zoom
@@ -522,16 +534,45 @@ function canvasApp() {
             this.panStartPanY = this.panY;
         },
         onMouseMove(e) {
-            if (this.dragging) {
+            if (this.draggingZone) {
+                // Dragging a project zone — move zone + all its cards
+                const dz = this.draggingZone;
+                const dx = (e.clientX - this.dragStartClientX) / this.zoom;
+                const dy = (e.clientY - this.dragStartClientY) / this.zoom;
+                let newX = dz._startX + dx;
+                let newY = dz._startY + dy;
+                // Constrain within server zone
+                const sz = this.serverZones[0];
+                if (sz) {
+                    newX = Math.max(sz.x + ZONE_PAD, Math.min(sz.x + sz.w - dz.w - 10, newX));
+                    newY = Math.max(sz.y + ZONE_PAD + 30, Math.min(sz.y + sz.h - dz.h - 10, newY));
+                }
+                const moveX = newX - dz.x, moveY = newY - dz.y;
+                dz.x = newX; dz.y = newY;
+                // Move all cards inside this zone
+                for (const card of this.cards) {
+                    if (card.project_id === dz.id) {
+                        card.x += moveX; card.y += moveY;
+                    }
+                }
+            } else if (this.dragging) {
                 const dx = (e.clientX - this.dragStartClientX) / this.zoom;
                 const dy = (e.clientY - this.dragStartClientY) / this.zoom;
                 let newX = this.dragStartCardX + dx;
                 let newY = this.dragStartCardY + dy;
-                // Constrain within server zone
-                const zone = this.serverZones.find(z => z.id === this.dragging.server_id);
-                if (zone) {
-                    newX = Math.max(zone.x + ZONE_PAD, Math.min(zone.x + zone.w - CARD_W - 10, newX));
-                    newY = Math.max(zone.y + ZONE_PAD + 30, Math.min(zone.y + zone.h - CARD_H - 10, newY));
+                // Constrain: project cards within their project zone, standalone within server zone
+                if (this.dragging.project_id) {
+                    const pz = this.projectZones.find(z => z.id === this.dragging.project_id);
+                    if (pz) {
+                        newX = Math.max(pz.x + 10, Math.min(pz.x + pz.w - CARD_W - 10, newX));
+                        newY = Math.max(pz.y + 25, Math.min(pz.y + pz.h - CARD_H - 10, newY));
+                    }
+                } else {
+                    const sz = this.serverZones[0];
+                    if (sz) {
+                        newX = Math.max(sz.x + ZONE_PAD, Math.min(sz.x + sz.w - CARD_W - 10, newX));
+                        newY = Math.max(sz.y + ZONE_PAD + 30, Math.min(sz.y + sz.h - CARD_H - 10, newY));
+                    }
                 }
                 this.dragging.x = newX;
                 this.dragging.y = newY;
@@ -543,6 +584,12 @@ function canvasApp() {
             }
         },
         onMouseUp() {
+            if (this.draggingZone) {
+                // Save positions of all cards in the zone
+                const zoneCards = this.cards.filter(c => c.project_id === this.draggingZone.id);
+                for (const c of zoneCards) this.savePosition(c);
+                this.draggingZone = null;
+            }
             if (this.dragging) {
                 this.savePosition(this.dragging);
                 this.dragging = null;
@@ -568,6 +615,15 @@ function canvasApp() {
             this.dragStartClientY = e.clientY;
             this.dragStartCardX = card.x;
             this.dragStartCardY = card.y;
+        },
+        // Project Zone Drag
+        onZoneMouseDown(e, zone) {
+            if (e.button !== 0) return;
+            this.draggingZone = zone;
+            zone._startX = zone.x;
+            zone._startY = zone.y;
+            this.dragStartClientX = e.clientX;
+            this.dragStartClientY = e.clientY;
         },
 
         async savePosition(card) {
