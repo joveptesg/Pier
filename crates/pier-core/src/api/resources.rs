@@ -1429,19 +1429,43 @@ pub async fn redeploy(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult<impl IntoResponse> {
     let no_cache = params.get("no_cache").map(|v| v == "true").unwrap_or(false);
-    let (name, yaml) = {
+    let (name, yaml, git_repo_url, git_branch) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT name, compose_content FROM services WHERE id = ?1",
+            "SELECT name, compose_content, git_repo_url, git_branch FROM services WHERE id = ?1",
             [&id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?)),
         )
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
     };
 
+    // Git-based services: run full pipeline (clone + build + deploy)
+    if let Some(repo_url) = &git_repo_url {
+        if !repo_url.is_empty() {
+            let branch = git_branch.unwrap_or_else(|| "main".to_string());
+            let commit = crate::deploy::CommitInfo {
+                sha: "redeploy".to_string(),
+                message: "Redeploy".to_string(),
+                branch: branch.clone(),
+            };
+            // Set deploying status
+            {
+                let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                let _ = db.execute("UPDATE services SET status = 'deploying', updated_at = datetime('now') WHERE id = ?1", [&id]);
+            }
+            let state_clone = std::sync::Arc::clone(&state);
+            let sid = id.clone();
+            tokio::spawn(async move {
+                crate::deploy::run_pipeline(state_clone, sid, commit, "redeploy").await;
+            });
+            return Ok(Json(serde_json::json!({"ok": true, "message": "Redeploy pipeline started"})));
+        }
+    }
+
+    // Catalog-based services: use saved compose YAML
     let yaml = yaml.ok_or_else(|| AppError::BadRequest("No compose content found".into()))?;
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 

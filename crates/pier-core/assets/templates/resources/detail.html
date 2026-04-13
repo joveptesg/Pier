@@ -1177,7 +1177,21 @@ function resourceDetail(id) {
         },
         async manualDeploy() {
             if(!confirm('Start a new deployment from the configured git repo?'))return;
-            try { await api('/api/v1/resources/'+this.id+'/deploy',{method:'POST',body:JSON.stringify({branch:this.gitConfig.git_branch})}); toast('Deploy started'); setTimeout(()=>{this.refresh();this.loadDeployments();},3000); } catch(e){toast(e.message,'error');}
+            try {
+                await api('/api/v1/resources/'+this.id+'/deploy',{method:'POST',body:JSON.stringify({branch:this.gitConfig.git_branch})});
+                toast('Deploy started');
+                this.tab = 'deployments';
+                this.selectedDeploy = null;
+                const poll = async (attempts) => {
+                    await this.loadDeployments();
+                    if (this.ciDeployments.length > 0) {
+                        await this.openDeployDetail(this.ciDeployments[0].id);
+                    } else if (attempts > 0) {
+                        setTimeout(() => poll(attempts - 1), 1500);
+                    }
+                };
+                setTimeout(() => poll(5), 1500);
+            } catch(e){toast(e.message,'error');}
         },
         async loadDeployments() {
             try { this.ciDeployments = await fetch('/api/v1/resources/'+this.id+'/deployments').then(r=>r.ok?r.json():[]); } catch { this.ciDeployments = []; }
