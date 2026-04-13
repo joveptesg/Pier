@@ -461,16 +461,19 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
         }
     }
 
-    // For each service, find its section end and inject networks
-    let mut insertions = Vec::new();
+    // For each service: remove existing networks section and add pier networks
+    let net_replacement = if network_name == "pier-net" {
+        "    networks:\n      - pier-net".to_string()
+    } else {
+        format!("    networks:\n      - {network_name}\n      - pier-net")
+    };
+
     for &idx in service_indices.iter().rev() {
-        // Find end of this service's block
         let mut end = lines.len();
         for j in (idx + 1)..lines.len() {
             let line = &lines[j];
             let trimmed = line.trim();
             if trimmed.is_empty() { continue; }
-            // Another service at same level or top-level key
             if (line.starts_with("  ") || line.starts_with('\t')) && !line.starts_with("    ") && !line.starts_with("\t\t") && trimmed.ends_with(':') {
                 end = j;
                 break;
@@ -480,20 +483,45 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
                 break;
             }
         }
-        // Check if service already has networks
-        let has_networks = lines[idx..end].iter().any(|l| l.trim().starts_with("networks:"));
-        if !has_networks {
-            let net_lines = if network_name == "pier-net" {
-                format!("    networks:\n      - pier-net")
-            } else {
-                format!("    networks:\n      - {network_name}\n      - pier-net")
-            };
-            insertions.push((end, net_lines));
-        }
-    }
 
-    for (pos, content) in insertions {
-        lines.insert(pos, content);
+        // Remove existing service-level networks section
+        let mut net_start = None;
+        let mut net_end = None;
+        for j in idx..end {
+            let trimmed = lines[j].trim();
+            if trimmed == "networks:" && (lines[j].starts_with("    ") || lines[j].starts_with("\t\t")) {
+                net_start = Some(j);
+            } else if net_start.is_some() && net_end.is_none() {
+                if !trimmed.starts_with("- ") && !trimmed.is_empty() {
+                    net_end = Some(j);
+                }
+            }
+        }
+        if let Some(start) = net_start {
+            let end_idx = net_end.unwrap_or(end);
+            for _ in start..end_idx {
+                if start < lines.len() { lines.remove(start); }
+            }
+        }
+
+        // Find new end after removal
+        let mut new_end = lines.len();
+        for j in (idx + 1)..lines.len() {
+            let line = &lines[j];
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            if (line.starts_with("  ") || line.starts_with('\t')) && !line.starts_with("    ") && !line.starts_with("\t\t") && trimmed.ends_with(':') {
+                new_end = j;
+                break;
+            }
+            if !line.starts_with(' ') && !line.starts_with('\t') {
+                new_end = j;
+                break;
+            }
+        }
+
+        // Insert pier networks
+        lines.insert(new_end, net_replacement.clone());
     }
 
     // Remove existing top-level networks section
