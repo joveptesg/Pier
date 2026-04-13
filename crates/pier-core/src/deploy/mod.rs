@@ -198,6 +198,8 @@ pub async fn run_pipeline(
             match tokio::fs::read_to_string(&compose_file).await {
                 Ok(yaml) => {
                     let yaml = strip_compose_version(&yaml);
+                    // Inject pier-net (and project network) so services can communicate across stacks
+                    let yaml = inject_pier_networks(&state, &service_id, &yaml);
 
                     // Move repo contents to stack dir so build context works from persistent location
                     let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
@@ -392,6 +394,109 @@ fn finish_deployment(
             rusqlite::params![service_status, service_id],
         );
     }
+}
+
+/// Inject pier-net (and project network) into a docker-compose YAML from a repo.
+/// This ensures services can communicate with other Pier services via Docker DNS.
+fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> String {
+    // Get the service's assigned network name
+    let network_name: String = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| {
+            db.query_row(
+                "SELECT n.name FROM networks n JOIN services s ON s.network_id = n.id WHERE s.id = ?1",
+                [service_id],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+        })
+        .unwrap_or_else(|| "pier-net".to_string());
+
+    let mut lines: Vec<String> = yaml.lines().map(|l| l.to_string()).collect();
+
+    // Find all service names (lines under "services:" with proper indentation)
+    let mut service_indices = Vec::new();
+    let mut in_services = false;
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed == "services:" {
+            in_services = true;
+            continue;
+        }
+        if in_services && !trimmed.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
+            in_services = false; // new top-level key
+        }
+        if in_services && !trimmed.is_empty() && trimmed.ends_with(':') && (line.starts_with("  ") || line.starts_with('\t')) && !line.starts_with("    ") {
+            service_indices.push(i);
+        }
+    }
+
+    // For each service, find its section end and inject networks
+    let mut insertions = Vec::new();
+    for &idx in service_indices.iter().rev() {
+        // Find end of this service's block
+        let mut end = lines.len();
+        for j in (idx + 1)..lines.len() {
+            let line = &lines[j];
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            // Another service at same level or top-level key
+            if (line.starts_with("  ") || line.starts_with('\t')) && !line.starts_with("    ") && !line.starts_with("\t\t") && trimmed.ends_with(':') {
+                end = j;
+                break;
+            }
+            if !line.starts_with(' ') && !line.starts_with('\t') {
+                end = j;
+                break;
+            }
+        }
+        // Check if service already has networks
+        let has_networks = lines[idx..end].iter().any(|l| l.trim().starts_with("networks:"));
+        if !has_networks {
+            let net_lines = if network_name == "pier-net" {
+                format!("    networks:\n      - pier-net")
+            } else {
+                format!("    networks:\n      - {network_name}\n      - pier-net")
+            };
+            insertions.push((end, net_lines));
+        }
+    }
+
+    for (pos, content) in insertions {
+        lines.insert(pos, content);
+    }
+
+    // Remove existing top-level networks section
+    let mut networks_start = None;
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim() == "networks:" && !line.starts_with(' ') {
+            networks_start = Some(i);
+            break;
+        }
+    }
+    if let Some(start) = networks_start {
+        let mut end = lines.len();
+        for j in (start + 1)..lines.len() {
+            if !lines[j].starts_with(' ') && !lines[j].starts_with('\t') && !lines[j].trim().is_empty() {
+                end = j;
+                break;
+            }
+        }
+        lines.drain(start..end);
+    }
+
+    // Append networks section
+    lines.push("networks:".to_string());
+    lines.push(format!("  {network_name}:"));
+    lines.push("    external: true".to_string());
+    if network_name != "pier-net" {
+        lines.push("  pier-net:".to_string());
+        lines.push("    external: true".to_string());
+    }
+
+    lines.join("\n")
 }
 
 /// Detect the actual container name after docker compose deploy.
