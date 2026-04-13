@@ -1202,13 +1202,29 @@ pub async fn get(
         )
         .unwrap_or_default();
 
-    // Get container name: use stored name (from docker-compose deploy) or fallback to pier-{name}
+    // Get container name: stored DB value → parse from compose YAML → fallback pier-{name}
     let svc_name = resource["name"].as_str().unwrap_or_default();
+    let default_name = format!("pier-{}", svc_name.to_lowercase().replace(' ', "-"));
     let container_name = resource["stored_container_name"]
         .as_str()
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("pier-{}", svc_name.to_lowercase().replace(' ', "-")));
+        .unwrap_or_else(|| {
+            // Try to parse container_name from compose YAML on disk
+            let compose_path = state.config.data_dir.join("stacks").join(&default_name).join("docker-compose.yml");
+            if let Ok(yaml) = std::fs::read_to_string(&compose_path) {
+                yaml.lines()
+                    .find_map(|l| {
+                        let t = l.trim();
+                        t.strip_prefix("container_name:")
+                            .map(|n| n.trim().trim_matches('"').trim_matches('\'').to_string())
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| default_name.clone())
+            } else {
+                default_name.clone()
+            }
+        });
 
     let mut result = resource;
     result["ports"] = serde_json::json!(ports_json);
