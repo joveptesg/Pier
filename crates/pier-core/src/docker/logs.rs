@@ -5,32 +5,51 @@ use bollard::Docker;
 use futures_util::StreamExt;
 
 /// Stream container logs to a WebSocket connection.
+/// Resilient: retries on Docker stream errors (e.g., container restart).
 pub async fn stream_logs_ws(docker: &Docker, container_id: &str, mut socket: WebSocket) {
-    let options = LogsOptions {
-        follow: true,
-        stdout: true,
-        stderr: true,
-        tail: "100".to_string(),
-        timestamps: true,
-        ..Default::default()
-    };
+    let mut retry_count = 0u32;
 
-    let mut stream = docker.logs(container_id, Some(options));
+    loop {
+        let options = LogsOptions {
+            follow: true,
+            stdout: true,
+            stderr: true,
+            tail: "0".to_string(), // only new lines (old lines loaded via HTTP)
+            timestamps: true,
+            ..Default::default()
+        };
 
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                let text = output.to_string();
-                if socket.send(Message::Text(text.into())).await.is_err() {
-                    break;
+        let mut stream = docker.logs(container_id, Some(options));
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(output) => {
+                    retry_count = 0;
+                    let text = output.to_string().trim_end().to_string();
+                    if !text.is_empty() {
+                        if socket.send(Message::Text(text.into())).await.is_err() {
+                            return; // client disconnected
+                        }
+                    }
                 }
+                Err(_) => break, // stream ended, will retry
             }
-            Err(e) => {
-                let _ = socket
-                    .send(Message::Text(format!("Error: {e}").into()))
-                    .await;
-                break;
-            }
+        }
+
+        // Docker stream ended (container restart, etc.) — retry
+        retry_count += 1;
+        if retry_count > 120 {
+            return; // give up after 120 retries (~4 min)
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Check if WS client still connected
+        if socket
+            .send(Message::Ping(vec![].into()))
+            .await
+            .is_err()
+        {
+            return;
         }
     }
 }
