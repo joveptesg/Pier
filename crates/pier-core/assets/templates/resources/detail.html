@@ -1154,7 +1154,7 @@ function resourceDetail(id) {
             const env={}; for(const r of this.editableEnv) if(r.key.trim()) env[r.key.trim()]=r.value;
             try { await api('/api/v1/resources/'+this.id+'/env',{method:'PUT',body:JSON.stringify({env,redeploy})});
                 toast(redeploy?'Saved & redeploying...':'Environment saved');
-                if(redeploy) setTimeout(()=>this.refresh(),3000);
+                if(redeploy) { this.tab='deployments'; this.selectedDeploy=null; this.pollDeployStatus(); }
             } catch(e) { toast(e.message,'error'); }
         },
         async loadSchedule() { try { this.schedule=await fetch('/api/v1/resources/'+this.id+'/backups/schedule').then(r=>r.ok?r.json():null); if(this.schedule){this.scheduleForm.s3_storage_id=this.schedule.s3_storage_id;this.scheduleForm.cron_expression=this.schedule.cron_expression;this.scheduleForm.retention_count=this.schedule.retention_count;} } catch{} },
