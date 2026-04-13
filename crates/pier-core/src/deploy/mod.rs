@@ -129,12 +129,25 @@ pub async fn run_pipeline(
 
     let branch = svc.git_branch.as_deref().unwrap_or("main");
 
+    // Helper: flush current log to DB so frontend can show progress
+    let flush_log = |state: &AppState, deploy_id: &str, log: &str| {
+        if let Ok(db) = state.db.lock() {
+            let _ = db.execute(
+                "UPDATE deployments SET build_log = ?1 WHERE id = ?2",
+                rusqlite::params![log, deploy_id],
+            );
+        }
+    };
+
     // Clone
     let repo_dir = state.config.data_dir.join("tmp").join(&deploy_id);
     let mut log = String::new();
 
+    log.push_str("Cloning repository...\n");
+    flush_log(&state, &deploy_id, &log);
+
     match build::clone_repo(&clone_url, branch, &repo_dir).await {
-        Ok(output) => log.push_str(&output),
+        Ok(output) => { log.push_str(&output); flush_log(&state, &deploy_id, &log); }
         Err(e) => {
             log.push_str(&format!("Clone failed: {e}\n"));
             finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
@@ -144,10 +157,13 @@ pub async fn run_pipeline(
     }
 
     // Build
+    log.push_str("Building...\n");
+    flush_log(&state, &deploy_id, &log);
+
     match strategy {
         "dockerfile" => {
             match build::docker_build(&state.docker, &repo_dir, &image_tag).await {
-                Ok(output) => log.push_str(&output),
+                Ok(output) => { log.push_str(&output); flush_log(&state, &deploy_id, &log); }
                 Err(e) => {
                     log.push_str(&format!("Build failed: {e}\n"));
                     finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
@@ -165,9 +181,13 @@ pub async fn run_pipeline(
                 &service_id,
             );
 
+            log.push_str("Deploying...\n");
+            flush_log(&state, &deploy_id, &log);
+
             match docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await {
                 Ok(output) => {
                     log.push_str(&format!("Deploy: {output}\n"));
+                    flush_log(&state, &deploy_id, &log);
                 }
                 Err(e) => {
                     log.push_str(&format!("Deploy failed: {e}\n"));
@@ -215,6 +235,9 @@ pub async fn run_pipeline(
                     let _ = tokio::fs::write(stack_dir.join("docker-compose.yml"), &yaml).await;
 
                     // Build and deploy from stack dir (contains source code + Dockerfile)
+                    log.push_str("Building & deploying with docker-compose...\n");
+                    flush_log(&state, &deploy_id, &log);
+
                     let output = tokio::process::Command::new("docker")
                         .args(["compose", "-p", &stack_name, "up", "-d", "--build"])
                         .current_dir(&stack_dir)
@@ -227,6 +250,7 @@ pub async fn run_pipeline(
                             let combined = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
                             if out.status.success() {
                                 log.push_str(&format!("Deploy: {combined}\n"));
+                                flush_log(&state, &deploy_id, &log);
                             } else {
                                 log.push_str(&format!("Deploy failed: {combined}\n"));
                                 finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
