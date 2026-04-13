@@ -914,34 +914,34 @@ function resourceDetail(id) {
                 default: return '';
             }
         },
+        // Pick the primary (non-HTTP) port for connection strings
+        _primaryPort() {
+            const ports = this.resource.ports || [];
+            const httpNames = ['management', 'http', 'web', 'ui', 'dashboard', 'console'];
+            return ports.find(p => !httpNames.some(k => p.name.toLowerCase().includes(k))) || ports[0];
+        },
         get connectionString() {
-            if (!this.resource.ports?.length) return '';
-            const p = this.resource.ports[0];
+            const p = this._primaryPort(); if (!p) return '';
             return this._buildConnStr('localhost', p.host, null, !this.showPasswords);
         },
         get connectionStringRaw() {
-            if (!this.resource.ports?.length) return '';
-            const p = this.resource.ports[0];
+            const p = this._primaryPort(); if (!p) return '';
             return this._buildConnStr('localhost', p.host, null, false);
         },
         get dockerConnectionString() {
-            if (!this.resource.ports?.length || !this.resource.container_name) return '';
-            const p = this.resource.ports[0];
+            const p = this._primaryPort(); if (!p || !this.resource.container_name) return '';
             return this._buildConnStr(this.resource.container_name, p.container, null, !this.showPasswords);
         },
         get dockerConnectionStringRaw() {
-            if (!this.resource.ports?.length || !this.resource.container_name) return '';
-            const p = this.resource.ports[0];
+            const p = this._primaryPort(); if (!p || !this.resource.container_name) return '';
             return this._buildConnStr(this.resource.container_name, p.container, null, false);
         },
         get publicConnectionString() {
-            if (!this.resource.ports?.length || !this.resource.public_ip) return '';
-            const p = this.resource.ports[0];
+            const p = this._primaryPort(); if (!p || !this.resource.public_ip) return '';
             return this._buildConnStr(this.resource.public_ip, p.host, null, !this.showPasswords);
         },
         get publicConnectionStringRaw() {
-            if (!this.resource.ports?.length || !this.resource.public_ip) return '';
-            const p = this.resource.ports[0];
+            const p = this._primaryPort(); if (!p || !this.resource.public_ip) return '';
             return this._buildConnStr(this.resource.public_ip, p.host, null, false);
         },
         async togglePublic() {
