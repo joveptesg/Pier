@@ -55,7 +55,7 @@
                     </button>
                 </div>
             </div>
-            <button @click="manualDeploy()" x-show="resource.status === 'created'"
+            <button @click="deployAndWatch()" x-show="resource.status === 'created' || resource.status === 'failed' || (resource.status === 'deploying' && !resource.compose_content)"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-100 dark:bg-green-600/20 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-600/30 transition-colors">
                 Deploy
             </button>
@@ -601,9 +601,10 @@ NODE_ENV=production"></textarea>
                     </button>
                 </div>
             </div>
-            <div class="space-y-3">
+            <!-- Deployment list OR detail view -->
+            <div x-show="!selectedDeploy" class="space-y-3">
                 <template x-for="dep in ciDeployments" :key="dep.id">
-                    <div class="border-l-2 pl-4 py-3 cursor-pointer" @click="toggleBuildLog(dep.id)"
+                    <div class="border-l-2 pl-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-r-lg transition-colors" @click="openDeployDetail(dep.id)"
                          :class="dep.status === 'success' ? 'border-green-500' : dep.status === 'failed' ? 'border-red-500' : dep.status === 'building' ? 'border-blue-500' : 'border-yellow-400'">
                         <div class="flex items-center gap-2 mb-1">
                             <span class="text-xs font-medium px-2 py-0.5 rounded-full"
@@ -612,17 +613,40 @@ NODE_ENV=production"></textarea>
                             <span x-show="dep.commit_sha" class="text-xs font-mono text-gray-500" x-text="(dep.commit_sha || '').substring(0,8)"></span>
                             <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500" x-text="dep.triggered_by"></span>
                             <span x-show="dep.branch" class="text-xs text-gray-400" x-text="dep.branch"></span>
+                            <svg class="w-4 h-4 text-gray-400 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                         </div>
                         <div x-show="dep.commit_message" class="text-sm text-gray-700 dark:text-gray-300 truncate mb-1" x-text="dep.commit_message"></div>
                         <div class="text-xs text-gray-500 flex items-center gap-3">
                             <span x-text="dep.started_at"></span>
                             <span x-show="dep.duration_secs" x-text="dep.duration_secs + 's'"></span>
                         </div>
-                        <div x-show="expandedLog === dep.id" class="mt-2" @click.stop>
-                            <pre class="text-xs font-mono bg-gray-950 text-green-400 rounded-lg p-3 max-h-80 overflow-auto whitespace-pre-wrap" x-text="dep._build_log || 'Loading...'"></pre>
-                        </div>
                     </div>
                 </template>
+            </div>
+            <!-- Deployment Detail View -->
+            <div x-show="selectedDeploy" class="space-y-4">
+                <button @click="selectedDeploy = null" class="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 mb-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Back to deployments
+                </button>
+                <div class="flex items-center gap-3 mb-3">
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full"
+                          :class="selectedDeploy?.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : selectedDeploy?.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400'"
+                          x-text="(selectedDeploy?.status || '').charAt(0).toUpperCase() + (selectedDeploy?.status || '').slice(1)"></span>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300" x-text="selectedDeploy?.commit_message || 'Manual deployment'"></span>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div><span class="text-gray-500 block">Commit</span><span class="font-mono text-gray-300" x-text="(selectedDeploy?.commit_sha || '-').substring(0,12)"></span></div>
+                    <div><span class="text-gray-500 block">Branch</span><span class="text-gray-300" x-text="selectedDeploy?.branch || '-'"></span></div>
+                    <div><span class="text-gray-500 block">Triggered by</span><span class="text-gray-300" x-text="selectedDeploy?.triggered_by || '-'"></span></div>
+                    <div><span class="text-gray-500 block">Duration</span><span class="text-gray-300" x-text="(selectedDeploy?.duration_secs || 0) + 's'"></span></div>
+                    <div><span class="text-gray-500 block">Started</span><span class="text-gray-300" x-text="selectedDeploy?.started_at || '-'"></span></div>
+                    <div><span class="text-gray-500 block">Finished</span><span class="text-gray-300" x-text="selectedDeploy?.finished_at || '-'"></span></div>
+                </div>
+                <div>
+                    <h4 class="text-xs font-medium text-gray-500 mb-2">Build Log</h4>
+                    <pre class="text-xs font-mono bg-gray-950 text-green-400 rounded-lg p-4 max-h-[600px] overflow-auto whitespace-pre-wrap leading-relaxed" x-text="selectedDeploy?._build_log || 'Loading...'"></pre>
+                </div>
             </div>
         </div>
         <!-- Legacy Deployment Logs -->
@@ -857,7 +881,7 @@ function resourceDetail(id) {
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitSources: [], showWebhookSecret: false,
-        ciDeployments: [], expandedLog: null,
+        ciDeployments: [], expandedLog: null, selectedDeploy: null,
         togglingPublic: false,
         publicPort: 0,
         changingNetwork: false,
@@ -1054,8 +1078,8 @@ function resourceDetail(id) {
         async startResource() { try{await api('/api/v1/resources/'+this.id+'/start',{method:'POST'});toast('Resource started');await this.refresh();}catch(e){toast(e.message,'error');} },
         async stopResource() { try{await api('/api/v1/resources/'+this.id+'/stop',{method:'POST'});toast('Resource stopped');await this.refresh();}catch(e){toast(e.message,'error');} },
         async restartResource() { try{await api('/api/v1/resources/'+this.id+'/restart',{method:'POST'});toast('Resource restarted');await this.refresh();}catch(e){toast(e.message,'error');} },
-        async redeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy',{method:'POST'});toast('Redeploying...');await this.refresh();}catch(e){toast(e.message,'error');} },
-        async forceDeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy?no_cache=true',{method:'POST'});toast('Force deploying (no cache)...');await this.refresh();}catch(e){toast(e.message,'error');} },
+        async redeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy',{method:'POST'});toast('Redeploying...');this.tab='deployments';setTimeout(()=>{this.refresh();this.loadDeployments();this.loadDeploymentLogs();},2000);}catch(e){toast(e.message,'error');} },
+        async forceDeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy?no_cache=true',{method:'POST'});toast('Force deploying...');this.tab='deployments';setTimeout(()=>{this.refresh();this.loadDeployments();this.loadDeploymentLogs();},2000);}catch(e){toast(e.message,'error');} },
         async removeResource() {
             const url = '/api/v1/resources/'+this.id + (this.deleteVolumes ? '?delete_volumes=true' : '');
             try{await api(url,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');}
@@ -1157,6 +1181,14 @@ function resourceDetail(id) {
         async loadDeployments() {
             try { this.ciDeployments = await fetch('/api/v1/resources/'+this.id+'/deployments').then(r=>r.ok?r.json():[]); } catch { this.ciDeployments = []; }
         },
+        async openDeployDetail(depId) {
+            const dep = this.ciDeployments.find(d => d.id === depId);
+            if (!dep) return;
+            if (!dep._build_log) {
+                try { const detail = await fetch('/api/v1/resources/'+this.id+'/deployments/'+depId).then(r=>r.json()); dep._build_log = detail.build_log || 'No logs'; dep.finished_at = detail.finished_at; } catch { dep._build_log = 'Failed to load logs'; }
+            }
+            this.selectedDeploy = dep;
+        },
         async toggleBuildLog(depId) {
             if(this.expandedLog === depId) { this.expandedLog = null; return; }
             this.expandedLog = depId;
@@ -1164,6 +1196,14 @@ function resourceDetail(id) {
             if(dep && !dep._build_log) {
                 try { const detail = await fetch('/api/v1/resources/'+this.id+'/deployments/'+depId).then(r=>r.json()); dep._build_log = detail.build_log || 'No logs'; } catch { dep._build_log = 'Failed to load logs'; }
             }
+        },
+        async deployAndWatch() {
+            try {
+                await api('/api/v1/resources/'+this.id+'/deploy', { method: 'POST', body: JSON.stringify({ branch: this.gitConfig.git_branch || 'main' }) });
+                toast('Deploy started');
+                this.tab = 'deployments';
+                setTimeout(() => { this.loadDeployments(); this.loadDeploymentLogs(); }, 2000);
+            } catch(e) { toast(e.message, 'error'); }
         },
         async renameResource() {
             if (!this.editName.trim()) { toast('Name is required', 'error'); return; }
