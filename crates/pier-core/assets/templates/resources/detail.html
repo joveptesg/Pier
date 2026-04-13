@@ -1070,7 +1070,7 @@ function resourceDetail(id) {
         loadEnv() {
             const internal = ['GIT_URL','GIT_BRANCH','DOCKERFILE_PATH','SOURCE_ID','BUILD_PACK','COMPOSE_PATH','BUILD_PATH'];
             try { const j=this.resource.env_json; if(!j){this.editableEnv=[];return;} const o=JSON.parse(j);
-                this.editableEnv=Object.entries(o).filter(([k])=>k===k.toUpperCase() && !internal.includes(k)).map(([key,value])=>({key,value}));
+                this.editableEnv=Object.entries(o).filter(([k])=>k===k.toUpperCase() && !internal.includes(k)).map(([key,value])=>({key,value})).sort((a,b)=>a.key.localeCompare(b.key));
             } catch { this.editableEnv=[]; }
         },
         addEnvRow() { this.editableEnv.push({key:'',value:''}); },
