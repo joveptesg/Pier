@@ -331,12 +331,14 @@ pub async fn github_callback(
     }
 }
 
-/// GET /api/v1/sources/{id}/file/{repo}/{branch}/{path} — get file content from GitHub repo.
+/// GET /api/v1/sources/{id}/file?repo=user/repo&branch=main&path=docker-compose.yml
 pub async fn get_file(
     State(state): State<SharedState>,
-    Path((source_id, repo, branch)): Path<(String, String, String)>,
+    Path(source_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult<impl IntoResponse> {
+    let repo = params.get("repo").ok_or_else(|| AppError::BadRequest("repo is required".into()))?;
+    let branch = params.get("branch").map(|s| s.as_str()).unwrap_or("main");
     let file_path = params.get("path").map(|s| s.as_str()).unwrap_or("docker-compose.yml");
 
     let (app_id, installation_id, private_key) = {

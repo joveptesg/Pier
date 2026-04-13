@@ -1299,7 +1299,7 @@ function resourceDetail(id) {
                 const buildStrategy = this.gitConfig.build_strategy || 'dockerfile';
                 const filePath = buildStrategy === 'docker-compose' ? 'docker-compose.yml' : 'Dockerfile';
 
-                const result = await api('/api/v1/sources/' + this.gitConfig.git_source_id + '/file/' + repo + '/' + branch + '?path=' + encodeURIComponent(filePath));
+                const result = await api('/api/v1/sources/' + this.gitConfig.git_source_id + '/file?repo=' + encodeURIComponent(repo) + '&branch=' + encodeURIComponent(branch) + '&path=' + encodeURIComponent(filePath));
                 this.gitComposeContent = result.content || '';
                 this.showCompose = true;
 
