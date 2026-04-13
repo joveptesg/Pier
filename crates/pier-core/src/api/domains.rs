@@ -68,14 +68,18 @@ pub async fn create(
         return Err(AppError::BadRequest("Domain is required".into()));
     }
 
-    // Look up the service and its container port (for Docker network access)
-    let (service_name, port) = {
+    // Look up the service, container name, and container port (for Docker network access)
+    let (service_name, container_name, port) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let name: String = db.query_row("SELECT name FROM services WHERE id = ?1", [&body.service_id], |row| row.get(0))
-            .map_err(|_| AppError::NotFound(format!("Service {} not found", body.service_id)))?;
+        let (name, cid): (String, Option<String>) = db.query_row(
+            "SELECT name, container_id FROM services WHERE id = ?1",
+            [&body.service_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| AppError::NotFound(format!("Service {} not found", body.service_id)))?;
         // Use container_port from port_allocations (prefer non-management HTTP port)
         let http_keywords = ["management", "metrics", "prometheus"];
         let mut stmt = db.prepare("SELECT port_name, container_port FROM port_allocations WHERE service_id = ?1")?;
@@ -84,15 +88,20 @@ pub async fn create(
             .find(|(n, _)| !http_keywords.iter().any(|k| n.to_lowercase().contains(k)))
             .or(ports.first())
             .map(|(_, p)| *p);
-        (name, cp)
+        (name, cid, cp)
     };
 
     let port = port.ok_or_else(|| {
         AppError::BadRequest(format!("Service {service_name} has no port assigned"))
     })?;
 
+    // Use actual container name (from container_id) for Docker DNS resolution
+    let docker_host = container_name
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| format!("pier-{}", service_name.to_lowercase().replace(' ', "-")));
+
     let id = uuid::Uuid::new_v4().to_string();
-    let target_url = format!("http://pier-{}:{port}", service_name.to_lowercase().replace(' ', "-"));
+    let target_url = format!("http://{docker_host}:{port}");
 
     // Insert into DB
     {
@@ -289,7 +298,25 @@ pub async fn create_service_domain(
 
     // Generate domain
     let domain = config::generate_service_domain(service_name, service_id, &server_ip);
-    let target_url = format!("http://pier-{}:{port}", service_name.to_lowercase().replace(' ', "-"));
+
+    // Use actual container name for Docker DNS resolution
+    let docker_host = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let cid: Option<String> = db
+            .query_row(
+                "SELECT container_id FROM services WHERE id = ?1",
+                [service_id],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+        cid.filter(|c| !c.is_empty())
+            .unwrap_or_else(|| format!("pier-{}", service_name.to_lowercase().replace(' ', "-")))
+    };
+    let target_url = format!("http://{docker_host}:{port}");
     let id = uuid::Uuid::new_v4().to_string();
 
     // Insert into DB

@@ -1905,7 +1905,23 @@ pub async fn set_port_public(
 
     if body.is_public {
         // Create Traefik TCP route (target container via Docker network)
-        let container_name = format!("pier-{}", service_name.to_lowercase().replace(' ', "-"));
+        // Use actual container name from DB (docker-compose services may not have pier- prefix)
+        let container_name = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            let cid: Option<String> = db
+                .query_row(
+                    "SELECT container_id FROM services WHERE id = ?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
+            cid.filter(|c| !c.is_empty())
+                .unwrap_or_else(|| format!("pier-{}", service_name.to_lowercase().replace(' ', "-")))
+        };
         crate::proxy::config::write_tcp_route(&state.config.data_dir, &id, pp, &container_name, container_port)
             .map_err(|e| anyhow::anyhow!("Write TCP route: {e}"))?;
 
