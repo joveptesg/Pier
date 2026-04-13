@@ -305,6 +305,9 @@ pub async fn run_pipeline(
     // Update ports from compose (works for dockerfile strategy; docker-compose ports already extracted before strip)
     update_ports_from_compose(&state, &service_id, &compose_content);
 
+    // Persist env vars from .env file to env_json (for canvas dependency detection)
+    persist_env_from_disk(&state, &service_id, &stack_name);
+
     finish_deployment(&state, &deploy_id, &service_id, "success", &log, start);
 
     // Cleanup temp dir
@@ -754,6 +757,69 @@ async fn write_env_file(state: &AppState, service_id: &str, stack_name: &str) {
     let _ = tokio::fs::create_dir_all(&stack_dir).await;
     if let Err(e) = tokio::fs::write(&env_path, &env_content).await {
         tracing::warn!("Failed to write .env for {stack_name}: {e}");
+    }
+}
+
+/// Read .env from stack dir and save to services.env_json if currently empty.
+/// This ensures canvas dependency detection works for git-deployed services.
+fn persist_env_from_disk(state: &AppState, service_id: &str, stack_name: &str) {
+    let db = match state.db.lock() {
+        Ok(db) => db,
+        Err(_) => return,
+    };
+
+    // Check if env_json already has data
+    let current: Option<String> = db
+        .query_row(
+            "SELECT env_json FROM services WHERE id = ?1",
+            [service_id],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten();
+
+    if let Some(ref val) = current {
+        if !val.is_empty() && val != "{}" && val != "null" {
+            return; // Already has env data, don't overwrite
+        }
+    }
+
+    // Read .env from stack dir
+    let env_path = state
+        .config
+        .data_dir
+        .join("stacks")
+        .join(stack_name)
+        .join(".env");
+    let content = match std::fs::read_to_string(&env_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut env_map = serde_json::Map::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, val)) = line.split_once('=') {
+            let val = val.trim_matches('"').trim_matches('\'');
+            env_map.insert(
+                key.trim().to_string(),
+                serde_json::Value::String(val.to_string()),
+            );
+        }
+    }
+
+    if env_map.is_empty() {
+        return;
+    }
+
+    if let Ok(json_str) = serde_json::to_string(&serde_json::Value::Object(env_map)) {
+        let _ = db.execute(
+            "UPDATE services SET env_json = ?1 WHERE id = ?2",
+            rusqlite::params![json_str, service_id],
+        );
     }
 }
 

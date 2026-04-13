@@ -440,13 +440,14 @@ function canvasApp() {
                     const r = items[i];
                     const col = i % pCols, row = Math.floor(i / pCols);
                     const saved = this.positions[r.id];
+                    // Always use computed position for project cards (ignore saved positions)
                     this.cards.push({
                         id: r.id, name: r.name, status: r.status,
                         catalog_id: r.catalog_id, category: r.category,
                         port: r.port, network_id: r.network_id, server_id: localId,
                         env_json: r.env_json, project_id: r.project_id,
-                        x: saved ? saved.x : projX + 20 + col * (CARD_W + GAP),
-                        y: saved ? saved.y : curY + 35 + row * (CARD_H + GAP),
+                        x: projX + 20 + col * (CARD_W + GAP),
+                        y: curY + 35 + row * (CARD_H + GAP),
                     });
                 }
                 projX += pW + 30;

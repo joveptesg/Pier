@@ -97,6 +97,43 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
         .filter_map(|r| r.ok())
         .collect();
 
+    // Enrich resources: fallback env_json from .env files on disk
+    let data_dir = &state.config.data_dir;
+    let resources: Vec<serde_json::Value> = resources
+        .into_iter()
+        .map(|mut r| {
+            let env_json = r.get("env_json").and_then(|v| v.as_str()).unwrap_or("");
+            if env_json.is_empty() || env_json == "null" || env_json == "{}" {
+                // Try reading .env file from stack directory
+                if let Some(name) = r.get("name").and_then(|v| v.as_str()) {
+                    let env_path = data_dir.join("stacks").join(name).join(".env");
+                    if let Ok(content) = std::fs::read_to_string(&env_path) {
+                        let mut env_map = serde_json::Map::new();
+                        for line in content.lines() {
+                            let line = line.trim();
+                            if line.is_empty() || line.starts_with('#') {
+                                continue;
+                            }
+                            if let Some((key, val)) = line.split_once('=') {
+                                let val = val.trim_matches('"').trim_matches('\'');
+                                env_map.insert(
+                                    key.trim().to_string(),
+                                    serde_json::Value::String(val.to_string()),
+                                );
+                            }
+                        }
+                        if !env_map.is_empty() {
+                            if let Ok(json_str) = serde_json::to_string(&env_map) {
+                                r["env_json"] = serde_json::Value::String(json_str);
+                            }
+                        }
+                    }
+                }
+            }
+            r
+        })
+        .collect();
+
     // System metrics
     let sys = sysinfo::System::new_all();
     let cpu_percent = sys.global_cpu_usage();
