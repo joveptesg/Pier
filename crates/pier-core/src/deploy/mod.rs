@@ -283,19 +283,23 @@ pub async fn run_pipeline(
     // Detect actual container name(s) after deploy
     let actual_container_name = detect_container_name(&stack_name, &state.config).await;
 
+    // Read compose content from stack dir
+    let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
+    let compose_path = stack_dir.join("docker-compose.yml");
+    let compose_content = std::fs::read_to_string(&compose_path).unwrap_or_default();
+
     // Save previous image tag, compose content, and container name
     {
         if let Ok(db) = state.db.lock() {
-            let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
-            let compose_path = stack_dir.join("docker-compose.yml");
-            let compose_content = std::fs::read_to_string(&compose_path).unwrap_or_default();
-
             let _ = db.execute(
                 "UPDATE services SET previous_image_tag = image, image = ?1, compose_content = ?3, container_id = ?4, updated_at = datetime('now') WHERE id = ?2",
                 rusqlite::params![image_tag, service_id, compose_content, actual_container_name],
             );
         }
     }
+
+    // Parse ports from compose YAML and update port_allocations
+    update_ports_from_compose(&state, &service_id, &compose_content);
 
     finish_deployment(&state, &deploy_id, &service_id, "success", &log, start);
 
@@ -521,6 +525,77 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
     }
 
     lines.join("\n")
+}
+
+/// Parse ports from compose YAML and update port_allocations in DB.
+/// Handles formats: "5201:5201", "127.0.0.1:5201:5201", "3000:3000/tcp"
+fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
+    let mut ports = Vec::new();
+    let mut in_ports = false;
+
+    for line in yaml.lines() {
+        let trimmed = line.trim();
+        if trimmed == "ports:" {
+            in_ports = true;
+            continue;
+        }
+        if in_ports {
+            if trimmed.starts_with("- ") {
+                let port_str = trimmed.strip_prefix("- ").unwrap_or("").trim().trim_matches('"').trim_matches('\'');
+                // Remove protocol suffix (/tcp, /udp)
+                let port_str = port_str.split('/').next().unwrap_or(port_str);
+                // Parse: "host:container" or "ip:host:container"
+                let parts: Vec<&str> = port_str.split(':').collect();
+                match parts.len() {
+                    2 => {
+                        if let (Ok(host), Ok(container)) = (parts[0].parse::<u16>(), parts[1].parse::<u16>()) {
+                            ports.push((host, container));
+                        }
+                    }
+                    3 => {
+                        if let (Ok(host), Ok(container)) = (parts[1].parse::<u16>(), parts[2].parse::<u16>()) {
+                            ports.push((host, container));
+                        }
+                    }
+                    1 => {
+                        if let Ok(p) = parts[0].parse::<u16>() {
+                            ports.push((p, p));
+                        }
+                    }
+                    _ => {}
+                }
+            } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                in_ports = false;
+            }
+        }
+    }
+
+    if ports.is_empty() { return; }
+
+    if let Ok(db) = state.db.lock() {
+        // Delete old port allocations for this service
+        let _ = db.execute("DELETE FROM port_allocations WHERE service_id = ?1", [service_id]);
+
+        // Insert new ports from compose
+        for (i, (host_port, container_port)) in ports.iter().enumerate() {
+            let port_name = if i == 0 { "primary".to_string() } else { format!("port-{}", i) };
+            let id = uuid::Uuid::new_v4().to_string();
+            let _ = db.execute(
+                "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol) VALUES (?1, ?2, ?3, ?4, ?5, 'tcp')",
+                rusqlite::params![id, service_id, port_name, *host_port as i64, *container_port as i64],
+            );
+        }
+
+        // Update service port field with first port
+        if let Some((hp, _)) = ports.first() {
+            let _ = db.execute(
+                "UPDATE services SET port = ?1 WHERE id = ?2",
+                rusqlite::params![*hp as i64, service_id],
+            );
+        }
+
+        tracing::info!("Updated ports from compose for {service_id}: {:?}", ports);
+    }
 }
 
 /// Detect the actual container name after docker compose deploy.

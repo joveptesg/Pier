@@ -204,8 +204,8 @@
                 </div>
             </div>
         </div>
-        <!-- Domains summary on Overview -->
-        <div x-show="domains.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <!-- Domains on Overview (full management) -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Domains</h3>
                 <button @click="showAddDomain = true"
@@ -213,7 +213,8 @@
                     + Add Domain
                 </button>
             </div>
-            <div class="space-y-1.5">
+            <div x-show="domains.length === 0" class="text-xs text-gray-400 py-2">No domains configured</div>
+            <div x-show="domains.length > 0" class="space-y-1.5">
                 <template x-for="d in domains" :key="d.id">
                     <div class="flex items-center justify-between text-sm">
                         <div class="flex items-center gap-2">
@@ -221,9 +222,14 @@
                             <a :href="'https://' + d.domain" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline text-xs font-mono" x-text="d.domain"></a>
                             <span x-show="d.is_generated" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">auto</span>
                         </div>
-                        <span class="text-[10px] px-1.5 py-0.5 rounded-full"
-                              :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
-                              x-text="d.ssl_status"></span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] px-1.5 py-0.5 rounded-full"
+                                  :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
+                                  x-text="d.ssl_status"></span>
+                            <button @click="removeDomain(d.id)" class="text-gray-400 hover:text-red-500 p-0.5" title="Remove domain">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                        </div>
                     </div>
                 </template>
             </div>
