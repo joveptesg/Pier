@@ -32,8 +32,9 @@
             </div>
         </div>
 
-        <!-- Memory -->
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
+        <!-- Memory (clickable — opens container stats popup) -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 cursor-pointer hover:border-green-300 dark:hover:border-green-700 transition-colors"
+             @click="showMemoryDetail = true; loadContainerStats()">
             <div class="flex items-center justify-between mb-3">
                 <span class="text-sm text-gray-500 dark:text-gray-400">Memory</span>
                 <svg class="w-4 h-4 text-green-500 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -149,6 +150,41 @@
             </div>
         </div>
     </div>
+
+    <!-- Memory Detail Popup -->
+    <div x-show="showMemoryDetail" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" @click.self="showMemoryDetail = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 border border-gray-200 dark:border-gray-800">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Memory Usage by Container</h3>
+                <button @click="showMemoryDetail = false" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div x-show="containerStatsLoading" class="text-center py-4 text-gray-500 text-sm">Loading stats...</div>
+            <div x-show="!containerStatsLoading && containerStats.length === 0" class="text-center py-4 text-gray-400 text-sm">No running containers</div>
+            <div x-show="!containerStatsLoading && containerStats.length > 0" class="space-y-3 max-h-[400px] overflow-y-auto">
+                <template x-for="c in containerStats" :key="c.name">
+                    <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-sm font-medium text-gray-900 dark:text-white truncate" x-text="c.name"></span>
+                                <span class="text-xs font-mono text-gray-500" x-text="formatBytes(c.memory_usage)"></span>
+                            </div>
+                            <div class="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full transition-all"
+                                     :class="c.memory_percent > 80 ? 'bg-red-500' : c.memory_percent > 50 ? 'bg-yellow-500' : 'bg-green-500'"
+                                     :style="'width: ' + Math.min(c.memory_percent || 0, 100) + '%'"></div>
+                            </div>
+                            <div class="flex items-center justify-between mt-1">
+                                <span class="text-[10px] text-gray-400 truncate" x-text="c.image"></span>
+                                <span class="text-[10px] text-gray-400" x-text="(c.cpu_percent || 0).toFixed(1) + '% CPU'"></span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -157,6 +193,16 @@ function dashboardData() {
         metrics: {},
         docker: {},
         projects: [],
+        showMemoryDetail: false,
+        containerStats: [],
+        containerStatsLoading: false,
+        async loadContainerStats() {
+            this.containerStatsLoading = true;
+            try {
+                this.containerStats = await fetch('/api/v1/containers/all-stats').then(r => r.ok ? r.json() : []);
+            } catch { this.containerStats = []; }
+            this.containerStatsLoading = false;
+        },
         async init() {
             await this.refresh();
             setInterval(() => this.refreshMetrics(), 5000);

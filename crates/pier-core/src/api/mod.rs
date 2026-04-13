@@ -69,6 +69,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/containers/{id}/restart", post(containers::restart))
         .route("/containers/{id}/logs", get(containers::logs))
         .route("/containers/{id}/logs/ws", get(containers::logs_ws))
+        .route("/containers/all-stats", get(containers::all_stats))
         .route("/containers/{id}/stats", get(containers::stats))
         // Images
         .route("/images", get(images::list))

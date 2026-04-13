@@ -109,3 +109,38 @@ pub async fn stats(
     let stats = docker::containers::container_stats(&state.docker, &id).await?;
     Ok(Json(stats))
 }
+
+/// GET /api/v1/containers/all-stats — memory/cpu stats for all running containers.
+pub async fn all_stats(
+    State(state): State<SharedState>,
+) -> AppResult<impl IntoResponse> {
+    let containers = docker::containers::list_containers(&state.docker, false).await?;
+    let mut results = Vec::new();
+
+    for c in &containers {
+        let name = &c.name;
+        match docker::containers::container_stats(&state.docker, name).await {
+            Ok(stats) => {
+                results.push(serde_json::json!({
+                    "name": name,
+                    "image": c.image,
+                    "status": c.status,
+                    "cpu_percent": stats["cpu_percent"],
+                    "memory_usage": stats["memory_usage"],
+                    "memory_limit": stats["memory_limit"],
+                    "memory_percent": stats["memory_percent"],
+                }));
+            }
+            Err(_) => {}
+        }
+    }
+
+    // Sort by memory usage descending
+    results.sort_by(|a, b| {
+        let ma = a["memory_usage"].as_u64().unwrap_or(0);
+        let mb = b["memory_usage"].as_u64().unwrap_or(0);
+        mb.cmp(&ma)
+    });
+
+    Ok(Json(results))
+}
