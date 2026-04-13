@@ -50,7 +50,7 @@ pub async fn update_env(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON serialize: {e}")))?;
 
     // Get current resource info
-    let (name, compose_content, catalog_id) = {
+    let (name, compose_content, catalog_id, git_repo_url, git_branch) = {
         let db = state
             .db
             .lock()
@@ -60,21 +60,46 @@ pub async fn update_env(
             rusqlite::params![env_json, id],
         )?;
         db.query_row(
-            "SELECT name, compose_content, catalog_id FROM services WHERE id = ?1",
+            "SELECT name, compose_content, catalog_id, git_repo_url, git_branch FROM services WHERE id = ?1",
             [&id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             },
         )
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
     };
 
-    // Redeploy if requested and compose_content exists
+    // Redeploy if requested
     if body.redeploy {
+        // Git-based services: run full pipeline
+        if let Some(repo_url) = &git_repo_url {
+            if !repo_url.is_empty() {
+                let branch = git_branch.unwrap_or_else(|| "main".to_string());
+                let commit = crate::deploy::CommitInfo {
+                    sha: "env-redeploy".to_string(),
+                    message: "Save & Redeploy (env update)".to_string(),
+                    branch,
+                };
+                {
+                    let db = state.db.lock().map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+                    let _ = db.execute("UPDATE services SET status = 'deploying', updated_at = datetime('now') WHERE id = ?1", [&id]);
+                }
+                let state_clone = std::sync::Arc::clone(&state);
+                let sid = id.clone();
+                tokio::spawn(async move {
+                    crate::deploy::run_pipeline(state_clone, sid, commit, "redeploy").await;
+                });
+                return Ok(Json(serde_json::json!({"ok": true, "redeploying": true})));
+            }
+        }
+
+        // Catalog-based services: use compose YAML
         if let Some(yaml) = &compose_content {
             // Rebuild compose YAML with new env vars
             let catalog_item = catalog_id
