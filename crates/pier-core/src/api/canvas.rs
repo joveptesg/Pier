@@ -106,7 +106,8 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
             if env_json.is_empty() || env_json == "null" || env_json == "{}" {
                 // Try reading .env file from stack directory
                 if let Some(name) = r.get("name").and_then(|v| v.as_str()) {
-                    let env_path = data_dir.join("stacks").join(name).join(".env");
+                    let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+                    let env_path = data_dir.join("stacks").join(&stack_name).join(".env");
                     if let Ok(content) = std::fs::read_to_string(&env_path) {
                         let mut env_map = serde_json::Map::new();
                         for line in content.lines() {
