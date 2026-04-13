@@ -304,6 +304,18 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE domains ADD COLUMN path_prefix TEXT DEFAULT '';
     "#,
+    // Migration 19: Store database credentials (username/password for created databases)
+    r#"
+    CREATE TABLE IF NOT EXISTS database_credentials (
+        id          TEXT PRIMARY KEY NOT NULL,
+        service_id  TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        db_name     TEXT NOT NULL,
+        username    TEXT NOT NULL,
+        password    TEXT NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_db_creds_service ON database_credentials(service_id);
+    "#,
 ];
 
 /// Run all pending database migrations.

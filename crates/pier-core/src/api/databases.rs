@@ -73,15 +73,28 @@ pub async fn list_databases(
     };
 
     // Parse output into structured data
+    // Load stored credentials
+    let creds: std::collections::HashMap<String, (String, String)> = {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt = db.prepare("SELECT db_name, username, password FROM database_credentials WHERE service_id = ?1")?;
+        let rows = stmt.query_map([&id], |row| {
+            Ok((row.get::<_, String>(0)?, (row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+        })?.filter_map(|r| r.ok()).collect();
+        rows
+    };
+
     let databases: Vec<serde_json::Value> = output
         .lines()
         .filter(|l| !l.trim().is_empty())
         .map(|line| {
             let parts: Vec<&str> = line.split('|').collect();
+            let db_name = parts.first().map(|s| s.trim()).unwrap_or("");
+            let cred = creds.get(db_name);
             serde_json::json!({
-                "name": parts.first().map(|s| s.trim()).unwrap_or(""),
+                "name": db_name,
                 "owner": parts.get(1).map(|s| s.trim()).unwrap_or(""),
                 "size": parts.get(2).map(|s| s.trim()).unwrap_or("0"),
+                "stored_password": cred.map(|(_, p)| p.as_str()).unwrap_or(""),
             })
         })
         .filter(|d| {
@@ -164,6 +177,16 @@ pub async fn create_database(
         _ => {
             return Err(AppError::BadRequest("Unsupported database type".into()));
         }
+    }
+
+    // Store credentials in database_credentials table
+    {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let cred_id = uuid::Uuid::new_v4().to_string();
+        let _ = db.execute(
+            "INSERT INTO database_credentials (id, service_id, db_name, username, password) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![cred_id, id, db_name, username, password],
+        );
     }
 
     tracing::info!("Created database {db_name} with user {username} in {container}");
@@ -275,6 +298,15 @@ pub async fn delete_database(
         _ => {
             return Err(AppError::BadRequest("Unsupported database type".into()));
         }
+    }
+
+    // Remove stored credentials
+    {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let _ = db.execute(
+            "DELETE FROM database_credentials WHERE service_id = ?1 AND db_name = ?2",
+            rusqlite::params![id, dbname],
+        );
     }
 
     tracing::info!("Deleted database {dbname} from {container}");
