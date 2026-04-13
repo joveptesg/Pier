@@ -1149,7 +1149,7 @@ pub async fn get(
 
     let resource = db
         .query_row(
-            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image, s.catalog_id, s.category, s.env_json, s.compose_content, s.created_at, s.cluster_mode, s.cluster_config_json, s.network_id, n.name, s.auto_deploy, s.force_https
+            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image, s.catalog_id, s.category, s.env_json, s.compose_content, s.created_at, s.cluster_mode, s.cluster_config_json, s.network_id, n.name, s.auto_deploy, s.force_https, s.container_id
              FROM services s LEFT JOIN networks n ON s.network_id = n.id WHERE s.id = ?1",
             [&id],
             |row| {
@@ -1172,6 +1172,7 @@ pub async fn get(
                     "network_name": row.get::<_, Option<String>>(15)?,
                     "auto_deploy": row.get::<_, Option<bool>>(16)?.unwrap_or(true),
                     "force_https": row.get::<_, Option<bool>>(17)?.unwrap_or(true),
+                    "stored_container_name": row.get::<_, Option<String>>(18)?,
                 }))
             },
         )
@@ -1201,9 +1202,13 @@ pub async fn get(
         )
         .unwrap_or_default();
 
-    // Get container name for Docker URL
+    // Get container name: use stored name (from docker-compose deploy) or fallback to pier-{name}
     let svc_name = resource["name"].as_str().unwrap_or_default();
-    let container_name = format!("pier-{}", svc_name.to_lowercase().replace(' ', "-"));
+    let container_name = resource["stored_container_name"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("pier-{}", svc_name.to_lowercase().replace(' ', "-")));
 
     let mut result = resource;
     result["ports"] = serde_json::json!(ports_json);

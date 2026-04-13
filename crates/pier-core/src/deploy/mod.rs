@@ -254,17 +254,19 @@ pub async fn run_pipeline(
         }
     }
 
-    // Save previous image tag and compose content for rollback
+    // Detect actual container name(s) after deploy
+    let actual_container_name = detect_container_name(&stack_name, &state.config).await;
+
+    // Save previous image tag, compose content, and container name
     {
         if let Ok(db) = state.db.lock() {
-            // Read the compose YAML that was actually deployed from the stack dir
             let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
             let compose_path = stack_dir.join("docker-compose.yml");
             let compose_content = std::fs::read_to_string(&compose_path).unwrap_or_default();
 
             let _ = db.execute(
-                "UPDATE services SET previous_image_tag = image, image = ?1, compose_content = ?3, updated_at = datetime('now') WHERE id = ?2",
-                rusqlite::params![image_tag, service_id, compose_content],
+                "UPDATE services SET previous_image_tag = image, image = ?1, compose_content = ?3, container_id = ?4, updated_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![image_tag, service_id, compose_content, actual_container_name],
             );
         }
     }
@@ -389,6 +391,32 @@ fn finish_deployment(
             "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
             rusqlite::params![service_status, service_id],
         );
+    }
+}
+
+/// Detect the actual container name after docker compose deploy.
+/// Uses `docker compose -p {project} ps --format {{.Name}}` to find running containers.
+async fn detect_container_name(stack_name: &str, config: &crate::config::PierConfig) -> String {
+    let stack_dir = config.data_dir.join("stacks").join(stack_name);
+    let output = tokio::process::Command::new("docker")
+        .args(["compose", "-p", stack_name, "ps", "--format", "{{.Name}}"])
+        .current_dir(&stack_dir)
+        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
+        .output()
+        .await;
+
+    match output {
+        Ok(out) => {
+            let names = String::from_utf8_lossy(&out.stdout);
+            let first = names.lines().next().unwrap_or("").trim().to_string();
+            if !first.is_empty() {
+                tracing::info!("Detected container name: {first} for stack {stack_name}");
+                first
+            } else {
+                stack_name.to_string()
+            }
+        }
+        Err(_) => stack_name.to_string(),
     }
 }
 

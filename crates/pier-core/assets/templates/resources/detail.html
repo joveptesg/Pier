@@ -1086,7 +1086,8 @@ function resourceDetail(id) {
         },
         async loadDomains() { try { this.domains=await fetch('/api/v1/resources/'+this.id+'/domains').then(r=>r.ok?r.json():[]); } catch{this.domains=[];} },
         async loadContainerLogs() {
-            const containerName = 'pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-');
+            if (this.resource.status === 'created') { this.containerLogs = 'Service not deployed yet'; return; }
+            const containerName = this.resource.container_name || ('pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-'));
             try {
                 const resp = await fetch('/api/v1/containers/'+encodeURIComponent(containerName)+'/logs?tail='+this.logLines+'&timestamps=true');
                 if (!resp.ok) {
@@ -1202,7 +1203,17 @@ function resourceDetail(id) {
                 await api('/api/v1/resources/'+this.id+'/deploy', { method: 'POST', body: JSON.stringify({ branch: this.gitConfig.git_branch || 'main' }) });
                 toast('Deploy started');
                 this.tab = 'deployments';
-                setTimeout(() => { this.loadDeployments(); this.loadDeploymentLogs(); }, 2000);
+                this.selectedDeploy = null;
+                // Poll until new deployment appears and auto-open it
+                const poll = async (attempts) => {
+                    await this.loadDeployments();
+                    if (this.ciDeployments.length > 0) {
+                        await this.openDeployDetail(this.ciDeployments[0].id);
+                    } else if (attempts > 0) {
+                        setTimeout(() => poll(attempts - 1), 1500);
+                    }
+                };
+                setTimeout(() => poll(5), 1500);
             } catch(e) { toast(e.message, 'error'); }
         },
         async renameResource() {
