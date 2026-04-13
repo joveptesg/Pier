@@ -1078,8 +1078,8 @@ function resourceDetail(id) {
         async startResource() { try{await api('/api/v1/resources/'+this.id+'/start',{method:'POST'});toast('Resource started');await this.refresh();}catch(e){toast(e.message,'error');} },
         async stopResource() { try{await api('/api/v1/resources/'+this.id+'/stop',{method:'POST'});toast('Resource stopped');await this.refresh();}catch(e){toast(e.message,'error');} },
         async restartResource() { try{await api('/api/v1/resources/'+this.id+'/restart',{method:'POST'});toast('Resource restarted');await this.refresh();}catch(e){toast(e.message,'error');} },
-        async redeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy',{method:'POST'});toast('Redeploying...');this.tab='deployments';setTimeout(()=>{this.refresh();this.loadDeployments();this.loadDeploymentLogs();},2000);}catch(e){toast(e.message,'error');} },
-        async forceDeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy?no_cache=true',{method:'POST'});toast('Force deploying...');this.tab='deployments';setTimeout(()=>{this.refresh();this.loadDeployments();this.loadDeploymentLogs();},2000);}catch(e){toast(e.message,'error');} },
+        async redeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy',{method:'POST'});toast('Redeploying...');this.tab='deployments';this.selectedDeploy=null;this.pollDeployStatus();}catch(e){toast(e.message,'error');} },
+        async forceDeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy?no_cache=true',{method:'POST'});toast('Force deploying...');this.tab='deployments';this.selectedDeploy=null;this.pollDeployStatus();}catch(e){toast(e.message,'error');} },
         async removeResource() {
             const url = '/api/v1/resources/'+this.id + (this.deleteVolumes ? '?delete_volumes=true' : '');
             try{await api(url,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');}
@@ -1104,7 +1104,7 @@ function resourceDetail(id) {
             if (this.logStreaming) { this.stopLogStream(); } else { this.startLogStream(); }
         },
         startLogStream() {
-            const containerName = 'pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-');
+            const containerName = this.resource.container_name || ('pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-'));
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             const url = proto + '//' + location.host + '/api/v1/containers/' + encodeURIComponent(containerName) + '/logs/ws';
             try {
@@ -1182,15 +1182,7 @@ function resourceDetail(id) {
                 toast('Deploy started');
                 this.tab = 'deployments';
                 this.selectedDeploy = null;
-                const poll = async (attempts) => {
-                    await this.loadDeployments();
-                    if (this.ciDeployments.length > 0) {
-                        await this.openDeployDetail(this.ciDeployments[0].id);
-                    } else if (attempts > 0) {
-                        setTimeout(() => poll(attempts - 1), 1500);
-                    }
-                };
-                setTimeout(() => poll(5), 1500);
+                this.pollDeployStatus();
             } catch(e){toast(e.message,'error');}
         },
         async loadDeployments() {
@@ -1218,17 +1210,26 @@ function resourceDetail(id) {
                 toast('Deploy started');
                 this.tab = 'deployments';
                 this.selectedDeploy = null;
-                // Poll until new deployment appears and auto-open it
-                const poll = async (attempts) => {
-                    await this.loadDeployments();
-                    if (this.ciDeployments.length > 0) {
-                        await this.openDeployDetail(this.ciDeployments[0].id);
-                    } else if (attempts > 0) {
-                        setTimeout(() => poll(attempts - 1), 1500);
-                    }
-                };
-                setTimeout(() => poll(5), 1500);
+                this.pollDeployStatus();
             } catch(e) { toast(e.message, 'error'); }
+        },
+        pollDeployStatus() {
+            // Poll deployments + resource status until deploy finishes
+            const poll = async (attempts) => {
+                await this.loadDeployments();
+                await this.refresh();
+                const latest = this.ciDeployments[0];
+                if (latest && !this.selectedDeploy) {
+                    await this.openDeployDetail(latest.id);
+                } else if (this.selectedDeploy && latest) {
+                    // Refresh build log of selected deploy
+                    try { const detail = await fetch('/api/v1/resources/'+this.id+'/deployments/'+latest.id).then(r=>r.json()); latest._build_log = detail.build_log || 'Building...'; latest.status = detail.status; latest.duration_secs = detail.duration_secs; latest.finished_at = detail.finished_at; this.selectedDeploy = latest; } catch {}
+                }
+                if (attempts > 0 && (this.resource.status === 'deploying' || (latest && latest.status === 'building'))) {
+                    setTimeout(() => poll(attempts - 1), 3000);
+                }
+            };
+            setTimeout(() => poll(30), 2000);
         },
         async renameResource() {
             if (!this.editName.trim()) { toast('Name is required', 'error'); return; }
