@@ -313,6 +313,67 @@ pub async fn delete_database(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(Deserialize)]
+pub struct ChangePasswordRequest {
+    pub password: String,
+}
+
+/// PUT /api/v1/resources/{id}/databases/{dbname}/password — change database user password.
+pub async fn change_password(
+    State(state): State<SharedState>,
+    Path((id, dbname)): Path<(String, String)>,
+    Json(body): Json<ChangePasswordRequest>,
+) -> AppResult<impl IntoResponse> {
+    let password = body.password.trim();
+    if password.is_empty() {
+        return Err(AppError::BadRequest("Password is required".into()));
+    }
+
+    let (catalog_id, name) = {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row("SELECT catalog_id, name FROM services WHERE id = ?1", [&id], |row| {
+            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?))
+        }).map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+    };
+
+    let container = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+    let catalog = catalog_id.unwrap_or_default();
+
+    // Get username for this database from credentials or from DB query
+    let username: String = {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT username FROM database_credentials WHERE service_id = ?1 AND db_name = ?2",
+            rusqlite::params![id, dbname],
+            |row| row.get(0),
+        ).unwrap_or_else(|_| dbname.clone())
+    };
+
+    match catalog.as_str() {
+        "postgresql" => {
+            let sql = format!("ALTER USER {username} WITH PASSWORD '{password}'");
+            exec_in_container(&state.docker, &container, &["psql", "-U", "postgres", "-c", &sql]).await?;
+        }
+        "mysql" | "mariadb" => {
+            let sql = format!("ALTER USER '{username}'@'%' IDENTIFIED BY '{password}'; FLUSH PRIVILEGES;");
+            exec_in_container(&state.docker, &container, &["mysql", "-u", "root", "-e", &sql]).await?;
+        }
+        _ => return Err(AppError::BadRequest("Unsupported database type".into())),
+    }
+
+    // Update stored credentials
+    {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let _ = db.execute(
+            "UPDATE database_credentials SET password = ?1 WHERE service_id = ?2 AND db_name = ?3",
+            rusqlite::params![password, id, dbname],
+        );
+    }
+
+    tracing::info!("Changed password for user {username} (db: {dbname}) in {container}");
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 /// Execute a command inside a Docker container and return stdout.
 async fn exec_in_container(
     docker: &bollard::Docker,

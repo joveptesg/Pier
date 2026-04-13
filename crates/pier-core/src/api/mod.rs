@@ -148,6 +148,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/databases/{dbname}",
             delete(databases::delete_database),
         )
+        .route(
+            "/resources/{id}/databases/{dbname}/password",
+            put(databases::change_password),
+        )
         // Environment Variables
         .route(
             "/resources/{id}/env",

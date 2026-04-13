@@ -367,9 +367,18 @@
                                     </div>
                                 </td>
                                 <td class="py-2 px-2 text-right">
-                                    <button x-show="d.name !== 'postgres' && d.name !== 'mysql'"
-                                            @click="deleteDb(d.name)"
-                                            class="text-[10px] text-red-500 hover:text-red-400">Delete</button>
+                                    <div class="flex items-center justify-end gap-1">
+                                        <button x-show="d.name !== 'postgres' && d.name !== 'mysql'"
+                                                @click="changeDbPassword = {db: d.name, owner: d.owner, password: ''}; showChangeDbPwd = true"
+                                                class="text-gray-400 hover:text-blue-500 p-1" title="Change password">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                        </button>
+                                        <button x-show="d.name !== 'postgres' && d.name !== 'mysql'"
+                                                @click="deleteDb(d.name)"
+                                                class="text-gray-400 hover:text-red-500 p-1" title="Delete database">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
@@ -410,6 +419,31 @@
                     <button @click="createDb()" :disabled="dbCreating"
                             class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg">
                         <span x-text="dbCreating ? 'Creating...' : 'Create'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Change Password Modal -->
+        <div x-show="showChangeDbPwd" x-cloak
+             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+             @click.self="showChangeDbPwd = false">
+            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4 border border-gray-200 dark:border-gray-800">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Change Password</h3>
+                <p class="text-sm text-gray-500">Database: <strong x-text="changeDbPassword.db" class="text-gray-900 dark:text-white"></strong> / User: <strong x-text="changeDbPassword.owner" class="text-gray-900 dark:text-white"></strong></p>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">New Password</label>
+                    <div class="flex gap-2">
+                        <input x-model="changeDbPassword.password" type="text"
+                               class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <button @click="changeDbPassword.password = generatePassword(32)"
+                                class="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-xs text-gray-600 dark:text-gray-300">Generate</button>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button @click="showChangeDbPwd = false" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">Cancel</button>
+                    <button @click="changeDbPwd()" :disabled="dbChangingPwd"
+                            class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg">
+                        <span x-text="dbChangingPwd ? 'Changing...' : 'Change Password'"></span>
                     </button>
                 </div>
             </div>
@@ -906,7 +940,8 @@ function resourceDetail(id) {
         changingNetwork: false,
         availableNetworks: [],
         dbList: [], dbLoading: false, dbCreating: false,
-        showCreateDb: false,
+        showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
+        changeDbPassword: { db: '', owner: '', password: '' },
         newDb: { database: '', username: '', password: '' },
         get portIsPublic() { return this.resource.ports?.[0]?.is_public || false; },
         showPasswords: false,
@@ -1016,6 +1051,20 @@ function resourceDetail(id) {
                 toast('Database deleted');
                 await this.loadDatabases();
             } catch(e) { toast(e.message, 'error'); }
+        },
+        async changeDbPwd() {
+            if (!this.changeDbPassword.password) { toast('Password is required', 'error'); return; }
+            this.dbChangingPwd = true;
+            try {
+                await api('/api/v1/resources/'+this.id+'/databases/'+this.changeDbPassword.db+'/password', {
+                    method: 'PUT',
+                    body: JSON.stringify({ password: this.changeDbPassword.password })
+                });
+                toast('Password changed');
+                this.showChangeDbPwd = false;
+                await this.loadDatabases();
+            } catch(e) { toast(e.message, 'error'); }
+            this.dbChangingPwd = false;
         },
         buildDbConnStr(dbName, owner) {
             const p = this.resource.ports?.[0]; if (!p) return '';
