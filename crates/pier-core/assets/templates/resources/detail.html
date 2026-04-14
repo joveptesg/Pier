@@ -1280,31 +1280,48 @@ function resourceDetail(id) {
             if (!text) return '';
             const lines = text.split('\n');
             return lines.map((raw, i) => {
-                const line = this.escapeHtml(raw);
-                const num = `<span class="inline-block w-8 text-right mr-3 text-gray-700 select-none">${i + 1}</span>`;
-                // Timestamps (ISO format from Docker)
-                const tsMatch = raw.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)\s*(.*)/);
-                if (tsMatch) {
-                    const ts = tsMatch[1].replace('T', ' ').replace(/\.\d+Z?$/, '');
-                    const msg = this.escapeHtml(tsMatch[2]);
-                    const tsSpan = `<span class="text-gray-600 mr-2">${ts}</span>`;
-                    // Color the message part
-                    if (/error|fail|panic|fatal|denied|exception/i.test(msg)) {
-                        return `<div class="flex hover:bg-gray-900/50">${num}${tsSpan}<span class="text-red-400">${msg}</span></div>`;
+                if (!raw.trim()) return '';
+                const num = `<span class="inline-block w-8 text-right mr-3 text-gray-700 select-none shrink-0">${i + 1}</span>`;
+
+                // Try to extract Docker timestamp prefix: "2026-04-14T12:03:25.123Z <rest>"
+                let ts = '', body = raw;
+                const dockerTs = raw.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)\s+(.*)/s);
+                if (dockerTs) {
+                    ts = dockerTs[1].replace('T', ' ').replace(/\.\d+Z?$/, '');
+                    body = dockerTs[2];
+                }
+
+                // Try JSON parse (Pino/Fastify structured logs)
+                let msg = '', level = 'info', extra = '';
+                try {
+                    if (body.startsWith('{')) {
+                        const j = JSON.parse(body);
+                        const lvl = j.level || 30;
+                        level = lvl >= 50 ? 'error' : lvl >= 40 ? 'warn' : lvl >= 30 ? 'info' : 'debug';
+                        msg = j.msg || '';
+                        // Build extras: method, url, statusCode, responseTime
+                        const parts = [];
+                        if (j.req) { parts.push((j.req.method || '') + ' ' + (j.req.url || '')); }
+                        if (j.res) { parts.push(j.res.statusCode); }
+                        if (j.responseTime != null) { parts.push(Math.round(j.responseTime) + 'ms'); }
+                        extra = parts.filter(Boolean).join(' · ');
+                        // Use time from JSON if no Docker timestamp
+                        if (!ts && j.time) {
+                            const d = new Date(j.time);
+                            ts = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') + ':' + String(d.getSeconds()).padStart(2,'0');
+                        }
+                    } else {
+                        msg = body;
                     }
-                    if (/warn|warning|deprecated/i.test(msg)) {
-                        return `<div class="flex hover:bg-gray-900/50">${num}${tsSpan}<span class="text-yellow-400">${msg}</span></div>`;
-                    }
-                    return `<div class="flex hover:bg-gray-900/50">${num}${tsSpan}<span class="text-gray-300">${msg}</span></div>`;
-                }
-                // No timestamp — color by content
-                if (/error|fail|panic|fatal/i.test(raw)) {
-                    return `<div class="flex hover:bg-gray-900/50">${num}<span class="text-red-400">${line}</span></div>`;
-                }
-                if (/warn|warning/i.test(raw)) {
-                    return `<div class="flex hover:bg-gray-900/50">${num}<span class="text-yellow-400">${line}</span></div>`;
-                }
-                return `<div class="flex hover:bg-gray-900/50">${num}<span class="text-gray-400">${line}</span></div>`;
+                } catch { msg = body; }
+
+                const tsHtml = ts ? `<span class="text-gray-600 w-40 shrink-0">${this.escapeHtml(ts)}</span>` : '';
+                const levelColors = { error: 'text-red-400', warn: 'text-yellow-400', info: 'text-gray-300', debug: 'text-gray-500' };
+                const lvlColor = levelColors[level] || 'text-gray-300';
+                const lvlBadge = level !== 'info' ? `<span class="w-12 shrink-0 text-[10px] font-medium ${lvlColor}">${level.toUpperCase()}</span>` : '<span class="w-12 shrink-0"></span>';
+                const extraHtml = extra ? `<span class="text-gray-500 ml-2">${this.escapeHtml(extra)}</span>` : '';
+
+                return `<div class="flex items-start hover:bg-gray-900/50 py-px">${num}${tsHtml}${lvlBadge}<span class="${lvlColor} flex-1 break-all">${this.escapeHtml(msg)}</span>${extraHtml}</div>`;
             }).join('');
         },
         formatBuildLog(text) {
