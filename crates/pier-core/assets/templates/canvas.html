@@ -311,75 +311,60 @@
             Open Details</a>
     </div>
 
-    <!-- Stats Popup -->
+    <!-- Fullscreen Stats Panel -->
     <div x-show="statsPopup.show" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-         @click.self="closeStats()">
-        <div class="bg-white dark:bg-[#0d1117] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl w-[560px] overflow-hidden">
-            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-                <div class="flex items-center gap-2">
-                    <img :src="'/static/icons/' + (statsPopup.card?.catalog_id || 'docker') + '.svg'" class="w-5 h-5" onerror="this.style.display='none'">
-                    <span class="text-sm font-semibold text-gray-900 dark:text-white" x-text="statsPopup.card?.name"></span>
-                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" title="Live"></span>
-                </div>
-                <button @click="closeStats()" class="text-gray-400 hover:text-gray-600 dark:hover:text-white">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+         class="fixed inset-0 z-50 bg-[#0a0e17] flex flex-col" @keydown.escape.window="closeStats()">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-3 border-b border-gray-800">
+            <div class="flex items-center gap-3">
+                <img :src="'/static/icons/' + (statsPopup.card?.catalog_id || 'docker') + '.svg'" class="w-6 h-6" onerror="this.style.display='none'">
+                <span class="text-base font-semibold text-white" x-text="statsPopup.card?.name"></span>
+                <span class="flex items-center gap-1 text-[10px] text-green-400"><span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Live</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <a :href="'/resources/' + statsPopup.card?.id" class="text-xs text-blue-400 hover:text-blue-300">Open Details</a>
+                <button @click="closeStats()" class="text-gray-400 hover:text-white transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
-            <div class="p-4">
-                <div x-show="statsPopup.loading" class="text-center py-6">
-                    <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+        </div>
+        <!-- Loading -->
+        <div x-show="statsPopup.loading" class="flex-1 flex items-center justify-center">
+            <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <!-- Error -->
+        <div x-show="!statsPopup.loading && statsPopup.data?.error" class="flex-1 flex items-center justify-center">
+            <p class="text-sm text-red-400" x-text="statsPopup.data?.error"></p>
+        </div>
+        <!-- Charts 2x2 grid -->
+        <div x-show="!statsPopup.loading && statsPopup.data && !statsPopup.data.error" class="flex-1 grid grid-cols-2 gap-px bg-gray-800 p-px overflow-hidden">
+            <div class="bg-[#0a0e17] p-4 flex flex-col">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-white">CPU Usage</span>
+                    <span class="font-mono text-sm text-blue-400" x-text="(statsPopup.data?.cpu_percent || 0).toFixed(1) + '%'"></span>
                 </div>
-                <div x-show="!statsPopup.loading && statsPopup.data && !statsPopup.data.error" class="space-y-3">
-                    <!-- CPU -->
-                    <div>
-                        <div class="flex items-center justify-between text-xs mb-1">
-                            <span class="text-gray-500 font-medium">CPU Usage</span>
-                            <span class="font-mono font-semibold text-blue-400" x-text="(statsPopup.data?.cpu_percent || 0).toFixed(1) + '%'"></span>
-                        </div>
-                        <div class="bg-gray-100 dark:bg-[#0a0e17] rounded-lg p-2">
-                            <canvas x-ref="cpuSparkline" width="500" height="60" class="w-full" style="height:60px"></canvas>
-                        </div>
-                    </div>
-                    <!-- Memory -->
-                    <div>
-                        <div class="flex items-center justify-between text-xs mb-1">
-                            <span class="text-gray-500 font-medium">Memory</span>
-                            <span class="font-mono font-semibold text-green-400" x-text="formatBytes(statsPopup.data?.memory_usage) + ' / ' + formatBytes(statsPopup.data?.memory_limit)"></span>
-                        </div>
-                        <div class="bg-gray-100 dark:bg-[#0a0e17] rounded-lg p-2">
-                            <canvas x-ref="memSparkline" width="500" height="60" class="w-full" style="height:60px"></canvas>
-                        </div>
-                        <div class="text-right text-[10px] text-gray-500 mt-0.5" x-text="(statsPopup.data?.memory_percent || 0).toFixed(1) + '% used'"></div>
-                    </div>
-                    <!-- Network -->
-                    <div>
-                        <div class="flex items-center justify-between text-xs mb-1">
-                            <span class="text-gray-500 font-medium">Network</span>
-                            <span class="font-mono text-[10px] text-gray-400" x-text="'↑ ' + formatBytes(statsPopup.data?.network_tx) + '  ↓ ' + formatBytes(statsPopup.data?.network_rx)"></span>
-                        </div>
-                        <div class="bg-gray-100 dark:bg-[#0a0e17] rounded-lg p-2">
-                            <canvas x-ref="netSparkline" width="500" height="60" class="w-full" style="height:60px"></canvas>
-                        </div>
-                    </div>
-                    <!-- Disk I/O -->
-                    <div>
-                        <div class="flex items-center justify-between text-xs mb-1">
-                            <span class="text-gray-500 font-medium">Disk I/O</span>
-                            <span class="font-mono text-[10px] text-gray-400" x-text="'R: ' + formatBytes(statsPopup.data?.disk_read) + '  W: ' + formatBytes(statsPopup.data?.disk_write)"></span>
-                        </div>
-                        <div class="bg-gray-100 dark:bg-[#0a0e17] rounded-lg p-2">
-                            <canvas x-ref="diskSparkline" width="500" height="60" class="w-full" style="height:60px"></canvas>
-                        </div>
-                    </div>
-                </div>
-                <div x-show="!statsPopup.loading && statsPopup.data?.error" class="text-center py-4">
-                    <p class="text-xs text-red-400" x-text="statsPopup.data?.error"></p>
-                </div>
+                <div id="chart-cpu" class="flex-1 min-h-0"></div>
             </div>
-            <div class="px-4 pb-3 flex gap-2">
-                <a :href="'/resources/' + statsPopup.card?.id" class="flex-1 text-center text-xs py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Open Details</a>
-                <button @click="closeStats()" class="flex-1 text-xs py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">Close</button>
+            <div class="bg-[#0a0e17] p-4 flex flex-col">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-white">Memory Usage</span>
+                    <span class="font-mono text-sm text-green-400" x-text="formatBytes(statsPopup.data?.memory_usage) + ' / ' + formatBytes(statsPopup.data?.memory_limit)"></span>
+                </div>
+                <div id="chart-mem" class="flex-1 min-h-0"></div>
+            </div>
+            <div class="bg-[#0a0e17] p-4 flex flex-col">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-white">Network I/O</span>
+                    <span class="font-mono text-xs text-gray-400" x-text="'↑ ' + formatBytes(statsPopup.data?.network_tx) + '  ↓ ' + formatBytes(statsPopup.data?.network_rx)"></span>
+                </div>
+                <div id="chart-net" class="flex-1 min-h-0"></div>
+            </div>
+            <div class="bg-[#0a0e17] p-4 flex flex-col">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-white">Disk I/O</span>
+                    <span class="font-mono text-xs text-gray-400" x-text="'R: ' + formatBytes(statsPopup.data?.disk_read) + '  W: ' + formatBytes(statsPopup.data?.disk_write)"></span>
+                </div>
+                <div id="chart-disk" class="flex-1 min-h-0"></div>
             </div>
         </div>
     </div>
@@ -795,118 +780,120 @@ function canvasApp() {
             }
         },
 
-        // Stats Popup with live polling
+        // Stats Panel with uPlot charts
+        _uCharts: {},
+        _statsData: { ts: [], cpu: [], mem: [], netRx: [], netTx: [], diskR: [], diskW: [] },
+        _prevNet: null,
         async openStats(card) {
             if (card.status !== 'running') return;
             const cn = this.resources.find(r => r.id === card.id)?.container_id || card.name;
             if (!cn) return;
-            // Close previous polling
             if (this.statsPopup.pollId) clearInterval(this.statsPopup.pollId);
-            this.statsPopup = { show: true, card, data: null, loading: true, history: { cpu: [], mem: [], netRx: [], netTx: [], diskR: [], diskW: [] }, _prevNet: null, _prevDisk: null, pollId: null };
+            this._statsData = { ts: [], cpu: [], mem: [], netRx: [], netTx: [], diskR: [], diskW: [] };
+            this._prevNet = null;
+            this._destroyCharts();
+            this.statsPopup = { show: true, card, data: null, loading: true, pollId: null };
+
             const fetchStats = async () => {
                 try {
                     const data = await fetch('/api/v1/containers/' + encodeURIComponent(cn) + '/stats').then(r => r.json());
                     this.statsPopup.data = data;
-                    const h = this.statsPopup.history;
-                    const s = this.statsPopup;
-                    h.cpu.push(data.cpu_percent || 0);
-                    h.mem.push(data.memory_percent || 0);
-                    // Network rate (bytes/sec) — delta from previous sample / 2s interval
+                    const d = this._statsData;
+                    const now = Date.now() / 1000;
+                    d.ts.push(now);
+                    d.cpu.push(data.cpu_percent || 0);
+                    d.mem.push(data.memory_usage || 0);
                     const curNet = { rx: data.network_rx || 0, tx: data.network_tx || 0 };
-                    if (s._prevNet) {
-                        h.netRx.push(Math.max(0, (curNet.rx - s._prevNet.rx) / 2));
-                        h.netTx.push(Math.max(0, (curNet.tx - s._prevNet.tx) / 2));
-                    }
-                    s._prevNet = curNet;
-                    // Disk I/O totals
-                    h.diskR.push(data.disk_read || 0);
-                    h.diskW.push(data.disk_write || 0);
-                    // Trim to 30 points
-                    for (const k of ['cpu','mem','netRx','netTx','diskR','diskW']) {
-                        if (h[k].length > 30) h[k].shift();
-                    }
-                    this.renderSparklines();
+                    if (this._prevNet) {
+                        d.netRx.push(Math.max(0, (curNet.rx - this._prevNet.rx) / 2));
+                        d.netTx.push(Math.max(0, (curNet.tx - this._prevNet.tx) / 2));
+                    } else { d.netRx.push(0); d.netTx.push(0); }
+                    this._prevNet = curNet;
+                    d.diskR.push(data.disk_read || 0);
+                    d.diskW.push(data.disk_write || 0);
+                    // Trim to 120 points (4 min)
+                    const MAX = 120;
+                    for (const k of Object.keys(d)) { if (d[k].length > MAX) d[k].shift(); }
+                    this._updateCharts();
                 } catch (e) {
                     this.statsPopup.data = { error: e.message };
                 }
                 this.statsPopup.loading = false;
             };
             await fetchStats();
+            this.$nextTick(() => this._createCharts());
             this.statsPopup.pollId = setInterval(fetchStats, 2000);
         },
         closeStats() {
             if (this.statsPopup.pollId) clearInterval(this.statsPopup.pollId);
+            this._destroyCharts();
             this.statsPopup.show = false;
             this.statsPopup.pollId = null;
         },
-        renderSparklines() {
-            const h = this.statsPopup.history;
-            this.renderSparkline('cpuSparkline', h.cpu, '#3b82f6');
-            this.renderSparkline('memSparkline', h.mem, '#22c55e');
-            this.renderSparkline('netSparkline', h.netTx, '#a855f7');
-            this.renderSparkline('diskSparkline', h.diskW, '#f59e0b');
+        _chartTheme() {
+            return {
+                axes: [
+                    { stroke: '#555', grid: { stroke: '#1a1f2e', width: 1 }, ticks: { stroke: '#1a1f2e' },
+                      values: (u, vals) => vals.map(v => { const d = new Date(v * 1000); return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ':' + d.getSeconds().toString().padStart(2,'0'); }) },
+                    { stroke: '#555', grid: { stroke: '#1a1f2e', width: 1 }, ticks: { stroke: '#1a1f2e' }, size: 60 },
+                ],
+                cursor: { show: true, drag: { x: false, y: false } },
+                legend: { show: false },
+                padding: [8, 8, 0, 0],
+            };
         },
-        renderSparkline(refName, data, color) {
-            const canvas = this.$refs[refName];
-            if (!canvas || !data.length) return;
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width * dpr;
-            canvas.height = rect.height * dpr;
-            const ctx = canvas.getContext('2d');
-            ctx.scale(dpr, dpr);
-            const w = rect.width, h = rect.height;
-            ctx.clearRect(0, 0, w, h);
+        _fmtBytes(v) {
+            if (v == null || v === 0) return '0 B';
+            const k = 1024, s = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.min(s.length - 1, Math.floor(Math.log(Math.abs(v)) / Math.log(k)));
+            return (v / Math.pow(k, i)).toFixed(i > 1 ? 1 : 0) + ' ' + s[i];
+        },
+        _createCharts() {
+            if (typeof uPlot === 'undefined') return;
+            const theme = this._chartTheme();
+            const fmtB = this._fmtBytes;
 
-            const max = Math.max(1, ...data) * 1.1; // 10% headroom
-            const pts = 30;
-            const step = w / (pts - 1);
-
-            // Compute points
-            const points = [];
-            for (let i = 0; i < data.length; i++) {
-                points.push({ x: i * step, y: h - (data[i] / max) * (h - 4) - 2 });
-            }
-            if (points.length < 2) return;
-
-            // Smooth bezier curve
-            const drawSmooth = () => {
-                ctx.moveTo(points[0].x, points[0].y);
-                for (let i = 1; i < points.length; i++) {
-                    const prev = points[i - 1], cur = points[i];
-                    const cpx = (prev.x + cur.x) / 2;
-                    ctx.bezierCurveTo(cpx, prev.y, cpx, cur.y, cur.x, cur.y);
-                }
+            const mkChart = (elId, series, yVals) => {
+                const el = document.getElementById(elId);
+                if (!el) return null;
+                const rect = el.getBoundingClientRect();
+                return new uPlot({
+                    ...theme, width: rect.width, height: rect.height,
+                    series,
+                    axes: [theme.axes[0], { ...theme.axes[1], values: yVals }],
+                }, [[],[]], el);
             };
 
-            // Fill gradient
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, h);
-            ctx.lineTo(points[0].x, points[0].y);
-            drawSmooth();
-            ctx.lineTo(points[points.length - 1].x, h);
-            ctx.closePath();
-            const grad = ctx.createLinearGradient(0, 0, 0, h);
-            grad.addColorStop(0, color + '30');
-            grad.addColorStop(1, color + '05');
-            ctx.fillStyle = grad;
-            ctx.fill();
-
-            // Smooth line
-            ctx.beginPath();
-            drawSmooth();
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
-            ctx.lineJoin = 'round';
-            ctx.lineCap = 'round';
-            ctx.stroke();
-
-            // Current value dot
-            const last = points[points.length - 1];
-            ctx.beginPath();
-            ctx.arc(last.x, last.y, 3, 0, Math.PI * 2);
-            ctx.fillStyle = color;
-            ctx.fill();
+            this._uCharts.cpu = mkChart('chart-cpu',
+                [{}, { label: 'CPU %', stroke: '#3b82f6', fill: 'rgba(59,130,246,0.1)', width: 2 }],
+                (u, vals) => vals.map(v => v != null ? v.toFixed(1) + '%' : '')
+            );
+            this._uCharts.mem = mkChart('chart-mem',
+                [{}, { label: 'Memory', stroke: '#22c55e', fill: 'rgba(34,197,94,0.1)', width: 2 }],
+                (u, vals) => vals.map(v => fmtB(v))
+            );
+            this._uCharts.net = mkChart('chart-net',
+                [{}, { label: 'TX', stroke: '#a855f7', fill: 'rgba(168,85,247,0.08)', width: 2 }, { label: 'RX', stroke: '#06b6d4', width: 1.5, dash: [4, 2] }],
+                (u, vals) => vals.map(v => fmtB(v) + '/s')
+            );
+            this._uCharts.disk = mkChart('chart-disk',
+                [{}, { label: 'Write', stroke: '#f59e0b', fill: 'rgba(245,158,11,0.08)', width: 2 }, { label: 'Read', stroke: '#ef4444', width: 1.5, dash: [4, 2] }],
+                (u, vals) => vals.map(v => fmtB(v))
+            );
+            this._updateCharts();
+        },
+        _updateCharts() {
+            const d = this._statsData;
+            if (!d.ts.length) return;
+            if (this._uCharts.cpu) this._uCharts.cpu.setData([d.ts, d.cpu]);
+            if (this._uCharts.mem) this._uCharts.mem.setData([d.ts, d.mem]);
+            if (this._uCharts.net) this._uCharts.net.setData([d.ts, d.netTx, d.netRx]);
+            if (this._uCharts.disk) this._uCharts.disk.setData([d.ts, d.diskW, d.diskR]);
+        },
+        _destroyCharts() {
+            for (const k of Object.keys(this._uCharts)) {
+                if (this._uCharts[k]) { this._uCharts[k].destroy(); delete this._uCharts[k]; }
+            }
         },
         formatBytes(bytes) {
             if (!bytes || bytes === 0) return '0 B';
