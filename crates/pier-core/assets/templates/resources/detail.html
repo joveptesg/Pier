@@ -770,11 +770,10 @@ NODE_ENV=production"></textarea>
                 </div>
             </div>
             <!-- Log content -->
-            <div x-ref="logContainer" :class="logFullscreen ? 'flex-1 overflow-auto' : 'max-h-[600px] overflow-auto'" class="bg-gray-100 dark:bg-gray-950 rounded-lg p-3">
+            <div x-ref="logContainer" :class="logFullscreen ? 'flex-1 overflow-auto' : 'max-h-[600px] overflow-auto'" class="bg-gray-950 rounded-lg p-3">
                 <div x-show="!containerLogs && !logStreaming" class="text-xs text-gray-500 text-center py-8">No logs available</div>
-                <pre x-show="containerLogs || logStreaming" class="text-xs font-mono whitespace-pre-wrap leading-relaxed"
-                     :class="logFullscreen ? 'text-green-400' : 'text-gray-800 dark:text-green-400'"
-                     x-html="highlightLogSearch(containerLogs || '')"></pre>
+                <div x-show="containerLogs || logStreaming" class="text-xs font-mono leading-relaxed"
+                     x-html="logSearch ? highlightLogSearch(containerLogs || '') : formatContainerLog(containerLogs || '')"></div>
             </div>
             <!-- Search match count -->
             <div x-show="logSearch" class="mt-1 text-[10px] text-gray-500" x-text="logSearchCount + ' matches'"></div>
@@ -1247,6 +1246,37 @@ function resourceDetail(id) {
         },
         escapeHtml(text) {
             return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        },
+        formatContainerLog(text) {
+            if (!text) return '';
+            const lines = text.split('\n');
+            return lines.map((raw, i) => {
+                const line = this.escapeHtml(raw);
+                const num = `<span class="inline-block w-8 text-right mr-3 text-gray-700 select-none">${i + 1}</span>`;
+                // Timestamps (ISO format from Docker)
+                const tsMatch = raw.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)\s*(.*)/);
+                if (tsMatch) {
+                    const ts = tsMatch[1].replace('T', ' ').replace(/\.\d+Z?$/, '');
+                    const msg = this.escapeHtml(tsMatch[2]);
+                    const tsSpan = `<span class="text-gray-600 mr-2">${ts}</span>`;
+                    // Color the message part
+                    if (/error|fail|panic|fatal|denied|exception/i.test(msg)) {
+                        return `<div class="flex hover:bg-gray-900/50">${num}${tsSpan}<span class="text-red-400">${msg}</span></div>`;
+                    }
+                    if (/warn|warning|deprecated/i.test(msg)) {
+                        return `<div class="flex hover:bg-gray-900/50">${num}${tsSpan}<span class="text-yellow-400">${msg}</span></div>`;
+                    }
+                    return `<div class="flex hover:bg-gray-900/50">${num}${tsSpan}<span class="text-gray-300">${msg}</span></div>`;
+                }
+                // No timestamp — color by content
+                if (/error|fail|panic|fatal/i.test(raw)) {
+                    return `<div class="flex hover:bg-gray-900/50">${num}<span class="text-red-400">${line}</span></div>`;
+                }
+                if (/warn|warning/i.test(raw)) {
+                    return `<div class="flex hover:bg-gray-900/50">${num}<span class="text-yellow-400">${line}</span></div>`;
+                }
+                return `<div class="flex hover:bg-gray-900/50">${num}<span class="text-gray-400">${line}</span></div>`;
+            }).join('');
         },
         formatBuildLog(text) {
             if (!text) return '<span class="text-gray-600">No log output</span>';
