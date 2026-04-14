@@ -308,6 +308,9 @@ pub async fn run_pipeline(
     // Persist env vars from .env file to env_json (for canvas dependency detection)
     persist_env_from_disk(&state, &service_id, &stack_name);
 
+    // Regenerate Traefik domain configs with correct container name and port
+    regenerate_domain_configs(&state, &service_id);
+
     finish_deployment(&state, &deploy_id, &service_id, "success", &log, start);
 
     // Cleanup temp dir
@@ -819,6 +822,86 @@ fn persist_env_from_disk(state: &AppState, service_id: &str, stack_name: &str) {
         let _ = db.execute(
             "UPDATE services SET env_json = ?1 WHERE id = ?2",
             rusqlite::params![json_str, service_id],
+        );
+    }
+}
+
+/// After deploy, regenerate Traefik configs for all domains of this service.
+/// Uses the actual container_id and container_port from DB (now correct after deploy).
+fn regenerate_domain_configs(state: &AppState, service_id: &str) {
+    let db = match state.db.lock() {
+        Ok(db) => db,
+        Err(_) => return,
+    };
+
+    // Get actual container name
+    let container_name: String = db
+        .query_row(
+            "SELECT container_id FROM services WHERE id = ?1",
+            [service_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    if container_name.is_empty() {
+        return;
+    }
+
+    // Get container port (prefer non-management port)
+    let http_keywords = ["management", "metrics", "prometheus"];
+    let port: Option<i32> = db
+        .prepare("SELECT port_name, container_port FROM port_allocations WHERE service_id = ?1")
+        .ok()
+        .and_then(|mut stmt| {
+            let ports: Vec<(String, i32)> = stmt
+                .query_map([service_id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .ok()?
+                .filter_map(|r| r.ok())
+                .collect();
+            ports
+                .iter()
+                .find(|(n, _)| !http_keywords.iter().any(|k| n.to_lowercase().contains(k)))
+                .or(ports.first())
+                .map(|(_, p)| *p)
+        });
+
+    let port = match port {
+        Some(p) => p,
+        None => return,
+    };
+
+    let target_url = format!("http://{}:{}", container_name, port);
+
+    // Get all domains for this service
+    let domains: Vec<(String, bool)> = db
+        .prepare("SELECT domain FROM domains WHERE service_id = ?1")
+        .ok()
+        .map(|mut stmt| {
+            stmt.query_map([service_id], |row| row.get::<_, String>(0))
+                .unwrap_or_else(|_| panic!())
+                .filter_map(|r| r.ok())
+                .map(|d| (d, true))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if domains.is_empty() {
+        return;
+    }
+
+    if let Err(e) = crate::proxy::config::regenerate_service_config(
+        &state.config.data_dir,
+        service_id,
+        &domains,
+        &target_url,
+    ) {
+        tracing::warn!("Failed to regenerate domain configs for {service_id}: {e}");
+    } else {
+        tracing::info!(
+            "Regenerated Traefik configs for {service_id}: {} → {target_url}",
+            domains.iter().map(|(d, _)| d.as_str()).collect::<Vec<_>>().join(", ")
         );
     }
 }
