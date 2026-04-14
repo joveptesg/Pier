@@ -103,8 +103,7 @@
                      @mousedown.stop="onCardMouseDown($event, card)"
                      @mouseenter="hoveredId = card.id"
                      @mouseleave="hoveredId = null"
-                     @click.stop="if (!_cardDragged) openStats(card)"
-                     @dblclick.stop="window.location.href = '/resources/' + card.id"
+                     @click.stop="onCardClick(card)"
                      @contextmenu.prevent="contextMenu = { show: true, x: $event.clientX, y: $event.clientY, id: card.id }">
                     <div class="w-[210px] rounded-xl border p-3.5 shadow-lg backdrop-blur-sm transition-all duration-200"
                          :class="{
@@ -315,49 +314,44 @@
     <!-- Stats Popup -->
     <div x-show="statsPopup.show" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-         @click.self="statsPopup.show = false">
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl w-80 overflow-hidden">
+         @click.self="closeStats()">
+        <div class="bg-white dark:bg-[#0d1117] border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl w-96 overflow-hidden">
             <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
                 <div class="flex items-center gap-2">
                     <img :src="'/static/icons/' + (statsPopup.card?.catalog_id || 'docker') + '.svg'" class="w-5 h-5" onerror="this.style.display='none'">
                     <span class="text-sm font-semibold text-gray-900 dark:text-white" x-text="statsPopup.card?.name"></span>
+                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" title="Live"></span>
                 </div>
-                <button @click="statsPopup.show = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-white">
+                <button @click="closeStats()" class="text-gray-400 hover:text-gray-600 dark:hover:text-white">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
             <div class="p-4">
-                <div x-show="statsPopup.loading" class="text-center py-4">
+                <div x-show="statsPopup.loading" class="text-center py-6">
                     <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                    <p class="text-xs text-gray-500 mt-2">Loading stats...</p>
                 </div>
-                <div x-show="!statsPopup.loading && statsPopup.data && !statsPopup.data.error" class="space-y-3">
+                <div x-show="!statsPopup.loading && statsPopup.data && !statsPopup.data.error" class="space-y-4">
                     <!-- CPU -->
                     <div>
-                        <div class="flex items-center justify-between text-xs mb-1">
-                            <span class="text-gray-500">CPU</span>
-                            <span class="font-mono text-gray-900 dark:text-white" x-text="(statsPopup.data?.cpu_percent || 0).toFixed(1) + '%'"></span>
+                        <div class="flex items-center justify-between text-xs mb-1.5">
+                            <span class="text-gray-500">CPU Usage</span>
+                            <span class="font-mono font-medium text-gray-900 dark:text-white" x-text="(statsPopup.data?.cpu_percent || 0).toFixed(1) + '%'"></span>
                         </div>
-                        <div class="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
-                            <div class="h-full rounded-full transition-all duration-500"
-                                 :class="(statsPopup.data?.cpu_percent || 0) > 80 ? 'bg-red-500' : (statsPopup.data?.cpu_percent || 0) > 50 ? 'bg-yellow-500' : 'bg-blue-500'"
-                                 :style="'width:' + Math.min(100, statsPopup.data?.cpu_percent || 0) + '%'"></div>
+                        <div class="bg-gray-100 dark:bg-gray-900 rounded-lg p-2">
+                            <canvas x-ref="cpuSparkline" width="340" height="40" class="w-full h-10"></canvas>
                         </div>
                     </div>
                     <!-- Memory -->
                     <div>
-                        <div class="flex items-center justify-between text-xs mb-1">
+                        <div class="flex items-center justify-between text-xs mb-1.5">
                             <span class="text-gray-500">Memory</span>
-                            <span class="font-mono text-gray-900 dark:text-white" x-text="formatBytes(statsPopup.data?.memory_usage) + ' / ' + formatBytes(statsPopup.data?.memory_limit)"></span>
+                            <span class="font-mono font-medium text-gray-900 dark:text-white" x-text="formatBytes(statsPopup.data?.memory_usage) + ' / ' + formatBytes(statsPopup.data?.memory_limit)"></span>
                         </div>
-                        <div class="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
-                            <div class="h-full rounded-full transition-all duration-500"
-                                 :class="(statsPopup.data?.memory_percent || 0) > 80 ? 'bg-red-500' : (statsPopup.data?.memory_percent || 0) > 50 ? 'bg-yellow-500' : 'bg-green-500'"
-                                 :style="'width:' + Math.min(100, statsPopup.data?.memory_percent || 0) + '%'"></div>
+                        <div class="bg-gray-100 dark:bg-gray-900 rounded-lg p-2">
+                            <canvas x-ref="memSparkline" width="340" height="40" class="w-full h-10"></canvas>
                         </div>
+                        <div class="text-right text-[10px] text-gray-500 mt-0.5" x-text="(statsPopup.data?.memory_percent || 0).toFixed(1) + '%'"></div>
                     </div>
-                    <!-- Memory % -->
-                    <div class="text-center text-[10px] text-gray-500" x-text="(statsPopup.data?.memory_percent || 0).toFixed(1) + '% memory used'"></div>
                 </div>
                 <div x-show="!statsPopup.loading && statsPopup.data?.error" class="text-center py-4">
                     <p class="text-xs text-red-400" x-text="statsPopup.data?.error"></p>
@@ -365,7 +359,7 @@
             </div>
             <div class="px-4 pb-3 flex gap-2">
                 <a :href="'/resources/' + statsPopup.card?.id" class="flex-1 text-center text-xs py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Open Details</a>
-                <button @click="statsPopup.show = false" class="flex-1 text-xs py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">Close</button>
+                <button @click="closeStats()" class="flex-1 text-xs py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">Close</button>
             </div>
         </div>
     </div>
@@ -392,8 +386,8 @@ function canvasApp() {
             const base = 0x1F1E6 - 65;
             return String.fromCodePoint(code.charCodeAt(0) + base, code.charCodeAt(1) + base);
         },
-        showDeps: true, _cardDragged: false,
-        statsPopup: { show: false, card: null, data: null, loading: false },
+        showDeps: true, _cardDragged: false, _clickTimer: null, _clickCount: 0,
+        statsPopup: { show: false, card: null, data: null, loading: false, history: { cpu: [], mem: [] }, pollId: null },
         dragging: null, draggingZone: null, dragOffsetX: 0, dragOffsetY: 0,
         panning: false, panStartX: 0, panStartY: 0, panStartPanX: 0, panStartPanY: 0,
         hoveredId: null,
@@ -765,20 +759,87 @@ function canvasApp() {
             } catch {}
         },
 
-        // Stats Popup
+        // Single click = stats, double click = navigate
+        onCardClick(card) {
+            if (this._cardDragged) return;
+            this._clickCount++;
+            if (this._clickCount === 1) {
+                this._clickTimer = setTimeout(() => {
+                    if (this._clickCount === 1) this.openStats(card);
+                    this._clickCount = 0;
+                }, 250);
+            } else {
+                clearTimeout(this._clickTimer);
+                this._clickCount = 0;
+                window.location.href = '/resources/' + card.id;
+            }
+        },
+
+        // Stats Popup with live polling
         async openStats(card) {
             if (card.status !== 'running') return;
-            // Use container_id if available, fall back to name
             const cn = this.resources.find(r => r.id === card.id)?.container_id || card.name;
             if (!cn) return;
-            this.statsPopup = { show: true, card, data: null, loading: true };
-            try {
-                const data = await fetch('/api/v1/containers/' + encodeURIComponent(cn) + '/stats').then(r => r.json());
-                this.statsPopup.data = data;
-            } catch (e) {
-                this.statsPopup.data = { error: e.message };
+            // Close previous polling
+            if (this.statsPopup.pollId) clearInterval(this.statsPopup.pollId);
+            this.statsPopup = { show: true, card, data: null, loading: true, history: { cpu: [], mem: [] }, pollId: null };
+            const fetchStats = async () => {
+                try {
+                    const data = await fetch('/api/v1/containers/' + encodeURIComponent(cn) + '/stats').then(r => r.json());
+                    this.statsPopup.data = data;
+                    const h = this.statsPopup.history;
+                    h.cpu.push(data.cpu_percent || 0);
+                    h.mem.push(data.memory_percent || 0);
+                    if (h.cpu.length > 30) h.cpu.shift();
+                    if (h.mem.length > 30) h.mem.shift();
+                    this.renderSparklines();
+                } catch (e) {
+                    this.statsPopup.data = { error: e.message };
+                }
+                this.statsPopup.loading = false;
+            };
+            await fetchStats();
+            this.statsPopup.pollId = setInterval(fetchStats, 2000);
+        },
+        closeStats() {
+            if (this.statsPopup.pollId) clearInterval(this.statsPopup.pollId);
+            this.statsPopup.show = false;
+            this.statsPopup.pollId = null;
+        },
+        renderSparklines() {
+            this.renderSparkline('cpuSparkline', this.statsPopup.history.cpu, '#3b82f6');
+            this.renderSparkline('memSparkline', this.statsPopup.history.mem, '#22c55e');
+        },
+        renderSparkline(refName, data, color) {
+            const canvas = this.$refs[refName];
+            if (!canvas || !data.length) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            ctx.clearRect(0, 0, w, h);
+            const max = Math.max(100, ...data);
+            const step = w / (30 - 1);
+            // Fill gradient
+            ctx.beginPath();
+            ctx.moveTo(0, h);
+            for (let i = 0; i < data.length; i++) {
+                ctx.lineTo(i * step, h - (data[i] / max) * h);
             }
-            this.statsPopup.loading = false;
+            ctx.lineTo((data.length - 1) * step, h);
+            ctx.closePath();
+            const grad = ctx.createLinearGradient(0, 0, 0, h);
+            grad.addColorStop(0, color + '40');
+            grad.addColorStop(1, color + '05');
+            ctx.fillStyle = grad;
+            ctx.fill();
+            // Line
+            ctx.beginPath();
+            for (let i = 0; i < data.length; i++) {
+                const x = i * step, y = h - (data[i] / max) * h;
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
         },
         formatBytes(bytes) {
             if (!bytes || bytes === 0) return '0 B';
