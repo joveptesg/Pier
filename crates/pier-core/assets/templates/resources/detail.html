@@ -716,10 +716,20 @@ NODE_ENV=production"></textarea>
                 <div>
                     <div class="flex items-center justify-between mb-2">
                         <h4 class="text-xs font-medium text-gray-500">Build Log</h4>
-                        <button @click="navigator.clipboard?.writeText(selectedDeploy?._build_log || ''); $el.textContent = 'Copied!'; setTimeout(() => $el.textContent = 'Copy', 1500)"
-                                class="text-[10px] px-2 py-0.5 text-gray-500 hover:text-gray-300 border border-gray-700 rounded">Copy</button>
+                        <div class="flex items-center gap-1">
+                            <button @click="buildLogFollow = !buildLogFollow" title="Auto-scroll to bottom"
+                                    class="p-1 rounded transition-colors"
+                                    :class="buildLogFollow ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500 hover:text-gray-300'">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+                            </button>
+                            <button @click="copyText(selectedDeploy?._build_log || '')" title="Copy log"
+                                    class="p-1 text-gray-500 hover:text-gray-300 rounded transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                            </button>
+                        </div>
                     </div>
-                    <div class="bg-gray-950 rounded-lg max-h-[600px] overflow-auto" x-ref="buildLogBox">
+                    <div class="bg-gray-950 rounded-lg max-h-[600px] overflow-auto" x-ref="buildLogBox"
+                         @scroll="if ($el.scrollHeight - $el.scrollTop - $el.clientHeight > 50) buildLogFollow = false">
                         <div class="p-3 font-mono text-xs leading-relaxed" x-html="formatBuildLog(selectedDeploy?._build_log || '')"></div>
                     </div>
                 </div>
@@ -952,7 +962,7 @@ function resourceDetail(id) {
         clusterInfo: null,
         domains: [], showAddDomain: false, newDomainName: '',
         containerLogs: '', deploymentLogs: [], logLines: 100,
-        logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0,
+        logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0, buildLogFollow: true,
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitSources: [], showWebhookSecret: false,
@@ -1454,11 +1464,13 @@ function resourceDetail(id) {
                         latest.duration_secs = detail.duration_secs;
                         latest.finished_at = detail.finished_at;
                         this.selectedDeploy = {...latest};
-                        // Auto-scroll build log to bottom
-                        this.$nextTick(() => {
-                            const box = this.$refs.buildLogBox;
-                            if (box) box.scrollTop = box.scrollHeight;
-                        });
+                        // Auto-scroll build log to bottom if follow enabled
+                        if (this.buildLogFollow) {
+                            this.$nextTick(() => {
+                                const box = this.$refs.buildLogBox;
+                                if (box) box.scrollTop = box.scrollHeight;
+                            });
+                        }
                     } catch {}
                 }
 
