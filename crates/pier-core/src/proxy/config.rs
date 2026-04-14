@@ -325,6 +325,12 @@ pub fn regenerate_service_config(
     }
 
     let config = generate_dynamic_config_multi(service_id, domains, target_url);
+    // Skip write if content unchanged (avoids unnecessary disk I/O and Traefik reload)
+    if let Ok(existing) = std::fs::read_to_string(&file_path) {
+        if existing == config {
+            return Ok(());
+        }
+    }
     std::fs::write(file_path, config)?;
     Ok(())
 }
