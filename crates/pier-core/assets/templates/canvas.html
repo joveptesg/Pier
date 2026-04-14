@@ -343,28 +343,28 @@
                     <span class="text-sm font-medium text-white">CPU Usage</span>
                     <span class="font-mono text-sm text-blue-400" x-text="(statsPopup.data?.cpu_percent || 0).toFixed(1) + '%'"></span>
                 </div>
-                <div id="chart-cpu" class="flex-1 min-h-0"></div>
+                <div id="chart-cpu" class="flex-1" style="min-height:200px"></div>
             </div>
             <div class="bg-[#0a0e17] p-4 flex flex-col">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-sm font-medium text-white">Memory Usage</span>
                     <span class="font-mono text-sm text-green-400" x-text="formatBytes(statsPopup.data?.memory_usage) + ' / ' + formatBytes(statsPopup.data?.memory_limit)"></span>
                 </div>
-                <div id="chart-mem" class="flex-1 min-h-0"></div>
+                <div id="chart-mem" class="flex-1" style="min-height:200px"></div>
             </div>
             <div class="bg-[#0a0e17] p-4 flex flex-col">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-sm font-medium text-white">Network I/O</span>
                     <span class="font-mono text-xs text-gray-400" x-text="'↑ ' + formatBytes(statsPopup.data?.network_tx) + '  ↓ ' + formatBytes(statsPopup.data?.network_rx)"></span>
                 </div>
-                <div id="chart-net" class="flex-1 min-h-0"></div>
+                <div id="chart-net" class="flex-1" style="min-height:200px"></div>
             </div>
             <div class="bg-[#0a0e17] p-4 flex flex-col">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-sm font-medium text-white">Disk I/O</span>
                     <span class="font-mono text-xs text-gray-400" x-text="'R: ' + formatBytes(statsPopup.data?.disk_read) + '  W: ' + formatBytes(statsPopup.data?.disk_write)"></span>
                 </div>
-                <div id="chart-disk" class="flex-1 min-h-0"></div>
+                <div id="chart-disk" class="flex-1" style="min-height:200px"></div>
             </div>
         </div>
     </div>
@@ -821,7 +821,8 @@ function canvasApp() {
                 this.statsPopup.loading = false;
             };
             await fetchStats();
-            this.$nextTick(() => this._createCharts());
+            // Wait for DOM to render and have dimensions before creating charts
+            setTimeout(() => this._createCharts(), 300);
             this.statsPopup.pollId = setInterval(fetchStats, 2000);
         },
         closeStats() {
@@ -857,8 +858,14 @@ function canvasApp() {
                 const el = document.getElementById(elId);
                 if (!el) return null;
                 const rect = el.getBoundingClientRect();
+                const w = Math.max(rect.width, 200);
+                const h = Math.max(rect.height, 100);
+                if (rect.width < 10 || rect.height < 10) {
+                    console.warn('uPlot: element', elId, 'has no size', rect.width, rect.height);
+                    return null;
+                }
                 return new uPlot({
-                    ...theme, width: rect.width, height: rect.height,
+                    ...theme, width: w, height: h,
                     series,
                     axes: [theme.axes[0], { ...theme.axes[1], values: yVals }],
                 }, [[],[]], el);
