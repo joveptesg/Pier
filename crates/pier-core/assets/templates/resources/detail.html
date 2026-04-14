@@ -1281,7 +1281,7 @@ function resourceDetail(id) {
             const lines = text.split('\n');
             return lines.map((raw, i) => {
                 if (!raw.trim()) return '';
-                const num = `<span class="inline-block w-8 text-right mr-3 text-gray-700 select-none shrink-0">${i + 1}</span>`;
+                const num = `<span class="text-right mr-3 text-gray-700 select-none whitespace-nowrap" style="min-width:32px">${i + 1}</span>`;
 
                 // Try to extract Docker timestamp prefix: "2026-04-14T12:03:25.123Z <rest>"
                 let ts = '', body = raw;
@@ -1315,10 +1315,10 @@ function resourceDetail(id) {
                     }
                 } catch { msg = body; }
 
-                const tsHtml = ts ? `<span class="text-gray-600 w-40 shrink-0">${this.escapeHtml(ts)}</span>` : '';
+                const tsHtml = ts ? `<span class="text-gray-600 whitespace-nowrap mr-3" style="min-width:145px">${this.escapeHtml(ts)}</span>` : '';
                 const levelColors = { error: 'text-red-400', warn: 'text-yellow-400', info: 'text-gray-300', debug: 'text-gray-500' };
                 const lvlColor = levelColors[level] || 'text-gray-300';
-                const lvlBadge = level !== 'info' ? `<span class="w-12 shrink-0 text-[10px] font-medium ${lvlColor}">${level.toUpperCase()}</span>` : '<span class="w-12 shrink-0"></span>';
+                const lvlBadge = level !== 'info' ? `<span class="whitespace-nowrap text-[10px] font-medium ${lvlColor} mr-2" style="min-width:40px">${level.toUpperCase()}</span>` : `<span class="mr-2" style="min-width:40px"></span>`;
                 const extraHtml = extra ? `<span class="text-gray-500 ml-2">${this.escapeHtml(extra)}</span>` : '';
 
                 return `<div class="flex items-start hover:bg-gray-900/50 py-px">${num}${tsHtml}${lvlBadge}<span class="${lvlColor} flex-1 break-all">${this.escapeHtml(msg)}</span>${extraHtml}</div>`;
