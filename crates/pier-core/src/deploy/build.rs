@@ -16,6 +16,8 @@ pub async fn clone_repo(url: &str, branch: &str, dest: &Path) -> Result<String> 
     let output = tokio::process::Command::new("git")
         .args(["clone", "--depth", "1", "--branch", branch, url])
         .arg(dest.to_string_lossy().as_ref())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HOME", std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
         .output()
         .await?;
 

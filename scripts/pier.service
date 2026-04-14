@@ -18,6 +18,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/opt/pier/data /opt/pier/.docker /tmp
 ProtectHome=true
+Environment=HOME=/opt/pier
+Environment=GIT_CONFIG_NOSYSTEM=1
 
 # Logging
 StandardOutput=journal

@@ -238,27 +238,51 @@ pub async fn run_pipeline(
                     // Write cleaned compose YAML
                     let _ = tokio::fs::write(stack_dir.join("docker-compose.yml"), &yaml).await;
 
-                    // Build and deploy from stack dir (contains source code + Dockerfile)
+                    // Build and deploy from stack dir — stream output in real-time
                     log.push_str("Building & deploying with docker-compose...\n");
                     flush_log(&state, &deploy_id, &log);
 
-                    let output = tokio::process::Command::new("docker")
-                        .args(["compose", "-p", &stack_name, "up", "-d", "--build"])
+                    // Merge stderr into stdout so we get all output in one stream
+                    let child = tokio::process::Command::new("sh")
+                        .args(["-c", &format!("docker compose -p {} up -d --build 2>&1", stack_name)])
                         .current_dir(&stack_dir)
                         .env("HOME", state.config.data_dir.parent().unwrap_or(&state.config.data_dir))
-                        .output()
-                        .await;
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::null())
+                        .spawn();
 
-                    match output {
-                        Ok(out) => {
-                            let combined = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-                            if out.status.success() {
-                                log.push_str(&format!("Deploy: {combined}\n"));
-                                flush_log(&state, &deploy_id, &log);
-                            } else {
-                                log.push_str(&format!("Deploy failed: {combined}\n"));
-                                finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
-                                return;
+                    match child {
+                        Ok(mut proc) => {
+                            use tokio::io::{AsyncBufReadExt, BufReader};
+
+                            if let Some(out) = proc.stdout.take() {
+                                let mut reader = BufReader::new(out).lines();
+                                let mut line_count = 0u32;
+                                while let Ok(Some(line)) = reader.next_line().await {
+                                    log.push_str(&line);
+                                    log.push('\n');
+                                    line_count += 1;
+                                    if line_count % 3 == 0 {
+                                        flush_log(&state, &deploy_id, &log);
+                                    }
+                                }
+                            }
+                            flush_log(&state, &deploy_id, &log);
+
+                            match proc.wait().await {
+                                Ok(status) if status.success() => {
+                                    // success — continue
+                                }
+                                Ok(_) => {
+                                    log.push_str("Deploy failed (non-zero exit)\n");
+                                    finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+                                    return;
+                                }
+                                Err(e) => {
+                                    log.push_str(&format!("Deploy wait error: {e}\n"));
+                                    finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+                                    return;
+                                }
                             }
                         }
                         Err(e) => {

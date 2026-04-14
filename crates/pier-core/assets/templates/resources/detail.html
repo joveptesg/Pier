@@ -1435,6 +1435,11 @@ function resourceDetail(id) {
                         latest.duration_secs = detail.duration_secs;
                         latest.finished_at = detail.finished_at;
                         this.selectedDeploy = {...latest};
+                        // Auto-scroll build log to bottom
+                        this.$nextTick(() => {
+                            const box = this.$refs.buildLogBox;
+                            if (box) box.scrollTop = box.scrollHeight;
+                        });
                     } catch {}
                 }
 
