@@ -47,9 +47,8 @@
         <!-- Transform container -->
         <div :style="'transform: scale(' + zoom + ') translate(' + (-panX) + 'px,' + (-panY) + 'px); transform-origin: 0 0; position: absolute; top: 0; left: 0; width: 6000px; height: 4000px;'">
 
-            <!-- SVG layer for connection lines -->
-            <svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index:1">
-                <!-- Arrowhead marker -->
+            <!-- SVG layer for connection lines (rendered via JS — Alpine x-for doesn't work inside SVG) -->
+            <svg x-ref="svgLayer" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index:1">
                 <defs>
                     <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
                         <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6" />
@@ -58,31 +57,6 @@
                         <polygon points="0 0, 10 3.5, 0 7" fill="#8b5cf6" />
                     </marker>
                 </defs>
-
-                <!-- Network edges (dashed gray mesh) -->
-                <template x-for="edge in edges" :key="edge.id">
-                    <line :x1="getCardCenter(edge.from).x" :y1="getCardCenter(edge.from).y"
-                          :x2="getCardCenter(edge.to).x" :y2="getCardCenter(edge.to).y"
-                          stroke="#374151" stroke-width="1" stroke-dasharray="6,4"
-                          :opacity="hoveredId && (hoveredId === edge.from || hoveredId === edge.to) ? 0.5 : 0.12" />
-                </template>
-
-                <!-- Dependency arrows (solid colored with arrowheads) -->
-                <template x-for="dep in depEdges" :key="dep.id">
-                    <g>
-                        <line :x1="getCardCenter(dep.from).x" :y1="getCardCenter(dep.from).y"
-                              :x2="getCardCenter(dep.to).x" :y2="getCardCenter(dep.to).y"
-                              :stroke="dep.label.toLowerCase().includes('db') || dep.label.toLowerCase().includes('postgres') || dep.label.toLowerCase().includes('mysql') || dep.label.toLowerCase().includes('redis') ? '#3b82f6' : dep.label.toLowerCase().includes('amqp') || dep.label.toLowerCase().includes('rabbit') || dep.label.toLowerCase().includes('queue') ? '#8b5cf6' : '#6b7280'"
-                              stroke-width="2"
-                              :marker-end="dep.label.toLowerCase().includes('amqp') || dep.label.toLowerCase().includes('rabbit') ? 'url(#arrowhead-purple)' : 'url(#arrowhead-blue)'"
-                              :opacity="hoveredId && (hoveredId === dep.from || hoveredId === dep.to) ? 1 : 0.6" />
-                        <text :x="(getCardCenter(dep.from).x + getCardCenter(dep.to).x) / 2"
-                              :y="(getCardCenter(dep.from).y + getCardCenter(dep.to).y) / 2 - 6"
-                              text-anchor="middle" class="text-[9px]" fill="#9ca3af"
-                              :opacity="hoveredId && (hoveredId === dep.from || hoveredId === dep.to) ? 1 : 0.5"
-                              x-text="dep.label"></text>
-                    </g>
-                </template>
             </svg>
 
             <!-- Server zones -->
@@ -357,6 +331,7 @@ function canvasApp() {
         async init() {
             await this.loadData();
             this.buildCanvas();
+            this.$nextTick(() => this.renderSvgEdges());
             setInterval(() => this.refreshStatus(), 5000);
         },
 
@@ -383,6 +358,62 @@ function canvasApp() {
         getCardCenter(id) {
             const c = this.cards.find(c => c.id === id);
             return c ? { x: c.x + CARD_W / 2, y: c.y + CARD_H / 2 } : { x: 0, y: 0 };
+        },
+
+        renderSvgEdges() {
+            const svg = this.$refs.svgLayer;
+            if (!svg) return;
+            // Clear everything except <defs>
+            const defs = svg.querySelector('defs');
+            svg.innerHTML = '';
+            if (defs) svg.appendChild(defs);
+            const NS = 'http://www.w3.org/2000/svg';
+
+            // Network edges (dashed gray)
+            for (const edge of this.edges) {
+                const from = this.getCardCenter(edge.from);
+                const to = this.getCardCenter(edge.to);
+                const isHovered = this.hoveredId && (this.hoveredId === edge.from || this.hoveredId === edge.to);
+                const line = document.createElementNS(NS, 'line');
+                line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+                line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+                line.setAttribute('stroke', '#374151');
+                line.setAttribute('stroke-width', '1');
+                line.setAttribute('stroke-dasharray', '6,4');
+                line.setAttribute('opacity', isHovered ? '0.5' : '0.12');
+                svg.appendChild(line);
+            }
+
+            // Dependency arrows (solid colored with arrowheads + labels)
+            for (const dep of this.depEdges) {
+                const from = this.getCardCenter(dep.from);
+                const to = this.getCardCenter(dep.to);
+                const lbl = dep.label.toLowerCase();
+                const isDb = lbl.includes('db') || lbl.includes('postgres') || lbl.includes('mysql') || lbl.includes('redis') || lbl.includes('database');
+                const isAmqp = lbl.includes('amqp') || lbl.includes('rabbit') || lbl.includes('queue');
+                const color = isDb ? '#3b82f6' : isAmqp ? '#8b5cf6' : '#6b7280';
+                const marker = isAmqp ? 'url(#arrowhead-purple)' : 'url(#arrowhead-blue)';
+                const isHovered = this.hoveredId && (this.hoveredId === dep.from || this.hoveredId === dep.to);
+
+                const line = document.createElementNS(NS, 'line');
+                line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+                line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+                line.setAttribute('stroke', color);
+                line.setAttribute('stroke-width', '2');
+                line.setAttribute('marker-end', marker);
+                line.setAttribute('opacity', isHovered ? '1' : '0.6');
+                svg.appendChild(line);
+
+                const text = document.createElementNS(NS, 'text');
+                text.setAttribute('x', (from.x + to.x) / 2);
+                text.setAttribute('y', (from.y + to.y) / 2 - 6);
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('fill', '#9ca3af');
+                text.setAttribute('font-size', '9');
+                text.setAttribute('opacity', isHovered ? '1' : '0.5');
+                text.textContent = dep.label;
+                svg.appendChild(text);
+            }
         },
 
         buildCanvas() {
@@ -555,6 +586,7 @@ function canvasApp() {
                         card.x += moveX; card.y += moveY;
                     }
                 }
+                this.renderSvgEdges();
             } else if (this.dragging) {
                 const dx = (e.clientX - this.dragStartClientX) / this.zoom;
                 const dy = (e.clientY - this.dragStartClientY) / this.zoom;
@@ -576,6 +608,7 @@ function canvasApp() {
                 }
                 this.dragging.x = newX;
                 this.dragging.y = newY;
+                this.renderSvgEdges();
             } else if (this.panning) {
                 const dx = (e.clientX - this.panStartX) / this.zoom;
                 const dy = (e.clientY - this.panStartY) / this.zoom;
