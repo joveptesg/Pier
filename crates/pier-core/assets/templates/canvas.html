@@ -315,7 +315,7 @@
     <div x-show="statsPopup.show" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
          @click.self="closeStats()">
-        <div class="bg-white dark:bg-[#0d1117] border border-gray-200 dark:border-gray-800 rounded-xl shadow-2xl w-[440px] overflow-hidden">
+        <div class="bg-white dark:bg-[#0d1117] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl w-[560px] overflow-hidden">
             <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
                 <div class="flex items-center gap-2">
                     <img :src="'/static/icons/' + (statsPopup.card?.catalog_id || 'docker') + '.svg'" class="w-5 h-5" onerror="this.style.display='none'">
@@ -330,49 +330,47 @@
                 <div x-show="statsPopup.loading" class="text-center py-6">
                     <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
                 </div>
-                <div x-show="!statsPopup.loading && statsPopup.data && !statsPopup.data.error" class="grid grid-cols-2 gap-3">
+                <div x-show="!statsPopup.loading && statsPopup.data && !statsPopup.data.error" class="space-y-3">
                     <!-- CPU -->
                     <div>
-                        <div class="flex items-center justify-between text-[10px] mb-1">
-                            <span class="text-gray-500">CPU</span>
-                            <span class="font-mono font-medium text-blue-400" x-text="(statsPopup.data?.cpu_percent || 0).toFixed(1) + '%'"></span>
+                        <div class="flex items-center justify-between text-xs mb-1">
+                            <span class="text-gray-500 font-medium">CPU Usage</span>
+                            <span class="font-mono font-semibold text-blue-400" x-text="(statsPopup.data?.cpu_percent || 0).toFixed(1) + '%'"></span>
                         </div>
-                        <div class="bg-gray-100 dark:bg-gray-900/80 rounded-lg p-1.5">
-                            <canvas x-ref="cpuSparkline" width="160" height="36" class="w-full h-9"></canvas>
+                        <div class="bg-gray-100 dark:bg-[#0a0e17] rounded-lg p-2">
+                            <canvas x-ref="cpuSparkline" width="500" height="60" class="w-full" style="height:60px"></canvas>
                         </div>
                     </div>
                     <!-- Memory -->
                     <div>
-                        <div class="flex items-center justify-between text-[10px] mb-1">
-                            <span class="text-gray-500">Memory</span>
-                            <span class="font-mono font-medium text-green-400" x-text="formatBytes(statsPopup.data?.memory_usage)"></span>
+                        <div class="flex items-center justify-between text-xs mb-1">
+                            <span class="text-gray-500 font-medium">Memory</span>
+                            <span class="font-mono font-semibold text-green-400" x-text="formatBytes(statsPopup.data?.memory_usage) + ' / ' + formatBytes(statsPopup.data?.memory_limit)"></span>
                         </div>
-                        <div class="bg-gray-100 dark:bg-gray-900/80 rounded-lg p-1.5">
-                            <canvas x-ref="memSparkline" width="160" height="36" class="w-full h-9"></canvas>
+                        <div class="bg-gray-100 dark:bg-[#0a0e17] rounded-lg p-2">
+                            <canvas x-ref="memSparkline" width="500" height="60" class="w-full" style="height:60px"></canvas>
                         </div>
-                        <div class="text-right text-[9px] text-gray-600" x-text="(statsPopup.data?.memory_percent || 0).toFixed(1) + '% of ' + formatBytes(statsPopup.data?.memory_limit)"></div>
+                        <div class="text-right text-[10px] text-gray-500 mt-0.5" x-text="(statsPopup.data?.memory_percent || 0).toFixed(1) + '% used'"></div>
                     </div>
                     <!-- Network -->
                     <div>
-                        <div class="flex items-center justify-between text-[10px] mb-1">
-                            <span class="text-gray-500">Network</span>
-                            <span class="font-mono font-medium text-purple-400" x-text="formatBytes(statsPopup.data?.network_tx) + '/s'"></span>
+                        <div class="flex items-center justify-between text-xs mb-1">
+                            <span class="text-gray-500 font-medium">Network</span>
+                            <span class="font-mono text-[10px] text-gray-400" x-text="'↑ ' + formatBytes(statsPopup.data?.network_tx) + '  ↓ ' + formatBytes(statsPopup.data?.network_rx)"></span>
                         </div>
-                        <div class="bg-gray-100 dark:bg-gray-900/80 rounded-lg p-1.5">
-                            <canvas x-ref="netSparkline" width="160" height="36" class="w-full h-9"></canvas>
+                        <div class="bg-gray-100 dark:bg-[#0a0e17] rounded-lg p-2">
+                            <canvas x-ref="netSparkline" width="500" height="60" class="w-full" style="height:60px"></canvas>
                         </div>
-                        <div class="text-right text-[9px] text-gray-600" x-text="'↑' + formatBytes(statsPopup.data?.network_tx) + ' ↓' + formatBytes(statsPopup.data?.network_rx)"></div>
                     </div>
-                    <!-- Disk -->
+                    <!-- Disk I/O -->
                     <div>
-                        <div class="flex items-center justify-between text-[10px] mb-1">
-                            <span class="text-gray-500">Disk I/O</span>
-                            <span class="font-mono font-medium text-amber-400" x-text="formatBytes(statsPopup.data?.disk_write)"></span>
+                        <div class="flex items-center justify-between text-xs mb-1">
+                            <span class="text-gray-500 font-medium">Disk I/O</span>
+                            <span class="font-mono text-[10px] text-gray-400" x-text="'R: ' + formatBytes(statsPopup.data?.disk_read) + '  W: ' + formatBytes(statsPopup.data?.disk_write)"></span>
                         </div>
-                        <div class="bg-gray-100 dark:bg-gray-900/80 rounded-lg p-1.5">
-                            <canvas x-ref="diskSparkline" width="160" height="36" class="w-full h-9"></canvas>
+                        <div class="bg-gray-100 dark:bg-[#0a0e17] rounded-lg p-2">
+                            <canvas x-ref="diskSparkline" width="500" height="60" class="w-full" style="height:60px"></canvas>
                         </div>
-                        <div class="text-right text-[9px] text-gray-600" x-text="'R:' + formatBytes(statsPopup.data?.disk_read) + ' W:' + formatBytes(statsPopup.data?.disk_write)"></div>
                     </div>
                 </div>
                 <div x-show="!statsPopup.loading && statsPopup.data?.error" class="text-center py-4">
@@ -851,33 +849,64 @@ function canvasApp() {
         renderSparkline(refName, data, color) {
             const canvas = this.$refs[refName];
             if (!canvas || !data.length) return;
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
             const ctx = canvas.getContext('2d');
-            const w = canvas.width, h = canvas.height;
+            ctx.scale(dpr, dpr);
+            const w = rect.width, h = rect.height;
             ctx.clearRect(0, 0, w, h);
-            const max = Math.max(100, ...data);
-            const step = w / (30 - 1);
+
+            const max = Math.max(1, ...data) * 1.1; // 10% headroom
+            const pts = 30;
+            const step = w / (pts - 1);
+
+            // Compute points
+            const points = [];
+            for (let i = 0; i < data.length; i++) {
+                points.push({ x: i * step, y: h - (data[i] / max) * (h - 4) - 2 });
+            }
+            if (points.length < 2) return;
+
+            // Smooth bezier curve
+            const drawSmooth = () => {
+                ctx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    const prev = points[i - 1], cur = points[i];
+                    const cpx = (prev.x + cur.x) / 2;
+                    ctx.bezierCurveTo(cpx, prev.y, cpx, cur.y, cur.x, cur.y);
+                }
+            };
+
             // Fill gradient
             ctx.beginPath();
-            ctx.moveTo(0, h);
-            for (let i = 0; i < data.length; i++) {
-                ctx.lineTo(i * step, h - (data[i] / max) * h);
-            }
-            ctx.lineTo((data.length - 1) * step, h);
+            ctx.moveTo(points[0].x, h);
+            ctx.lineTo(points[0].x, points[0].y);
+            drawSmooth();
+            ctx.lineTo(points[points.length - 1].x, h);
             ctx.closePath();
             const grad = ctx.createLinearGradient(0, 0, 0, h);
-            grad.addColorStop(0, color + '40');
+            grad.addColorStop(0, color + '30');
             grad.addColorStop(1, color + '05');
             ctx.fillStyle = grad;
             ctx.fill();
-            // Line
+
+            // Smooth line
             ctx.beginPath();
-            for (let i = 0; i < data.length; i++) {
-                const x = i * step, y = h - (data[i] / max) * h;
-                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-            }
+            drawSmooth();
             ctx.strokeStyle = color;
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = 2;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.stroke();
+
+            // Current value dot
+            const last = points[points.length - 1];
+            ctx.beginPath();
+            ctx.arc(last.x, last.y, 3, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
         },
         formatBytes(bytes) {
             if (!bytes || bytes === 0) return '0 B';
