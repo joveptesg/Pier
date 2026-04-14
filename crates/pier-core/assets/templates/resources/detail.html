@@ -235,6 +235,25 @@
             </div>
         </div>
 
+        <!-- Internal Network URLs (for all services with container_name + ports) -->
+        <div x-show="resource.container_name && (resource.ports || []).length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Internal Network</h3>
+            <p class="text-[10px] text-gray-400 mb-2">Use these to connect services within Docker network (pier-net)</p>
+            <div class="space-y-1.5">
+                <template x-for="p in (resource.ports || [])" :key="p.name">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] text-gray-500 w-20" x-text="p.name"></span>
+                            <code class="text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1 rounded-lg"
+                                  x-text="resource.container_name + ':' + p.container"></code>
+                        </div>
+                        <button @click="copyText(resource.container_name + ':' + p.container)"
+                                class="text-[10px] px-2 py-1 text-gray-500 hover:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors">Copy</button>
+                    </div>
+                </template>
+            </div>
+        </div>
+
         <div x-show="connectionString" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Connection URLs</h3>
