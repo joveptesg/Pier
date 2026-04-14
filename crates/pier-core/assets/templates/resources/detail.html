@@ -728,8 +728,7 @@ NODE_ENV=production"></textarea>
                             </button>
                         </div>
                     </div>
-                    <div class="bg-gray-950 rounded-lg max-h-[600px] overflow-auto" x-ref="buildLogBox"
-                         @scroll="if ($el.scrollHeight - $el.scrollTop - $el.clientHeight > 50) buildLogFollow = false">
+                    <div class="bg-gray-950 rounded-lg max-h-[600px] overflow-auto" x-ref="buildLogBox">
                         <div class="p-3 font-mono text-xs leading-relaxed" x-html="formatBuildLog(selectedDeploy?._build_log || '')"></div>
                     </div>
                 </div>
@@ -1483,10 +1482,10 @@ function resourceDetail(id) {
                         this.selectedDeploy = {...latest};
                         // Auto-scroll build log to bottom if follow enabled
                         if (this.buildLogFollow) {
-                            this.$nextTick(() => {
+                            setTimeout(() => {
                                 const box = this.$refs.buildLogBox;
                                 if (box) box.scrollTop = box.scrollHeight;
-                            });
+                            }, 100);
                         }
                     } catch {}
                 }
