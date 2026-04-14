@@ -24,6 +24,15 @@
                 Create
             </button>
             <span class="text-gray-300 dark:text-gray-700 ml-2">|</span>
+            <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Show dependency arrows">
+                <div class="relative">
+                    <input type="checkbox" x-model="showDeps" @change="renderSvgEdges()" class="sr-only peer">
+                    <div class="w-8 h-4 bg-gray-300 dark:bg-gray-700 rounded-full peer-checked:bg-blue-500 transition-colors"></div>
+                    <div class="absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
+                </div>
+                <span class="text-[11px] text-gray-500 dark:text-gray-400">Deps</span>
+            </label>
+            <span class="text-gray-300 dark:text-gray-700">|</span>
             <span class="text-xs text-gray-400 dark:text-gray-500" x-text="Math.round(zoom * 100) + '%'"></span>
             <button @click="zoomIn()" class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Zoom in">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"/></svg>
@@ -55,6 +64,9 @@
                     </marker>
                     <marker id="arrowhead-purple" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
                         <polygon points="0 0, 10 3.5, 0 7" fill="#8b5cf6" />
+                    </marker>
+                    <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444" />
                     </marker>
                 </defs>
             </svg>
@@ -321,6 +333,7 @@ function canvasApp() {
             const base = 0x1F1E6 - 65;
             return String.fromCodePoint(code.charCodeAt(0) + base, code.charCodeAt(1) + base);
         },
+        showDeps: true,
         dragging: null, draggingZone: null, dragOffsetX: 0, dragOffsetY: 0,
         panning: false, panStartX: 0, panStartY: 0, panStartPanX: 0, panStartPanY: 0,
         hoveredId: null,
@@ -385,34 +398,47 @@ function canvasApp() {
             }
 
             // Dependency arrows (solid colored with arrowheads + labels)
-            for (const dep of this.depEdges) {
-                const from = this.getCardCenter(dep.from);
-                const to = this.getCardCenter(dep.to);
-                const lbl = dep.label.toLowerCase();
-                const isDb = lbl.includes('db') || lbl.includes('postgres') || lbl.includes('mysql') || lbl.includes('redis') || lbl.includes('database');
-                const isAmqp = lbl.includes('amqp') || lbl.includes('rabbit') || lbl.includes('queue');
-                const color = isDb ? '#3b82f6' : isAmqp ? '#8b5cf6' : '#6b7280';
-                const marker = isAmqp ? 'url(#arrowhead-purple)' : 'url(#arrowhead-blue)';
-                const isHovered = this.hoveredId && (this.hoveredId === dep.from || this.hoveredId === dep.to);
+            if (this.showDeps) {
+                for (const dep of this.depEdges) {
+                    const from = this.getCardCenter(dep.from);
+                    const to = this.getCardCenter(dep.to);
+                    const lbl = dep.label.toLowerCase();
+                    const isAmqp = lbl.includes('amqp') || lbl.includes('rabbit') || lbl.includes('queue');
+                    const isRedis = lbl.includes('redis');
+                    const color = isAmqp ? '#8b5cf6' : isRedis ? '#ef4444' : '#3b82f6';
+                    const marker = isAmqp ? 'url(#arrowhead-purple)' : isRedis ? 'url(#arrowhead-red)' : 'url(#arrowhead-blue)';
+                    const isHovered = this.hoveredId && (this.hoveredId === dep.from || this.hoveredId === dep.to);
 
-                const line = document.createElementNS(NS, 'line');
-                line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
-                line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
-                line.setAttribute('stroke', color);
-                line.setAttribute('stroke-width', '2');
-                line.setAttribute('marker-end', marker);
-                line.setAttribute('opacity', isHovered ? '1' : '0.6');
-                svg.appendChild(line);
+                    const line = document.createElementNS(NS, 'line');
+                    line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+                    line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+                    line.setAttribute('stroke', color);
+                    line.setAttribute('stroke-width', '2');
+                    line.setAttribute('marker-end', marker);
+                    line.setAttribute('opacity', isHovered ? '1' : '0.6');
+                    svg.appendChild(line);
 
-                const text = document.createElementNS(NS, 'text');
-                text.setAttribute('x', (from.x + to.x) / 2);
-                text.setAttribute('y', (from.y + to.y) / 2 - 6);
-                text.setAttribute('text-anchor', 'middle');
-                text.setAttribute('fill', '#9ca3af');
-                text.setAttribute('font-size', '9');
-                text.setAttribute('opacity', isHovered ? '1' : '0.5');
-                text.textContent = dep.label;
-                svg.appendChild(text);
+                    // Label pill at midpoint
+                    const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2 - 8;
+                    const rect = document.createElementNS(NS, 'rect');
+                    const labelText = dep.label;
+                    const tw = labelText.length * 5 + 12;
+                    rect.setAttribute('x', mx - tw / 2); rect.setAttribute('y', my - 8);
+                    rect.setAttribute('width', tw); rect.setAttribute('height', 14);
+                    rect.setAttribute('rx', '7'); rect.setAttribute('fill', color);
+                    rect.setAttribute('opacity', isHovered ? '0.9' : '0.7');
+                    svg.appendChild(rect);
+
+                    const text = document.createElementNS(NS, 'text');
+                    text.setAttribute('x', mx); text.setAttribute('y', my + 1);
+                    text.setAttribute('text-anchor', 'middle');
+                    text.setAttribute('fill', '#ffffff');
+                    text.setAttribute('font-size', '8');
+                    text.setAttribute('font-weight', '500');
+                    text.setAttribute('opacity', isHovered ? '1' : '0.85');
+                    text.textContent = labelText;
+                    svg.appendChild(text);
+                }
             }
         },
 
@@ -522,8 +548,9 @@ function canvasApp() {
             }
 
             // Dependency edges (from env vars referencing other services)
+            // Deduplicate: one arrow per (source → target) with friendly label
             this.depEdges = [];
-            const seen = new Set();
+            const depMap = {}; // key: "from->to", value: {keys: [env var names]}
             for (const card of this.cards) {
                 if (!card.env_json) continue;
                 try {
@@ -535,22 +562,29 @@ function canvasApp() {
                             if (target.id === card.id) continue;
                             const tName = target.name.toLowerCase().replace(/\s+/g, '-');
                             const cn = 'pier-' + tName;
-                            // Match: pier-name, name, or container_name patterns in value
                             if (valLower.includes(cn) || valLower.includes(tName)) {
                                 const edgeKey = card.id + '->' + target.id;
-                                if (!seen.has(edgeKey)) {
-                                    seen.add(edgeKey);
-                                    this.depEdges.push({
-                                        id: 'dep-' + card.id.substring(0,8) + '-' + target.id.substring(0,8),
-                                        from: card.id,
-                                        to: target.id,
-                                        label: key
-                                    });
-                                }
+                                if (!depMap[edgeKey]) depMap[edgeKey] = { from: card.id, to: target.id, keys: [] };
+                                depMap[edgeKey].keys.push(key);
                             }
                         }
                     }
                 } catch (ex) { console.warn('depEdge parse error for', card.name, ex); }
+            }
+            // Resolve friendly labels and create depEdges
+            for (const [edgeKey, dep] of Object.entries(depMap)) {
+                const keys = dep.keys.map(k => k.toLowerCase());
+                let label;
+                if (keys.some(k => k.includes('postgres') || k.includes('database') || k.includes('db_host') || k.includes('db_url'))) label = 'PostgreSQL';
+                else if (keys.some(k => k.includes('redis'))) label = 'Redis';
+                else if (keys.some(k => k.includes('rabbit') || k.includes('amqp'))) label = 'RabbitMQ';
+                else if (keys.some(k => k.includes('mongo'))) label = 'MongoDB';
+                else if (keys.some(k => k.includes('mysql'))) label = 'MySQL';
+                else label = dep.keys[0]; // fallback to first env var name
+                this.depEdges.push({
+                    id: 'dep-' + dep.from.substring(0,8) + '-' + dep.to.substring(0,8),
+                    from: dep.from, to: dep.to, label
+                });
             }
             console.log('Canvas: depEdges=', this.depEdges.length, 'cards with env=', this.cards.filter(c => c.env_json).length);
         },
