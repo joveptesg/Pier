@@ -177,11 +177,42 @@ pub async fn container_stats(docker: &Docker, id: &str) -> Result<serde_json::Va
         let mem_usage = mem.and_then(|m| m.usage).unwrap_or(0);
         let mem_limit = mem.and_then(|m| m.limit).unwrap_or(1);
 
+        // Network I/O: sum across all interfaces
+        let (net_rx, net_tx) = stats
+            .networks
+            .as_ref()
+            .map(|nets| {
+                nets.values().fold((0u64, 0u64), |(rx, tx), n| {
+                    (rx + n.rx_bytes.unwrap_or(0), tx + n.tx_bytes.unwrap_or(0))
+                })
+            })
+            .unwrap_or((0, 0));
+
+        // Disk I/O: sum read/write from blkio stats
+        let (disk_read, disk_write) = stats
+            .blkio_stats
+            .as_ref()
+            .and_then(|b| b.io_service_bytes_recursive.as_ref())
+            .map(|entries| {
+                entries.iter().fold((0u64, 0u64), |(r, w), e| {
+                    match e.op.as_deref() {
+                        Some("read") | Some("Read") => (r + e.value.unwrap_or(0), w),
+                        Some("write") | Some("Write") => (r, w + e.value.unwrap_or(0)),
+                        _ => (r, w),
+                    }
+                })
+            })
+            .unwrap_or((0, 0));
+
         Ok(serde_json::json!({
             "cpu_percent": cpu_percent,
             "memory_usage": mem_usage,
             "memory_limit": mem_limit,
             "memory_percent": (mem_usage as f64 / mem_limit as f64) * 100.0,
+            "network_rx": net_rx,
+            "network_tx": net_tx,
+            "disk_read": disk_read,
+            "disk_write": disk_write,
         }))
     } else {
         Ok(serde_json::json!({}))
