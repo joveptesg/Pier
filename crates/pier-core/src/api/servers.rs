@@ -285,3 +285,294 @@ pub async fn rename(
 pub struct RenameServerRequest {
     pub name: String,
 }
+
+/// GET /api/v1/servers/{id} — server detail with full metadata
+pub async fn get(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let server = db.query_row(
+        "SELECT id, name, host, port, agent_token, status, last_heartbeat, os_info,
+                cpu_count, memory_total, docker_version, is_local, created_at,
+                country, city, country_code
+         FROM servers WHERE id = ?1",
+        [&id],
+        |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "name": row.get::<_, String>(1)?,
+                "host": row.get::<_, String>(2)?,
+                "port": row.get::<_, i64>(3)?,
+                "agent_token": row.get::<_, String>(4)?,
+                "status": row.get::<_, String>(5)?,
+                "last_heartbeat": row.get::<_, Option<String>>(6)?,
+                "os_info": row.get::<_, Option<String>>(7)?,
+                "cpu_count": row.get::<_, Option<i64>>(8)?,
+                "memory_total": row.get::<_, Option<i64>>(9)?,
+                "docker_version": row.get::<_, Option<String>>(10)?,
+                "is_local": row.get::<_, bool>(11)?,
+                "created_at": row.get::<_, String>(12)?,
+                "country": row.get::<_, Option<String>>(13)?,
+                "city": row.get::<_, Option<String>>(14)?,
+                "country_code": row.get::<_, Option<String>>(15)?,
+            }))
+        },
+    ).map_err(|_| AppError::NotFound(format!("Server {id} not found")))?;
+
+    // Count services on this server
+    let service_count: i64 = db.query_row(
+        "SELECT COUNT(*) FROM services WHERE server_id = ?1 OR (?1 = 'local' AND (server_id IS NULL OR server_id = 'local'))",
+        [&id],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    let mut result = server;
+    result["service_count"] = serde_json::json!(service_count);
+    Ok(Json(result))
+}
+
+/// GET /api/v1/servers/{id}/containers — proxy to agent: list containers
+pub async fn containers(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let (host, port, agent_token, is_local) = get_server_info(&state, &id)?;
+
+    if is_local {
+        // Return local containers directly
+        let containers = state
+            .docker
+            .list_containers(Some(bollard::query_parameters::ListContainersOptions {
+                all: true,
+                ..Default::default()
+            }))
+            .await?;
+
+        let items: Vec<serde_json::Value> = containers
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "id": c.id.as_deref().unwrap_or(""),
+                    "names": c.names.as_ref().map(|n| n.join(", ")).unwrap_or_default(),
+                    "image": c.image.as_deref().unwrap_or(""),
+                    "state": format!("{:?}", c.state),
+                    "status": c.status.as_deref().unwrap_or(""),
+                })
+            })
+            .collect();
+        return Ok(Json(serde_json::json!({"ok": true, "containers": items})));
+    }
+
+    // Proxy to remote agent
+    let url = format!("http://{}:{}/api/v1/agent/status", host, port);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+    let resp = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {agent_token}"))
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
+    let data: serde_json::Value = resp.json().await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON: {e}")))?;
+    Ok(Json(data))
+}
+
+/// POST /api/v1/servers/{id}/deploy — proxy deploy to remote agent
+pub async fn deploy_to_server(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<impl IntoResponse> {
+    let (host, port, agent_token, is_local) = get_server_info(&state, &id)?;
+
+    if is_local {
+        // Deploy locally
+        let stack_name = body["stack_name"].as_str()
+            .ok_or_else(|| AppError::BadRequest("stack_name required".into()))?;
+        let compose_yaml = body["compose_yaml"].as_str()
+            .ok_or_else(|| AppError::BadRequest("compose_yaml required".into()))?;
+        let output = crate::docker::compose::deploy_stack(stack_name, compose_yaml, &state.config).await
+            .map_err(|e| AppError::Internal(e))?;
+        return Ok(Json(serde_json::json!({"ok": true, "output": output})));
+    }
+
+    // Proxy to remote agent
+    let url = format!("http://{}:{}/api/v1/agent/deploy", host, port);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {agent_token}"))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
+    let data: serde_json::Value = resp.json().await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON: {e}")))?;
+    Ok(Json(data))
+}
+
+/// POST /api/v1/servers/{id}/stop — proxy stop to remote agent
+pub async fn stop_on_server(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<impl IntoResponse> {
+    let (host, port, agent_token, is_local) = get_server_info(&state, &id)?;
+
+    if is_local {
+        let stack_name = body["stack_name"].as_str()
+            .ok_or_else(|| AppError::BadRequest("stack_name required".into()))?;
+        let output = crate::docker::compose::down_stack(stack_name, &state.config).await
+            .map_err(|e| AppError::Internal(e))?;
+        return Ok(Json(serde_json::json!({"ok": true, "output": output})));
+    }
+
+    let url = format!("http://{}:{}/api/v1/agent/stop", host, port);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {agent_token}"))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
+    let data: serde_json::Value = resp.json().await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON: {e}")))?;
+    Ok(Json(data))
+}
+
+/// GET /api/v1/servers/install-script — generate agent install script
+pub async fn install_script(
+    State(state): State<SharedState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> AppResult<impl IntoResponse> {
+    let token = params.get("token").cloned().unwrap_or_default();
+    if token.is_empty() {
+        return Err(AppError::BadRequest("token parameter required".into()));
+    }
+
+    // Get Pier server's public IP and port
+    let server_ip = {
+        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row("SELECT value FROM settings WHERE key = 'server.public_ip'", [], |row| row.get::<_, String>(0))
+            .unwrap_or_else(|_| "YOUR_PIER_SERVER_IP".to_string())
+    };
+    let pier_port = state.config.port;
+
+    let script = format!(r#"#!/bin/bash
+set -e
+
+# Pier Agent Installer
+# Auto-generated by Pier
+
+PIER_CORE_URL="http://{server_ip}:{pier_port}"
+AGENT_TOKEN="{token}"
+AGENT_PORT=3001
+
+echo "=== Pier Agent Installer ==="
+echo "Core server: $PIER_CORE_URL"
+
+# 1. Install Docker if not present
+if ! command -v docker &>/dev/null; then
+    echo "Installing Docker..."
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable --now docker
+fi
+
+# 2. Install Docker Compose plugin if not present
+if ! docker compose version &>/dev/null; then
+    echo "Installing Docker Compose plugin..."
+    apt-get install -y docker-compose-plugin 2>/dev/null || true
+fi
+
+# 3. Download pier-agent binary
+echo "Downloading pier-agent..."
+mkdir -p /opt/pier/bin
+curl -fsSL "$PIER_CORE_URL/api/v1/health" >/dev/null 2>&1 || echo "Warning: Cannot reach Pier core"
+
+# Try to download from GitHub release
+DOWNLOAD_URL="https://github.com/joveptesg/Pier/releases/download/latest/pier-agent-linux-amd64"
+curl -fsSL -o /opt/pier/bin/pier-agent "$DOWNLOAD_URL" || {{
+    echo "Error: Could not download pier-agent"
+    echo "Please build from source: cargo build --release -p pier-agent"
+    exit 1
+}}
+chmod +x /opt/pier/bin/pier-agent
+
+# 4. Create systemd service
+cat > /etc/systemd/system/pier-agent.service <<UNIT
+[Unit]
+Description=Pier Agent
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+Environment="PIER_AGENT_TOKEN=$AGENT_TOKEN"
+Environment="PIER_AGENT_PORT=$AGENT_PORT"
+Environment="PIER_AGENT_DATA_DIR=/var/lib/pier-agent"
+Environment="RUST_LOG=info"
+ExecStart=/opt/pier/bin/pier-agent
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# 5. Start agent
+systemctl daemon-reload
+systemctl enable --now pier-agent
+
+echo ""
+echo "=== Pier Agent installed ==="
+echo "Agent port: $AGENT_PORT"
+echo "Status: systemctl status pier-agent"
+echo "Logs:   journalctl -u pier-agent -f"
+
+# 6. Register with Pier core (send first heartbeat)
+sleep 2
+curl -s -X POST "$PIER_CORE_URL/api/v1/servers/heartbeat" \
+    -H "Content-Type: application/json" \
+    -d '{{"agent_token":"'"$AGENT_TOKEN"'","os_info":"'"$(uname -srm)"'","docker_version":"'"$(docker --version 2>/dev/null | cut -d' ' -f3 | tr -d ',')"'"}}'
+
+echo ""
+echo "Agent registered with Pier core."
+"#);
+
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "text/x-shellscript")],
+        script,
+    ))
+}
+
+/// Helper: extract server connection info
+fn get_server_info(state: &SharedState, id: &str) -> Result<(String, i64, String, bool), AppError> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    db.query_row(
+        "SELECT host, port, agent_token, is_local FROM servers WHERE id = ?1",
+        [id],
+        |row| Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, bool>(3)?,
+        )),
+    ).map_err(|_| AppError::NotFound(format!("Server {id} not found")))
+}

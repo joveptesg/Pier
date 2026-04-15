@@ -117,6 +117,10 @@ async fn main() -> Result<()> {
     backup::scheduler::start_scheduler(state.clone());
     tracing::info!("Backup scheduler started");
 
+    // Start SSL certificate monitor (checks acme.json every 15 min)
+    proxy::ssl_monitor::start_ssl_monitor(state.clone());
+    tracing::info!("SSL monitor started");
+
     // Cleanup invalid domains (with https:// prefix) and their Traefik configs
     {
         if let Ok(db) = state.db.lock() {

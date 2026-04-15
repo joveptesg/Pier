@@ -157,14 +157,14 @@ pub async fn create(
         )));
     }
 
-    // Traefik config written — SSL will be provisioned automatically by Let's Encrypt
+    // Traefik config written — SSL will be provisioned by Let's Encrypt (background monitor will update status)
     {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let _ = db.execute(
-            "UPDATE domains SET ssl_status = 'active' WHERE id = ?1",
+            "UPDATE domains SET ssl_status = 'provisioning' WHERE id = ?1",
             [&id],
         );
     }
@@ -370,14 +370,14 @@ pub async fn create_service_domain(
     )
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Write proxy config: {e}")))?;
 
-    // Mark as active — Traefik handles SSL automatically
+    // SSL will be provisioned by Let's Encrypt (background monitor will update status)
     {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let _ = db.execute(
-            "UPDATE domains SET ssl_status = 'active' WHERE id = ?1",
+            "UPDATE domains SET ssl_status = 'provisioning' WHERE id = ?1",
             [&id],
         );
     }

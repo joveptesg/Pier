@@ -189,10 +189,14 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/s3/{id}/test", post(s3::test))
         // Servers
         .route("/servers", get(servers::list).post(servers::create))
-        .route("/servers/{id}", delete(servers::remove))
+        .route("/servers/install-script", get(servers::install_script))
+        .route("/servers/{id}", get(servers::get).delete(servers::remove))
         .route("/servers/{id}/name", put(servers::rename))
         .route("/servers/{id}/test", post(servers::test_connection))
         .route("/servers/{id}/metrics", get(servers::metrics))
+        .route("/servers/{id}/containers", get(servers::containers))
+        .route("/servers/{id}/deploy", post(servers::deploy_to_server))
+        .route("/servers/{id}/stop", post(servers::stop_on_server))
         // Canvas (architect view)
         .route("/canvas", get(canvas::get_canvas))
         .route("/canvas/positions", put(canvas::save_positions))
@@ -214,6 +218,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/system/disk-usage", get(system::disk_usage))
         .route("/system/update-check", get(system::update_check))
         .route("/system/update", post(system::update_now))
+        .route("/system/update-settings", get(system::update_settings).put(system::save_update_settings))
         .layer(axum::middleware::from_fn_with_state(state, require_auth));
 
     Router::new()

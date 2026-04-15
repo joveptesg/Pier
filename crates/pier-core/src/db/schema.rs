@@ -316,6 +316,13 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_db_creds_service ON database_credentials(service_id);
     "#,
+    // Migration 20: Multi-server support — server_id on services/deployments, server labels
+    r#"
+    ALTER TABLE services ADD COLUMN server_id TEXT DEFAULT 'local';
+    ALTER TABLE deployments ADD COLUMN server_id TEXT;
+    ALTER TABLE servers ADD COLUMN labels_json TEXT DEFAULT '{}';
+    ALTER TABLE servers ADD COLUMN max_containers INTEGER DEFAULT 100;
+    "#,
 ];
 
 /// Run all pending database migrations.

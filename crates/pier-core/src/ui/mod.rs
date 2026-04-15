@@ -20,6 +20,8 @@ pub fn ui_router(state: SharedState) -> Router<SharedState> {
         .route("/projects", get(pages::projects_list))
         .route("/projects/{id}", get(pages::project_detail))
         .route("/servers", get(pages::servers_list))
+        .route("/servers/{id}", get(pages::server_detail))
+        .route("/updates", get(pages::updates_page))
         .route("/sources", get(pages::sources_list))
         .route("/sources/{id}", get(pages::source_detail))
         .route("/s3", get(pages::s3_list))

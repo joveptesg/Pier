@@ -45,6 +45,8 @@ pub struct CreateResourceRequest {
     pub name: String,
     pub project_id: Option<String>,
     pub network_id: Option<String>,
+    /// Target server ID (default: "local")
+    pub server_id: Option<String>,
     #[serde(default)]
     pub config: HashMap<String, String>,
     /// Git source ID for GitHub App deploys
@@ -259,12 +261,13 @@ pub async fn create(
 
     let allocated_ports = with_db(&state, |db| {
         db.execute(
-            "INSERT INTO services (id, project_id, network_id, name, service_type, status, catalog_id, category, env_json, image)
-             VALUES (?1, ?2, ?3, ?4, 'compose', 'deploying', ?5, ?6, ?7, ?8)",
+            "INSERT INTO services (id, project_id, network_id, server_id, name, service_type, status, catalog_id, category, env_json, image)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'compose', 'deploying', ?6, ?7, ?8, ?9)",
             rusqlite::params![
                 service_id,
                 body.project_id,
                 network_id,
+                body.server_id.as_deref().unwrap_or("local"),
                 name,
                 body.catalog_id,
                 item.meta.category,

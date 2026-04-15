@@ -166,6 +166,31 @@ pub async fn servers_list(
     )
 }
 
+/// GET /servers/{id}
+pub async fn server_detail(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> PageResult {
+    render(
+        &state,
+        "servers/detail.html",
+        minijinja::context! { user => user.username, page => "servers", server_id => id },
+    )
+}
+
+/// GET /updates
+pub async fn updates_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "settings/updates.html",
+        minijinja::context! { user => user.username, page => "settings", version => env!("CARGO_PKG_VERSION") },
+    )
+}
+
 /// GET /settings
 pub async fn settings_page(
     State(state): State<SharedState>,

@@ -143,6 +143,56 @@ const GITHUB_RELEASE_URL: &str =
     "https://api.github.com/repos/joveptesg/Pier/releases/tags/latest";
 const BINARY_ASSET_NAME: &str = "pier-linux-amd64";
 
+/// GET /api/v1/system/update-settings
+pub async fn update_settings(
+    State(state): State<SharedState>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let mode = db
+        .query_row("SELECT value FROM settings WHERE key = 'update.mode'", [], |row| row.get::<_, String>(0))
+        .unwrap_or_else(|_| "notify".to_string());
+    let auto_check = db
+        .query_row("SELECT value FROM settings WHERE key = 'update.auto_check'", [], |row| row.get::<_, String>(0))
+        .unwrap_or_else(|_| "true".to_string()) == "true";
+
+    Ok(Json(serde_json::json!({
+        "mode": mode,
+        "auto_check": auto_check,
+    })))
+}
+
+/// PUT /api/v1/system/update-settings
+pub async fn save_update_settings(
+    State(state): State<SharedState>,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    if let Some(mode) = body.get("mode").and_then(|v| v.as_str()) {
+        if matches!(mode, "auto" | "notify" | "manual") {
+            db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('update.mode', ?1)",
+                [mode],
+            )?;
+        }
+    }
+    if let Some(auto_check) = body.get("auto_check").and_then(|v| v.as_bool()) {
+        db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('update.auto_check', ?1)",
+            [if auto_check { "true" } else { "false" }],
+        )?;
+    }
+
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 /// GET /api/v1/system/update-check
 pub async fn update_check() -> AppResult<impl IntoResponse> {
     let current_version = env!("CARGO_PKG_VERSION");
