@@ -1,36 +1,5 @@
 # Pier — Установка на чистый Ubuntu-сервер
 
-
-cd /tmp/pier
-git pull
-cargo build --release
-sudo bash scripts/install.sh --binary target/release/pier
-
-
-cd /tmp/pier && git pull && cargo build --release
-sudo bash scripts/install.sh --binary target/release/pier
-
-
-
-
-
-joveptesg
-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
-
-
-Покажи ошибку:
-
-
-journalctl -u pier --since "5 min ago" --no-pager | tail -30
-Или если ошибка при сборке:
-
-
-cd /tmp/pier && cargo build --release 2>&1 | tail -20
-
-
-
-
-
 ## 0. Безопасность сервера
 
 ### 0.1 Создать sudo-юзера (на сервере под root)
