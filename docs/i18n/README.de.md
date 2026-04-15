@@ -28,7 +28,9 @@
 
 ## Was ist Pier?
 
-Pier ist eine quelloffene, selbst gehostete Platform-as-a-Service, die als **einzelnes Rust-Binary** läuft. Deployen Sie Container, Docker-Compose-Stacks und Git-Repositories mit automatischem SSL, Reverse Proxy und einem modernen Web-Dashboard — und das alles mit nur **20–40 MB RAM**.
+**Pier ist eine quelloffene & selbst gehostete Alternative zu Coolify / Heroku / Vercel — leichtgewichtig genug für einen $5-VPS.**
+
+Deployen Sie Container, Docker-Compose-Stacks und Git-Repositories mit automatischem SSL, Reverse Proxy und einem modernen Web-Dashboard — alles aus einem einzigen Rust-Binary mit nur **20–40 MB RAM**.
 
 <!-- 
 <p align="center">

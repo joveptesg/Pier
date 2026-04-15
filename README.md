@@ -26,7 +26,9 @@
 
 ## What is Pier?
 
-Pier is an open-source, self-hosted Platform-as-a-Service that runs as a **single Rust binary**. Deploy containers, Docker Compose stacks, and Git repositories with automatic SSL, reverse proxy, and a modern web dashboard — all using **20–40 MB of RAM**.
+**Pier is an open-source & self-hostable alternative to Coolify / Heroku / Vercel — lightweight enough for a $5 VPS.**
+
+Deploy containers, Docker Compose stacks, and Git repositories with automatic SSL, reverse proxy, and a modern web dashboard — all from a single Rust binary using **20–40 MB of RAM**.
 
 <!-- 
 <p align="center">

@@ -28,7 +28,9 @@
 
 ## ¿Qué es Pier?
 
-Pier es una Plataforma como Servicio (PaaS) de código abierto y autoalojada que se ejecuta como un **único binario de Rust**. Despliega contenedores, stacks de Docker Compose y repositorios Git con SSL automático, proxy inverso y un panel web moderno, todo usando apenas **20–40 MB de RAM**.
+**Pier es una alternativa open-source y autoalojada a Coolify / Heroku / Vercel — lo suficientemente ligera para un VPS de $5.**
+
+Despliega contenedores, stacks de Docker Compose y repositorios Git con SSL automático, proxy inverso y un panel web moderno — todo desde un único binario de Rust usando apenas **20–40 MB de RAM**.
 
 <!-- 
 <p align="center">

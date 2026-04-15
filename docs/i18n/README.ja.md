@@ -28,7 +28,9 @@
 
 ## Pier とは？
 
-Pier は、**単一の Rust バイナリ**として動作するオープンソースのセルフホスト型 Platform-as-a-Service です。コンテナ、Docker Compose スタック、Git リポジトリを、自動 SSL、リバースプロキシ、モダンな Web ダッシュボード付きでデプロイできます — すべてわずか **20〜40 MB の RAM** で動作します。
+**Pier は Coolify / Heroku / Vercel のオープンソース・セルフホスト型代替ツールです — $5 の VPS でも動作するほど軽量。**
+
+コンテナ、Docker Compose スタック、Git リポジトリを、自動 SSL、リバースプロキシ、モダンな Web ダッシュボード付きでデプロイ — すべて単一の Rust バイナリから、わずか **20〜40 MB の RAM** で動作します。
 
 <!-- 
 <p align="center">

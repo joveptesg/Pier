@@ -28,7 +28,9 @@
 
 ## 什么是 Pier？
 
-Pier 是一个开源的自托管平台即服务（PaaS），以**单一 Rust 二进制文件**运行。可部署容器、Docker Compose 堆栈和 Git 仓库，并自动配置 SSL、反向代理和现代化 Web 控制面板 — 仅需 **20–40 MB 内存**。
+**Pier 是 Coolify / Heroku / Vercel 的开源自托管替代方案 — 轻量到可以运行在 $5 的 VPS 上。**
+
+部署容器、Docker Compose 堆栈和 Git 仓库，自动配置 SSL、反向代理和现代化 Web 控制面板 — 一切来自单个 Rust 二进制文件，仅需 **20–40 MB 内存**。
 
 <!-- 
 <p align="center">
