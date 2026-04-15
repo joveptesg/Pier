@@ -6,7 +6,7 @@
 |-------|----------|-----------|--------|
 | **8** | Reverse Proxy (Traefik) + Домены + SSL + Служебные домены | CRITICAL | **DONE** |
 | **9** | Git Webhooks + Auto-Deploy Pipeline | HIGH | **DONE** |
-| **10** | Multi-Server — завершение | HIGH | **IN PROGRESS** |
+| **10** | Multi-Server — завершение | HIGH | **DONE** |
 | **11** | Auto-Update + Load Balancing + RBAC + Alerts | MEDIUM | **IN PROGRESS** |
 | **12** | Docker Networks — изоляция проектов | MEDIUM | **DONE** |
 
@@ -282,11 +282,11 @@ Coolify генерирует `{uuid}.{server-ip}.sslip.io` — домен, ко�
   - Список контейнеров на этом сервере
   - Agent version, uptime, last heartbeat
 - [x] **10.5.2** Agent install — встроено в server detail page (curl | sh с token)
-- [ ] **10.5.3** Server selector на `resources/create.html`
-  - Dropdown "Target Server" (default: localhost)
-  - Показывать load (CPU%, RAM%) для каждого сервера
-- [ ] **10.5.4** Dashboard — карточки серверов
-  - Mini-card для каждого сервера: name, status, CPU, RAM
+- [x] **10.5.3** Server selector на `resources/create.html`
+  - Dropdown "Target Server" (default: localhost) — показывается при >1 серверов
+  - `server_id` передаётся в payload
+- [x] **10.5.4** Dashboard — карточки серверов
+  - Секция "Servers" с remote-серверами (имя, хост, статус, Docker, локация)
   - Клик → server detail page
 
 ### 10.6 Компиляция и тест

@@ -152,6 +152,31 @@
         </div>
     </div>
 
+    <!-- Remote Servers (only shown when remote servers exist) -->
+    <div x-show="remoteServers.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Servers</h3>
+            <a href="/servers" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">View all</a>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <template x-for="s in remoteServers" :key="s.id">
+                <a :href="'/servers/' + s.id"
+                   class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors cursor-pointer">
+                    <div class="shrink-0">
+                        <div class="w-2.5 h-2.5 rounded-full" :class="s.status === 'online' ? 'bg-green-500' : 'bg-gray-400'"></div>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <p class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" x-text="s.name"></p>
+                        <p class="text-xs text-gray-500 truncate" x-text="s.host + (s.city ? ' — ' + s.city + ', ' + (s.country || '') : '')"></p>
+                    </div>
+                    <div class="text-right shrink-0">
+                        <p class="text-xs text-gray-400" x-text="s.docker_version ? 'Docker ' + s.docker_version : ''"></p>
+                    </div>
+                </a>
+            </template>
+        </div>
+    </div>
+
     <!-- Memory Detail Popup -->
     <div x-show="showMemoryDetail" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" @click.self="showMemoryDetail = false">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 border border-gray-200 dark:border-gray-800">
@@ -263,6 +288,7 @@ function dashboardData() {
         showDiskDetail: false,
         diskUsage: { images: [], containers: [], volumes: [], build_cache_size: 0, total: 0 },
         diskUsageLoading: false,
+        remoteServers: [],
         async loadContainerStats() {
             this.containerStatsLoading = true;
             try {
@@ -282,7 +308,13 @@ function dashboardData() {
             setInterval(() => this.refreshMetrics(), 5000);
         },
         async refresh() {
-            await Promise.all([this.refreshMetrics(), this.refreshProjects()]);
+            await Promise.all([this.refreshMetrics(), this.refreshProjects(), this.refreshServers()]);
+        },
+        async refreshServers() {
+            try {
+                const all = await fetch('/api/v1/servers').then(r => r.ok ? r.json() : []);
+                this.remoteServers = all.filter(s => !s.is_local);
+            } catch { this.remoteServers = []; }
         },
         async refreshMetrics() {
             try {
