@@ -47,8 +47,9 @@
             </div>
         </div>
 
-        <!-- Disk -->
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
+        <!-- Disk (clickable — opens disk usage popup) -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 cursor-pointer hover:border-yellow-300 dark:hover:border-yellow-700 transition-colors"
+             @click="showDiskDetail = true; loadDiskUsage()">
             <div class="flex items-center justify-between mb-3">
                 <span class="text-sm text-gray-500 dark:text-gray-400">Disk</span>
                 <svg class="w-4 h-4 text-yellow-500 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
@@ -185,6 +186,69 @@
             </div>
         </div>
     </div>
+
+    <!-- Disk Usage Popup -->
+    <div x-show="showDiskDetail" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" @click.self="showDiskDetail = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 border border-gray-200 dark:border-gray-800">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Disk Usage</h3>
+                <button @click="showDiskDetail = false" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div x-show="diskUsageLoading" class="text-center py-4 text-gray-500 text-sm">Loading...</div>
+            <div x-show="!diskUsageLoading" class="space-y-4 max-h-[500px] overflow-y-auto">
+                <!-- Images -->
+                <div x-show="diskUsage.images && diskUsage.images.length > 0">
+                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Images</h4>
+                    <div class="space-y-1.5">
+                        <template x-for="img in diskUsage.images" :key="img.id">
+                            <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                <span class="text-xs text-gray-900 dark:text-white truncate flex-1 mr-2" x-text="img.name"></span>
+                                <span class="text-xs font-mono text-yellow-500 shrink-0" x-text="formatBytes(img.size)"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <!-- Containers -->
+                <div x-show="diskUsage.containers && diskUsage.containers.length > 0">
+                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Containers</h4>
+                    <div class="space-y-1.5">
+                        <template x-for="c in diskUsage.containers" :key="c.id">
+                            <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                <span class="text-xs text-gray-900 dark:text-white truncate flex-1 mr-2" x-text="c.name"></span>
+                                <span class="text-xs font-mono text-blue-400 shrink-0" x-text="formatBytes(c.size)"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <!-- Volumes -->
+                <div x-show="diskUsage.volumes && diskUsage.volumes.length > 0">
+                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Volumes</h4>
+                    <div class="space-y-1.5">
+                        <template x-for="v in diskUsage.volumes" :key="v.name">
+                            <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                <span class="text-xs text-gray-900 dark:text-white truncate flex-1 mr-2" x-text="v.name"></span>
+                                <span class="text-xs font-mono text-green-400 shrink-0" x-text="formatBytes(v.size)"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <!-- Build Cache -->
+                <div x-show="diskUsage.build_cache_size > 0">
+                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Build Cache</h4>
+                    <div class="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                        <span class="text-xs font-mono text-purple-400" x-text="formatBytes(diskUsage.build_cache_size)"></span>
+                    </div>
+                </div>
+                <!-- Total -->
+                <div class="border-t border-gray-200 dark:border-gray-800 pt-3 flex items-center justify-between">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Total Docker Disk Usage</span>
+                    <span class="text-sm font-mono font-bold text-yellow-500" x-text="formatBytes(diskUsage.total)"></span>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -196,12 +260,22 @@ function dashboardData() {
         showMemoryDetail: false,
         containerStats: [],
         containerStatsLoading: false,
+        showDiskDetail: false,
+        diskUsage: { images: [], containers: [], volumes: [], build_cache_size: 0, total: 0 },
+        diskUsageLoading: false,
         async loadContainerStats() {
             this.containerStatsLoading = true;
             try {
                 this.containerStats = await fetch('/api/v1/containers/all-stats').then(r => r.ok ? r.json() : []);
             } catch { this.containerStats = []; }
             this.containerStatsLoading = false;
+        },
+        async loadDiskUsage() {
+            this.diskUsageLoading = true;
+            try {
+                this.diskUsage = await fetch('/api/v1/system/disk-usage').then(r => r.ok ? r.json() : {});
+            } catch { this.diskUsage = {}; }
+            this.diskUsageLoading = false;
         },
         async init() {
             await this.refresh();

@@ -211,6 +211,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // System
         .route("/system/metrics", get(system::metrics))
         .route("/system/docker", get(system::docker_info))
+        .route("/system/disk-usage", get(system::disk_usage))
         .route("/system/update-check", get(system::update_check))
         .route("/system/update", post(system::update_now))
         .layer(axum::middleware::from_fn_with_state(state, require_auth));
