@@ -31,6 +31,103 @@
         </div>
     </div>
 
+    <!-- Updates -->
+    <div x-data="updateApp()" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Updates</h3>
+        <div class="space-y-4">
+            <div class="flex items-center justify-between py-2">
+                <div>
+                    <p class="text-sm text-gray-900 dark:text-white">Current Version</p>
+                    <p class="text-xs text-gray-500 mt-0.5">Installed Pier version</p>
+                </div>
+                <span class="text-sm font-mono text-gray-600 dark:text-gray-400">{{ version }}</span>
+            </div>
+            <div class="border-t border-gray-100 dark:border-gray-800"></div>
+            <div class="flex items-center justify-between py-2">
+                <div>
+                    <p class="text-sm text-gray-900 dark:text-white">Latest Build</p>
+                    <p class="text-xs text-gray-500 mt-0.5" x-text="status"></p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span x-show="updateAvailable" class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400">Update available</span>
+                    <span x-show="!updateAvailable && !checking && checked" class="text-xs text-green-500">Up to date</span>
+                    <button @click="checkUpdate()" :disabled="checking"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+                            :class="checking ? 'bg-gray-200 dark:bg-gray-800 text-gray-400 cursor-wait' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'">
+                        <span x-text="checking ? 'Checking...' : 'Check Now'"></span>
+                    </button>
+                </div>
+            </div>
+            <template x-if="updateAvailable">
+                <div class="border-t border-gray-100 dark:border-gray-800 pt-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-gray-900 dark:text-white">Install Update</p>
+                            <p class="text-xs text-gray-500 mt-0.5" x-text="'Build: ' + latestBuild + (updateSize ? ' (' + formatBytes(updateSize) + ')' : '')"></p>
+                        </div>
+                        <button @click="installUpdate()" :disabled="updating"
+                                class="px-4 py-1.5 text-xs font-medium rounded-lg transition-colors"
+                                :class="updating ? 'bg-blue-400 text-white cursor-wait' : 'bg-blue-600 hover:bg-blue-700 text-white'">
+                            <span x-text="updating ? 'Updating...' : 'Update & Restart'"></span>
+                        </button>
+                    </div>
+                    <div x-show="updating" class="mt-3">
+                        <div class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+                            <div class="h-full bg-blue-500 rounded-full animate-pulse" style="width:100%"></div>
+                        </div>
+                        <p class="text-[10px] text-gray-500 mt-1">Downloading and installing update. Pier will restart automatically.</p>
+                    </div>
+                    <div x-show="updateError" class="mt-2 text-xs text-red-400" x-text="updateError"></div>
+                </div>
+            </template>
+        </div>
+    </div>
+    <script>
+    function updateApp() {
+        return {
+            checking: false, checked: false, updating: false,
+            updateAvailable: false, latestBuild: '', updateSize: 0, updateError: '',
+            status: 'Click "Check Now" to check for updates',
+            formatBytes(b) { if (!b) return '0 B'; const k=1024,s=['B','KB','MB','GB']; const i=Math.floor(Math.log(b)/Math.log(k)); return (b/Math.pow(k,i)).toFixed(1)+' '+s[i]; },
+            async checkUpdate() {
+                this.checking = true; this.updateError = '';
+                try {
+                    const r = await fetch('/api/v1/system/update-check').then(r => r.json());
+                    this.updateAvailable = r.available || false;
+                    this.latestBuild = r.latest_build || '';
+                    this.updateSize = r.size || 0;
+                    this.status = r.available ? 'New build available' : 'You are running the latest version';
+                    if (r.error) { this.status = r.error; }
+                } catch (e) { this.status = 'Failed to check: ' + e.message; }
+                this.checking = false; this.checked = true;
+            },
+            async installUpdate() {
+                if (!confirm('Pier will restart after update. Continue?')) return;
+                this.updating = true; this.updateError = '';
+                try {
+                    const r = await fetch('/api/v1/system/update', { method: 'POST' }).then(r => r.json());
+                    if (r.ok) {
+                        this.status = 'Update installed! Restarting...';
+                        setTimeout(() => { this.status = 'Reconnecting...'; this.pollReconnect(); }, 3000);
+                    } else { this.updateError = r.message || 'Update failed'; }
+                } catch (e) { this.updateError = e.message; }
+                this.updating = false;
+            },
+            pollReconnect() {
+                const poll = async (attempts) => {
+                    try {
+                        const r = await fetch('/api/v1/health');
+                        if (r.ok) { window.location.reload(); return; }
+                    } catch {}
+                    if (attempts > 0) setTimeout(() => poll(attempts - 1), 2000);
+                    else this.status = 'Pier may still be restarting. Refresh manually.';
+                };
+                poll(30);
+            }
+        };
+    }
+    </script>
+
     <!-- Account -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
         <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Account</h3>

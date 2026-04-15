@@ -174,7 +174,7 @@ pub async fn settings_page(
     render(
         &state,
         "settings/index.html",
-        minijinja::context! { user => user.username, page => "settings" },
+        minijinja::context! { user => user.username, page => "settings", version => env!("CARGO_PKG_VERSION") },
     )
 }
 
