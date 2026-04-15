@@ -62,7 +62,6 @@ pub async fn docker_info(State(state): State<SharedState>) -> AppResult<impl Int
 
 /// GET /api/v1/system/disk-usage — Docker disk usage breakdown via CLI
 pub async fn disk_usage(State(_state): State<SharedState>) -> AppResult<impl IntoResponse> {
-    // Use docker system df -v --format json for reliable parsing
     let output = tokio::process::Command::new("docker")
         .args(["system", "df", "-v", "--format", "{{json .}}"])
         .output()
@@ -70,45 +69,62 @@ pub async fn disk_usage(State(_state): State<SharedState>) -> AppResult<impl Int
         .map_err(|e| anyhow::anyhow!("docker system df: {e}"))?;
 
     let raw = String::from_utf8_lossy(&output.stdout);
-    let mut images: Vec<serde_json::Value> = Vec::new();
-    let mut containers: Vec<serde_json::Value> = Vec::new();
-    let mut volumes: Vec<serde_json::Value> = Vec::new();
-    let mut build_cache_size: u64 = 0;
+    // Output is one big JSON object with Images[], Containers[], Volumes[], BuildCache[]
+    let df: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("Parse docker df: {e}"))?;
+
     let mut total: u64 = 0;
 
-    for line in raw.lines() {
-        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(line) {
-            // Images section
-            if let Some(repo) = obj.get("Repository").and_then(|v| v.as_str()) {
-                let size = parse_docker_size(obj.get("Size").and_then(|v| v.as_str()).unwrap_or("0"));
-                total += size;
-                let tag = obj.get("Tag").and_then(|v| v.as_str()).unwrap_or("latest");
-                images.push(serde_json::json!({ "name": format!("{repo}:{tag}"), "size": size }));
-            }
-            // Containers section
-            else if let Some(names) = obj.get("Names").and_then(|v| v.as_str()) {
-                let size = parse_docker_size(obj.get("Size").and_then(|v| v.as_str()).unwrap_or("0"));
-                total += size;
-                containers.push(serde_json::json!({ "name": names, "size": size }));
-            }
-            // Volumes section
-            else if let Some(vname) = obj.get("Name").and_then(|v| v.as_str()) {
-                let size = parse_docker_size(obj.get("Size").and_then(|v| v.as_str()).unwrap_or("0"));
-                total += size;
-                // Shorten volume name
-                let short = if vname.len() > 30 { format!("{}...", &vname[..27]) } else { vname.to_string() };
-                volumes.push(serde_json::json!({ "name": short, "size": size }));
-            }
-            // Build cache
-            else if obj.get("CacheType").is_some() {
-                let size = parse_docker_size(obj.get("Size").and_then(|v| v.as_str()).unwrap_or("0"));
-                build_cache_size += size;
-                total += size;
-            }
-        }
-    }
+    let images: Vec<serde_json::Value> = df["Images"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .map(|img| {
+            let size = parse_docker_size(img["Size"].as_str().unwrap_or("0"));
+            total += size;
+            let repo = img["Repository"].as_str().unwrap_or("<none>");
+            let tag = img["Tag"].as_str().unwrap_or("latest");
+            serde_json::json!({ "name": format!("{repo}:{tag}"), "size": size })
+        })
+        .collect();
+
+    let containers: Vec<serde_json::Value> = df["Containers"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .map(|c| {
+            let size = parse_docker_size(c["Size"].as_str().unwrap_or("0"));
+            total += size;
+            let name = c["Names"].as_str().unwrap_or("?");
+            serde_json::json!({ "name": name, "size": size })
+        })
+        .collect();
+
+    let volumes: Vec<serde_json::Value> = df["Volumes"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .map(|v| {
+            let size = parse_docker_size(v["Size"].as_str().unwrap_or("0"));
+            total += size;
+            let name = v["Name"].as_str().unwrap_or("?");
+            let short = if name.len() > 40 { format!("{}...", &name[..37]) } else { name.to_string() };
+            serde_json::json!({ "name": short, "size": size })
+        })
+        .collect();
+
+    let build_cache_size: u64 = df["BuildCache"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .map(|b| parse_docker_size(b["Size"].as_str().unwrap_or("0")))
+        .sum();
+    total += build_cache_size;
 
     // Sort by size descending
+    let mut images = images;
+    let mut containers = containers;
+    let mut volumes = volumes;
     images.sort_by(|a, b| b["size"].as_u64().cmp(&a["size"].as_u64()));
     containers.sort_by(|a, b| b["size"].as_u64().cmp(&a["size"].as_u64()));
     volumes.sort_by(|a, b| b["size"].as_u64().cmp(&a["size"].as_u64()));
