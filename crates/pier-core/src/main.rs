@@ -261,27 +261,61 @@ async fn main() -> Result<()> {
     }
 
     // Build router: UI + API
+    // Scheduled cleanup: configurable Docker pruning
+    {
+        let cleanup_state = state.clone();
+        tokio::spawn(async move {
+            loop {
+                // Read settings (default: enabled, 24h, prune images + build cache)
+                let (enabled, interval_h, do_cache, do_images, do_containers) = {
+                    let db = cleanup_state.db.lock().ok();
+                    let get = |key: &str, default: &str| -> String {
+                        db.as_ref()
+                            .and_then(|db| {
+                                db.query_row(
+                                    "SELECT value FROM settings WHERE key = ?1",
+                                    [key],
+                                    |row| row.get(0),
+                                )
+                                .ok()
+                            })
+                            .unwrap_or_else(|| default.to_string())
+                    };
+                    (
+                        get("cleanup.enabled", "true") == "true",
+                        get("cleanup.interval_hours", "24").parse::<u64>().unwrap_or(24),
+                        get("cleanup.prune_build_cache", "true") != "false",
+                        get("cleanup.prune_images", "true") != "false",
+                        get("cleanup.prune_containers", "false") == "true",
+                    )
+                };
+
+                tokio::time::sleep(std::time::Duration::from_secs(interval_h * 3600)).await;
+
+                if !enabled {
+                    continue;
+                }
+
+                let run = |name: &'static str, args: &[&str]| {
+                    let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+                    async move {
+                        match tokio::process::Command::new("docker").args(&args).output().await {
+                            Ok(out) => tracing::info!("Cleanup {name}: {}", String::from_utf8_lossy(&out.stdout).trim()),
+                            Err(e) => tracing::warn!("Cleanup {name} failed: {e}"),
+                        }
+                    }
+                };
+
+                if do_images { run("images", &["image", "prune", "-f"]).await; }
+                if do_cache { run("build_cache", &["builder", "prune", "-f"]).await; }
+                if do_containers { run("containers", &["container", "prune", "-f"]).await; }
+            }
+        });
+    }
+
     let app = ui::ui_router(state.clone())
         .merge(api::api_router(state.clone()))
         .with_state(state);
-
-    // Scheduled cleanup: prune unused Docker images every 24h
-    tokio::spawn(async {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(86400)).await;
-            match tokio::process::Command::new("docker")
-                .args(["image", "prune", "-f"])
-                .output()
-                .await
-            {
-                Ok(out) => {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    tracing::info!("Docker image prune: {}", stdout.trim());
-                }
-                Err(e) => tracing::warn!("Docker image prune failed: {e}"),
-            }
-        }
-    });
 
     // Start server
     let addr = config.listen_addr();

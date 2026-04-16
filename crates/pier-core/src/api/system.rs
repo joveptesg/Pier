@@ -138,6 +138,144 @@ pub async fn disk_usage(State(_state): State<SharedState>) -> AppResult<impl Int
     })))
 }
 
+/// GET /api/v1/system/cleanup-info — sizes of cleanable Docker data
+pub async fn cleanup_info() -> AppResult<impl IntoResponse> {
+    // docker system df (summary, not verbose)
+    let output = tokio::process::Command::new("docker")
+        .args(["system", "df", "--format", "{{json .}}"])
+        .output()
+        .await
+        .map_err(|e| anyhow::anyhow!("docker system df: {e}"))?;
+
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let mut build_cache: u64 = 0;
+    let mut images_reclaimable: u64 = 0;
+    let mut containers_size: u64 = 0;
+
+    // Each line is a JSON object for a section (Images, Containers, Local Volumes, Build Cache)
+    for line in raw.lines() {
+        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(line) {
+            let typ = obj["Type"].as_str().unwrap_or("");
+            let reclaimable = obj["Reclaimable"].as_str().unwrap_or("0B");
+            // Parse reclaimable: "1.2GB (50%)" → extract size before "("
+            let size_part = reclaimable.split('(').next().unwrap_or("0B").trim();
+            match typ {
+                "Images" => images_reclaimable = parse_docker_size(size_part),
+                "Containers" => containers_size = parse_docker_size(obj["Size"].as_str().unwrap_or("0B")),
+                "Build Cache" => build_cache = parse_docker_size(size_part),
+                _ => {}
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "build_cache": build_cache,
+        "images_reclaimable": images_reclaimable,
+        "containers_size": containers_size,
+    })))
+}
+
+/// POST /api/v1/system/cleanup — run cleanup for specified targets
+pub async fn cleanup(Json(body): Json<serde_json::Value>) -> AppResult<impl IntoResponse> {
+    let targets = body["targets"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    let mut results = serde_json::Map::new();
+
+    for target in &targets {
+        let (cmd, args): (&str, &[&str]) = match *target {
+            "build_cache" => ("docker", &["builder", "prune", "-f"]),
+            "images" => ("docker", &["image", "prune", "-f"]),
+            "containers" => ("docker", &["container", "prune", "-f"]),
+            _ => continue,
+        };
+
+        match tokio::process::Command::new(cmd).args(args).output().await {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                tracing::info!("Cleanup {target}: {}", stdout.trim());
+                results.insert(
+                    target.to_string(),
+                    serde_json::json!({ "ok": true, "output": stdout.trim() }),
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Cleanup {target} failed: {e}");
+                results.insert(
+                    target.to_string(),
+                    serde_json::json!({ "ok": false, "error": e.to_string() }),
+                );
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "results": results })))
+}
+
+/// PUT /api/v1/system/cleanup-settings — save cleanup preferences
+pub async fn cleanup_settings_update(
+    State(state): State<SharedState>,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let keys = [
+        "cleanup.enabled",
+        "cleanup.interval_hours",
+        "cleanup.prune_build_cache",
+        "cleanup.prune_images",
+        "cleanup.prune_containers",
+    ];
+
+    for key in &keys {
+        let short = key.strip_prefix("cleanup.").unwrap_or(key);
+        if let Some(val) = body.get(short).and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| Some(v.to_string()))
+        }) {
+            db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+                rusqlite::params![key, val],
+            )?;
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// GET /api/v1/system/cleanup-settings — read cleanup preferences
+pub async fn cleanup_settings_get(
+    State(state): State<SharedState>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let get = |key: &str| -> String {
+        db.query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            [key],
+            |row| row.get(0),
+        )
+        .unwrap_or_default()
+    };
+
+    Ok(Json(serde_json::json!({
+        "enabled": get("cleanup.enabled") == "true",
+        "interval_hours": get("cleanup.interval_hours").parse::<u32>().unwrap_or(24),
+        "prune_build_cache": get("cleanup.prune_build_cache") != "false",
+        "prune_images": get("cleanup.prune_images") != "false",
+        "prune_containers": get("cleanup.prune_containers") == "true",
+    })))
+}
+
 fn parse_docker_size(s: &str) -> u64 {
     let s = s.trim();
     if s.is_empty() || s == "0B" || s == "0" { return 0; }
