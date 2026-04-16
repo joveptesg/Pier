@@ -45,6 +45,66 @@ async fn main() -> Result<()> {
         let _ = std::fs::set_permissions(&config.db_path, std::fs::Permissions::from_mode(0o600));
     }
 
+    // Create pre-encryption backup of pier.db (one-time, before any encryption happens)
+    {
+        let backup_path = config.data_dir.join("pier.db.pre-encryption");
+        if !backup_path.exists() {
+            if let Err(e) = std::fs::copy(&config.db_path, &backup_path) {
+                tracing::warn!("Could not create pre-encryption DB backup: {e}");
+            } else {
+                tracing::info!("Created pre-encryption backup: {}", backup_path.display());
+            }
+        }
+    }
+
+    // Daily local backup of pier.db + .env
+    {
+        let data_dir = config.data_dir.clone();
+        let db_path = config.db_path.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(86400)).await;
+                let backup_dir = data_dir.join("backups").join("system");
+                let _ = tokio::fs::create_dir_all(&backup_dir).await;
+                let ts = chrono::Local::now().format("%Y%m%d").to_string();
+                // Backup pier.db
+                let db_backup = backup_dir.join(format!("pier-{ts}.db"));
+                if let Err(e) = tokio::fs::copy(&db_path, &db_backup).await {
+                    tracing::warn!("System backup pier.db failed: {e}");
+                }
+                // Backup .env
+                for env_path in &["/opt/pier/.env", ".env"] {
+                    let p = std::path::Path::new(env_path);
+                    if p.exists() {
+                        let env_backup = backup_dir.join(format!("env-{ts}.bak"));
+                        let _ = tokio::fs::copy(p, &env_backup).await;
+                        break;
+                    }
+                }
+                // Keep only last 7 backups
+                if let Ok(mut entries) = tokio::fs::read_dir(&backup_dir).await {
+                    let mut files: Vec<std::path::PathBuf> = Vec::new();
+                    while let Ok(Some(entry)) = entries.next_entry().await {
+                        if entry.path().extension().map(|e| e == "db").unwrap_or(false) {
+                            files.push(entry.path());
+                        }
+                    }
+                    files.sort();
+                    while files.len() > 7 {
+                        if let Some(old) = files.first() {
+                            let _ = tokio::fs::remove_file(old).await;
+                            // Also remove matching env backup
+                            let env_name = old.file_name().unwrap_or_default().to_string_lossy().replace("pier-", "env-").replace(".db", ".bak");
+                            let _ = tokio::fs::remove_file(backup_dir.join(env_name)).await;
+                        }
+                        files.remove(0);
+                    }
+                }
+                tracing::info!("System backup completed: pier.db + .env");
+            }
+        });
+    }
+
     // Check if setup is needed
     let user_count = db::user_count(&conn)?;
     if user_count == 0 {
