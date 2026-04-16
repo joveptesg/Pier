@@ -103,42 +103,83 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
         (resources, servers, networks, positions)
     }; // DB lock dropped here
 
-    // Enrich resources: get real env vars from running containers via Docker API
-    let mut enriched = Vec::with_capacity(resources.len());
-    for mut r in resources {
-        let env_json = r.get("env_json").and_then(|v| v.as_str()).unwrap_or("");
-        if env_json.is_empty() || env_json == "null" || env_json == "{}" {
-            let cn = r
-                .get("container_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            if !cn.is_empty() {
-                if let Ok(info) = state.docker.inspect_container(&cn, None).await {
-                    if let Some(config) = info.config {
-                        if let Some(env_list) = config.env {
-                            let mut env_map = serde_json::Map::new();
-                            for entry in &env_list {
-                                if let Some((key, val)) = entry.split_once('=') {
-                                    env_map.insert(
-                                        key.to_string(),
-                                        serde_json::Value::String(val.to_string()),
-                                    );
-                                }
-                            }
-                            if !env_map.is_empty() {
-                                if let Ok(json_str) = serde_json::to_string(&env_map) {
-                                    r["env_json"] = serde_json::Value::String(json_str);
-                                }
-                            }
-                        }
+    // SEC-002: detect dependencies server-side via Docker inspect (don't expose env vars to frontend)
+    let mut dep_edges: Vec<serde_json::Value> = Vec::new();
+    let mut seen_edges = std::collections::HashSet::new();
+
+    // Build name→id lookup
+    let name_to_id: std::collections::HashMap<String, String> = resources
+        .iter()
+        .filter_map(|r| {
+            let id = r.get("id")?.as_str()?.to_string();
+            let name = r.get("name")?.as_str()?.to_lowercase().replace(' ', "-");
+            Some((name, id))
+        })
+        .collect();
+
+    for r in &resources {
+        let cn = r.get("container_id").and_then(|v| v.as_str()).unwrap_or("");
+        let source_id = r.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        if cn.is_empty() || source_id.is_empty() {
+            continue;
+        }
+
+        // Get env vars from running container
+        let env_list = match state.docker.inspect_container(cn, None).await {
+            Ok(info) => info.config.and_then(|c| c.env).unwrap_or_default(),
+            Err(_) => continue,
+        };
+
+        // Collect which keys reference which targets (deduplicate per target)
+        let mut target_keys: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        for entry in &env_list {
+            if let Some((key, val)) = entry.split_once('=') {
+                let val_lower = val.to_lowercase();
+                for (tname, tid) in &name_to_id {
+                    if tid == source_id { continue; }
+                    let cn_pattern = format!("pier-{tname}");
+                    if val_lower.contains(&cn_pattern) || val_lower.contains(tname) {
+                        target_keys.entry(tid.clone()).or_default().push(key.to_string());
                     }
                 }
             }
         }
-        enriched.push(r);
+
+        // Create one edge per (source→target) with friendly label
+        for (tid, keys) in target_keys {
+            let edge_key = format!("{source_id}->{tid}");
+            if seen_edges.contains(&edge_key) { continue; }
+            seen_edges.insert(edge_key);
+
+            let keys_lower: Vec<String> = keys.iter().map(|k| k.to_lowercase()).collect();
+            let label = if keys_lower.iter().any(|k| k.contains("postgres") || k.contains("database") || k.contains("db_host")) {
+                "PostgreSQL"
+            } else if keys_lower.iter().any(|k| k.contains("redis")) {
+                "Redis"
+            } else if keys_lower.iter().any(|k| k.contains("rabbit") || k.contains("amqp")) {
+                "RabbitMQ"
+            } else if keys_lower.iter().any(|k| k.contains("mongo")) {
+                "MongoDB"
+            } else {
+                &keys[0]
+            };
+
+            dep_edges.push(serde_json::json!({
+                "from": source_id,
+                "to": tid,
+                "label": label,
+            }));
+        }
     }
-    let resources = enriched;
+
+    // Remove env_json from resources before sending to frontend
+    let resources: Vec<serde_json::Value> = resources
+        .into_iter()
+        .map(|mut r| {
+            r.as_object_mut().map(|o| o.remove("env_json"));
+            r
+        })
+        .collect();
 
     // System metrics
     let sys = sysinfo::System::new_all();
@@ -153,6 +194,7 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
 
     Ok(Json(serde_json::json!({
         "resources": resources,
+        "dep_edges": dep_edges,
         "servers": servers,
         "networks": networks,
         "positions": positions,

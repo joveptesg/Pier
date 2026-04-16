@@ -47,10 +47,11 @@ sysinfo = "0.38.3"
 minijinja = { version = "2.16", features = ["loader"] }
 rust-embed = { version = "8.11", features = ["compression"] }
 
-# Auth
+# Auth & Crypto
 bcrypt = "0.19"
 rand = "0.10"
 base64 = "0.22"
+aes-gcm = "0.10"
 
 # Streaming
 futures-util = "0.3"

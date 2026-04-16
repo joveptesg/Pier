@@ -761,7 +761,10 @@ async fn write_env_file(state: &AppState, service_id: &str, stack_name: &str) {
 
     let env_content = match env_json {
         Some(json_str) => {
-            match serde_json::from_str::<serde_json::Value>(&json_str) {
+            // Decrypt if encrypted
+            let key = crate::crypto::get_secret_key();
+            let decrypted = crate::crypto::decrypt(&json_str, &key).unwrap_or(json_str);
+            match serde_json::from_str::<serde_json::Value>(&decrypted) {
                 Ok(serde_json::Value::Object(map)) => {
                     let mut lines = Vec::new();
                     for (k, v) in &map {
@@ -784,6 +787,12 @@ async fn write_env_file(state: &AppState, service_id: &str, stack_name: &str) {
     let _ = tokio::fs::create_dir_all(&stack_dir).await;
     if let Err(e) = tokio::fs::write(&env_path, &env_content).await {
         tracing::warn!("Failed to write .env for {stack_name}: {e}");
+    }
+    // SEC-006: restrict .env file permissions
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&env_path, std::fs::Permissions::from_mode(0o600));
     }
 }
 

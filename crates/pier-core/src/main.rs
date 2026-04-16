@@ -3,6 +3,7 @@ mod auth;
 mod backup;
 mod catalog;
 mod config;
+pub mod crypto;
 mod db;
 mod deploy;
 mod docker;
@@ -36,6 +37,13 @@ async fn main() -> Result<()> {
 
     // Initialize database
     let conn = db::init_db(&config.db_path)?;
+
+    // SEC-007: restrict database file permissions
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&config.db_path, std::fs::Permissions::from_mode(0o600));
+    }
 
     // Check if setup is needed
     let user_count = db::user_count(&conn)?;

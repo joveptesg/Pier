@@ -414,6 +414,7 @@ function canvasApp() {
                 this.servers = data.servers || [];
                 this.networks = data.networks || [];
                 this.positions = data.positions || {};
+                this._serverDepEdges = data.dep_edges || [];
             } catch (e) { console.error('Canvas load:', e); }
         },
 
@@ -637,46 +638,13 @@ function canvasApp() {
                 }
             }
 
-            // Dependency edges (from env vars referencing other services)
-            // Deduplicate: one arrow per (source → target) with friendly label
-            this.depEdges = [];
-            const depMap = {}; // key: "from->to", value: {keys: [env var names]}
-            for (const card of this.cards) {
-                if (!card.env_json) continue;
-                try {
-                    const env = JSON.parse(card.env_json);
-                    for (const [key, val] of Object.entries(env)) {
-                        if (typeof val !== 'string') continue;
-                        const valLower = val.toLowerCase();
-                        for (const target of this.cards) {
-                            if (target.id === card.id) continue;
-                            const tName = target.name.toLowerCase().replace(/\s+/g, '-');
-                            const cn = 'pier-' + tName;
-                            if (valLower.includes(cn) || valLower.includes(tName)) {
-                                const edgeKey = card.id + '->' + target.id;
-                                if (!depMap[edgeKey]) depMap[edgeKey] = { from: card.id, to: target.id, keys: [] };
-                                depMap[edgeKey].keys.push(key);
-                            }
-                        }
-                    }
-                } catch (ex) { console.warn('depEdge parse error for', card.name, ex); }
-            }
-            // Resolve friendly labels and create depEdges
-            for (const [edgeKey, dep] of Object.entries(depMap)) {
-                const keys = dep.keys.map(k => k.toLowerCase());
-                let label;
-                if (keys.some(k => k.includes('postgres') || k.includes('database') || k.includes('db_host') || k.includes('db_url'))) label = 'PostgreSQL';
-                else if (keys.some(k => k.includes('redis'))) label = 'Redis';
-                else if (keys.some(k => k.includes('rabbit') || k.includes('amqp'))) label = 'RabbitMQ';
-                else if (keys.some(k => k.includes('mongo'))) label = 'MongoDB';
-                else if (keys.some(k => k.includes('mysql'))) label = 'MySQL';
-                else label = dep.keys[0]; // fallback to first env var name
-                this.depEdges.push({
-                    id: 'dep-' + dep.from.substring(0,8) + '-' + dep.to.substring(0,8),
-                    from: dep.from, to: dep.to, label
-                });
-            }
-            console.log('Canvas: depEdges=', this.depEdges.length, 'cards with env=', this.cards.filter(c => c.env_json).length);
+            // Dependency edges — detected server-side (no secrets exposed to frontend)
+            this.depEdges = (this._serverDepEdges || []).map((dep, i) => ({
+                id: 'dep-' + i,
+                from: dep.from,
+                to: dep.to,
+                label: dep.label,
+            }));
         },
 
         // Pan & Zoom

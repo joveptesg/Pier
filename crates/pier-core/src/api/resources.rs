@@ -1166,7 +1166,7 @@ pub async fn get(
                     "image": row.get::<_, Option<String>>(6)?,
                     "catalog_id": row.get::<_, Option<String>>(7)?,
                     "category": row.get::<_, Option<String>>(8)?,
-                    "env_json": row.get::<_, Option<String>>(9)?,
+                    "env_json": serde_json::Value::Null, // SEC-003: secrets not exposed in detail API
                     "compose_content": row.get::<_, Option<String>>(10)?,
                     "created_at": row.get::<_, String>(11)?,
                     "cluster_mode": row.get::<_, Option<String>>(12)?,

@@ -25,10 +25,14 @@ pub async fn get_env(
         )
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?;
 
-    let env: HashMap<String, String> = env_json
+    // Decrypt if encrypted
+    let key = crate::crypto::get_secret_key();
+    let decrypted = env_json
         .as_deref()
-        .and_then(|j| serde_json::from_str(j).ok())
+        .map(|j| crate::crypto::decrypt(j, &key).unwrap_or_else(|_| j.to_string()))
         .unwrap_or_default();
+
+    let env: HashMap<String, String> = serde_json::from_str(&decrypted).unwrap_or_default();
 
     Ok(Json(serde_json::json!(env)))
 }
@@ -46,8 +50,13 @@ pub async fn update_env(
     Path(id): Path<String>,
     Json(body): Json<UpdateEnvRequest>,
 ) -> AppResult<impl IntoResponse> {
-    let env_json = serde_json::to_string(&body.env)
+    let env_json_plain = serde_json::to_string(&body.env)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON serialize: {e}")))?;
+
+    // Encrypt before storing
+    let key = crate::crypto::get_secret_key();
+    let env_json = crate::crypto::encrypt(&env_json_plain, &key)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Encrypt: {e}")))?;
 
     // Get current resource info
     let (name, compose_content, catalog_id, git_repo_url, git_branch) = {
