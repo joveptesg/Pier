@@ -18,12 +18,31 @@ pub fn get_secret_key() -> [u8; 32] {
         }
     }
 
-    // Generate a new key and log it (user should save to .env)
+    // Generate a new key and auto-save to .env
     let key: [u8; 32] = rand::random();
     let b64 = B64.encode(key);
-    tracing::warn!(
-        "PIER_SECRET not set or invalid. Generated new key. Add to /opt/pier/.env:\nPIER_SECRET={b64}"
-    );
+
+    // Try to append to /opt/pier/.env (or current dir .env)
+    let env_paths = ["/opt/pier/.env", ".env"];
+    for path in &env_paths {
+        let p = std::path::Path::new(path);
+        if p.exists() || p.parent().map(|d| d.exists()).unwrap_or(false) {
+            let existing = std::fs::read_to_string(p).unwrap_or_default();
+            if !existing.contains("PIER_SECRET=") {
+                let line = format!("\nPIER_SECRET={b64}\n");
+                if std::fs::OpenOptions::new().create(true).append(true).open(p)
+                    .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()))
+                    .is_ok()
+                {
+                    tracing::info!("Generated PIER_SECRET and saved to {path}");
+                    std::env::set_var("PIER_SECRET", &b64);
+                    return key;
+                }
+            }
+        }
+    }
+
+    tracing::warn!("PIER_SECRET generated but could not save to .env. Add manually:\nPIER_SECRET={b64}");
     key
 }
 
