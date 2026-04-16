@@ -3,7 +3,6 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use rand::Rng;
 
 /// Get or generate the encryption key from PIER_SECRET env var.
 /// Key is 32 bytes (256-bit), base64-encoded in the env var.
