@@ -28,6 +28,7 @@ ARCHITECTURE.md
 CLAUDE.md
 plan_output.md
 INSTALL.md
+SECURITY-AUDIT.md
 
 # SQLite databases
 *.db

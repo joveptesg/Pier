@@ -24,6 +24,9 @@ pub struct AppState {
 
     /// Service catalog templates loaded from embedded TOML files.
     pub catalog: Vec<CatalogItem>,
+
+    /// Process start time (for uptime calculation).
+    pub started_at: std::time::Instant,
 }
 
 /// Type alias for Arc-wrapped shared state.

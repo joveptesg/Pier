@@ -215,6 +215,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // System
         .route("/system/metrics", get(system::metrics))
         .route("/system/docker", get(system::docker_info))
+        .route("/system/info", get(system::info))
         .route("/system/disk-usage", get(system::disk_usage))
         .route("/system/cleanup-info", get(system::cleanup_info))
         .route("/system/cleanup", post(system::cleanup))

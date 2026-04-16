@@ -139,6 +139,31 @@ pub async fn disk_usage(State(_state): State<SharedState>) -> AppResult<impl Int
 }
 
 /// GET /api/v1/system/cleanup-info — sizes of cleanable Docker data
+/// GET /api/v1/system/info — version, build date, uptime
+pub async fn info(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let version = env!("CARGO_PKG_VERSION");
+
+    // Build date from binary mtime
+    let build_date = std::env::current_exe()
+        .ok()
+        .and_then(|p| std::fs::metadata(p).ok())
+        .and_then(|m| m.modified().ok())
+        .map(|t| {
+            let dt: chrono::DateTime<chrono::Utc> = t.into();
+            dt.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+        })
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    // Uptime from started_at in AppState
+    let uptime_seconds = state.started_at.elapsed().as_secs();
+
+    Ok(Json(serde_json::json!({
+        "version": version,
+        "build_date": build_date,
+        "uptime_seconds": uptime_seconds,
+    })))
+}
+
 pub async fn cleanup_info() -> AppResult<impl IntoResponse> {
     // docker system df (summary, not verbose)
     let output = tokio::process::Command::new("docker")

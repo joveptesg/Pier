@@ -179,6 +179,7 @@ async fn main() -> Result<()> {
         templates,
         config: config.clone(),
         catalog,
+        started_at: std::time::Instant::now(),
     });
 
     // Start backup scheduler
