@@ -5,6 +5,7 @@ mod backup;
 mod catalog;
 mod config;
 pub mod crypto;
+mod crypto_recovery;
 mod db;
 mod deploy;
 mod docker;
@@ -35,6 +36,12 @@ async fn main() -> Result<()> {
         .init();
 
     tracing::info!("Pier v{}", env!("CARGO_PKG_VERSION"));
+
+    // Crypto self-check: loads + caches PIER_SECRET and verifies encrypt/decrypt
+    // roundtrip. Panics loudly if the key cannot be persisted or is broken —
+    // we never want to run with a silently-wrong key that would corrupt user data.
+    crypto::self_check();
+    tracing::info!("Crypto self-check OK");
 
     // Initialize database
     let conn = db::init_db(&config.db_path)?;
@@ -182,6 +189,11 @@ async fn main() -> Result<()> {
         catalog,
         started_at: std::time::Instant::now(),
     });
+
+    // One-shot recovery of env_json entries encrypted with historical random
+    // keys (install.sh drops .pier-recovery-keys from journald). No-op if the
+    // file is absent. Runs synchronously — fast (a few dozen rows).
+    crypto_recovery::run_recovery_if_needed(&state);
 
     // Start backup scheduler
     backup::scheduler::start_scheduler(state.clone());

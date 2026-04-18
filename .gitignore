@@ -51,3 +51,4 @@ logs/
 dist/
 *.tar.gz
 *.zip
+/crates/pier-core/data/
