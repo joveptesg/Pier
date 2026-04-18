@@ -773,27 +773,20 @@ async fn write_env_file(state: &AppState, service_id: &str, stack_name: &str) {
         })
         .flatten();
 
-    let env_content = match env_json {
-        Some(json_str) => {
-            // Decrypt if encrypted
-            let key = crate::crypto::get_secret_key();
-            let decrypted = crate::crypto::decrypt(&json_str, &key).unwrap_or(json_str);
-            match serde_json::from_str::<serde_json::Value>(&decrypted) {
-                Ok(serde_json::Value::Object(map)) => {
-                    let mut lines = Vec::new();
-                    for (k, v) in &map {
-                        let val = match v {
-                            serde_json::Value::String(s) => s.clone(),
-                            other => other.to_string(),
-                        };
-                        lines.push(format!("{k}={val}"));
-                    }
-                    lines.join("\n")
-                }
-                _ => String::new(),
+    let decrypted = crate::crypto::decrypt_env_json(env_json.as_deref());
+    let env_content = match serde_json::from_str::<serde_json::Value>(&decrypted) {
+        Ok(serde_json::Value::Object(map)) => {
+            let mut lines = Vec::new();
+            for (k, v) in &map {
+                let val = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                lines.push(format!("{k}={val}"));
             }
+            lines.join("\n")
         }
-        None => String::new(),
+        _ => String::new(),
     };
 
     let stack_dir = state.config.data_dir.join("stacks").join(stack_name);
@@ -818,7 +811,8 @@ fn persist_env_from_disk(state: &AppState, service_id: &str, stack_name: &str) {
         Err(_) => return,
     };
 
-    // Check if env_json already has data
+    // Check if env_json already has data — decrypt first because the stored
+    // value is usually an ENC: ciphertext.
     let current: Option<String> = db
         .query_row(
             "SELECT env_json FROM services WHERE id = ?1",
@@ -828,10 +822,9 @@ fn persist_env_from_disk(state: &AppState, service_id: &str, stack_name: &str) {
         .ok()
         .flatten();
 
-    if let Some(ref val) = current {
-        if !val.is_empty() && val != "{}" && val != "null" {
-            return; // Already has env data, don't overwrite
-        }
+    let current_plain = crate::crypto::decrypt_env_json(current.as_deref());
+    if current_plain != "{}" && current_plain != "null" && !current_plain.is_empty() {
+        return; // Already has env data, don't overwrite
     }
 
     // Read .env from stack dir
@@ -866,9 +859,10 @@ fn persist_env_from_disk(state: &AppState, service_id: &str, stack_name: &str) {
     }
 
     if let Ok(json_str) = serde_json::to_string(&serde_json::Value::Object(env_map)) {
+        let encrypted = crate::crypto::encrypt_env_json(&json_str);
         let _ = db.execute(
             "UPDATE services SET env_json = ?1 WHERE id = ?2",
-            rusqlite::params![json_str, service_id],
+            rusqlite::params![encrypted, service_id],
         );
     }
 }

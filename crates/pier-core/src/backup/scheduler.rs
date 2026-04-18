@@ -86,10 +86,9 @@ async fn run_single_backup(
     };
 
     let catalog_id = catalog_id.unwrap_or_default();
-    let env_vars: HashMap<String, String> = env_json
-        .as_deref()
-        .and_then(|j| serde_json::from_str(j).ok())
-        .unwrap_or_default();
+    let decrypted_env = crate::crypto::decrypt_env_json(env_json.as_deref());
+    let env_vars: HashMap<String, String> =
+        serde_json::from_str(&decrypted_env).unwrap_or_default();
 
     // 2. Get S3 storage config
     let (storage_type, endpoint, region, bucket, access_key, secret_key) = {

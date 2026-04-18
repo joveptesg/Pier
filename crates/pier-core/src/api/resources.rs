@@ -271,7 +271,7 @@ pub async fn create(
                 name,
                 body.catalog_id,
                 item.meta.category,
-                serde_json::to_string(&vars).unwrap_or_default(),
+                crate::crypto::encrypt_env_json(&serde_json::to_string(&vars).unwrap_or_else(|_| "{}".into())),
                 item.docker.as_ref().map(|d| catalog::substitute(&d.image, &vars)),
             ],
         )?;
@@ -921,10 +921,11 @@ async fn create_git_deploy(
         "GIT_BRANCH": branch,
         "DOCKERFILE_PATH": build_path,
     });
+    let env_json_stored = crate::crypto::encrypt_env_json(&env_data.to_string());
     with_db(state, |db| {
         let _ = db.execute(
             "UPDATE services SET status = ?1, compose_content = ?2, env_json = ?3, updated_at = datetime('now') WHERE id = ?4",
-            rusqlite::params![status, yaml_clone, env_data.to_string(), sid],
+            rusqlite::params![status, yaml_clone, env_json_stored, sid],
         );
         record_deployment_log(db, &sid, "deploy", status, &log_output);
         Ok(())
@@ -1649,11 +1650,9 @@ pub async fn scale(
         )));
     }
 
-    // Parse existing vars
-    let vars: HashMap<String, String> = env_json
-        .as_deref()
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or_default();
+    // Parse existing vars (may be encrypted — decrypt_env_json handles both)
+    let decrypted = crate::crypto::decrypt_env_json(env_json.as_deref());
+    let vars: HashMap<String, String> = serde_json::from_str(&decrypted).unwrap_or_default();
 
     // Generate new compose with updated node count
     let new_yaml = cluster_gen::build_cluster_compose(&catalog_id, body.node_count, &vars)
