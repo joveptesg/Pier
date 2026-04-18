@@ -461,3 +461,178 @@ fn validate_channel(c: &str) -> AppResult<()> {
 // Re-export AlertRule for use in other modules (silence dead_code if unused).
 #[allow(dead_code)]
 type _AlertRuleRef = AlertRule;
+
+// ──────────────────────────────────────────────────────────────────────────
+// /api/v1/notifications/* — simplified Coolify-style UI layer.
+// One global channel config per channel type, plus toggle-able preset rules.
+// ──────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct UpdateTelegramRequest {
+    pub enabled: Option<bool>,
+    pub bot_token: Option<String>,
+    pub chat_id: Option<String>,
+}
+
+#[derive(serde::Serialize, Deserialize, Default)]
+struct TelegramChannelConfig {
+    #[serde(default)]
+    bot_token: String,
+    #[serde(default)]
+    chat_id: String,
+}
+
+/// GET /api/v1/notifications/channels/telegram
+pub async fn channel_get(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let (enabled, config_enc) = read_channel(&state, "telegram")?;
+    let has_config = !config_enc.is_empty();
+    let mut chat_id_hint = String::new();
+    if has_config {
+        let key = crate::crypto::get_secret_key();
+        if let Ok(plain) = crate::crypto::decrypt(&config_enc, &key) {
+            if let Ok(cfg) = serde_json::from_str::<TelegramChannelConfig>(&plain) {
+                chat_id_hint = cfg.chat_id;
+            }
+        }
+    }
+    Ok(Json(json!({
+        "channel": "telegram",
+        "enabled": enabled,
+        "has_config": has_config,
+        "chat_id": chat_id_hint,
+    })))
+}
+
+/// PUT /api/v1/notifications/channels/telegram
+pub async fn channel_put(
+    State(state): State<SharedState>,
+    Json(body): Json<UpdateTelegramRequest>,
+) -> AppResult<impl IntoResponse> {
+    let (mut enabled, current_enc) = read_channel(&state, "telegram")?;
+
+    let key = crate::crypto::get_secret_key();
+    let mut cfg: TelegramChannelConfig = if current_enc.is_empty() {
+        TelegramChannelConfig::default()
+    } else {
+        crate::crypto::decrypt(&current_enc, &key)
+            .ok()
+            .and_then(|p| serde_json::from_str(&p).ok())
+            .unwrap_or_default()
+    };
+
+    if let Some(t) = body.bot_token.as_ref() {
+        if !t.is_empty() {
+            cfg.bot_token = t.clone();
+        }
+    }
+    if let Some(c) = body.chat_id.as_ref() {
+        cfg.chat_id = c.clone();
+    }
+
+    if let Some(v) = body.enabled {
+        if v && (cfg.bot_token.is_empty() || cfg.chat_id.is_empty()) {
+            return Err(AppError::BadRequest(
+                "bot_token and chat_id are required before enabling Telegram".into(),
+            ));
+        }
+        enabled = v;
+    }
+
+    let plain = serde_json::to_string(&cfg)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize cfg: {e}")))?;
+    let config_enc = if cfg.bot_token.is_empty() && cfg.chat_id.is_empty() {
+        String::new()
+    } else {
+        crate::crypto::encrypt(&plain, &key)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("encrypt: {e}")))?
+    };
+
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+        db.execute(
+            "UPDATE notification_channels SET enabled = ?1, config_enc = ?2, updated_at = datetime('now') WHERE channel = ?3",
+            rusqlite::params![enabled as i64, config_enc, "telegram"],
+        )?;
+    }
+
+    Ok(Json(json!({"ok": true, "enabled": enabled})))
+}
+
+/// POST /api/v1/notifications/channels/telegram/test
+pub async fn channel_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let (_enabled, config_enc) = read_channel(&state, "telegram")?;
+    if config_enc.is_empty() {
+        return Err(AppError::BadRequest(
+            "Telegram is not configured".into(),
+        ));
+    }
+    let key = crate::crypto::get_secret_key();
+    let plain = crate::crypto::decrypt(&config_enc, &key)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("decrypt: {e}")))?;
+
+    let msg = AlertMessage {
+        rule_name: "[TEST] Pier notifications".to_string(),
+        severity: "info".to_string(),
+        state: "firing".to_string(),
+        metric: "deploy_status".to_string(),
+        scope_label: "global".to_string(),
+        value: None,
+        threshold: None,
+        comparison: "eq".to_string(),
+        context: Some("If you see this, Telegram notifications work.".to_string()),
+    };
+
+    crate::alerts::channels::send("telegram", &plain, &msg)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
+
+    Ok(Json(json!({"ok": true})))
+}
+
+/// GET /api/v1/notifications/alerts — list preset rules with fields needed for the UI.
+pub async fn preset_list(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+
+    let mut stmt = db.prepare(
+        "SELECT id, name, enabled, metric, threshold, comparison, duration_secs,
+                severity, last_triggered_at, last_state
+         FROM alert_rules WHERE id LIKE 'preset-%' ORDER BY severity DESC, name ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(json!({
+            "id": row.get::<_, String>(0)?,
+            "name": row.get::<_, String>(1)?,
+            "enabled": row.get::<_, i64>(2)? == 1,
+            "metric": row.get::<_, String>(3)?,
+            "threshold": row.get::<_, Option<f64>>(4)?,
+            "comparison": row.get::<_, String>(5)?,
+            "duration_secs": row.get::<_, i64>(6)?,
+            "severity": row.get::<_, String>(7)?,
+            "last_triggered_at": row.get::<_, Option<String>>(8)?,
+            "last_state": row.get::<_, String>(9)?,
+        }))
+    })?;
+    let list: Vec<Value> = rows.filter_map(|r| r.ok()).collect();
+    Ok(Json(json!(list)))
+}
+
+fn read_channel(state: &SharedState, channel: &str) -> AppResult<(bool, String)> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+    let row = db
+        .query_row(
+            "SELECT enabled, config_enc FROM notification_channels WHERE channel = ?1",
+            [channel],
+            |row| Ok((row.get::<_, i64>(0)? == 1, row.get::<_, String>(1)?)),
+        )
+        .unwrap_or((false, String::new()));
+    Ok(row)
+}

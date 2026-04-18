@@ -191,15 +191,15 @@ pub async fn updates_page(
     )
 }
 
-/// GET /alerts
-pub async fn alerts_page(
+/// GET /notifications
+pub async fn notifications_page(
     State(state): State<SharedState>,
     axum::Extension(user): axum::Extension<AuthUser>,
 ) -> PageResult {
     render(
         &state,
-        "settings/alerts.html",
-        minijinja::context! { user => user.username, page => "alerts" },
+        "settings/notifications.html",
+        minijinja::context! { user => user.username, page => "notifications" },
     )
 }
 

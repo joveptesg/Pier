@@ -242,6 +242,47 @@ pub async fn fire_with_context(
     send_and_record(state, rule, &msg, "firing", value).await
 }
 
+/// Resolve which channel credentials to use.
+///
+/// Rules from presets (migration 23) have an empty `channel_config_enc` and
+/// rely on the global `notification_channels` table. Legacy rules keep their
+/// own per-rule config. Returns `None` if the channel is disabled or has no
+/// configuration set.
+fn resolve_channel_config(
+    state: &SharedState,
+    rule: &AlertRule,
+) -> anyhow::Result<Option<String>> {
+    let key = crate::crypto::get_secret_key();
+
+    if !rule.channel_config_enc.is_empty() {
+        let plain = crate::crypto::decrypt(&rule.channel_config_enc, &key)
+            .map_err(|e| anyhow::anyhow!("Decrypt per-rule channel_config: {e}"))?;
+        return Ok(Some(plain));
+    }
+
+    // Fall back to the global channel entry.
+    let (enabled, config_enc): (i64, String) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT enabled, config_enc FROM notification_channels WHERE channel = ?1",
+            [&rule.channel],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .unwrap_or((0, String::new()))
+    };
+
+    if enabled != 1 || config_enc.is_empty() {
+        return Ok(None);
+    }
+
+    let plain = crate::crypto::decrypt(&config_enc, &key)
+        .map_err(|e| anyhow::anyhow!("Decrypt global channel_config: {e}"))?;
+    Ok(Some(plain))
+}
+
 fn build_message(
     state: &SharedState,
     rule: &AlertRule,
@@ -269,9 +310,18 @@ async fn send_and_record(
     state_label: &str,
     value: Option<f64>,
 ) -> anyhow::Result<()> {
-    let key = crate::crypto::get_secret_key();
-    let config_json = crate::crypto::decrypt(&rule.channel_config_enc, &key)
-        .map_err(|e| anyhow::anyhow!("Decrypt channel_config: {e}"))?;
+    let config_json = match resolve_channel_config(state, rule)? {
+        Some(cfg) => cfg,
+        None => {
+            // Channel not configured or disabled — log and skip. Not an error:
+            // the user simply hasn't set up notifications yet.
+            tracing::debug!(
+                "Alert '{}' would fire but channel '{}' is not configured — skipping",
+                rule.name, rule.channel
+            );
+            return Ok(());
+        }
+    };
 
     let delivery = channels::send(&rule.channel, &config_json, msg).await;
 

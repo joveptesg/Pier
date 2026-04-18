@@ -224,7 +224,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/system/update-check", get(system::update_check))
         .route("/system/update", post(system::update_now))
         .route("/system/update-settings", get(system::update_settings).put(system::save_update_settings))
-        // Alerts (Phase 11.5)
+        // Alerts (Phase 11.5) — advanced/custom rules
         .route("/alerts", get(alerts::list).post(alerts::create))
         .route("/alerts/events", get(alerts::events_feed))
         .route(
@@ -234,6 +234,17 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/alerts/{id}/toggle", post(alerts::toggle))
         .route("/alerts/{id}/test", post(alerts::test))
         .route("/alerts/{id}/events", get(alerts::rule_events))
+        // Notifications — simplified UI layer (global channel + preset toggles)
+        .route(
+            "/notifications/channels/telegram",
+            get(alerts::channel_get).put(alerts::channel_put),
+        )
+        .route(
+            "/notifications/channels/telegram/test",
+            post(alerts::channel_test),
+        )
+        .route("/notifications/alerts", get(alerts::preset_list))
+        .route("/notifications/alerts/{id}/toggle", post(alerts::toggle))
         .layer(axum::middleware::from_fn_with_state(state, require_auth));
 
     Router::new()
