@@ -11,9 +11,14 @@ use bollard::query_parameters::{
 };
 use bollard::Docker;
 
-const TRAEFIK_IMAGE: &str = "traefik:v3.3";
+pub const DEFAULT_TRAEFIK_VERSION: &str = "v3.3";
 const TRAEFIK_CONTAINER: &str = "pier-traefik";
 const PIER_NETWORK: &str = "pier-net";
+
+/// Compose the full `traefik:<version>` image tag.
+pub fn traefik_image(version: &str) -> String {
+    format!("traefik:{version}")
+}
 
 /// Deploy and start the Traefik reverse proxy container.
 pub async fn deploy_traefik(
@@ -21,6 +26,7 @@ pub async fn deploy_traefik(
     data_dir: &Path,
     acme_email: &str,
     dashboard: bool,
+    version: &str,
 ) -> Result<()> {
     // Write Traefik config files
     config::write_static_config(data_dir, acme_email, dashboard)?;
@@ -34,7 +40,8 @@ pub async fn deploy_traefik(
     ensure_network(docker).await?;
 
     // Pull image if not present
-    pull_image_if_needed(docker).await?;
+    let image = traefik_image(version);
+    pull_image_if_needed(docker, &image).await?;
 
     // Remove old container if exists
     let _ = docker.stop_container(TRAEFIK_CONTAINER, None).await;
@@ -103,7 +110,7 @@ pub async fn deploy_traefik(
     };
 
     let config = ContainerCreateBody {
-        image: Some(TRAEFIK_IMAGE.to_string()),
+        image: Some(image.clone()),
         cmd: Some(vec!["--configFile=/data/traefik/traefik.yml".to_string()]),
         hostname: Some(TRAEFIK_CONTAINER.to_string()),
         host_config: Some(host_config),
@@ -215,27 +222,27 @@ async fn ensure_network(docker: &Docker) -> Result<()> {
 }
 
 /// Pull Traefik image if not already present.
-async fn pull_image_if_needed(docker: &Docker) -> Result<()> {
+async fn pull_image_if_needed(docker: &Docker, image: &str) -> Result<()> {
     use futures_util::StreamExt;
 
-    if docker.inspect_image(TRAEFIK_IMAGE).await.is_ok() {
+    if docker.inspect_image(image).await.is_ok() {
         return Ok(());
     }
 
-    tracing::info!("Pulling {TRAEFIK_IMAGE}...");
+    tracing::info!("Pulling {image}...");
     let opts = CreateImageOptions {
-        from_image: Some(TRAEFIK_IMAGE.to_string()),
+        from_image: Some(image.to_string()),
         ..Default::default()
     };
 
     let mut stream = docker.create_image(Some(opts), None, None);
     while let Some(result) = stream.next().await {
         if let Err(e) = result {
-            return Err(anyhow::anyhow!("Failed to pull {TRAEFIK_IMAGE}: {e}"));
+            return Err(anyhow::anyhow!("Failed to pull {image}: {e}"));
         }
     }
 
-    tracing::info!("Pulled {TRAEFIK_IMAGE}");
+    tracing::info!("Pulled {image}");
     Ok(())
 }
 

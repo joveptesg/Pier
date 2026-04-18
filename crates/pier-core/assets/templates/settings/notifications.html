@@ -6,95 +6,245 @@
     <!-- Header -->
     <div>
         <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Notifications</h2>
-        <p class="text-sm text-gray-500 mt-0.5">Pick which events Pier should notify you about.</p>
+        <p class="text-sm text-gray-500 mt-0.5">Get notified about your infrastructure.</p>
     </div>
 
-    <!-- Channel: Telegram -->
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-4">
-        <div class="flex items-center justify-between">
-            <div>
-                <h3 class="text-sm font-medium text-gray-900 dark:text-white">Telegram</h3>
-                <p class="text-xs text-gray-500 mt-0.5">Send alerts to a Telegram chat via a bot.</p>
-            </div>
-            <button @click="toggleEnabled()" type="button"
-                    class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                    :class="telegram.enabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-700'"
-                    role="switch" :aria-checked="telegram.enabled">
-                <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                      :class="telegram.enabled ? 'translate-x-5' : 'translate-x-0'"></span>
+    <!-- Tabs -->
+    <div class="flex gap-6 border-b border-gray-200 dark:border-gray-800 overflow-x-auto">
+        <template x-for="t in tabs" :key="t.id">
+            <button @click="selectTab(t.id)"
+                    class="relative -mb-px px-1 py-3 text-sm font-medium whitespace-nowrap transition-colors"
+                    :class="tab === t.id
+                        ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500'
+                        : 'text-gray-500 dark:text-gray-400 border-b-2 border-transparent hover:text-gray-900 dark:hover:text-gray-200'">
+                <span x-text="t.label"></span>
+                <span x-show="t.enabled" x-cloak class="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-green-500"></span>
             </button>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bot token</label>
-                <input type="password" x-model="form.bot_token"
-                       :placeholder="telegram.has_config ? '•••••••• (leave blank to keep current)' : '123456:ABC-DEF...'"
-                       class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
-                <p class="text-[11px] text-gray-500 mt-1">Create via @BotFather in Telegram.</p>
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Chat ID</label>
-                <input type="text" x-model="form.chat_id"
-                       placeholder="-1001234567890 or @channelname"
-                       class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
-            </div>
-        </div>
-
-        <div class="flex items-center gap-2 pt-2">
-            <button @click="saveCredentials()" :disabled="saving"
-                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50">
-                <span x-text="saving ? 'Saving...' : 'Save'"></span>
-            </button>
-            <button @click="testChannel()" :disabled="testing || !telegram.has_config"
-                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
-                <span x-text="testing ? 'Sending...' : 'Send test'"></span>
-            </button>
-            <span x-show="saveStatus" x-cloak class="text-xs" :class="saveError ? 'text-red-500' : 'text-green-500'" x-text="saveStatus"></span>
-        </div>
+        </template>
     </div>
 
-    <!-- Alerts -->
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <div class="flex items-center justify-between mb-4">
-            <div>
-                <h3 class="text-sm font-medium text-gray-900 dark:text-white">Alerts</h3>
-                <p class="text-xs text-gray-500 mt-0.5">Toggle which events get delivered via the enabled channel.</p>
-            </div>
+    <!-- ── Tab: Alerts ───────────────────────────────────────────────────── -->
+    <div x-show="tab === 'alerts'" x-cloak class="space-y-4">
+        <div x-show="!anyChannelActive()" x-cloak class="px-3 py-2 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500">
+            No channel is enabled yet. Toggles below will fire but silently skip delivery.
         </div>
-
-        <div x-show="!telegram.enabled" x-cloak class="mb-4 px-3 py-2 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500">
-            Enable a channel above to actually receive notifications. Toggles below will fire but silently skip delivery until a channel is configured.
-        </div>
-
-        <div class="divide-y divide-gray-100 dark:divide-gray-800/50">
-            <template x-for="rule in rules" :key="rule.id">
-                <div class="py-3 flex items-center justify-between gap-4">
-                    <div class="flex items-center gap-3 min-w-0 flex-1">
-                        <span class="text-xs px-2 py-0.5 rounded-full shrink-0"
-                              :class="{
-                                  'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400': rule.severity === 'info',
-                                  'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400': rule.severity === 'warning',
-                                  'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400': rule.severity === 'critical'
-                              }"
-                              x-text="rule.severity"></span>
-                        <div class="min-w-0 flex-1">
-                            <p class="text-sm text-gray-900 dark:text-white truncate" x-text="rule.name"></p>
-                            <p class="text-xs text-gray-500 truncate" x-text="formatRuleHint(rule)"></p>
+        <template x-for="group in groupedRules()" :key="group.label">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+                <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3" x-text="group.label"></h3>
+                <div class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                    <template x-for="rule in group.rules" :key="rule.id">
+                        <div class="py-3 flex items-center justify-between gap-4">
+                            <div class="flex items-center gap-3 min-w-0 flex-1">
+                                <span class="text-xs px-2 py-0.5 rounded-full shrink-0"
+                                      :class="{
+                                          'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400': rule.severity === 'info',
+                                          'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400': rule.severity === 'warning',
+                                          'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400': rule.severity === 'critical'
+                                      }"
+                                      x-text="rule.severity"></span>
+                                <div class="min-w-0 flex-1">
+                                    <p class="text-sm text-gray-900 dark:text-white truncate" x-text="rule.name"></p>
+                                    <p class="text-xs text-gray-500 truncate" x-text="formatRuleHint(rule)"></p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3 shrink-0">
+                                <span x-show="rule.last_triggered_at" x-cloak class="text-[11px] text-gray-400" x-text="'last: ' + rule.last_triggered_at"></span>
+                                <button @click="togglePreset(rule)" :disabled="togglingId === rule.id" type="button"
+                                        class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-50"
+                                        :class="rule.enabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-700'">
+                                    <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                                          :class="rule.enabled ? 'translate-x-5' : 'translate-x-0'"></span>
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                    <div class="flex items-center gap-3 shrink-0">
-                        <span x-show="rule.last_triggered_at" x-cloak class="text-[11px] text-gray-400" x-text="'last: ' + rule.last_triggered_at"></span>
-                        <button @click="togglePreset(rule)" :disabled="togglingId === rule.id" type="button"
-                                class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-50"
-                                :class="rule.enabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-700'">
-                            <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                                  :class="rule.enabled ? 'translate-x-5' : 'translate-x-0'"></span>
-                        </button>
-                    </div>
+                    </template>
                 </div>
-            </template>
-            <div x-show="rules.length === 0" class="py-6 text-center text-sm text-gray-500">Loading…</div>
+            </div>
+        </template>
+        <div x-show="rules.length === 0" class="py-6 text-center text-sm text-gray-500">Loading…</div>
+    </div>
+
+    <!-- ── Tab: Email ────────────────────────────────────────────────────── -->
+    <div x-show="tab === 'email'" x-cloak class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">Email</h3>
+                    <p class="text-xs text-gray-500 mt-0.5">Deliver alerts via SMTP, Brevo API or Resend API.</p>
+                </div>
+                <button @click="toggleEmailEnabled()" type="button"
+                        class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                        :class="email.enabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-700'">
+                    <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                          :class="email.enabled ? 'translate-x-5' : 'translate-x-0'"></span>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">From name</label>
+                    <input type="text" x-model="email.from_name" placeholder="Pier"
+                           class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">From address</label>
+                    <input type="email" x-model="email.from_address" placeholder="pier@example.com"
+                           class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Send alerts to</label>
+                    <input type="email" x-model="email.to_address" placeholder="ops@example.com"
+                           class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Delivery driver</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <template x-for="d in ['smtp','brevo','resend']" :key="d">
+                        <button @click="email.driver = d" type="button"
+                                class="px-3 py-2 text-xs font-medium rounded-lg border transition-colors"
+                                :class="email.driver === d
+                                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'">
+                            <span x-text="d.toUpperCase()"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+
+            <!-- SMTP fields -->
+            <div x-show="email.driver === 'smtp'" x-cloak class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Host</label>
+                    <input type="text" x-model="email.smtp.host" placeholder="smtp.mailgun.org"
+                           class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Port</label>
+                    <input type="number" x-model.number="email.smtp.port" min="1" max="65535"
+                           class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Encryption</label>
+                    <select x-model="email.smtp.encryption"
+                            class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                        <option value="starttls">StartTLS</option>
+                        <option value="tls">TLS</option>
+                        <option value="none">None</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
+                    <input type="text" x-model="email.smtp.username"
+                           class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+                    <input type="password" x-model="email.smtp.password"
+                           :placeholder="email.smtp.has_password ? '•••••••• (leave blank to keep)' : 'SMTP password'"
+                           class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Timeout (s)</label>
+                    <input type="number" x-model.number="email.smtp.timeout" min="1" max="300"
+                           class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+            </div>
+
+            <!-- Brevo fields -->
+            <div x-show="email.driver === 'brevo'" x-cloak>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Brevo API key</label>
+                <input type="password" x-model="email.brevo.api_key"
+                       :placeholder="email.brevo.has_api_key ? '•••••••• (leave blank to keep)' : 'xkeysib-...'"
+                       class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                <p class="text-[11px] text-gray-500 mt-1">Create a transactional API key at <span class="font-mono">app.brevo.com/settings/keys/api</span>.</p>
+            </div>
+
+            <!-- Resend fields -->
+            <div x-show="email.driver === 'resend'" x-cloak>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Resend API key</label>
+                <input type="password" x-model="email.resend.api_key"
+                       :placeholder="email.resend.has_api_key ? '•••••••• (leave blank to keep)' : 're_...'"
+                       class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                <p class="text-[11px] text-gray-500 mt-1">Create an API key at <span class="font-mono">resend.com/api-keys</span>.</p>
+            </div>
+
+            <div class="flex items-center gap-2 pt-2">
+                <button @click="saveEmail()" :disabled="saving"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50">
+                    <span x-text="saving ? 'Saving...' : 'Save'"></span>
+                </button>
+                <button @click="testEmail()" :disabled="testing || !email.has_config"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
+                    <span x-text="testing ? 'Sending...' : 'Send test email'"></span>
+                </button>
+                <span x-show="saveStatus" x-cloak class="text-xs" :class="saveError ? 'text-red-500' : 'text-green-500'" x-text="saveStatus"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Tab: Telegram ─────────────────────────────────────────────────── -->
+    <div x-show="tab === 'telegram'" x-cloak class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">Telegram</h3>
+                    <p class="text-xs text-gray-500 mt-0.5">Send alerts to a Telegram chat via a bot.</p>
+                </div>
+                <button @click="toggleTelegramEnabled()" type="button"
+                        class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                        :class="telegram.enabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-700'"
+                        role="switch" :aria-checked="telegram.enabled">
+                    <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                          :class="telegram.enabled ? 'translate-x-5' : 'translate-x-0'"></span>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bot token</label>
+                    <input type="password" x-model="telegramForm.bot_token"
+                           :placeholder="telegram.has_config ? '•••••••• (leave blank to keep current)' : '123456:ABC-DEF...'"
+                           class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                    <p class="text-[11px] text-gray-500 mt-1">Create via @BotFather in Telegram.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Chat ID</label>
+                    <input type="text" x-model="telegramForm.chat_id"
+                           placeholder="-1001234567890 or @channelname"
+                           class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 pt-2">
+                <button @click="saveTelegram()" :disabled="saving"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50">
+                    <span x-text="saving ? 'Saving...' : 'Save'"></span>
+                </button>
+                <button @click="testTelegram()" :disabled="testing || !telegram.has_config"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
+                    <span x-text="testing ? 'Sending...' : 'Send test'"></span>
+                </button>
+                <span x-show="saveStatus" x-cloak class="text-xs" :class="saveError ? 'text-red-500' : 'text-green-500'" x-text="saveStatus"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Tab: Discord / Slack placeholders ─────────────────────────────── -->
+    <div x-show="tab === 'discord'" x-cloak>
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-12 text-center">
+            <svg class="w-12 h-12 mx-auto text-gray-300 dark:text-gray-700 mb-3" fill="currentColor" viewBox="0 0 24 24"><path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.34-.35-.76-.54-1.09a.09.09 0 0 0-.07-.03C7.5 4.26 6.06 4.71 4.73 5.33a.08.08 0 0 0-.04.03C2.09 9.23 1.37 13.02 1.72 16.77a.09.09 0 0 0 .03.06c1.77 1.3 3.49 2.09 5.18 2.61a.09.09 0 0 0 .1-.03c.4-.54.76-1.12 1.06-1.73a.08.08 0 0 0-.05-.12c-.57-.22-1.12-.48-1.64-.78a.09.09 0 0 1-.01-.15c.11-.08.22-.17.33-.26a.08.08 0 0 1 .08-.01c3.44 1.57 7.15 1.57 10.55 0a.08.08 0 0 1 .09.01c.1.09.21.18.32.26a.09.09 0 0 1-.01.15c-.52.31-1.07.56-1.64.78a.08.08 0 0 0-.05.12c.31.6.67 1.18 1.06 1.73a.09.09 0 0 0 .1.03c1.69-.52 3.41-1.31 5.18-2.61a.09.09 0 0 0 .03-.06c.42-4.34-.72-8.1-3.06-11.4a.08.08 0 0 0-.04-.04ZM8.52 14.54c-1.03 0-1.88-.94-1.88-2.1s.83-2.1 1.88-2.1c1.06 0 1.89.95 1.88 2.1 0 1.16-.83 2.1-1.88 2.1Zm6.97 0c-1.03 0-1.88-.94-1.88-2.1s.83-2.1 1.88-2.1c1.06 0 1.89.95 1.88 2.1 0 1.16-.83 2.1-1.88 2.1Z"/></svg>
+            <h3 class="text-lg font-medium text-gray-700 dark:text-gray-300">Discord integration is coming soon</h3>
+            <p class="text-sm text-gray-500 mt-1">Use Telegram or Email until the Discord channel lands.</p>
+        </div>
+    </div>
+
+    <div x-show="tab === 'slack'" x-cloak>
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-12 text-center">
+            <svg class="w-12 h-12 mx-auto text-gray-300 dark:text-gray-700 mb-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 15a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm1 0a2 2 0 0 1 4 0v5a2 2 0 1 1-4 0v-5Zm2-8a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm0 1a2 2 0 0 1 0 4H4a2 2 0 1 1 0-4h5Zm8 2a2 2 0 1 1 4 0 2 2 0 0 1-4 0Zm-1 0a2 2 0 0 1-4 0V5a2 2 0 1 1 4 0v5Zm-2 8a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm0-1a2 2 0 0 1 0-4h5a2 2 0 1 1 0 4h-5Z"/></svg>
+            <h3 class="text-lg font-medium text-gray-700 dark:text-gray-300">Slack integration is coming soon</h3>
+            <p class="text-sm text-gray-500 mt-1">Use Telegram or Email until the Slack channel lands.</p>
         </div>
     </div>
 
@@ -108,8 +258,24 @@
 <script>
 function notificationsPage() {
     return {
+        tab: 'alerts',
+        tabs: [
+            { id: 'alerts',   label: 'Alerts',   enabled: false },
+            { id: 'email',    label: 'Email',    enabled: false },
+            { id: 'telegram', label: 'Telegram', enabled: false },
+            { id: 'discord',  label: 'Discord',  enabled: false },
+            { id: 'slack',    label: 'Slack',    enabled: false },
+        ],
         telegram: { enabled: false, has_config: false, chat_id: '' },
-        form: { bot_token: '', chat_id: '' },
+        telegramForm: { bot_token: '', chat_id: '' },
+        email: {
+            enabled: false, has_config: false,
+            driver: 'smtp',
+            from_name: 'Pier', from_address: '', to_address: '',
+            smtp:   { host: '', port: 587, encryption: 'starttls', username: '', password: '', has_password: false, timeout: 30 },
+            brevo:  { api_key: '', has_api_key: false },
+            resend: { api_key: '', has_api_key: false },
+        },
         rules: [],
         togglingId: null,
         saving: false,
@@ -120,23 +286,53 @@ function notificationsPage() {
         toastError: false,
 
         async init() {
-            await Promise.all([this.loadChannel(), this.loadRules()]);
+            // Hash-based tab selection (shareable links).
+            const h = (location.hash || '').replace('#', '');
+            if (this.tabs.find(t => t.id === h)) this.tab = h;
+            await Promise.all([this.loadTelegram(), this.loadEmail(), this.loadRules()]);
+            this.updateTabBadges();
         },
 
-        async loadChannel() {
-            try {
-                const r = await fetch('/api/v1/notifications/channels/telegram').then(r => r.json());
-                this.telegram = { enabled: !!r.enabled, has_config: !!r.has_config, chat_id: r.chat_id || '' };
-                if (this.telegram.has_config && !this.form.chat_id) {
-                    this.form.chat_id = r.chat_id || '';
-                }
-            } catch (e) { this.showToast('Failed to load channel: ' + e.message, true); }
+        selectTab(id) {
+            this.tab = id;
+            location.hash = id;
+            this.saveStatus = ''; this.saveError = false;
         },
 
+        updateTabBadges() {
+            this.tabs = this.tabs.map(t => ({
+                ...t,
+                enabled: t.id === 'telegram' ? this.telegram.enabled
+                       : t.id === 'email'    ? this.email.enabled
+                       : false,
+            }));
+        },
+
+        anyChannelActive() {
+            return this.telegram.enabled || this.email.enabled;
+        },
+
+        // ───── Alerts ─────
         async loadRules() {
             try {
                 this.rules = await fetch('/api/v1/notifications/alerts').then(r => r.json());
             } catch (e) { this.showToast('Failed to load alerts: ' + e.message, true); }
+        },
+
+        groupedRules() {
+            const buckets = {
+                'Deployments': [],
+                'Backups': [],
+                'Server': [],
+            };
+            for (const r of this.rules) {
+                if (r.metric === 'deploy_status')      buckets['Deployments'].push(r);
+                else if (r.metric === 'backup_status') buckets['Backups'].push(r);
+                else                                    buckets['Server'].push(r);
+            }
+            return Object.entries(buckets)
+                .filter(([, arr]) => arr.length > 0)
+                .map(([label, rules]) => ({ label, rules }));
         },
 
         formatRuleHint(rule) {
@@ -151,53 +347,71 @@ function notificationsPage() {
             return `${label} ${op} ${rule.threshold}${unit}${sustained}`;
         },
 
-        async saveCredentials() {
+        async togglePreset(rule) {
+            this.togglingId = rule.id;
+            try {
+                const r = await fetch('/api/v1/notifications/alerts/' + rule.id + '/toggle', { method: 'POST' });
+                const j = await r.json();
+                if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+                rule.enabled = !!j.enabled;
+            } catch (e) { this.showToast(e.message, true); }
+            this.togglingId = null;
+        },
+
+        // ───── Telegram ─────
+        async loadTelegram() {
+            try {
+                const r = await fetch('/api/v1/notifications/channels/telegram').then(r => r.json());
+                this.telegram = { enabled: !!r.enabled, has_config: !!r.has_config, chat_id: r.chat_id || '' };
+                if (this.telegram.has_config && !this.telegramForm.chat_id) {
+                    this.telegramForm.chat_id = r.chat_id || '';
+                }
+            } catch (e) { this.showToast('Failed to load telegram: ' + e.message, true); }
+        },
+
+        async saveTelegram() {
             this.saving = true; this.saveStatus = ''; this.saveError = false;
             try {
                 const body = {};
-                if (this.form.bot_token) body.bot_token = this.form.bot_token;
-                if (this.form.chat_id) body.chat_id = this.form.chat_id;
+                if (this.telegramForm.bot_token) body.bot_token = this.telegramForm.bot_token;
+                if (this.telegramForm.chat_id)   body.chat_id   = this.telegramForm.chat_id;
                 const r = await fetch('/api/v1/notifications/channels/telegram', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
                 this.saveStatus = 'Saved';
-                this.form.bot_token = '';
-                await this.loadChannel();
-            } catch (e) {
-                this.saveStatus = e.message; this.saveError = true;
-            }
+                this.telegramForm.bot_token = '';
+                await this.loadTelegram(); this.updateTabBadges();
+            } catch (e) { this.saveStatus = e.message; this.saveError = true; }
             this.saving = false;
             setTimeout(() => { this.saveStatus = ''; }, 3500);
         },
 
-        async toggleEnabled() {
+        async toggleTelegramEnabled() {
             const target = !this.telegram.enabled;
-            if (target && !this.telegram.has_config && !(this.form.bot_token && this.form.chat_id)) {
+            if (target && !this.telegram.has_config && !(this.telegramForm.bot_token && this.telegramForm.chat_id)) {
                 this.showToast('Enter bot_token and chat_id first', true);
                 return;
             }
             try {
                 const body = { enabled: target };
-                if (this.form.bot_token) body.bot_token = this.form.bot_token;
-                if (this.form.chat_id) body.chat_id = this.form.chat_id;
+                if (this.telegramForm.bot_token) body.bot_token = this.telegramForm.bot_token;
+                if (this.telegramForm.chat_id)   body.chat_id   = this.telegramForm.chat_id;
                 const r = await fetch('/api/v1/notifications/channels/telegram', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
                 this.telegram.enabled = !!j.enabled;
-                this.form.bot_token = '';
-                await this.loadChannel();
+                this.telegramForm.bot_token = '';
+                await this.loadTelegram(); this.updateTabBadges();
             } catch (e) { this.showToast(e.message, true); }
         },
 
-        async testChannel() {
+        async testTelegram() {
             this.testing = true;
             try {
                 const r = await fetch('/api/v1/notifications/channels/telegram/test', { method: 'POST' });
@@ -208,15 +422,104 @@ function notificationsPage() {
             this.testing = false;
         },
 
-        async togglePreset(rule) {
-            this.togglingId = rule.id;
+        // ───── Email ─────
+        async loadEmail() {
             try {
-                const r = await fetch('/api/v1/notifications/alerts/' + rule.id + '/toggle', { method: 'POST' });
+                const r = await fetch('/api/v1/notifications/channels/email').then(r => r.json());
+                this.email = {
+                    enabled: !!r.enabled, has_config: !!r.has_config,
+                    driver: r.driver || 'smtp',
+                    from_name: r.from_name || 'Pier',
+                    from_address: r.from_address || '',
+                    to_address: r.to_address || '',
+                    smtp: {
+                        host: r.smtp?.host || '',
+                        port: r.smtp?.port || 587,
+                        encryption: r.smtp?.encryption || 'starttls',
+                        username: r.smtp?.username || '',
+                        password: '',
+                        has_password: !!r.smtp?.has_password,
+                        timeout: r.smtp?.timeout || 30,
+                    },
+                    brevo:  { api_key: '', has_api_key: !!r.brevo?.has_api_key },
+                    resend: { api_key: '', has_api_key: !!r.resend?.has_api_key },
+                };
+            } catch (e) { this.showToast('Failed to load email: ' + e.message, true); }
+        },
+
+        buildEmailBody() {
+            const body = {
+                driver: this.email.driver,
+                from_name: this.email.from_name,
+                from_address: this.email.from_address,
+                to_address: this.email.to_address,
+            };
+            if (this.email.driver === 'smtp') {
+                body.smtp = {
+                    host: this.email.smtp.host,
+                    port: this.email.smtp.port,
+                    encryption: this.email.smtp.encryption,
+                    username: this.email.smtp.username,
+                    timeout: this.email.smtp.timeout,
+                };
+                if (this.email.smtp.password) body.smtp.password = this.email.smtp.password;
+            }
+            if (this.email.driver === 'brevo' && this.email.brevo.api_key) {
+                body.brevo = { api_key: this.email.brevo.api_key };
+            }
+            if (this.email.driver === 'resend' && this.email.resend.api_key) {
+                body.resend = { api_key: this.email.resend.api_key };
+            }
+            return body;
+        },
+
+        async saveEmail() {
+            this.saving = true; this.saveStatus = ''; this.saveError = false;
+            try {
+                const r = await fetch('/api/v1/notifications/channels/email', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.buildEmailBody()),
+                });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                rule.enabled = !!j.enabled;
+                this.saveStatus = 'Saved';
+                this.email.smtp.password = '';
+                this.email.brevo.api_key = '';
+                this.email.resend.api_key = '';
+                await this.loadEmail(); this.updateTabBadges();
+            } catch (e) { this.saveStatus = e.message; this.saveError = true; }
+            this.saving = false;
+            setTimeout(() => { this.saveStatus = ''; }, 3500);
+        },
+
+        async toggleEmailEnabled() {
+            const target = !this.email.enabled;
+            try {
+                const body = this.buildEmailBody();
+                body.enabled = target;
+                const r = await fetch('/api/v1/notifications/channels/email', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const j = await r.json();
+                if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+                this.email.enabled = !!j.enabled;
+                this.email.smtp.password = '';
+                this.email.brevo.api_key = '';
+                this.email.resend.api_key = '';
+                await this.loadEmail(); this.updateTabBadges();
             } catch (e) { this.showToast(e.message, true); }
-            this.togglingId = null;
+        },
+
+        async testEmail() {
+            this.testing = true;
+            try {
+                const r = await fetch('/api/v1/notifications/channels/email/test', { method: 'POST' });
+                const j = await r.json();
+                if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+                this.showToast('Test email sent');
+            } catch (e) { this.showToast('Test failed: ' + e.message, true); }
+            this.testing = false;
         },
 
         showToast(msg, err = false) {

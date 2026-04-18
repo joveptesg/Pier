@@ -172,6 +172,15 @@ async fn main() -> Result<()> {
             |row| row.get::<_, String>(0),
         )
         .unwrap_or_default();
+    let proxy_traefik_version = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'proxy.traefik_version'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .filter(|v: &String| !v.is_empty())
+        .unwrap_or_else(|| proxy::DEFAULT_TRAEFIK_VERSION.to_string());
 
     // Initialize templates
     let templates = ui::templates::init_templates();
@@ -318,6 +327,7 @@ async fn main() -> Result<()> {
                 &proxy_data_dir,
                 &proxy_acme_email,
                 proxy_dashboard,
+                &proxy_traefik_version,
             )
             .await
             {

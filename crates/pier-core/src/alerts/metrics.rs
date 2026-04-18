@@ -235,6 +235,52 @@ fn parse_any_ts(s: &str) -> Option<DateTime<Utc>> {
         .map(|d| d.with_timezone(&Utc))
 }
 
+/// Build "name (host)" for the host that owns the event.
+///
+/// - `scope=server` + id → that server
+/// - `scope=service` + id → the service's owning server (via services.server_id)
+/// - everything else → the local server (is_local = 1)
+pub fn resolve_server_label(
+    state: &SharedState,
+    scope: &str,
+    scope_id: Option<&str>,
+) -> Option<String> {
+    let db = state.db.lock().ok()?;
+
+    if scope == "server" {
+        if let Some(id) = scope_id {
+            return db
+                .query_row(
+                    "SELECT name || ' (' || host || ')' FROM servers WHERE id = ?1",
+                    [id],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok();
+        }
+    }
+
+    if scope == "service" {
+        if let Some(id) = scope_id {
+            if let Ok(label) = db.query_row(
+                "SELECT srv.name || ' (' || srv.host || ')'
+                 FROM services s JOIN servers srv ON srv.id = s.server_id
+                 WHERE s.id = ?1",
+                [id],
+                |row| row.get::<_, String>(0),
+            ) {
+                return Some(label);
+            }
+        }
+    }
+
+    db.query_row(
+        "SELECT name || ' (' || host || ')' FROM servers WHERE is_local = 1 LIMIT 1",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+}
+
 /// Build a human-readable scope label for alert messages.
 pub fn scope_label(state: &SharedState, scope: &str, scope_id: Option<&str>) -> String {
     match (scope, scope_id) {

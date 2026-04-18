@@ -334,12 +334,14 @@ pub async fn test(
     let config_json = crate::crypto::decrypt(&config_enc, &key)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Decrypt: {e}")))?;
 
+    let server_label = crate::alerts::metrics::resolve_server_label(&state, &scope, scope_id.as_deref());
     let msg = AlertMessage {
         rule_name: format!("[TEST] {name}"),
         severity,
         state: "firing".to_string(),
         metric,
         scope_label,
+        server_label,
         value: threshold,
         threshold,
         comparison,
@@ -579,6 +581,7 @@ pub async fn channel_test(State(state): State<SharedState>) -> AppResult<impl In
         state: "firing".to_string(),
         metric: "deploy_status".to_string(),
         scope_label: "global".to_string(),
+        server_label: crate::alerts::metrics::resolve_server_label(&state, "global", None),
         value: None,
         threshold: None,
         comparison: "eq".to_string(),
@@ -620,6 +623,183 @@ pub async fn preset_list(State(state): State<SharedState>) -> AppResult<impl Int
     })?;
     let list: Vec<Value> = rows.filter_map(|r| r.ok()).collect();
     Ok(Json(json!(list)))
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Email channel endpoints
+// ──────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct UpdateEmailRequest {
+    pub enabled: Option<bool>,
+    pub driver: Option<String>,
+    pub from_name: Option<String>,
+    pub from_address: Option<String>,
+    pub to_address: Option<String>,
+    pub smtp: Option<SmtpPatch>,
+    pub brevo: Option<ApiKeyPatch>,
+    pub resend: Option<ApiKeyPatch>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct SmtpPatch {
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub encryption: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub timeout: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct ApiKeyPatch {
+    pub api_key: Option<String>,
+}
+
+fn load_email_config(state: &SharedState) -> AppResult<crate::alerts::channels::email::EmailConfig> {
+    let (_enabled, enc) = read_channel(state, "email")?;
+    if enc.is_empty() {
+        return Ok(Default::default());
+    }
+    let key = crate::crypto::get_secret_key();
+    let plain = crate::crypto::decrypt(&enc, &key)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("decrypt: {e}")))?;
+    serde_json::from_str(&plain)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("parse email cfg: {e}")))
+}
+
+/// GET /api/v1/notifications/channels/email — status + masked fields.
+pub async fn channel_email_get(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let (enabled, enc) = read_channel(&state, "email")?;
+    let has_config = !enc.is_empty();
+    let cfg = load_email_config(&state).unwrap_or_default();
+    Ok(Json(json!({
+        "channel": "email",
+        "enabled": enabled,
+        "has_config": has_config,
+        "driver": if cfg.driver.is_empty() { "smtp".to_string() } else { cfg.driver },
+        "from_name": cfg.from_name,
+        "from_address": cfg.from_address,
+        "to_address": cfg.to_address,
+        "smtp": {
+            "host": cfg.smtp.host,
+            "port": if cfg.smtp.port == 0 { 587 } else { cfg.smtp.port },
+            "encryption": if cfg.smtp.encryption.is_empty() { "starttls".to_string() } else { cfg.smtp.encryption },
+            "username": cfg.smtp.username,
+            "has_password": !cfg.smtp.password.is_empty(),
+            "timeout": if cfg.smtp.timeout == 0 { 30 } else { cfg.smtp.timeout },
+        },
+        "brevo":  { "has_api_key": !cfg.brevo.api_key.is_empty() },
+        "resend": { "has_api_key": !cfg.resend.api_key.is_empty() },
+    })))
+}
+
+/// PUT /api/v1/notifications/channels/email — merge fields, enable/disable.
+pub async fn channel_email_put(
+    State(state): State<SharedState>,
+    Json(body): Json<UpdateEmailRequest>,
+) -> AppResult<impl IntoResponse> {
+    let mut cfg = load_email_config(&state).unwrap_or_default();
+    let (mut enabled, _) = read_channel(&state, "email")?;
+
+    if let Some(d) = body.driver.as_ref() {
+        if !matches!(d.as_str(), "smtp" | "brevo" | "resend") {
+            return Err(AppError::BadRequest(format!("Unknown driver: {d}")));
+        }
+        cfg.driver = d.clone();
+    }
+    if cfg.driver.is_empty() {
+        cfg.driver = "smtp".into();
+    }
+    if let Some(v) = body.from_name { cfg.from_name = v; }
+    if let Some(v) = body.from_address { cfg.from_address = v; }
+    if let Some(v) = body.to_address { cfg.to_address = v; }
+    if let Some(s) = body.smtp {
+        if let Some(v) = s.host { cfg.smtp.host = v; }
+        if let Some(v) = s.port { cfg.smtp.port = v; }
+        if let Some(v) = s.encryption { cfg.smtp.encryption = v; }
+        if let Some(v) = s.username { cfg.smtp.username = v; }
+        if let Some(v) = s.password {
+            if !v.is_empty() { cfg.smtp.password = v; }
+        }
+        if let Some(v) = s.timeout { cfg.smtp.timeout = v; }
+    }
+    if let Some(b) = body.brevo {
+        if let Some(v) = b.api_key {
+            if !v.is_empty() { cfg.brevo.api_key = v; }
+        }
+    }
+    if let Some(r) = body.resend {
+        if let Some(v) = r.api_key {
+            if !v.is_empty() { cfg.resend.api_key = v; }
+        }
+    }
+
+    // Validate when enabling
+    if let Some(v) = body.enabled {
+        if v {
+            let ready = match cfg.driver.as_str() {
+                "smtp" => !cfg.smtp.host.is_empty(),
+                "brevo" => !cfg.brevo.api_key.is_empty(),
+                "resend" => !cfg.resend.api_key.is_empty(),
+                _ => false,
+            };
+            if !ready || cfg.from_address.is_empty() || cfg.to_address.is_empty() {
+                return Err(AppError::BadRequest(
+                    "Fill driver credentials and from/to addresses before enabling".into(),
+                ));
+            }
+        }
+        enabled = v;
+    }
+
+    let plain = serde_json::to_string(&cfg)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize: {e}")))?;
+    let key = crate::crypto::get_secret_key();
+    let config_enc = crate::crypto::encrypt(&plain, &key)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("encrypt: {e}")))?;
+
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+        db.execute(
+            "UPDATE notification_channels SET enabled = ?1, config_enc = ?2, updated_at = datetime('now') WHERE channel = ?3",
+            rusqlite::params![enabled as i64, config_enc, "email"],
+        )?;
+    }
+
+    Ok(Json(json!({"ok": true, "enabled": enabled})))
+}
+
+/// POST /api/v1/notifications/channels/email/test — send a test email via active driver.
+pub async fn channel_email_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let cfg = load_email_config(&state)?;
+    if cfg.from_address.is_empty() || cfg.to_address.is_empty() {
+        return Err(AppError::BadRequest(
+            "from_address and to_address are required".into(),
+        ));
+    }
+    let msg = AlertMessage {
+        rule_name: "[TEST] Pier notifications".to_string(),
+        severity: "info".to_string(),
+        state: "firing".to_string(),
+        metric: "deploy_status".to_string(),
+        scope_label: "global".to_string(),
+        server_label: crate::alerts::metrics::resolve_server_label(&state, "global", None),
+        value: None,
+        threshold: None,
+        comparison: "eq".to_string(),
+        context: Some("If you see this, email notifications work.".to_string()),
+    };
+    crate::alerts::channels::email::send(&cfg, &msg)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
+    Ok(Json(json!({"ok": true})))
 }
 
 fn read_channel(state: &SharedState, channel: &str) -> AppResult<(bool, String)> {

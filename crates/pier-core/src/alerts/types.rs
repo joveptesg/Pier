@@ -35,6 +35,8 @@ pub struct AlertMessage {
     pub state: String,
     pub metric: String,
     pub scope_label: String,
+    /// Human-readable host where the event happened, e.g. "X1 (178.18.249.144)".
+    pub server_label: Option<String>,
     pub value: Option<f64>,
     pub threshold: Option<f64>,
     pub comparison: String,

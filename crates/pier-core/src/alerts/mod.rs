@@ -296,6 +296,7 @@ fn build_message(
         state: state_label.to_string(),
         metric: rule.metric.clone(),
         scope_label: metrics::scope_label(state, &rule.scope, rule.scope_id.as_deref()),
+        server_label: metrics::resolve_server_label(state, &rule.scope, rule.scope_id.as_deref()),
         value,
         threshold: rule.threshold,
         comparison: rule.comparison.clone(),

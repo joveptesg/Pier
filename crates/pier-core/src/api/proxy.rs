@@ -49,12 +49,15 @@ pub async fn enable(State(state): State<SharedState>) -> AppResult<impl IntoResp
         (email, dash)
     };
 
+    let version = read_traefik_version(&state)?;
+
     // Deploy Traefik
     crate::proxy::deploy_traefik(
         &state.docker,
         &state.config.data_dir,
         &acme_email,
         dashboard,
+        &version,
     )
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy Traefik: {e}")))?;
@@ -223,4 +226,136 @@ pub async fn update_settings(
     }
 
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Read the configured Traefik version, falling back to the baked-in default.
+fn read_traefik_version(state: &SharedState) -> AppResult<String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let v: String = db
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'proxy.traefik_version'",
+            [],
+            |row| row.get(0),
+        )
+        .ok()
+        .filter(|v: &String| !v.is_empty())
+        .unwrap_or_else(|| crate::proxy::DEFAULT_TRAEFIK_VERSION.to_string());
+    Ok(v)
+}
+
+/// GET /api/v1/proxy/version — current Traefik tag + latest upstream release.
+pub async fn version(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let current = read_traefik_version(&state)?;
+
+    // Latest from GitHub Releases. Soft-fail: if network is down, just report current.
+    let latest = fetch_latest_traefik_version().await.unwrap_or_else(|e| {
+        tracing::debug!("Traefik latest fetch failed: {e}");
+        current.clone()
+    });
+
+    let update_available = version_is_newer(&latest, &current);
+
+    Ok(Json(serde_json::json!({
+        "current": current,
+        "latest": latest,
+        "update_available": update_available,
+    })))
+}
+
+async fn fetch_latest_traefik_version() -> anyhow::Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("pier")
+        .build()?;
+    let resp: serde_json::Value = client
+        .get("https://api.github.com/repos/traefik/traefik/releases/latest")
+        .send()
+        .await?
+        .json()
+        .await?;
+    resp.get("tag_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("no tag_name in GitHub response"))
+}
+
+/// Rough semver comparison — both tags look like "v3.3" or "v3.4.1".
+fn version_is_newer(a: &str, b: &str) -> bool {
+    let parse = |s: &str| -> Vec<u32> {
+        s.trim_start_matches('v')
+            .split('.')
+            .filter_map(|p| p.parse().ok())
+            .collect()
+    };
+    let av = parse(a);
+    let bv = parse(b);
+    for i in 0..av.len().max(bv.len()) {
+        let x = *av.get(i).unwrap_or(&0);
+        let y = *bv.get(i).unwrap_or(&0);
+        if x > y {
+            return true;
+        }
+        if x < y {
+            return false;
+        }
+    }
+    false
+}
+
+/// POST /api/v1/proxy/update — pull latest Traefik image and recreate container.
+pub async fn update(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let latest = fetch_latest_traefik_version()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Could not fetch latest Traefik version: {e}")))?;
+
+    // Persist the new version so auto-deploy paths use it on startup.
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.traefik_version', ?1)",
+            [&latest],
+        )?;
+    }
+
+    // Re-read acme settings for the redeploy
+    let (acme_email, dashboard) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let email = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'proxy.acme_email'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_else(|_| "admin@pier.local".to_string());
+        let dash = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_else(|_| "false".to_string())
+            == "true";
+        (email, dash)
+    };
+
+    crate::proxy::deploy_traefik(
+        &state.docker,
+        &state.config.data_dir,
+        &acme_email,
+        dashboard,
+        &latest,
+    )
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy Traefik {latest}: {e}")))?;
+
+    Ok(Json(serde_json::json!({"ok": true, "version": latest})))
 }

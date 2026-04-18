@@ -389,6 +389,11 @@ const MIGRATIONS: &[&str] = &[
         ('preset-backup-failed',  'Backup failed',                0, 'backup_status',    'global', NULL, 'eq', 0,    'critical', 'telegram', '', 60),
         ('preset-container-down', 'Container crashed/restarting', 0, 'container_status', 'global', NULL, 'eq', 0,    'critical', 'telegram', '', 10);
     "#,
+    // Migration 24: Seed additional channel rows (email functional, discord/slack stubs).
+    // notification_channels schema is generic — no ALTER needed, just new rows.
+    r#"
+    INSERT OR IGNORE INTO notification_channels (channel) VALUES ('email'), ('discord'), ('slack');
+    "#,
 ];
 
 /// Run all pending database migrations.

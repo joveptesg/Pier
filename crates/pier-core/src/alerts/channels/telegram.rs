@@ -37,10 +37,11 @@ fn format_markdown(msg: &AlertMessage) -> String {
 
     let metric_label = format_metric_label(&msg.metric);
 
-    let mut lines = vec![
-        format!("{} — {}", state_label, escape_md(&msg.rule_name)),
-        format!("Scope: {}", escape_md(&msg.scope_label)),
-    ];
+    let mut lines = vec![format!("{} — {}", state_label, escape_md(&msg.rule_name))];
+    if let Some(srv) = &msg.server_label {
+        lines.push(format!("Server: {}", escape_md(srv)));
+    }
+    lines.push(format!("Scope: {}", escape_md(&msg.scope_label)));
 
     if let (Some(val), Some(thr)) = (msg.value, msg.threshold) {
         let unit = match msg.metric.as_str() {

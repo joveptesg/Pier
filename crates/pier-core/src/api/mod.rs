@@ -213,6 +213,8 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/proxy/disable", post(proxy::disable))
         .route("/proxy/status", get(proxy::status))
         .route("/proxy/settings", put(proxy::update_settings))
+        .route("/proxy/version", get(proxy::version))
+        .route("/proxy/update", post(proxy::update))
         // System
         .route("/system/metrics", get(system::metrics))
         .route("/system/docker", get(system::docker_info))
@@ -242,6 +244,14 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/notifications/channels/telegram/test",
             post(alerts::channel_test),
+        )
+        .route(
+            "/notifications/channels/email",
+            get(alerts::channel_email_get).put(alerts::channel_email_put),
+        )
+        .route(
+            "/notifications/channels/email/test",
+            post(alerts::channel_email_test),
         )
         .route("/notifications/alerts", get(alerts::preset_list))
         .route("/notifications/alerts/{id}/toggle", post(alerts::toggle))

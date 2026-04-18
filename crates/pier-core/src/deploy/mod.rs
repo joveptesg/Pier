@@ -470,12 +470,25 @@ fn finish_deployment(
         let sid = service_id.to_string();
         let did = deploy_id.to_string();
         let excerpt: String = log.lines().next().unwrap_or("").chars().take(200).collect();
+        let service_name: String = state
+            .db
+            .lock()
+            .ok()
+            .and_then(|db| {
+                db.query_row(
+                    "SELECT name FROM services WHERE id = ?1",
+                    [service_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok()
+            })
+            .unwrap_or_else(|| service_id.to_string());
         tokio::spawn(async move {
             crate::alerts::hooks::fire_event(
                 &s,
                 "deploy_status",
                 Some(&sid),
-                format!("Deploy {did} failed: {excerpt}"),
+                format!("Service: {service_name}\nDeploy {did} failed:\n{excerpt}"),
             )
             .await;
         });

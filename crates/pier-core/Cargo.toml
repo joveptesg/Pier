@@ -91,3 +91,6 @@ http-body-util = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 indexmap = { version = "2.14.0", features = ["serde"] }
+
+# Email
+lettre = { workspace = true }

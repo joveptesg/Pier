@@ -1945,7 +1945,7 @@ pub async fn set_port_public(
         };
 
         // Get proxy settings for static config
-        let (acme_email, dashboard) = {
+        let (acme_email, dashboard, traefik_version) = {
             let db = state
                 .db
                 .lock()
@@ -1965,7 +1965,16 @@ pub async fn set_port_public(
                 )
                 .unwrap_or_default()
                 == "true";
-            (email, dash)
+            let version = db
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'proxy.traefik_version'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok()
+                .filter(|v: &String| !v.is_empty())
+                .unwrap_or_else(|| crate::proxy::DEFAULT_TRAEFIK_VERSION.to_string());
+            (email, dash, version)
         };
 
         // Regenerate static config with TCP entryPoints + restart Traefik
@@ -1978,7 +1987,7 @@ pub async fn set_port_public(
         .map_err(|e| anyhow::anyhow!("Regenerate static config: {e}"))?;
 
         // Recreate Traefik with new TCP port binding (bridge mode needs port bindings)
-        if let Err(e) = crate::proxy::deploy_traefik(&state.docker, &state.config.data_dir, &acme_email, dashboard).await {
+        if let Err(e) = crate::proxy::deploy_traefik(&state.docker, &state.config.data_dir, &acme_email, dashboard, &traefik_version).await {
             tracing::error!("Traefik redeploy for TCP port failed: {e}");
             return Err(AppError::Internal(anyhow::anyhow!("Failed to enable public port {pp}: {e}")));
         }
