@@ -189,10 +189,8 @@ pub fn generate_compose_for_image(
          \x20   external: true\n"
     ));
     if network_name != "pier-net" {
-        yaml.push_str(&format!(
-            "\x20 pier-net:\n\
-             \x20   external: true\n"
-        ));
+        yaml.push_str("\x20 pier-net:\n\
+             \x20   external: true\n");
     }
     yaml
 }

@@ -174,7 +174,7 @@ pub async fn list_branches(
     // repo comes as path param — Axum already decodes it
     let repo_name = &repo;
 
-    let branches = crate::git::github_app::list_branches(&app_id, inst_id, &pk, &repo_name)
+    let branches = crate::git::github_app::list_branches(&app_id, inst_id, &pk, repo_name)
         .await
         .map_err(|e| AppError::BadRequest(format!("Failed to list branches: {e}")))?;
 
@@ -273,7 +273,7 @@ pub async fn github_manifest(
         }
     };
 
-    let app_name = format!("pier-{}", uuid::Uuid::new_v4().to_string()[..8].to_string());
+    let app_name = format!("pier-{}", &uuid::Uuid::new_v4().to_string()[..8]);
     let manifest = crate::git::github_app::generate_manifest(&platform_url, &app_name);
 
     Ok(Json(serde_json::json!({
@@ -358,7 +358,7 @@ pub async fn get_file(
     let inst_id = installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
     let pk = private_key.ok_or_else(|| AppError::BadRequest("Missing private_key".into()))?;
 
-    let content = crate::git::github_app::get_file_content(&app_id, inst_id, &pk, &repo, &branch, file_path)
+    let content = crate::git::github_app::get_file_content(&app_id, inst_id, &pk, repo, branch, file_path)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{e}")))?;
 

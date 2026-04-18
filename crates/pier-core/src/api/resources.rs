@@ -299,7 +299,7 @@ pub async fn create(
 
     // Update service with first allocated port
     if let Some(first_port) = allocated_ports.first() {
-        let hp = first_port.container_port as i64;
+        let hp = first_port.container_port;
         let sid = service_id.clone();
         with_db(&state, |db| {
             let _ = db.execute(
@@ -2141,7 +2141,7 @@ fn replace_network_in_compose(yaml: &str, new_network: &str) -> String {
         }
 
         // Add top-level networks section
-        new_lines.push(format!("networks:"));
+        new_lines.push("networks:".to_string());
         new_lines.push(format!("  {new_network}:"));
         new_lines.push("    external: true".to_string());
         if new_network != "pier-net" {

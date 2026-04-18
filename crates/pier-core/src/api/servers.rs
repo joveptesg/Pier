@@ -399,7 +399,7 @@ pub async fn deploy_to_server(
         let compose_yaml = body["compose_yaml"].as_str()
             .ok_or_else(|| AppError::BadRequest("compose_yaml required".into()))?;
         let output = crate::docker::compose::deploy_stack(stack_name, compose_yaml, &state.config).await
-            .map_err(|e| AppError::Internal(e))?;
+            .map_err(AppError::Internal)?;
         return Ok(Json(serde_json::json!({"ok": true, "output": output})));
     }
 
@@ -433,7 +433,7 @@ pub async fn stop_on_server(
         let stack_name = body["stack_name"].as_str()
             .ok_or_else(|| AppError::BadRequest("stack_name required".into()))?;
         let output = crate::docker::compose::down_stack(stack_name, &state.config).await
-            .map_err(|e| AppError::Internal(e))?;
+            .map_err(AppError::Internal)?;
         return Ok(Json(serde_json::json!({"ok": true, "output": output})));
     }
 

@@ -304,14 +304,14 @@ pub async fn cleanup_settings_get(
 fn parse_docker_size(s: &str) -> u64 {
     let s = s.trim();
     if s.is_empty() || s == "0B" || s == "0" { return 0; }
-    let (num_str, unit) = if s.ends_with("GB") {
-        (&s[..s.len()-2], 1_073_741_824u64)
-    } else if s.ends_with("MB") {
-        (&s[..s.len()-2], 1_048_576u64)
-    } else if s.ends_with("kB") || s.ends_with("KB") {
-        (&s[..s.len()-2], 1024u64)
-    } else if s.ends_with('B') {
-        (&s[..s.len()-1], 1u64)
+    let (num_str, unit) = if let Some(rest) = s.strip_suffix("GB") {
+        (rest, 1_073_741_824u64)
+    } else if let Some(rest) = s.strip_suffix("MB") {
+        (rest, 1_048_576u64)
+    } else if let Some(rest) = s.strip_suffix("kB").or_else(|| s.strip_suffix("KB")) {
+        (rest, 1024u64)
+    } else if let Some(rest) = s.strip_suffix('B') {
+        (rest, 1u64)
     } else {
         (s, 1u64)
     };

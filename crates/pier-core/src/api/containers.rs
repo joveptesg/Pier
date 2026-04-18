@@ -119,19 +119,16 @@ pub async fn all_stats(
 
     for c in &containers {
         let name = &c.name;
-        match docker::containers::container_stats(&state.docker, name).await {
-            Ok(stats) => {
-                results.push(serde_json::json!({
-                    "name": name,
-                    "image": c.image,
-                    "status": c.status,
-                    "cpu_percent": stats["cpu_percent"],
-                    "memory_usage": stats["memory_usage"],
-                    "memory_limit": stats["memory_limit"],
-                    "memory_percent": stats["memory_percent"],
-                }));
-            }
-            Err(_) => {}
+        if let Ok(stats) = docker::containers::container_stats(&state.docker, name).await {
+            results.push(serde_json::json!({
+                "name": name,
+                "image": c.image,
+                "status": c.status,
+                "cpu_percent": stats["cpu_percent"],
+                "memory_usage": stats["memory_usage"],
+                "memory_limit": stats["memory_limit"],
+                "memory_percent": stats["memory_percent"],
+            }));
         }
     }
 
