@@ -262,7 +262,7 @@ pub async fn run_pipeline(
                                     log.push_str(&line);
                                     log.push('\n');
                                     line_count += 1;
-                                    if line_count % 3 == 0 {
+                                    if line_count.is_multiple_of(3) {
                                         flush_log(&state, &deploy_id, &log);
                                     }
                                 }
@@ -432,7 +432,7 @@ async fn resolve_clone_url(state: &AppState, svc: &ServiceInfo) -> Result<String
 
 /// Update deployment record and service status on completion.
 fn finish_deployment(
-    state: &AppState,
+    state: &Arc<AppState>,
     deploy_id: &str,
     service_id: &str,
     status: &str,
@@ -455,6 +455,23 @@ fn finish_deployment(
             "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
             rusqlite::params![service_status, service_id],
         );
+    }
+
+    // Fire alert on deployment failure
+    if status == "failed" {
+        let s = state.clone();
+        let sid = service_id.to_string();
+        let did = deploy_id.to_string();
+        let excerpt: String = log.lines().next().unwrap_or("").chars().take(200).collect();
+        tokio::spawn(async move {
+            crate::alerts::hooks::fire_event(
+                &s,
+                "deploy_status",
+                Some(&sid),
+                format!("Deploy {did} failed: {excerpt}"),
+            )
+            .await;
+        });
     }
 }
 
@@ -504,8 +521,7 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
 
     for &idx in service_indices.iter().rev() {
         let mut end = lines.len();
-        for j in (idx + 1)..lines.len() {
-            let line = &lines[j];
+        for (j, line) in lines.iter().enumerate().skip(idx + 1) {
             let trimmed = line.trim();
             if trimmed.is_empty() { continue; }
             if (line.starts_with("  ") || line.starts_with('\t')) && !line.starts_with("    ") && !line.starts_with("\t\t") && trimmed.ends_with(':') {
@@ -521,15 +537,14 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
         // Remove existing service-level networks section
         let mut net_start = None;
         let mut net_end = None;
-        for j in idx..end {
-            let trimmed = lines[j].trim();
-            if trimmed == "networks:" && (lines[j].starts_with("    ") || lines[j].starts_with("\t\t")) {
+        for (j, line) in lines.iter().enumerate().take(end).skip(idx) {
+            let trimmed = line.trim();
+            if trimmed == "networks:" && (line.starts_with("    ") || line.starts_with("\t\t")) {
                 net_start = Some(j);
-            } else if net_start.is_some() && net_end.is_none() {
-                if !trimmed.starts_with("- ") && !trimmed.is_empty() {
+            } else if net_start.is_some() && net_end.is_none()
+                && !trimmed.starts_with("- ") && !trimmed.is_empty() {
                     net_end = Some(j);
                 }
-            }
         }
         if let Some(start) = net_start {
             let end_idx = net_end.unwrap_or(end);
@@ -540,8 +555,7 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
 
         // Find new end after removal
         let mut new_end = lines.len();
-        for j in (idx + 1)..lines.len() {
-            let line = &lines[j];
+        for (j, line) in lines.iter().enumerate().skip(idx + 1) {
             let trimmed = line.trim();
             if trimmed.is_empty() { continue; }
             if (line.starts_with("  ") || line.starts_with('\t')) && !line.starts_with("    ") && !line.starts_with("\t\t") && trimmed.ends_with(':') {
@@ -568,8 +582,8 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
     }
     if let Some(start) = networks_start {
         let mut end = lines.len();
-        for j in (start + 1)..lines.len() {
-            if !lines[j].starts_with(' ') && !lines[j].starts_with('\t') && !lines[j].trim().is_empty() {
+        for (j, line) in lines.iter().enumerate().skip(start + 1) {
+            if !line.starts_with(' ') && !line.starts_with('\t') && !line.trim().is_empty() {
                 end = j;
                 break;
             }

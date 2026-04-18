@@ -322,6 +322,43 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE servers ADD COLUMN labels_json TEXT DEFAULT '{}';
     ALTER TABLE servers ADD COLUMN max_containers INTEGER DEFAULT 100;
     "#,
+    // Migration 21: Alerts & notifications (Phase 11.5)
+    r#"
+    CREATE TABLE IF NOT EXISTS alert_rules (
+        id                  TEXT PRIMARY KEY NOT NULL,
+        name                TEXT NOT NULL,
+        enabled             INTEGER NOT NULL DEFAULT 1,
+        metric              TEXT NOT NULL,
+        scope               TEXT NOT NULL DEFAULT 'global',
+        scope_id            TEXT,
+        threshold           REAL,
+        comparison          TEXT NOT NULL DEFAULT 'gt',
+        duration_secs       INTEGER NOT NULL DEFAULT 60,
+        severity            TEXT NOT NULL DEFAULT 'warning',
+        channel             TEXT NOT NULL DEFAULT 'telegram',
+        channel_config_enc  TEXT NOT NULL,
+        cooldown_mins       INTEGER NOT NULL DEFAULT 30,
+        last_triggered_at   TEXT,
+        last_value          REAL,
+        last_state          TEXT NOT NULL DEFAULT 'ok',
+        first_breach_at     TEXT,
+        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON alert_rules(enabled);
+
+    CREATE TABLE IF NOT EXISTS alert_events (
+        id               TEXT PRIMARY KEY NOT NULL,
+        rule_id          TEXT NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
+        state            TEXT NOT NULL,
+        value            REAL,
+        message          TEXT NOT NULL,
+        delivered        INTEGER NOT NULL DEFAULT 0,
+        delivery_error   TEXT,
+        created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_alert_events_rule ON alert_events(rule_id, created_at DESC);
+    "#,
 ];
 
 /// Run all pending database migrations.

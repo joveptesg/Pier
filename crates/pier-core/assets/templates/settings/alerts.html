@@ -1,0 +1,427 @@
+{% extends "base.html" %}
+{% block title %}Alerts{% endblock %}
+
+{% block content %}
+<div x-data="alertsPage()" x-init="init()" class="p-6 space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Alerts</h2>
+            <p class="text-sm text-gray-500 mt-0.5">Notifications for server, container and deploy events</p>
+        </div>
+        <button @click="openCreate()"
+                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors">
+            + New Rule
+        </button>
+    </div>
+
+    <!-- Rules table -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 dark:bg-gray-800/50 text-left text-xs uppercase tracking-wider text-gray-500">
+                <tr>
+                    <th class="px-4 py-3 font-medium">Name</th>
+                    <th class="px-4 py-3 font-medium">Metric</th>
+                    <th class="px-4 py-3 font-medium">Scope</th>
+                    <th class="px-4 py-3 font-medium">Threshold</th>
+                    <th class="px-4 py-3 font-medium">Severity</th>
+                    <th class="px-4 py-3 font-medium">State</th>
+                    <th class="px-4 py-3 font-medium">Last triggered</th>
+                    <th class="px-4 py-3 font-medium text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                <template x-for="r in rules" :key="r.id">
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                        <td class="px-4 py-3 text-gray-900 dark:text-white" x-text="r.name"></td>
+                        <td class="px-4 py-3 text-gray-600 dark:text-gray-400" x-text="r.metric"></td>
+                        <td class="px-4 py-3 text-gray-600 dark:text-gray-400">
+                            <span x-text="r.scope"></span>
+                            <span class="text-xs text-gray-400" x-show="r.scope_id" x-text="': ' + r.scope_id"></span>
+                        </td>
+                        <td class="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">
+                            <span x-show="r.threshold !== null" x-text="r.comparison + ' ' + r.threshold"></span>
+                            <span x-show="r.threshold === null" class="text-gray-400">event</span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="text-xs px-2 py-0.5 rounded-full"
+                                  :class="{
+                                      'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400': r.severity === 'info',
+                                      'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400': r.severity === 'warning',
+                                      'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400': r.severity === 'critical'
+                                  }"
+                                  x-text="r.severity"></span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="text-xs px-2 py-0.5 rounded-full"
+                                  :class="r.last_state === 'firing' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'"
+                                  x-text="r.enabled ? r.last_state : 'disabled'"></span>
+                        </td>
+                        <td class="px-4 py-3 text-xs text-gray-500" x-text="r.last_triggered_at || '—'"></td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="flex justify-end gap-2">
+                                <button @click="toggle(r)" class="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                                        x-text="r.enabled ? 'Disable' : 'Enable'"></button>
+                                <button @click="testRule(r)" class="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-500/20">
+                                    Test
+                                </button>
+                                <button @click="openEdit(r)" class="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">
+                                    Edit
+                                </button>
+                                <button @click="remove(r)" class="text-xs px-2 py-1 rounded bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20">
+                                    Delete
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                </template>
+                <tr x-show="rules.length === 0" x-cloak>
+                    <td colspan="8" class="px-4 py-8 text-center text-sm text-gray-500">No alert rules yet. Click "New Rule" to create one.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Toast -->
+    <div x-show="toast" x-cloak
+         class="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg shadow-lg text-sm"
+         :class="toastError ? 'bg-red-600 text-white' : 'bg-green-600 text-white'"
+         x-text="toast"></div>
+
+    <!-- Modal -->
+    <div x-show="modalOpen" x-cloak
+         class="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4"
+         style="top:0;left:0"
+         @click.self="modalOpen = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+            <div class="p-5 border-b border-gray-200 dark:border-gray-800/50">
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white" x-text="editingId ? 'Edit Alert Rule' : 'New Alert Rule'"></h3>
+            </div>
+            <div class="p-5 space-y-4">
+                <!-- Name -->
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+                    <input type="text" x-model="form.name" placeholder="e.g. High CPU on prod-01"
+                           class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                </div>
+
+                <!-- Metric -->
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Metric</label>
+                    <select x-model="form.metric" @change="onMetricChange()"
+                            class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                        <optgroup label="Host">
+                            <option value="cpu">CPU usage (%)</option>
+                            <option value="ram">RAM usage (%)</option>
+                            <option value="disk">Disk usage (%)</option>
+                            <option value="agent_offline">Agent offline (minutes since last heartbeat)</option>
+                        </optgroup>
+                        <optgroup label="Container">
+                            <option value="container_cpu">Container CPU (%)</option>
+                            <option value="container_ram">Container RAM (%)</option>
+                        </optgroup>
+                        <optgroup label="TLS">
+                            <option value="ssl_expiry">SSL days left</option>
+                        </optgroup>
+                        <optgroup label="Events">
+                            <option value="deploy_status">Deployment failed</option>
+                            <option value="backup_status">Backup failed</option>
+                        </optgroup>
+                    </select>
+                </div>
+
+                <!-- Scope -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Scope</label>
+                        <select x-model="form.scope" @change="form.scope_id = null"
+                                class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                            <option value="global">Global</option>
+                            <option value="server">Specific server</option>
+                            <option value="service">Specific service</option>
+                            <option value="domain">Specific domain</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Target</label>
+                        <select x-model="form.scope_id"
+                                :disabled="form.scope === 'global'"
+                                class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white disabled:opacity-50">
+                            <option :value="null">—</option>
+                            <template x-for="opt in scopeOptions()" :key="opt.id">
+                                <option :value="opt.id" x-text="opt.label"></option>
+                            </template>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Threshold (if not event-based) -->
+                <div x-show="!isEventMetric()" class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Compare</label>
+                        <select x-model="form.comparison"
+                                class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                            <option value="gt">greater than</option>
+                            <option value="lt">less than</option>
+                            <option value="eq">equal to</option>
+                        </select>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Threshold</label>
+                        <input type="number" x-model.number="form.threshold" step="0.1"
+                               class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                    </div>
+                </div>
+
+                <!-- Duration, cooldown -->
+                <div x-show="!isEventMetric()" class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Must hold for (seconds)</label>
+                        <input type="number" x-model.number="form.duration_secs" min="0"
+                               class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Cooldown (minutes)</label>
+                        <input type="number" x-model.number="form.cooldown_mins" min="0"
+                               class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                    </div>
+                </div>
+
+                <!-- Severity -->
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Severity</label>
+                    <select x-model="form.severity"
+                            class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                        <option value="info">Info</option>
+                        <option value="warning">Warning</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+
+                <!-- Channel: Telegram -->
+                <div class="border-t border-gray-200 dark:border-gray-800/50 pt-4 space-y-3">
+                    <p class="text-xs font-medium text-gray-700 dark:text-gray-300">Telegram</p>
+                    <div>
+                        <label class="block text-xs text-gray-600 dark:text-gray-400 mb-1">Bot token</label>
+                        <input type="password" x-model="form.channel_config.bot_token"
+                               placeholder="123456:ABC-DEF..."
+                               class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                        <p class="text-[11px] text-gray-500 mt-1">Create via @BotFather in Telegram. Leave blank when editing to keep the existing token.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-600 dark:text-gray-400 mb-1">Chat ID</label>
+                        <input type="text" x-model="form.channel_config.chat_id"
+                               placeholder="-1001234567890 or @channelname"
+                               class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                    </div>
+                </div>
+            </div>
+            <div class="p-5 border-t border-gray-200 dark:border-gray-800/50 flex justify-end gap-2">
+                <button @click="modalOpen = false"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">
+                    Cancel
+                </button>
+                <button @click="save()" :disabled="saving"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors">
+                    <span x-text="saving ? 'Saving...' : (editingId ? 'Update' : 'Create')"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function alertsPage() {
+    return {
+        rules: [],
+        servers: [],
+        services: [],
+        domains: [],
+        modalOpen: false,
+        editingId: null,
+        saving: false,
+        toast: '',
+        toastError: false,
+        form: this.emptyForm(),
+
+        emptyForm() {
+            return {
+                name: '',
+                metric: 'cpu',
+                scope: 'global',
+                scope_id: null,
+                threshold: 80,
+                comparison: 'gt',
+                duration_secs: 60,
+                severity: 'warning',
+                channel: 'telegram',
+                channel_config: { bot_token: '', chat_id: '' },
+                cooldown_mins: 30,
+                enabled: true,
+            };
+        },
+
+        async init() {
+            await Promise.all([
+                this.loadRules(),
+                this.loadServers(),
+                this.loadServices(),
+                this.loadDomains(),
+            ]);
+        },
+
+        async loadRules() {
+            try {
+                this.rules = await fetch('/api/v1/alerts').then(r => r.json());
+            } catch (e) { this.showToast('Failed to load rules: ' + e.message, true); }
+        },
+
+        async loadServers() {
+            try {
+                this.servers = await fetch('/api/v1/servers').then(r => r.json());
+            } catch {}
+        },
+
+        async loadServices() {
+            try {
+                this.services = await fetch('/api/v1/resources').then(r => r.json());
+            } catch {}
+        },
+
+        async loadDomains() {
+            try {
+                this.domains = await fetch('/api/v1/domains').then(r => r.json());
+            } catch {}
+        },
+
+        scopeOptions() {
+            switch (this.form.scope) {
+                case 'server': return (this.servers || []).map(s => ({ id: s.id, label: s.name + ' (' + s.host + ')' }));
+                case 'service': return (this.services || []).map(s => ({ id: s.id, label: s.name }));
+                case 'domain': return (this.domains || []).map(d => ({ id: d.id, label: d.domain }));
+                default: return [];
+            }
+        },
+
+        isEventMetric() {
+            return ['container_status', 'container_restarts', 'deploy_status', 'backup_status'].includes(this.form.metric);
+        },
+
+        onMetricChange() {
+            // sensible defaults when the user picks a metric
+            const defaults = {
+                cpu: { threshold: 85, scope: 'server' },
+                ram: { threshold: 85, scope: 'server' },
+                disk: { threshold: 90, scope: 'server' },
+                agent_offline: { threshold: 5, scope: 'server' },
+                container_cpu: { threshold: 85, scope: 'service' },
+                container_ram: { threshold: 85, scope: 'service' },
+                ssl_expiry: { threshold: 14, scope: 'global', comparison: 'lt' },
+                deploy_status: { threshold: null, scope: 'global' },
+                backup_status: { threshold: null, scope: 'global' },
+            };
+            const d = defaults[this.form.metric];
+            if (d) {
+                if (d.threshold !== undefined) this.form.threshold = d.threshold;
+                if (d.scope) { this.form.scope = d.scope; this.form.scope_id = null; }
+                if (d.comparison) this.form.comparison = d.comparison;
+            }
+        },
+
+        openCreate() {
+            this.editingId = null;
+            this.form = this.emptyForm();
+            this.modalOpen = true;
+        },
+
+        openEdit(r) {
+            this.editingId = r.id;
+            this.form = {
+                name: r.name,
+                metric: r.metric,
+                scope: r.scope,
+                scope_id: r.scope_id,
+                threshold: r.threshold,
+                comparison: r.comparison,
+                duration_secs: r.duration_secs,
+                severity: r.severity,
+                channel: r.channel,
+                channel_config: { bot_token: '', chat_id: '' },
+                cooldown_mins: r.cooldown_mins,
+                enabled: r.enabled,
+            };
+            this.modalOpen = true;
+        },
+
+        async save() {
+            this.saving = true;
+            try {
+                const body = {
+                    name: this.form.name,
+                    metric: this.form.metric,
+                    scope: this.form.scope,
+                    scope_id: this.form.scope_id || null,
+                    threshold: this.isEventMetric() ? null : this.form.threshold,
+                    comparison: this.form.comparison,
+                    duration_secs: this.form.duration_secs,
+                    severity: this.form.severity,
+                    channel: 'telegram',
+                    cooldown_mins: this.form.cooldown_mins,
+                    enabled: this.form.enabled,
+                };
+                // Only send channel_config if bot_token is filled (edit with blank leaves config untouched)
+                if (this.form.channel_config.bot_token || !this.editingId) {
+                    body.channel_config = this.form.channel_config;
+                }
+                const url = this.editingId ? '/api/v1/alerts/' + this.editingId : '/api/v1/alerts';
+                const method = this.editingId ? 'PUT' : 'POST';
+                const r = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const j = await r.json();
+                if (!r.ok || j.error) { throw new Error(j.error || ('HTTP ' + r.status)); }
+                this.modalOpen = false;
+                this.showToast(this.editingId ? 'Rule updated' : 'Rule created');
+                await this.loadRules();
+            } catch (e) {
+                this.showToast('Save failed: ' + e.message, true);
+            }
+            this.saving = false;
+        },
+
+        async toggle(r) {
+            try {
+                await fetch('/api/v1/alerts/' + r.id + '/toggle', { method: 'POST' });
+                await this.loadRules();
+            } catch (e) { this.showToast('Toggle failed: ' + e.message, true); }
+        },
+
+        async remove(r) {
+            if (!confirm('Delete rule "' + r.name + '"?')) return;
+            try {
+                await fetch('/api/v1/alerts/' + r.id, { method: 'DELETE' });
+                await this.loadRules();
+                this.showToast('Rule deleted');
+            } catch (e) { this.showToast('Delete failed: ' + e.message, true); }
+        },
+
+        async testRule(r) {
+            try {
+                const resp = await fetch('/api/v1/alerts/' + r.id + '/test', { method: 'POST' });
+                const j = await resp.json();
+                if (!resp.ok || j.error) throw new Error(j.error || ('HTTP ' + resp.status));
+                this.showToast('Test notification sent');
+            } catch (e) { this.showToast('Test failed: ' + e.message, true); }
+        },
+
+        showToast(msg, err = false) {
+            this.toast = msg;
+            this.toastError = err;
+            setTimeout(() => { this.toast = ''; }, 3500);
+        },
+    };
+}
+</script>
+{% endblock %}

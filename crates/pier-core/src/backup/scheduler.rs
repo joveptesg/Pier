@@ -134,14 +134,23 @@ async fn run_single_backup(
     {
         Ok(d) => d,
         Err(e) => {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            db.execute(
-                "UPDATE backups SET status = 'failed', error_message = ?1, finished_at = datetime('now') WHERE id = ?2",
-                rusqlite::params![e.to_string(), backup_id],
-            )?;
+            {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.execute(
+                    "UPDATE backups SET status = 'failed', error_message = ?1, finished_at = datetime('now') WHERE id = ?2",
+                    rusqlite::params![e.to_string(), backup_id],
+                )?;
+            }
+            crate::alerts::hooks::fire_event(
+                state,
+                "backup_status",
+                Some(service_id),
+                format!("Backup dump failed for {name}: {e}"),
+            )
+            .await;
             return Err(e);
         }
     };
@@ -160,14 +169,23 @@ async fn run_single_backup(
     };
 
     if let Err(e) = upload_result {
-        let db = state
-            .db
-            .lock()
-            .map_err(|er| anyhow::anyhow!("DB lock: {er}"))?;
-        db.execute(
-            "UPDATE backups SET status = 'failed', error_message = ?1, finished_at = datetime('now') WHERE id = ?2",
-            rusqlite::params![e.to_string(), backup_id],
-        )?;
+        {
+            let db = state
+                .db
+                .lock()
+                .map_err(|er| anyhow::anyhow!("DB lock: {er}"))?;
+            db.execute(
+                "UPDATE backups SET status = 'failed', error_message = ?1, finished_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![e.to_string(), backup_id],
+            )?;
+        }
+        crate::alerts::hooks::fire_event(
+            state,
+            "backup_status",
+            Some(service_id),
+            format!("Backup upload failed for {name}: {e}"),
+        )
+        .await;
         return Err(e);
     }
 

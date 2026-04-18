@@ -1,3 +1,4 @@
+mod alerts;
 mod api;
 mod auth;
 mod backup;
@@ -189,6 +190,10 @@ async fn main() -> Result<()> {
     // Start SSL certificate monitor (checks acme.json every 15 min)
     proxy::ssl_monitor::start_ssl_monitor(state.clone());
     tracing::info!("SSL monitor started");
+
+    // Start alerts scheduler (checks metrics every 30s)
+    alerts::start_scheduler(state.clone());
+    tracing::info!("Alerts scheduler started");
 
     // Cleanup invalid domains (with https:// prefix) and their Traefik configs
     {

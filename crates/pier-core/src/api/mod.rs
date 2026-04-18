@@ -1,3 +1,4 @@
+pub mod alerts;
 pub mod auth;
 pub mod backups;
 pub mod canvas;
@@ -223,6 +224,16 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/system/update-check", get(system::update_check))
         .route("/system/update", post(system::update_now))
         .route("/system/update-settings", get(system::update_settings).put(system::save_update_settings))
+        // Alerts (Phase 11.5)
+        .route("/alerts", get(alerts::list).post(alerts::create))
+        .route("/alerts/events", get(alerts::events_feed))
+        .route(
+            "/alerts/{id}",
+            get(alerts::get).put(alerts::update).delete(alerts::remove),
+        )
+        .route("/alerts/{id}/toggle", post(alerts::toggle))
+        .route("/alerts/{id}/test", post(alerts::test))
+        .route("/alerts/{id}/events", get(alerts::rule_events))
         .layer(axum::middleware::from_fn_with_state(state, require_auth));
 
     Router::new()
