@@ -1147,14 +1147,20 @@ function resourceDetail(id) {
                 await this.refresh(); await this.loadCluster();
             } catch(e) { toast(e.message, 'error'); }
         },
-        loadEnv() {
+        async loadEnv() {
             const internal = ['GIT_URL','GIT_BRANCH','DOCKERFILE_PATH','SOURCE_ID','BUILD_PACK','COMPOSE_PATH','BUILD_PATH'];
-            try { const j=this.resource.env_json; if(!j){this.editableEnv=[];return;} const o=JSON.parse(j);
-                this.editableEnv=Object.entries(o).filter(([k])=>k===k.toUpperCase() && !internal.includes(k)).map(([key,value])=>({key,value})).sort((a,b)=>a.key.localeCompare(b.key));
-            } catch { this.editableEnv=[]; }
+            try {
+                const resp = await fetch('/api/v1/resources/' + this.id + '/env');
+                if (!resp.ok) { this.editableEnv = []; return; }
+                const o = await resp.json();
+                this.editableEnv = Object.entries(o || {})
+                    .filter(([k]) => k === k.toUpperCase() && !internal.includes(k))
+                    .map(([key, value]) => ({ key, value }))
+                    .sort((a, b) => a.key.localeCompare(b.key));
+            } catch { this.editableEnv = []; }
         },
         addEnvRow() { this.editableEnv.push({key:'',value:''}); },
-        resetEnv() { this.loadEnv(); this.envRawText = this.editableEnv.map(r => r.key + '=' + r.value).join('\n'); },
+        async resetEnv() { await this.loadEnv(); this.envRawText = this.editableEnv.map(r => r.key + '=' + r.value).join('\n'); },
         toggleEnvView() {
             if (this.envViewMode === 'normal') {
                 this.envRawText = this.editableEnv.map(r => r.key + '=' + r.value).join('\n');
