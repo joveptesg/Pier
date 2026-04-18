@@ -136,6 +136,37 @@ else
     info "Preserving existing ${PIER_ENV}"
 fi
 
+# ── Ensure stable PIER_SECRET is set in .env ────────────────────────────────
+# Systemd `ReadWritePaths=...` blocks the runtime from writing to /opt/pier/.env,
+# so the secret MUST be generated here, pre-start, while we're still root.
+
+if ! grep -q '^PIER_SECRET=' "$PIER_ENV" 2>/dev/null; then
+    info "Generating stable PIER_SECRET"
+    SECRET=$(head -c 32 /dev/urandom | base64)
+    echo "PIER_SECRET=${SECRET}" >> "$PIER_ENV"
+fi
+chmod 600 "$PIER_ENV"
+
+# ── Harvest historical PIER_SECRET values from journald for auto-recovery ──
+# Earlier Pier versions generated a fresh random key on every call because
+# the systemd unit denied writes to /opt/pier/.env. Each of those keys was
+# logged as a WARN line in journald. We dump them into a recovery file so
+# the binary can try each one against encrypted env_json rows on startup.
+
+RECOVERY_FILE="${PIER_DATA}/.pier-recovery-keys"
+if command -v journalctl &>/dev/null; then
+    journalctl -u pier --no-pager 2>/dev/null \
+        | grep -oE 'PIER_SECRET=[A-Za-z0-9+/=]+' \
+        | sed 's/^PIER_SECRET=//' \
+        | sort -u > "$RECOVERY_FILE" || true
+    if [[ -s "$RECOVERY_FILE" ]]; then
+        KEYCOUNT=$(wc -l < "$RECOVERY_FILE")
+        info "Collected ${KEYCOUNT} historical keys for env_json recovery"
+    else
+        rm -f "$RECOVERY_FILE"
+    fi
+fi
+
 # ── Set ownership ────────────────────────────────────────────────────────────
 
 chown -R "$PIER_USER":"$PIER_USER" "$PIER_DIR"
