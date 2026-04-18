@@ -55,7 +55,7 @@ pub async fn update_env(
             .lock()
             .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
         db.execute(
-            "UPDATE services SET env_json = ?1, updated_at = datetime('now') WHERE id = ?2",
+            "UPDATE services SET env_json = ?1, env_dirty = 1, updated_at = datetime('now') WHERE id = ?2",
             rusqlite::params![env_json, id],
         )?;
         db.query_row(
@@ -174,9 +174,11 @@ pub async fn update_env(
                     .db
                     .lock()
                     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+                // On success clear env_dirty — the running container now has the new env
+                let dirty_reset = if status == "running" { 0 } else { 1 };
                 db.execute(
-                    "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-                    rusqlite::params![status, id],
+                    "UPDATE services SET status = ?1, env_dirty = ?2, updated_at = datetime('now') WHERE id = ?3",
+                    rusqlite::params![status, dirty_reset, id],
                 )?;
             }
             result.map_err(|e| AppError::Internal(anyhow::anyhow!("Redeploy failed: {e}")))?;

@@ -359,6 +359,36 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_alert_events_rule ON alert_events(rule_id, created_at DESC);
     "#,
+    // Migration 22: Track "env changed but not redeployed" state per service
+    r#"
+    ALTER TABLE services ADD COLUMN env_dirty INTEGER NOT NULL DEFAULT 0;
+    "#,
+    // Migration 23: Simplified notifications — one channel config shared by presets.
+    // UI shows on/off toggles for 10 predefined alerts; advanced rules still work via legacy endpoints.
+    r#"
+    CREATE TABLE IF NOT EXISTS notification_channels (
+        channel    TEXT PRIMARY KEY NOT NULL,
+        enabled    INTEGER NOT NULL DEFAULT 0,
+        config_enc TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    INSERT OR IGNORE INTO notification_channels (channel) VALUES ('telegram');
+
+    INSERT OR IGNORE INTO alert_rules
+        (id, name, enabled, metric, scope, threshold, comparison, duration_secs,
+         severity, channel, channel_config_enc, cooldown_mins)
+    VALUES
+        ('preset-cpu-host',       'High server CPU',              0, 'cpu',              'global', 85.0, 'gt', 300,  'warning',  'telegram', '', 30),
+        ('preset-ram-host',       'High server RAM',              0, 'ram',              'global', 85.0, 'gt', 300,  'warning',  'telegram', '', 30),
+        ('preset-disk-host',      'High server disk usage',       0, 'disk',             'global', 90.0, 'gt', 300,  'warning',  'telegram', '', 60),
+        ('preset-agent-offline',  'Remote server offline',        0, 'agent_offline',    'global', 5.0,  'gt', 0,    'critical', 'telegram', '', 30),
+        ('preset-container-cpu',  'Container high CPU',           0, 'container_cpu',    'global', 90.0, 'gt', 300,  'warning',  'telegram', '', 30),
+        ('preset-container-ram',  'Container high RAM',           0, 'container_ram',    'global', 90.0, 'gt', 300,  'warning',  'telegram', '', 30),
+        ('preset-ssl-expiring',   'SSL certificate expiring',     0, 'ssl_expiry',       'global', 14.0, 'lt', 0,    'warning',  'telegram', '', 1440),
+        ('preset-deploy-failed',  'Deployment failed',            0, 'deploy_status',    'global', NULL, 'eq', 0,    'critical', 'telegram', '', 5),
+        ('preset-backup-failed',  'Backup failed',                0, 'backup_status',    'global', NULL, 'eq', 0,    'critical', 'telegram', '', 60),
+        ('preset-container-down', 'Container crashed/restarting', 0, 'container_status', 'global', NULL, 'eq', 0,    'critical', 'telegram', '', 10);
+    "#,
 ];
 
 /// Run all pending database migrations.

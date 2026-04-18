@@ -455,6 +455,13 @@ fn finish_deployment(
             "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
             rusqlite::params![service_status, service_id],
         );
+        // Successful deploy means the container now reflects the current env_json.
+        if status == "success" {
+            let _ = db.execute(
+                "UPDATE services SET env_dirty = 0 WHERE id = ?1",
+                [service_id],
+            );
+        }
     }
 
     // Fire alert on deployment failure

@@ -1153,7 +1153,7 @@ pub async fn get(
 
     let resource = db
         .query_row(
-            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image, s.catalog_id, s.category, s.env_json, s.compose_content, s.created_at, s.cluster_mode, s.cluster_config_json, s.network_id, n.name, s.auto_deploy, s.force_https, s.container_id
+            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image, s.catalog_id, s.category, s.env_json, s.compose_content, s.created_at, s.cluster_mode, s.cluster_config_json, s.network_id, n.name, s.auto_deploy, s.force_https, s.container_id, s.env_dirty
              FROM services s LEFT JOIN networks n ON s.network_id = n.id WHERE s.id = ?1",
             [&id],
             |row| {
@@ -1177,6 +1177,7 @@ pub async fn get(
                     "auto_deploy": row.get::<_, Option<bool>>(16)?.unwrap_or(true),
                     "force_https": row.get::<_, Option<bool>>(17)?.unwrap_or(true),
                     "stored_container_name": row.get::<_, Option<String>>(18)?,
+                    "env_dirty": row.get::<_, i64>(19)? == 1,
                 }))
             },
         )

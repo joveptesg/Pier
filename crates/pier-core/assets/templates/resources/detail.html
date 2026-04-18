@@ -80,6 +80,22 @@
         </div>
     </div>
 
+    <!-- Env-dirty banner -->
+    <div x-show="resource.env_dirty" x-cloak
+         class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700/40 rounded-lg px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <svg class="w-5 h-5 text-yellow-600 dark:text-yellow-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            <div>
+                <p class="text-sm font-medium text-yellow-800 dark:text-yellow-200">Environment changes not applied</p>
+                <p class="text-xs text-yellow-700 dark:text-yellow-400">The running container still uses the previous values. Redeploy to apply the new environment.</p>
+            </div>
+        </div>
+        <button @click="redeployResource()"
+                class="px-3 py-1.5 text-xs font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors shrink-0">
+            Redeploy now
+        </button>
+    </div>
+
     <!-- Tabs -->
     <div class="flex gap-1 border-b border-gray-200 dark:border-gray-800">
         <button @click="tab = 'overview'" :class="tab === 'overview' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
@@ -152,7 +168,7 @@
                                       :class="p.is_public ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'"
                                       x-text="p.is_public ? 'Public' : 'Local'"></span>
                                 <code class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
-                                      x-text="(p.is_public ? (resource.public_ip || '0.0.0.0') : '127.0.0.1') + ':' + p.host + ':' + p.container"></code>
+                                      x-text="(p.is_public ? (resource.public_ip || '0.0.0.0') : '127.0.0.1') + ':' + (p.is_public && p.public_port ? p.public_port : p.host) + ':' + p.container"></code>
                             </div>
                         </div>
                     </template>
@@ -1017,11 +1033,11 @@ function resourceDetail(id) {
         },
         get publicConnectionString() {
             const p = this._primaryPort(); if (!p || !this.resource.public_ip) return '';
-            return this._buildConnStr(this.resource.public_ip, p.host, null, !this.showPasswords);
+            return this._buildConnStr(this.resource.public_ip, p.public_port || p.host, null, !this.showPasswords);
         },
         get publicConnectionStringRaw() {
             const p = this._primaryPort(); if (!p || !this.resource.public_ip) return '';
-            return this._buildConnStr(this.resource.public_ip, p.host, null, false);
+            return this._buildConnStr(this.resource.public_ip, p.public_port || p.host, null, false);
         },
         async togglePublic() {
             const newState = !this.portIsPublic;
@@ -1191,9 +1207,14 @@ function resourceDetail(id) {
         async saveEnv(redeploy) {
             if (this.envViewMode === 'developer') this.parseRawEnv();
             const env={}; for(const r of this.editableEnv) if(r.key.trim()) env[r.key.trim()]=r.value;
-            try { await api('/api/v1/resources/'+this.id+'/env',{method:'PUT',body:JSON.stringify({env,redeploy})});
-                toast(redeploy?'Saved & redeploying...':'Environment saved');
-                if(redeploy) { this.tab='deployments'; this.selectedDeploy=null; this.pollDeployStatus(); }
+            try {
+                await api('/api/v1/resources/'+this.id+'/env',{method:'PUT',body:JSON.stringify({env,redeploy})});
+                toast(redeploy?'Saved & redeploying...':'Environment saved — redeploy to apply');
+                if (redeploy) {
+                    this.tab='deployments'; this.selectedDeploy=null; this.pollDeployStatus();
+                } else {
+                    this.resource.env_dirty = true; // optimistic banner
+                }
             } catch(e) { toast(e.message,'error'); }
         },
         async loadSchedule() { try { this.schedule=await fetch('/api/v1/resources/'+this.id+'/backups/schedule').then(r=>r.ok?r.json():null); if(this.schedule){this.scheduleForm.s3_storage_id=this.schedule.s3_storage_id;this.scheduleForm.cron_expression=this.schedule.cron_expression;this.scheduleForm.retention_count=this.schedule.retention_count;} } catch{} },
