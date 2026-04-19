@@ -15,6 +15,11 @@ pub const DEFAULT_TRAEFIK_VERSION: &str = "v3.3";
 const TRAEFIK_CONTAINER: &str = "pier-traefik";
 const PIER_NETWORK: &str = "pier-net";
 
+/// Serializes `deploy_traefik` / `stop_traefik` across callers. Without this,
+/// two concurrent toggles of "Make publicly available" race on stop→remove→create
+/// and the loser fails with Docker 409 "container name is already in use".
+static TRAEFIK_DEPLOY_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Compose the full `traefik:<version>` image tag.
 pub fn traefik_image(version: &str) -> String {
     format!("traefik:{version}")
@@ -28,6 +33,10 @@ pub async fn deploy_traefik(
     dashboard: bool,
     version: &str,
 ) -> Result<()> {
+    // Serialize concurrent redeploys (e.g. two near-simultaneous public-port
+    // toggles) so stop→remove→create isn't racing against itself.
+    let _guard = TRAEFIK_DEPLOY_LOCK.lock().await;
+
     // Write Traefik config files
     config::write_static_config(data_dir, acme_email, dashboard)?;
 
@@ -151,6 +160,7 @@ pub async fn restart_traefik(docker: &Docker) -> Result<()> {
 
 /// Stop and remove the Traefik container.
 pub async fn stop_traefik(docker: &Docker) -> Result<()> {
+    let _guard = TRAEFIK_DEPLOY_LOCK.lock().await;
     let _ = docker.stop_container(TRAEFIK_CONTAINER, None).await;
     let _ = docker
         .remove_container(
