@@ -108,7 +108,9 @@ pub async fn get(
 
     // Get services for this project
     let mut stmt = db.prepare(
-        "SELECT id, name, service_type, status, port, image FROM services WHERE project_id = ?1",
+        "SELECT s.id, s.name, s.service_type, s.status, s.port, s.image, \
+                (SELECT domain FROM domains WHERE service_id = s.id ORDER BY created_at LIMIT 1) AS primary_domain \
+         FROM services s WHERE s.project_id = ?1",
     )?;
 
     let services: Vec<serde_json::Value> = stmt
@@ -120,6 +122,7 @@ pub async fn get(
                 "status": row.get::<_, String>(3)?,
                 "port": row.get::<_, Option<i64>>(4)?,
                 "image": row.get::<_, Option<String>>(5)?,
+                "primary_domain": row.get::<_, Option<String>>(6)?,
             }))
         })?
         .filter_map(|r| r.ok())

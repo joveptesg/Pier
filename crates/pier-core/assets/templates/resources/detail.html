@@ -1,12 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Resource Detail{% endblock %}
+{% block title %}Resource{% endblock %}
 
 {% block content %}
-<div class="p-6 space-y-6" x-data="resourceDetail('{{ resource_id }}')" x-init="init()">
+<div class="p-6 space-y-6" x-data="resourceDetail('{{ resource_id }}')" x-init="init()"
+     x-effect="if (resource.name) document.title = resource.name + ' — Pier'">
     <!-- Header -->
     <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-            <a href="/projects" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+            <a :href="resource.project_id ? '/projects/' + resource.project_id : '/projects'"
+               class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             </a>
             <div>
