@@ -679,16 +679,53 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
     if ports.is_empty() { return; }
 
     if let Ok(db) = state.db.lock() {
+        // Preserve existing public-exposure state across redeploys: a compose
+        // port change must not silently disable public access (Traefik routes
+        // and DB would otherwise drift out of sync).
+        let prev_public: std::collections::HashMap<String, (bool, Option<i64>)> = {
+            let mut map = std::collections::HashMap::new();
+            if let Ok(mut stmt) = db.prepare(
+                "SELECT port_name, is_public, public_port FROM port_allocations WHERE service_id = ?1",
+            ) {
+                let rows = stmt.query_map([service_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, bool>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                    ))
+                });
+                if let Ok(iter) = rows {
+                    for r in iter.flatten() {
+                        map.insert(r.0, (r.1, r.2));
+                    }
+                }
+            }
+            map
+        };
+
         // Delete old port allocations for this service
         let _ = db.execute("DELETE FROM port_allocations WHERE service_id = ?1", [service_id]);
 
-        // Insert new ports from compose
+        // Insert new ports from compose, restoring is_public/public_port by port_name.
         for (i, (host_port, container_port)) in ports.iter().enumerate() {
             let port_name = if i == 0 { "primary".to_string() } else { format!("port-{}", i) };
             let id = uuid::Uuid::new_v4().to_string();
+            let (is_public, public_port) = prev_public
+                .get(&port_name)
+                .cloned()
+                .unwrap_or((false, None));
             let _ = db.execute(
-                "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol) VALUES (?1, ?2, ?3, ?4, ?5, 'tcp')",
-                rusqlite::params![id, service_id, port_name, *host_port as i64, *container_port as i64],
+                "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', ?6, ?7)",
+                rusqlite::params![
+                    id,
+                    service_id,
+                    port_name,
+                    *host_port as i64,
+                    *container_port as i64,
+                    is_public as i64,
+                    public_port,
+                ],
             );
         }
 
