@@ -1116,7 +1116,7 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let mut stmt = db.prepare(
-        "SELECT id, project_id, name, service_type, status, port, image, catalog_id, category, created_at
+        "SELECT id, project_id, name, service_type, status, port, image, catalog_id, category, created_at, git_repo_url
          FROM services WHERE catalog_id IS NOT NULL ORDER BY created_at DESC",
     )?;
 
@@ -1133,6 +1133,7 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
                 "catalog_id": row.get::<_, Option<String>>(7)?,
                 "category": row.get::<_, Option<String>>(8)?,
                 "created_at": row.get::<_, String>(9)?,
+                "git_repo_url": row.get::<_, Option<String>>(10)?,
             }))
         })?
         .filter_map(|r| r.ok())
@@ -1886,7 +1887,32 @@ pub async fn set_port_public(
 
         // Update is_public and public_port
         if body.is_public {
-            let pp = if public_port > 0 { public_port } else { hp as u16 };
+            // Default to the container port (what user sees in "Internal Network"),
+            // falling back to host_port only if container_port is somehow 0.
+            let pp = if public_port > 0 {
+                public_port
+            } else if cp > 0 {
+                cp as u16
+            } else {
+                hp as u16
+            };
+
+            // Reject if another service already exposes this public port.
+            let conflict: Option<String> = db
+                .query_row(
+                    "SELECT service_id FROM port_allocations \
+                     WHERE is_public = 1 AND public_port = ?1 AND service_id != ?2 \
+                     LIMIT 1",
+                    rusqlite::params![pp as i64, id],
+                    |row| row.get(0),
+                )
+                .ok();
+            if let Some(other_id) = conflict {
+                return Err(AppError::Conflict(format!(
+                    "Port {pp} is already publicly exposed by another service ({other_id})"
+                )));
+            }
+
             db.execute(
                 "UPDATE port_allocations SET is_public = 1, public_port = ?1 WHERE service_id = ?2",
                 rusqlite::params![pp as i64, id],
@@ -1902,6 +1928,8 @@ pub async fn set_port_public(
 
     let pp = if public_port > 0 {
         public_port
+    } else if container_port > 0 {
+        container_port
     } else {
         host_port
     };

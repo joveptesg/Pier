@@ -14,6 +14,7 @@ mod git;
 mod proxy;
 mod s3;
 mod state;
+mod timezone;
 mod ui;
 
 use std::sync::{Arc, Mutex};
@@ -197,6 +198,7 @@ async fn main() -> Result<()> {
         config: config.clone(),
         catalog,
         started_at: std::time::Instant::now(),
+        ssl_notify: Arc::new(tokio::sync::Notify::new()),
     });
 
     // One-shot recovery of env_json entries encrypted with historical random
@@ -392,12 +394,33 @@ async fn main() -> Result<()> {
                     continue;
                 }
 
+                let state_ref = cleanup_state.clone();
                 let run = |name: &'static str, args: &[&str]| {
                     let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+                    let s = state_ref.clone();
                     async move {
                         match tokio::process::Command::new("docker").args(&args).output().await {
-                            Ok(out) => tracing::info!("Cleanup {name}: {}", String::from_utf8_lossy(&out.stdout).trim()),
-                            Err(e) => tracing::warn!("Cleanup {name} failed: {e}"),
+                            Ok(out) => {
+                                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                                tracing::info!("Cleanup {name}: {stdout}");
+                                alerts::hooks::fire_event(
+                                    &s,
+                                    "docker_cleanup_success",
+                                    None,
+                                    format!("Docker {name} pruned: {stdout}"),
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                tracing::warn!("Cleanup {name} failed: {e}");
+                                alerts::hooks::fire_event(
+                                    &s,
+                                    "docker_cleanup_failure",
+                                    None,
+                                    format!("Docker {name} prune failed: {e}"),
+                                )
+                                .await;
+                            }
                         }
                     }
                 };

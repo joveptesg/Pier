@@ -244,5 +244,14 @@ async fn run_single_backup(
     }
 
     tracing::info!("Backup {backup_id} completed: {size} bytes uploaded to {s3_key}");
+
+    crate::alerts::hooks::fire_event(
+        state,
+        "backup_success",
+        Some(service_id),
+        format!("Backup succeeded for {name} ({size} bytes → {s3_key})"),
+    )
+    .await;
+
     Ok(())
 }

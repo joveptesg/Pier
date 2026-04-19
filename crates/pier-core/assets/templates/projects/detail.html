@@ -83,6 +83,10 @@
     <div>
         <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Services</h3>
+            <a :href="'/resources/new?project_id=' + id"
+               class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors">
+                + New Service
+            </a>
         </div>
         <div x-show="services.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <template x-for="svc in services" :key="svc.id">

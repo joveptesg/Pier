@@ -99,10 +99,7 @@ fn format_body_text(msg: &AlertMessage) -> String {
             lines.push(ctx.clone());
         }
     }
-    lines.push(format!(
-        "Time: {}",
-        chrono::Utc::now().format("%Y-%m-%d %H:%M UTC")
-    ));
+    lines.push(format!("Time: {}", msg.time_str));
     lines.join("\n")
 }
 

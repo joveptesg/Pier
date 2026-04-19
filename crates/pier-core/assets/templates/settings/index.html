@@ -10,7 +10,7 @@
     </div>
 
     <!-- General Settings -->
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+    <div x-data="generalSettings()" x-init="load()" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
         <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">General</h3>
         <div class="space-y-4">
             <div class="flex items-center justify-between py-2">
@@ -18,10 +18,73 @@
                     <p class="text-sm text-gray-900 dark:text-white">Application URL</p>
                     <p class="text-xs text-gray-500 mt-0.5">The URL used to access Pier</p>
                 </div>
-                <span class="text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg" x-data x-text="window.location.origin"></span>
+                <span class="text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg" x-text="appUrl"></span>
+            </div>
+            <div class="border-t border-gray-100 dark:border-gray-800"></div>
+            <div class="flex items-center justify-between py-2 gap-3">
+                <div class="min-w-0">
+                    <p class="text-sm text-gray-900 dark:text-white">Timezone</p>
+                    <p class="text-xs text-gray-500 mt-0.5">
+                        Used for notifications and timestamps.
+                        <span x-show="tzNow" x-cloak class="ml-1 font-mono text-gray-400" x-text="'Now: ' + tzNow"></span>
+                    </p>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <select x-model="tz" @change="saveTz()" :disabled="savingTz"
+                            class="text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 text-gray-900 dark:text-white min-w-[14rem] disabled:opacity-50">
+                        <template x-for="name in tzList" :key="name">
+                            <option :value="name" x-text="name"></option>
+                        </template>
+                    </select>
+                    <span x-show="tzStatus" x-cloak class="text-xs" :class="tzError ? 'text-red-500' : 'text-green-500'" x-text="tzStatus"></span>
+                </div>
             </div>
         </div>
     </div>
+
+    <script>
+    function generalSettings() {
+        // Browser-provided IANA list — always current in modern browsers.
+        let list = [];
+        try { list = (Intl.supportedValuesOf && Intl.supportedValuesOf('timeZone')) || []; } catch {}
+        if (!list.length) {
+            list = ['UTC','Europe/London','Europe/Berlin','Europe/Moscow','Europe/Kyiv','Asia/Almaty','Asia/Dubai','Asia/Shanghai','America/New_York','America/Los_Angeles','Australia/Sydney'];
+        }
+        return {
+            appUrl: window.location.origin,
+            tz: 'UTC',
+            tzList: list,
+            tzNow: '',
+            savingTz: false,
+            tzStatus: '',
+            tzError: false,
+            async load() {
+                try {
+                    const r = await fetch('/api/v1/system/timezone').then(r => r.json());
+                    this.tz = r.timezone || 'UTC';
+                    this.tzNow = r.now || '';
+                } catch {}
+            },
+            async saveTz() {
+                this.savingTz = true;
+                this.tzStatus = '';
+                this.tzError = false;
+                try {
+                    const r = await fetch('/api/v1/system/timezone', {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ timezone: this.tz }),
+                    });
+                    const j = await r.json();
+                    if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+                    this.tzNow = j.now || '';
+                    this.tzStatus = 'Saved';
+                } catch (e) { this.tzStatus = e.message; this.tzError = true; }
+                this.savingTz = false;
+                setTimeout(() => { this.tzStatus = ''; }, 3000);
+            },
+        };
+    }
+    </script>
 
     <!-- System Cleanup -->
     <div x-data="cleanupApp()" x-init="loadInfo(); loadSettings()" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">

@@ -169,6 +169,20 @@ pub async fn create(
         );
     }
 
+    // Poke the SSL monitor shortly after Traefik picks up the new config so
+    // `ssl_status` flips to `active` within seconds, not the next polling tick.
+    {
+        let notify = state.ssl_notify.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            notify.notify_one();
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            notify.notify_one();
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            notify.notify_one();
+        });
+    }
+
     tracing::info!("Domain {domain} → service {service_name} (:{port})");
 
     Ok(Json(serde_json::json!({

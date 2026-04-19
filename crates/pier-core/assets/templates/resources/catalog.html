@@ -47,7 +47,7 @@
             <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Git Based</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('git')" :key="item.id">
-                    <a :href="'/resources/new/' + item.id"
+                    <a :href="'/resources/new/' + item.id + projectQuery"
                        class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
                               hover:border-orange-300 dark:hover:border-orange-600/50 hover:shadow-sm transition-all block group">
                         <div class="flex items-center gap-3">
@@ -69,7 +69,7 @@
             <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Docker Based</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('application')" :key="item.id">
-                    <a :href="'/resources/new/' + item.id"
+                    <a :href="'/resources/new/' + item.id + projectQuery"
                        class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
                               hover:border-blue-300 dark:hover:border-blue-600/50 hover:shadow-sm transition-all block group">
                         <div class="flex items-center gap-3">
@@ -91,7 +91,7 @@
             <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Databases</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('database')" :key="item.id">
-                    <a :href="'/resources/new/' + item.id"
+                    <a :href="'/resources/new/' + item.id + projectQuery"
                        class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
                               hover:border-gray-300 dark:hover:border-gray-600/50 hover:shadow-sm transition-all block group">
                         <div class="flex items-center gap-3">
@@ -113,7 +113,7 @@
             <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Services</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('service')" :key="item.id">
-                    <a :href="'/resources/new/' + item.id"
+                    <a :href="'/resources/new/' + item.id + projectQuery"
                        class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
                               hover:border-purple-300 dark:hover:border-purple-600/50 hover:shadow-sm transition-all block group">
                         <div class="flex items-center gap-3">
@@ -145,11 +145,13 @@
 
 <script>
 function catalogData() {
+    const projectId = (new URLSearchParams(location.search)).get('project_id') || '';
     return {
         items: [],
         loading: true,
         search: '',
         filter: '',
+        projectQuery: projectId ? ('?project_id=' + encodeURIComponent(projectId)) : '',
         async init() {
             try {
                 this.items = await fetch('/api/v1/catalog').then(r => r.json());

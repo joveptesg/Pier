@@ -226,6 +226,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/system/update-check", get(system::update_check))
         .route("/system/update", post(system::update_now))
         .route("/system/update-settings", get(system::update_settings).put(system::save_update_settings))
+        .route("/system/timezone", get(system::get_timezone).put(system::set_timezone))
         // Alerts (Phase 11.5) — advanced/custom rules
         .route("/alerts", get(alerts::list).post(alerts::create))
         .route("/alerts/events", get(alerts::events_feed))
@@ -252,6 +253,22 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/notifications/channels/email/test",
             post(alerts::channel_email_test),
+        )
+        .route(
+            "/notifications/channels/discord",
+            get(alerts::channel_discord_get).put(alerts::channel_discord_put),
+        )
+        .route(
+            "/notifications/channels/discord/test",
+            post(alerts::channel_discord_test),
+        )
+        .route(
+            "/notifications/channels/slack",
+            get(alerts::channel_slack_get).put(alerts::channel_slack_put),
+        )
+        .route(
+            "/notifications/channels/slack/test",
+            post(alerts::channel_slack_test),
         )
         .route("/notifications/alerts", get(alerts::preset_list))
         .route("/notifications/alerts/{id}/toggle", post(alerts::toggle))

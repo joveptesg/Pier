@@ -226,28 +226,65 @@ pub async fn heartbeat(
     State(state): State<SharedState>,
     Json(body): Json<HeartbeatRequest>,
 ) -> AppResult<impl IntoResponse> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    // Read previous status first so we can detect an offline→online transition.
+    let prev: Option<(String, String, String)> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT id, name, status FROM servers WHERE agent_token = ?1",
+            [&body.agent_token],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .ok()
+    };
 
-    let rows = db.execute(
-        "UPDATE servers SET status = 'online', last_heartbeat = datetime('now'),
-         os_info = COALESCE(?2, os_info), cpu_count = COALESCE(?3, cpu_count),
-         memory_total = COALESCE(?4, memory_total), docker_version = COALESCE(?5, docker_version),
-         updated_at = datetime('now')
-         WHERE agent_token = ?1",
-        rusqlite::params![
-            body.agent_token,
-            body.os_info,
-            body.cpu_count,
-            body.memory_total,
-            body.docker_version
-        ],
-    )?;
+    let rows = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "UPDATE servers SET status = 'online', last_heartbeat = datetime('now'),
+             os_info = COALESCE(?2, os_info), cpu_count = COALESCE(?3, cpu_count),
+             memory_total = COALESCE(?4, memory_total), docker_version = COALESCE(?5, docker_version),
+             updated_at = datetime('now')
+             WHERE agent_token = ?1",
+            rusqlite::params![
+                body.agent_token,
+                body.os_info,
+                body.cpu_count,
+                body.memory_total,
+                body.docker_version
+            ],
+        )?
+    };
 
     if rows == 0 {
         return Err(AppError::Unauthorized);
+    }
+
+    // Fire reachable event on offline→online transition.
+    if let Some((sid, name, prev_status)) = prev {
+        if prev_status != "online" {
+            let s = state.clone();
+            tokio::spawn(async move {
+                crate::alerts::hooks::fire_event(
+                    &s,
+                    "server_reachable",
+                    None,
+                    format!("Server {name} is back online (id: {sid}, previous status: {prev_status})"),
+                )
+                .await;
+            });
+        }
     }
 
     Ok(Json(serde_json::json!({"ok": true})))

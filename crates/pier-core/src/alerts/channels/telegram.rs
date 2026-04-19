@@ -63,10 +63,7 @@ fn format_markdown(msg: &AlertMessage) -> String {
         }
     }
 
-    lines.push(format!(
-        "Time: {}",
-        chrono::Utc::now().format("%Y-%m-%d %H:%M UTC")
-    ));
+    lines.push(format!("Time: {}", msg.time_str));
 
     lines.join("\n")
 }

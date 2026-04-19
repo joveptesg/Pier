@@ -5,7 +5,9 @@ use crate::state::AppState;
 
 /// Background task: monitor SSL certificates via Traefik's acme.json.
 ///
-/// Checks every `interval` seconds:
+/// Checks periodically, and also when woken via `state.ssl_notify` (e.g.
+/// right after a domain is added — so the status transitions from
+/// `provisioning` → `active` within seconds instead of minutes):
 /// - Parses acme.json for provisioned certificates
 /// - Updates domain ssl_status: pending/provisioning → active (when cert found)
 /// - Updates ssl_expires_at from certificate data
@@ -21,8 +23,11 @@ pub fn start_ssl_monitor(state: Arc<AppState>) {
             if let Err(e) = check_certificates(&state, &data_dir).await {
                 tracing::debug!("SSL monitor: {e}");
             }
-            // Check every 15 minutes
-            tokio::time::sleep(std::time::Duration::from_secs(900)).await;
+            // Poll every 60s, or sooner if woken by a domain add/remove.
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+                _ = state.ssl_notify.notified() => {}
+            }
         }
     });
 }

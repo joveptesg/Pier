@@ -394,6 +394,18 @@ const MIGRATIONS: &[&str] = &[
     r#"
     INSERT OR IGNORE INTO notification_channels (channel) VALUES ('email'), ('discord'), ('slack');
     "#,
+    // Migration 25: Additional preset alerts for success events + cleanup + reachability.
+    r#"
+    INSERT OR IGNORE INTO alert_rules
+        (id, name, enabled, metric, scope, threshold, comparison, duration_secs,
+         severity, channel, channel_config_enc, cooldown_mins)
+    VALUES
+        ('preset-deploy-success',   'Deployment succeeded',         0, 'deploy_success',          'global', NULL, 'eq', 0, 'info',     'telegram', '', 5),
+        ('preset-backup-success',   'Backup succeeded',             0, 'backup_success',          'global', NULL, 'eq', 0, 'info',     'telegram', '', 60),
+        ('preset-cleanup-success',  'Docker cleanup succeeded',     0, 'docker_cleanup_success',  'global', NULL, 'eq', 0, 'info',     'telegram', '', 720),
+        ('preset-cleanup-failed',   'Docker cleanup failed',        0, 'docker_cleanup_failure',  'global', NULL, 'eq', 0, 'warning',  'telegram', '', 60),
+        ('preset-server-reachable', 'Remote server back online',    0, 'server_reachable',        'global', NULL, 'eq', 0, 'info',     'telegram', '', 10);
+    "#,
 ];
 
 /// Run all pending database migrations.

@@ -1041,6 +1041,11 @@ function resourceDetail(id) {
         },
         async togglePublic() {
             const newState = !this.portIsPublic;
+            // Always prefer the container port from compose (what UI shows in "Internal Network")
+            // over any stale publicPort state.
+            if (newState && (!this.publicPort || this.publicPort < 1024)) {
+                this.publicPort = this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
+            }
             const port = this.publicPort || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
             this.togglingPublic = true;
             try {

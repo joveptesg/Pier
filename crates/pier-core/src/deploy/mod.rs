@@ -464,8 +464,8 @@ fn finish_deployment(
         }
     }
 
-    // Fire alert on deployment failure
-    if status == "failed" {
+    // Fire alert on deployment failure or success
+    if status == "failed" || status == "success" {
         let s = state.clone();
         let sid = service_id.to_string();
         let did = deploy_id.to_string();
@@ -483,14 +483,20 @@ fn finish_deployment(
                 .ok()
             })
             .unwrap_or_else(|| service_id.to_string());
+        let status_owned = status.to_string();
         tokio::spawn(async move {
-            crate::alerts::hooks::fire_event(
-                &s,
-                "deploy_status",
-                Some(&sid),
-                format!("Service: {service_name}\nDeploy {did} failed:\n{excerpt}"),
-            )
-            .await;
+            let (metric, context) = if status_owned == "failed" {
+                (
+                    "deploy_status",
+                    format!("Service: {service_name}\nDeploy {did} failed:\n{excerpt}"),
+                )
+            } else {
+                (
+                    "deploy_success",
+                    format!("Service: {service_name}\nDeploy {did} succeeded"),
+                )
+            };
+            crate::alerts::hooks::fire_event(&s, metric, Some(&sid), context).await;
         });
     }
 }

@@ -346,6 +346,7 @@ pub async fn test(
         threshold,
         comparison,
         context: Some("This is a test notification from Pier.".to_string()),
+        time_str: crate::timezone::format_now(&state),
     };
 
     crate::alerts::channels::send(&channel, &config_json, &msg)
@@ -427,7 +428,12 @@ fn validate_metric(m: &str) -> AppResult<()> {
         "container_restarts",
         "ssl_expiry",
         "deploy_status",
+        "deploy_success",
         "backup_status",
+        "backup_success",
+        "docker_cleanup_success",
+        "docker_cleanup_failure",
+        "server_reachable",
     ];
     if ALLOWED.contains(&m) {
         Ok(())
@@ -586,6 +592,7 @@ pub async fn channel_test(State(state): State<SharedState>) -> AppResult<impl In
         threshold: None,
         comparison: "eq".to_string(),
         context: Some("If you see this, Telegram notifications work.".to_string()),
+        time_str: crate::timezone::format_now(&state),
     };
 
     crate::alerts::channels::send("telegram", &plain, &msg)
@@ -795,11 +802,210 @@ pub async fn channel_email_test(State(state): State<SharedState>) -> AppResult<i
         threshold: None,
         comparison: "eq".to_string(),
         context: Some("If you see this, email notifications work.".to_string()),
+        time_str: crate::timezone::format_now(&state),
     };
     crate::alerts::channels::email::send(&cfg, &msg)
         .await
         .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
     Ok(Json(json!({"ok": true})))
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Webhook-based channels — Discord + Slack share the same config shape
+// (webhook URL only; Discord adds an opt-in @here ping).
+// ──────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct UpdateDiscordRequest {
+    pub enabled: Option<bool>,
+    pub webhook_url: Option<String>,
+    pub ping: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct UpdateSlackRequest {
+    pub enabled: Option<bool>,
+    pub webhook_url: Option<String>,
+}
+
+fn load_webhook_config<T>(state: &SharedState, channel: &str) -> AppResult<T>
+where
+    T: serde::de::DeserializeOwned + Default,
+{
+    let (_enabled, enc) = read_channel(state, channel)?;
+    if enc.is_empty() {
+        return Ok(T::default());
+    }
+    let key = crate::crypto::get_secret_key();
+    let plain = crate::crypto::decrypt(&enc, &key)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("decrypt: {e}")))?;
+    serde_json::from_str(&plain)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("parse cfg: {e}")))
+}
+
+/// GET /api/v1/notifications/channels/discord
+pub async fn channel_discord_get(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let (enabled, enc) = read_channel(&state, "discord")?;
+    let cfg: crate::alerts::channels::discord::DiscordConfig =
+        load_webhook_config(&state, "discord").unwrap_or_default();
+    Ok(Json(json!({
+        "channel": "discord",
+        "enabled": enabled,
+        "has_config": !enc.is_empty(),
+        "webhook_url_masked": mask_url(&cfg.webhook_url),
+        "ping": cfg.ping,
+    })))
+}
+
+/// PUT /api/v1/notifications/channels/discord
+pub async fn channel_discord_put(
+    State(state): State<SharedState>,
+    Json(body): Json<UpdateDiscordRequest>,
+) -> AppResult<impl IntoResponse> {
+    let mut cfg: crate::alerts::channels::discord::DiscordConfig =
+        load_webhook_config(&state, "discord").unwrap_or_default();
+    let (mut enabled, _) = read_channel(&state, "discord")?;
+
+    if let Some(u) = body.webhook_url {
+        if !u.is_empty() {
+            cfg.webhook_url = u;
+        }
+    }
+    if let Some(p) = body.ping {
+        cfg.ping = p;
+    }
+    if let Some(v) = body.enabled {
+        if v && cfg.webhook_url.is_empty() {
+            return Err(AppError::BadRequest(
+                "webhook_url is required before enabling Discord".into(),
+            ));
+        }
+        enabled = v;
+    }
+
+    save_channel(&state, "discord", enabled, &cfg)?;
+    Ok(Json(json!({"ok": true, "enabled": enabled})))
+}
+
+/// POST /api/v1/notifications/channels/discord/test
+pub async fn channel_discord_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let cfg: crate::alerts::channels::discord::DiscordConfig =
+        load_webhook_config(&state, "discord")?;
+    if cfg.webhook_url.is_empty() {
+        return Err(AppError::BadRequest("Discord is not configured".into()));
+    }
+    let msg = test_message(&state, "Discord");
+    crate::alerts::channels::discord::send(&cfg, &msg)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
+    Ok(Json(json!({"ok": true})))
+}
+
+/// GET /api/v1/notifications/channels/slack
+pub async fn channel_slack_get(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let (enabled, enc) = read_channel(&state, "slack")?;
+    let cfg: crate::alerts::channels::slack::SlackConfig =
+        load_webhook_config(&state, "slack").unwrap_or_default();
+    Ok(Json(json!({
+        "channel": "slack",
+        "enabled": enabled,
+        "has_config": !enc.is_empty(),
+        "webhook_url_masked": mask_url(&cfg.webhook_url),
+    })))
+}
+
+/// PUT /api/v1/notifications/channels/slack
+pub async fn channel_slack_put(
+    State(state): State<SharedState>,
+    Json(body): Json<UpdateSlackRequest>,
+) -> AppResult<impl IntoResponse> {
+    let mut cfg: crate::alerts::channels::slack::SlackConfig =
+        load_webhook_config(&state, "slack").unwrap_or_default();
+    let (mut enabled, _) = read_channel(&state, "slack")?;
+
+    if let Some(u) = body.webhook_url {
+        if !u.is_empty() {
+            cfg.webhook_url = u;
+        }
+    }
+    if let Some(v) = body.enabled {
+        if v && cfg.webhook_url.is_empty() {
+            return Err(AppError::BadRequest(
+                "webhook_url is required before enabling Slack".into(),
+            ));
+        }
+        enabled = v;
+    }
+
+    save_channel(&state, "slack", enabled, &cfg)?;
+    Ok(Json(json!({"ok": true, "enabled": enabled})))
+}
+
+/// POST /api/v1/notifications/channels/slack/test
+pub async fn channel_slack_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let cfg: crate::alerts::channels::slack::SlackConfig =
+        load_webhook_config(&state, "slack")?;
+    if cfg.webhook_url.is_empty() {
+        return Err(AppError::BadRequest("Slack is not configured".into()));
+    }
+    let msg = test_message(&state, "Slack");
+    crate::alerts::channels::slack::send(&cfg, &msg)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
+    Ok(Json(json!({"ok": true})))
+}
+
+fn save_channel<T: serde::Serialize>(
+    state: &SharedState,
+    channel: &str,
+    enabled: bool,
+    cfg: &T,
+) -> AppResult<()> {
+    let plain = serde_json::to_string(cfg)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize: {e}")))?;
+    let key = crate::crypto::get_secret_key();
+    let config_enc = crate::crypto::encrypt(&plain, &key)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("encrypt: {e}")))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+    db.execute(
+        "UPDATE notification_channels SET enabled = ?1, config_enc = ?2, updated_at = datetime('now') WHERE channel = ?3",
+        rusqlite::params![enabled as i64, config_enc, channel],
+    )?;
+    Ok(())
+}
+
+fn test_message(state: &SharedState, channel_label: &str) -> AlertMessage {
+    AlertMessage {
+        rule_name: format!("[TEST] Pier notifications ({channel_label})"),
+        severity: "info".to_string(),
+        state: "firing".to_string(),
+        metric: "deploy_status".to_string(),
+        scope_label: "global".to_string(),
+        server_label: crate::alerts::metrics::resolve_server_label(state, "global", None),
+        value: None,
+        threshold: None,
+        comparison: "eq".to_string(),
+        context: Some(format!(
+            "If you see this, {channel_label} notifications work."
+        )),
+        time_str: crate::timezone::format_now(state),
+    }
+}
+
+fn mask_url(url: &str) -> String {
+    if url.is_empty() {
+        return String::new();
+    }
+    if url.len() <= 16 {
+        return "••••••••".to_string();
+    }
+    let head = &url[..url.find("://").map(|i| i + 3).unwrap_or(0).min(url.len())];
+    format!("{head}••••••••{}", &url[url.len().saturating_sub(8)..])
 }
 
 fn read_channel(state: &SharedState, channel: &str) -> AppResult<(bool, String)> {

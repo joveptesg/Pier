@@ -301,6 +301,7 @@ fn build_message(
         threshold: rule.threshold,
         comparison: rule.comparison.clone(),
         context,
+        time_str: crate::timezone::format_now(state),
     }
 }
 

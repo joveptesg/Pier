@@ -540,3 +540,63 @@ pub async fn update_now() -> AppResult<impl IntoResponse> {
         "size": bytes.len(),
     })))
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// System timezone — one IANA name stored in settings, used when formatting
+// outbound message timestamps (Telegram, Email, …).
+// ───────────────────────────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct TimezoneRequest {
+    pub timezone: String,
+}
+
+/// GET /api/v1/system/timezone — current system timezone + the resolved local time.
+pub async fn get_timezone(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let tz_name = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT value FROM settings WHERE key = 'system.timezone'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .filter(|v: &String| !v.is_empty())
+        .unwrap_or_else(|| "UTC".to_string())
+    };
+    let now_local = crate::timezone::format_now(&state);
+    Ok(Json(serde_json::json!({
+        "timezone": tz_name,
+        "now": now_local,
+    })))
+}
+
+/// PUT /api/v1/system/timezone — validate and persist.
+pub async fn set_timezone(
+    State(state): State<SharedState>,
+    Json(body): Json<TimezoneRequest>,
+) -> AppResult<impl IntoResponse> {
+    // Validate the IANA name by parsing through chrono_tz.
+    let _tz: chrono_tz::Tz = body.timezone.parse().map_err(|_| {
+        AppError::BadRequest(format!("Invalid IANA timezone: {}", body.timezone))
+    })?;
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('system.timezone', ?1)",
+            [&body.timezone],
+        )?;
+    }
+    let now_local = crate::timezone::format_now(&state);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "timezone": body.timezone,
+        "now": now_local,
+    })))
+}

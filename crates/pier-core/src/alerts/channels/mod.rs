@@ -1,4 +1,6 @@
+pub mod discord;
 pub mod email;
+pub mod slack;
 pub mod telegram;
 
 use serde::Deserialize;
@@ -23,9 +25,16 @@ pub async fn send(channel: &str, config_json: &str, msg: &AlertMessage) -> anyho
                 .map_err(|e| anyhow::anyhow!("Invalid email config: {e}"))?;
             email::send(&cfg, msg).await
         }
-        "discord" | "slack" => Err(anyhow::anyhow!(
-            "{channel} channel is not implemented yet — coming soon"
-        )),
+        "discord" => {
+            let cfg: discord::DiscordConfig = serde_json::from_str(config_json)
+                .map_err(|e| anyhow::anyhow!("Invalid discord config: {e}"))?;
+            discord::send(&cfg, msg).await
+        }
+        "slack" => {
+            let cfg: slack::SlackConfig = serde_json::from_str(config_json)
+                .map_err(|e| anyhow::anyhow!("Invalid slack config: {e}"))?;
+            slack::send(&cfg, msg).await
+        }
         other => Err(anyhow::anyhow!("Unsupported channel: {other}")),
     }
 }
