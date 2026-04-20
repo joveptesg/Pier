@@ -23,6 +23,7 @@ pub fn build_client(
     let region = aws_sdk_s3::config::Region::new(region.to_string());
 
     let config = aws_sdk_s3::Config::builder()
+        .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
         .region(region)
         .endpoint_url(format!("https://{host}"))
         .credentials_provider(creds)
