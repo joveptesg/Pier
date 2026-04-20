@@ -24,7 +24,7 @@ pub mod system;
 pub mod webhooks;
 
 use axum::extract::State;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 
 use crate::auth::middleware::require_auth;
@@ -174,12 +174,12 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Backups
         .route("/resources/{id}/backups", get(backups::list_backups))
         .route(
-            "/resources/{id}/backups/schedule",
-            get(backups::get_schedule).post(backups::create_schedule),
+            "/resources/{id}/backup-schedules",
+            get(backups::list_schedules).post(backups::create_schedule),
         )
         .route(
-            "/resources/{id}/backups/schedule/{schedule_id}",
-            delete(backups::delete_schedule),
+            "/resources/{id}/backup-schedules/{schedule_id}",
+            patch(backups::update_schedule).delete(backups::delete_schedule),
         )
         .route(
             "/resources/{id}/backups/trigger",
@@ -188,6 +188,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/backups/{backup_id}/download",
             get(backups::download_backup),
+        )
+        .route(
+            "/backups/{backup_id}/restore",
+            post(backups::restore_backup),
         )
         // Sources
         .route("/sources", get(sources::list).post(sources::create))

@@ -425,6 +425,17 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_regcreds_project
         ON registry_credentials(project_id);
     "#,
+    // Migration 27: Per-database backup schedules.
+    // `database_name` NULL on backup_schedules = cluster-wide schedule (dumps
+    // every DB in database_credentials as a tar archive). NULL on backups =
+    // cluster-wide dump. A service can hold at most one schedule per
+    // (service_id, database_name) pair; the unique index enforces this.
+    r#"
+    ALTER TABLE backup_schedules ADD COLUMN database_name TEXT;
+    ALTER TABLE backups ADD COLUMN database_name TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_backup_sched_service_db
+        ON backup_schedules(service_id, COALESCE(database_name, ''));
+    "#,
 ];
 
 /// Run all pending database migrations.

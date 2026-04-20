@@ -4,6 +4,8 @@ use tokio::time::{interval, Duration};
 
 use crate::state::SharedState;
 
+use super::executor::DbCredential;
+
 /// Start the background backup scheduler.
 /// Checks every 60 seconds for schedules whose next_run_at <= now.
 pub fn start_scheduler(state: SharedState) {
@@ -18,40 +20,50 @@ pub fn start_scheduler(state: SharedState) {
     });
 }
 
+struct DueSchedule {
+    schedule_id: String,
+    service_id: String,
+    s3_storage_id: String,
+    retention: i64,
+    database_name: Option<String>,
+}
+
 async fn check_and_run(state: &SharedState) -> anyhow::Result<()> {
-    let due_schedules: Vec<(String, String, String, String, i64)> = {
+    let due_schedules: Vec<DueSchedule> = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let mut stmt = db.prepare(
-            "SELECT bs.id, bs.service_id, bs.s3_storage_id, bs.cron_expression, bs.retention_count
+            "SELECT bs.id, bs.service_id, bs.s3_storage_id, bs.retention_count, bs.database_name
              FROM backup_schedules bs
              WHERE bs.is_active = 1 AND bs.next_run_at <= datetime('now')",
         )?;
-        let result: Vec<(String, String, String, String, i64)> = stmt
+        let result: Vec<DueSchedule> = stmt
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, i64>(4)?,
-                ))
+                Ok(DueSchedule {
+                    schedule_id: row.get::<_, String>(0)?,
+                    service_id: row.get::<_, String>(1)?,
+                    s3_storage_id: row.get::<_, String>(2)?,
+                    retention: row.get::<_, i64>(3)?,
+                    database_name: row.get::<_, Option<String>>(4)?,
+                })
             })?
             .filter_map(|r| r.ok())
             .collect();
         result
     };
 
-    for (schedule_id, service_id, s3_id, _cron_expr, retention) in due_schedules {
-        tracing::info!("Running backup for schedule {schedule_id}");
+    for due in due_schedules {
+        tracing::info!(
+            "Running backup for schedule {} (db={:?})",
+            due.schedule_id,
+            due.database_name
+        );
         let state = state.clone();
         tokio::spawn(async move {
-            if let Err(e) =
-                run_single_backup(&state, &schedule_id, &service_id, &s3_id, retention).await
-            {
-                tracing::error!("Backup failed for schedule {schedule_id}: {e}");
+            if let Err(e) = run_single_backup(&state, &due).await {
+                tracing::error!("Backup failed for schedule {}: {e}", due.schedule_id);
             }
         });
     }
@@ -59,13 +71,35 @@ async fn check_and_run(state: &SharedState) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_single_backup(
+/// Fetch every database credential row for a service. Used to drive
+/// cluster-wide backups (loop over every DB) and to resolve the owner/password
+/// of a single DB during per-DB backups.
+pub fn load_db_credentials(
     state: &SharedState,
-    schedule_id: &str,
     service_id: &str,
-    s3_storage_id: &str,
-    retention: i64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<DbCredential>> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let mut stmt = db.prepare(
+        "SELECT db_name, username, password FROM database_credentials WHERE service_id = ?1
+         ORDER BY db_name",
+    )?;
+    let rows: Vec<DbCredential> = stmt
+        .query_map([service_id], |row| {
+            Ok(DbCredential {
+                db_name: row.get::<_, String>(0)?,
+                username: row.get::<_, String>(1)?,
+                password: row.get::<_, String>(2)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Result<()> {
     // 1. Get resource info
     let (name, catalog_id, env_json) = {
         let db = state
@@ -74,7 +108,7 @@ async fn run_single_backup(
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
             "SELECT name, catalog_id, env_json FROM services WHERE id = ?1",
-            [service_id],
+            [&due.service_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -98,7 +132,7 @@ async fn run_single_backup(
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
             "SELECT storage_type, endpoint, region, bucket, access_key, secret_key FROM s3_storages WHERE id = ?1",
-            [s3_storage_id],
+            [&due.s3_storage_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -113,7 +147,7 @@ async fn run_single_backup(
     // 3. Create backup record
     let backup_id = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
-    let s3_key = format!("pier-backups/{name}/{catalog_id}_{timestamp}.dump");
+    let s3_key = build_s3_key(&name, &catalog_id, due.database_name.as_deref(), &timestamp);
 
     {
         let db = state
@@ -121,16 +155,40 @@ async fn run_single_backup(
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.execute(
-            "INSERT INTO backups (id, schedule_id, service_id, s3_storage_id, s3_key, status, triggered_by)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'running', 'schedule')",
-            rusqlite::params![backup_id, schedule_id, service_id, s3_storage_id, s3_key],
+            "INSERT INTO backups (id, schedule_id, service_id, s3_storage_id, s3_key, database_name, status, triggered_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running', 'schedule')",
+            rusqlite::params![backup_id, due.schedule_id, due.service_id, due.s3_storage_id, s3_key, due.database_name],
         )?;
     }
 
-    // 4. Execute docker exec dump
+    // 4. Execute dump (per-DB or cluster-wide)
     let container_name = format!("pier-{name}");
-    let data = match super::executor::execute_backup(&container_name, &catalog_id, &env_vars).await
-    {
+    let dump_result = match &due.database_name {
+        Some(db_name) => {
+            let creds = load_db_credentials(state, &due.service_id)?;
+            let cred = creds.iter().find(|c| &c.db_name == db_name);
+            super::executor::execute_db_backup(
+                &container_name,
+                &catalog_id,
+                &env_vars,
+                cred,
+                db_name,
+            )
+            .await
+        }
+        None => {
+            let creds = load_db_credentials(state, &due.service_id)?;
+            super::executor::execute_cluster_backup(
+                &container_name,
+                &catalog_id,
+                &env_vars,
+                &creds,
+            )
+            .await
+        }
+    };
+
+    let data = match dump_result {
         Ok(d) => d,
         Err(e) => {
             {
@@ -146,7 +204,7 @@ async fn run_single_backup(
             crate::alerts::hooks::fire_event(
                 state,
                 "backup_status",
-                Some(service_id),
+                Some(&due.service_id),
                 format!("Backup dump failed for {name}: {e}"),
             )
             .await;
@@ -181,14 +239,14 @@ async fn run_single_backup(
         crate::alerts::hooks::fire_event(
             state,
             "backup_status",
-            Some(service_id),
+            Some(&due.service_id),
             format!("Backup upload failed for {name}: {e}"),
         )
         .await;
         return Err(e);
     }
 
-    // 6. Mark backup as completed
+    // 6. Mark backup as completed, advance schedule, apply retention
     {
         let db = state
             .db
@@ -199,38 +257,38 @@ async fn run_single_backup(
             rusqlite::params![size, backup_id],
         )?;
 
-        // 7. Update schedule
         db.execute(
             "UPDATE backup_schedules SET last_run_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
-            [schedule_id],
+            [&due.schedule_id],
         )?;
 
-        // Compute next_run_at (add 24h as simple approximation; proper cron parsing would use cron crate)
+        // Crude next_run_at advancement (existing behavior, will be replaced
+        // when proper cron parsing lands; see scheduler tech-debt).
         db.execute(
             "UPDATE backup_schedules SET next_run_at = datetime('now', '+1 day') WHERE id = ?1 AND cron_expression = '0 2 * * *'",
-            [schedule_id],
+            [&due.schedule_id],
         )?;
         db.execute(
             "UPDATE backup_schedules SET next_run_at = datetime('now', '+7 days') WHERE id = ?1 AND cron_expression = '0 2 * * 0'",
-            [schedule_id],
+            [&due.schedule_id],
         )?;
         db.execute(
             "UPDATE backup_schedules SET next_run_at = datetime('now', '+6 hours') WHERE id = ?1 AND cron_expression = '0 */6 * * *'",
-            [schedule_id],
+            [&due.schedule_id],
         )?;
         db.execute(
             "UPDATE backup_schedules SET next_run_at = datetime('now', '+1 hour') WHERE id = ?1 AND cron_expression = '0 * * * *'",
-            [schedule_id],
+            [&due.schedule_id],
         )?;
 
-        // 8. Apply retention policy
+        // Retention: keep newest N completed backups for this schedule.
         let old_backups: Vec<String> = {
             let mut stmt = db.prepare(
                 "SELECT id FROM backups WHERE schedule_id = ?1 AND status = 'completed'
                  ORDER BY started_at DESC LIMIT -1 OFFSET ?2",
             )?;
             let result: Vec<String> = stmt
-                .query_map(rusqlite::params![schedule_id, retention], |row| {
+                .query_map(rusqlite::params![due.schedule_id, due.retention], |row| {
                     row.get::<_, String>(0)
                 })?
                 .filter_map(|r| r.ok())
@@ -248,10 +306,33 @@ async fn run_single_backup(
     crate::alerts::hooks::fire_event(
         state,
         "backup_success",
-        Some(service_id),
+        Some(&due.service_id),
         format!("Backup succeeded for {name} ({size} bytes → {s3_key})"),
     )
     .await;
 
     Ok(())
+}
+
+/// S3 key format:
+///   - per-DB mongo:  pier-backups/{service}/db_{dbname}_{timestamp}.archive
+///   - per-DB SQL:    pier-backups/{service}/db_{dbname}_{timestamp}.sql
+///   - cluster tar:   pier-backups/{service}/_cluster_{timestamp}.tar
+///   - mongo full:    pier-backups/{service}/mongodb_{timestamp}.archive
+pub fn build_s3_key(
+    service_name: &str,
+    catalog_id: &str,
+    database_name: Option<&str>,
+    timestamp: &str,
+) -> String {
+    match database_name {
+        Some(db) if catalog_id == "mongodb" => {
+            format!("pier-backups/{service_name}/db_{db}_{timestamp}.archive")
+        }
+        Some(db) => format!("pier-backups/{service_name}/db_{db}_{timestamp}.sql"),
+        None if catalog_id == "mongodb" => {
+            format!("pier-backups/{service_name}/mongodb_{timestamp}.archive")
+        }
+        None => format!("pier-backups/{service_name}/_cluster_{timestamp}.tar"),
+    }
 }

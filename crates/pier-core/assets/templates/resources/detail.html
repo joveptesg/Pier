@@ -115,7 +115,7 @@
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Deployments</button>
         <button @click="tab = 'logs'; loadContainerLogs()" :class="tab === 'logs' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Logs</button>
-        <button @click="tab = 'backups'" :class="tab === 'backups' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+        <button x-show="supportsBackup" @click="tab = 'backups'" :class="tab === 'backups' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Backups</button>
         <button @click="tab = 'danger'" :class="tab === 'danger' ? 'border-red-500 text-red-600 dark:text-red-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Danger Zone</button>
@@ -421,6 +421,11 @@
                                 </td>
                                 <td class="py-2 px-2 text-right">
                                     <div class="flex items-center justify-end gap-1">
+                                        <button x-show="supportsPerDbBackup"
+                                                @click="triggerBackup(d.name)"
+                                                class="text-gray-400 hover:text-blue-500 p-1" title="Backup this database now">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                        </button>
                                         <button x-show="d.name !== 'postgres' && d.name !== 'mysql'"
                                                 @click="changeDbPassword = {db: d.name, owner: d.owner, password: ''}; showChangeDbPwd = true"
                                                 class="text-gray-400 hover:text-blue-500 p-1" title="Change password">
@@ -831,36 +836,89 @@ NODE_ENV=production"></textarea>
     </div>
 
     <!-- Backups Tab -->
-    <div x-show="tab === 'backups'" class="space-y-4">
+    <div x-show="tab === 'backups' && supportsBackup" class="space-y-4">
+        <!-- Cluster-wide schedule -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Backup Schedule</h3>
+                <div>
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Cluster-wide backup</h3>
+                    <p class="text-xs text-gray-400 mt-0.5" x-text="catalogId === 'mongodb' ? 'Single archive of the whole instance.' : 'Archive containing one dump per database.'"></p>
+                </div>
                 <div class="flex items-center gap-2">
-                    <button @click="triggerBackup()" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">Backup Now</button>
-                    <button @click="showScheduleModal = true" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">Configure</button>
+                    <button @click="triggerBackup(null)" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">Backup now</button>
+                    <button @click="openScheduleModal(null)" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors" x-text="clusterSchedule ? 'Edit' : 'Configure'"></button>
+                    <button x-show="clusterSchedule" @click="deleteSchedule(clusterSchedule.id)" class="px-3 py-1.5 text-xs font-medium rounded-lg text-red-500 hover:text-red-700 transition-colors">Delete</button>
                 </div>
             </div>
-            <div x-show="schedule" class="space-y-2 text-sm">
-                <div class="flex justify-between"><span class="text-gray-500">Schedule</span><span class="text-gray-900 dark:text-gray-100 font-mono text-xs" x-text="schedule?.cron_expression"></span></div>
-                <div class="flex justify-between"><span class="text-gray-500">Retention</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="(schedule?.retention_count || 7) + ' backups'"></span></div>
-                <div class="flex justify-between"><span class="text-gray-500">Last Run</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="schedule?.last_run_at || 'Never'"></span></div>
-                <div class="flex justify-between"><span class="text-gray-500">Next Run</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="schedule?.next_run_at || '-'"></span></div>
+            <div x-show="clusterSchedule" class="grid grid-cols-2 gap-3 text-sm">
+                <div class="flex justify-between"><span class="text-gray-500">Cron</span><span class="text-gray-900 dark:text-gray-100 font-mono text-xs" x-text="clusterSchedule?.cron_expression"></span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Keep</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="(clusterSchedule?.retention_count || 7) + ' backups'"></span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Last run</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="clusterSchedule?.last_run_at || 'Never'"></span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Next run</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="clusterSchedule?.next_run_at || '-'"></span></div>
             </div>
-            <p x-show="!schedule" class="text-sm text-gray-400">No backup schedule configured</p>
+            <p x-show="!clusterSchedule" class="text-sm text-gray-400">No cluster-wide schedule configured</p>
         </div>
+
+        <!-- Per-database schedules -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Backup History</h3>
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Per-database schedules</h3>
+                    <p class="text-xs text-gray-400 mt-0.5">One independent schedule per database. Useful when one DB changes often and others don't.</p>
+                </div>
+                <button @click="openScheduleModal('')" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">+ Add schedule</button>
+            </div>
+            <div x-show="perDbSchedules.length > 0" class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-800">
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Database</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Cron</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Keep</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Last run</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Next run</th>
+                            <th class="text-right py-2 px-2 text-xs font-medium text-gray-500"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="s in perDbSchedules" :key="s.id">
+                            <tr class="border-b border-gray-100 dark:border-gray-800/50">
+                                <td class="py-2 px-2 font-mono text-xs text-gray-900 dark:text-gray-100" x-text="s.database_name"></td>
+                                <td class="py-2 px-2 font-mono text-xs text-gray-600 dark:text-gray-400" x-text="s.cron_expression"></td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400" x-text="s.retention_count"></td>
+                                <td class="py-2 px-2 text-xs text-gray-500" x-text="s.last_run_at || 'Never'"></td>
+                                <td class="py-2 px-2 text-xs text-gray-500" x-text="s.next_run_at || '-'"></td>
+                                <td class="py-2 px-2 text-right">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button @click="triggerBackup(s.database_name)" class="text-xs text-blue-500 hover:text-blue-700">Run</button>
+                                        <button @click="openScheduleModal(s.database_name)" class="text-xs text-gray-500 hover:text-gray-700">Edit</button>
+                                        <button @click="deleteSchedule(s.id)" class="text-xs text-red-500 hover:text-red-700">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            <p x-show="perDbSchedules.length === 0" class="text-sm text-gray-400">No per-database schedules</p>
+        </div>
+
+        <!-- Backup history -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Backup history</h3>
             <div x-show="backupHistory.length === 0" class="text-sm text-gray-400 text-center py-4">No backups yet</div>
             <div x-show="backupHistory.length > 0" class="space-y-2">
                 <template x-for="b in backupHistory" :key="b.id">
                     <div class="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
-                        <div>
-                            <span :class="b.status === 'completed' ? 'text-green-500' : b.status === 'failed' ? 'text-red-500' : 'text-yellow-500'" x-text="b.status"></span>
-                            <span class="text-gray-500 text-xs ml-2" x-text="b.started_at"></span>
+                        <div class="flex items-center gap-3">
+                            <span :class="b.status === 'completed' ? 'text-green-500' : b.status === 'failed' ? 'text-red-500' : 'text-yellow-500'" class="text-xs font-medium" x-text="b.status"></span>
+                            <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-mono" x-text="b.database_name ? ('db: ' + b.database_name) : 'cluster-wide'"></span>
+                            <span class="text-gray-500 text-xs" x-text="b.started_at"></span>
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="text-xs text-gray-400" x-text="formatBytes(b.size_bytes)"></span>
                             <a x-show="b.status === 'completed'" :href="'/api/v1/backups/' + b.id + '/download'" class="text-xs text-blue-500 hover:text-blue-700">Download</a>
+                            <button x-show="b.status === 'completed' && supportsPerDbBackup" @click="openRestoreModal(b)" class="text-xs text-amber-600 hover:text-amber-700">Restore</button>
                         </div>
                     </div>
                 </template>
@@ -940,10 +998,53 @@ NODE_ENV=production"></textarea>
         </div>
     </div>
 
+    <!-- Restore Modal -->
+    <div x-show="showRestoreModal" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showRestoreModal = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h3 class="text-lg font-semibold text-amber-600 dark:text-amber-400">Restore database</h3>
+            <div class="text-sm space-y-1">
+                <p class="text-gray-600 dark:text-gray-400">Restoring from backup started at <span class="font-mono text-xs text-gray-700 dark:text-gray-300" x-text="restoreSource?.started_at"></span>.</p>
+                <p class="text-gray-600 dark:text-gray-400">Source: <span class="text-gray-700 dark:text-gray-300" x-text="restoreSource?.database_name ? ('DB ' + restoreSource.database_name) : 'cluster-wide archive'"></span></p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Target database</label>
+                <select x-model="restoreTarget" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <option value="">Select database...</option>
+                    <template x-for="d in dbList" :key="d.name"><option :value="d.name" x-text="d.name"></option></template>
+                </select>
+                <p class="text-xs text-gray-400 mt-1">Must already exist in the Databases tab. Its owner credentials are reused.</p>
+            </div>
+            <div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-xs text-red-700 dark:text-red-300">
+                This will <strong>DROP</strong> the target database and replace it with the backup's contents. Data currently in <span class="font-mono" x-text="restoreTarget || '<target>'"></span> will be lost.
+            </div>
+            <div>
+                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Type <strong class="text-gray-900 dark:text-white" x-text="restoreTarget"></strong> to confirm</label>
+                <input x-model="restoreConfirm" type="text"
+                       :disabled="!restoreTarget"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-500">
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button @click="showRestoreModal = false" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
+                <button @click="confirmRestore()"
+                        :disabled="!restoreTarget || restoreConfirm !== restoreTarget || restoreRunning"
+                        :class="(!restoreTarget || restoreConfirm !== restoreTarget || restoreRunning) ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white'"
+                        class="px-4 py-2 text-sm font-medium rounded-lg transition-colors"
+                        x-text="restoreRunning ? 'Restoring...' : 'Restore'"></button>
+            </div>
+        </div>
+    </div>
+
     <!-- Schedule Modal -->
     <div x-show="showScheduleModal" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showScheduleModal = false">
             <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Configure Backup Schedule</h3>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="scheduleForm.database_name === null ? 'Cluster-wide backup schedule' : (scheduleForm.database_name ? ('Per-database schedule: ' + scheduleForm.database_name) : 'Per-database schedule')"></h3>
+                <div x-show="scheduleForm.database_name !== null && !scheduleFormEditing">
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Database</label>
+                    <select x-model="scheduleForm.database_name" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select database...</option>
+                        <template x-for="d in dbList" :key="d.name"><option :value="d.name" x-text="d.name"></option></template>
+                    </select>
+                </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">S3 Storage</label>
                     <select x-model="scheduleForm.s3_storage_id" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -978,8 +1079,9 @@ NODE_ENV=production"></textarea>
 function resourceDetail(id) {
     return {
         id, resource: {}, tab: 'overview', showEnv: false, showSecrets: false, editableEnv: [], envViewMode: 'normal', envRawText: '',
-        schedule: null, backupHistory: [], s3Storages: [], showScheduleModal: false,
-        scheduleForm: { s3_storage_id: '', cron_expression: '0 2 * * *', retention_count: 7 },
+        schedules: [], backupHistory: [], s3Storages: [], showScheduleModal: false, scheduleFormEditing: false,
+        scheduleForm: { s3_storage_id: '', cron_expression: '0 2 * * *', retention_count: 7, database_name: null },
+        showRestoreModal: false, restoreSource: null, restoreTarget: '', restoreConfirm: '', restoreRunning: false,
         clusterInfo: null,
         domains: [], showAddDomain: false, newDomainName: '',
         containerLogs: '', deploymentLogs: [], logLines: 100,
@@ -997,6 +1099,11 @@ function resourceDetail(id) {
         changeDbPassword: { db: '', owner: '', password: '' },
         newDb: { database: '', username: '', password: '' },
         get portIsPublic() { return this.resource.ports?.[0]?.is_public || false; },
+        get catalogId() { return this.resource.catalog_id || ''; },
+        get supportsBackup() { return ['postgresql','mysql','mariadb','mongodb'].includes(this.catalogId); },
+        get supportsPerDbBackup() { return ['postgresql','mysql','mariadb','mongodb'].includes(this.catalogId); },
+        get clusterSchedule() { return this.schedules.find(s => !s.database_name) || null; },
+        get perDbSchedules() { return this.schedules.filter(s => !!s.database_name); },
         showPasswords: false,
         _buildConnStr(host, port, containerPort, masked) {
             if (!this.resource.catalog_id) return '';
@@ -1135,7 +1242,7 @@ function resourceDetail(id) {
         _bgInterval: null,
         activeDeployCount: 0,
         async init() {
-            await this.refresh(); this.loadEnv(); this.loadSchedule(); this.loadBackups(); this.loadCluster(); this.loadDomains(); this.loadGitConfig();
+            await this.refresh(); this.loadEnv(); if(this.supportsBackup){this.loadSchedules();this.loadBackups();this.loadDatabases();} this.loadCluster(); this.loadDomains(); this.loadGitConfig();
             this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
@@ -1228,15 +1335,67 @@ function resourceDetail(id) {
                 }
             } catch(e) { toast(e.message,'error'); }
         },
-        async loadSchedule() { try { this.schedule=await fetch('/api/v1/resources/'+this.id+'/backups/schedule').then(r=>r.ok?r.json():null); if(this.schedule){this.scheduleForm.s3_storage_id=this.schedule.s3_storage_id;this.scheduleForm.cron_expression=this.schedule.cron_expression;this.scheduleForm.retention_count=this.schedule.retention_count;} } catch{} },
+        async loadSchedules() { try { this.schedules=await fetch('/api/v1/resources/'+this.id+'/backup-schedules').then(r=>r.ok?r.json():[]); } catch{this.schedules=[];} },
         async loadBackups() { try { this.backupHistory=await fetch('/api/v1/resources/'+this.id+'/backups').then(r=>r.ok?r.json():[]); } catch{this.backupHistory=[];} },
+        openScheduleModal(databaseName) {
+            // databaseName: null = cluster-wide; '' = new per-DB; string = edit existing per-DB
+            const existing = this.schedules.find(s => (s.database_name || '') === (databaseName || ''));
+            this.scheduleFormEditing = !!existing;
+            this.scheduleForm = {
+                s3_storage_id: existing?.s3_storage_id || '',
+                cron_expression: existing?.cron_expression || '0 2 * * *',
+                retention_count: existing?.retention_count ?? 7,
+                database_name: databaseName === null ? null : (databaseName || ''),
+            };
+            this.showScheduleModal = true;
+        },
         async saveSchedule() {
             if(!this.scheduleForm.s3_storage_id){toast('Select an S3 storage','error');return;}
-            try { await api('/api/v1/resources/'+this.id+'/backups/schedule',{method:'POST',body:JSON.stringify(this.scheduleForm)});
-                toast('Schedule saved'); this.showScheduleModal=false; await this.loadSchedule();
+            if(this.scheduleForm.database_name === ''){toast('Select a database','error');return;}
+            const body = {
+                s3_storage_id: this.scheduleForm.s3_storage_id,
+                cron_expression: this.scheduleForm.cron_expression,
+                retention_count: this.scheduleForm.retention_count,
+            };
+            if(this.scheduleForm.database_name) body.database_name = this.scheduleForm.database_name;
+            try { await api('/api/v1/resources/'+this.id+'/backup-schedules',{method:'POST',body:JSON.stringify(body)});
+                toast('Schedule saved'); this.showScheduleModal=false; await this.loadSchedules();
             } catch(e) { toast(e.message,'error'); }
         },
-        async triggerBackup() { try { await api('/api/v1/resources/'+this.id+'/backups/trigger',{method:'POST'}); toast('Backup started'); setTimeout(()=>this.loadBackups(),5000); } catch(e){toast(e.message,'error');} },
+        async deleteSchedule(sid) {
+            if(!confirm('Delete this schedule? Existing backups in S3 are not removed.')) return;
+            try { await api('/api/v1/resources/'+this.id+'/backup-schedules/'+sid,{method:'DELETE'});
+                toast('Schedule deleted'); await this.loadSchedules();
+            } catch(e) { toast(e.message,'error'); }
+        },
+        async triggerBackup(databaseName) {
+            const url = '/api/v1/resources/'+this.id+'/backups/trigger' + (databaseName ? ('?database_name='+encodeURIComponent(databaseName)) : '');
+            try { await api(url,{method:'POST'}); toast('Backup started'); setTimeout(()=>this.loadBackups(),5000); } catch(e){toast(e.message,'error');}
+        },
+        openRestoreModal(b) {
+            this.restoreSource = b;
+            this.restoreTarget = b.database_name || '';
+            this.restoreConfirm = '';
+            this.restoreRunning = false;
+            this.showRestoreModal = true;
+        },
+        async confirmRestore() {
+            if(!this.restoreTarget || this.restoreConfirm !== this.restoreTarget) return;
+            this.restoreRunning = true;
+            try {
+                await api('/api/v1/backups/'+this.restoreSource.id+'/restore', {
+                    method: 'POST',
+                    body: JSON.stringify({ target_database_name: this.restoreTarget }),
+                });
+                toast('Restore complete');
+                this.showRestoreModal = false;
+                await this.loadDatabases();
+            } catch(e) {
+                toast(e.message, 'error');
+            } finally {
+                this.restoreRunning = false;
+            }
+        },
         formatBytes(b) { if(!b)return '0 B'; const k=1024,s=['B','KB','MB','GB'],i=Math.floor(Math.log(b)/Math.log(k)); return parseFloat((b/Math.pow(k,i)).toFixed(1))+' '+s[i]; },
         async startResource() { try{await api('/api/v1/resources/'+this.id+'/start',{method:'POST'});toast('Resource started');await this.refresh();}catch(e){toast(e.message,'error');} },
         async stopResource() { try{await api('/api/v1/resources/'+this.id+'/stop',{method:'POST'});toast('Resource stopped');await this.refresh();}catch(e){toast(e.message,'error');} },

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::Json;
@@ -5,6 +7,31 @@ use serde::Deserialize;
 
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
+
+/// Fetch a service's decrypted env as a map. Needed for mongosh root auth.
+fn fetch_env_vars(state: &SharedState, service_id: &str) -> AppResult<HashMap<String, String>> {
+    let env_json: Option<String> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT env_json FROM services WHERE id = ?1",
+            [service_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("Resource {service_id} not found")))?
+    };
+    let decrypted = crate::crypto::decrypt_env_json(env_json.as_deref());
+    Ok(serde_json::from_str(&decrypted).unwrap_or_default())
+}
+
+/// Escape a value as a JS double-quoted string literal. Used when embedding
+/// user-supplied passwords in mongosh `--eval` scripts.
+fn js_string(s: &str) -> String {
+    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
 
 /// GET /api/v1/resources/{id}/databases — list databases in a PostgreSQL/MySQL container.
 pub async fn list_databases(
@@ -65,9 +92,34 @@ pub async fn list_databases(
             )
             .await?
         }
+        "mongodb" => {
+            // MongoDB has no per-DB "owner" concept. We list only DBs created
+            // through this UI (tracked in database_credentials); system DBs
+            // (admin / local / config) and lazily-created ones are omitted.
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            let mut stmt = db.prepare(
+                "SELECT db_name, username, password FROM database_credentials
+                 WHERE service_id = ?1 ORDER BY db_name",
+            )?;
+            let rows: Vec<serde_json::Value> = stmt
+                .query_map([&id], |row| {
+                    Ok(serde_json::json!({
+                        "name": row.get::<_, String>(0)?,
+                        "owner": row.get::<_, String>(1)?,
+                        "size": "—",
+                        "stored_password": row.get::<_, String>(2)?,
+                    }))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            return Ok(Json(rows));
+        }
         _ => {
             return Err(AppError::BadRequest(
-                "Database management only supported for PostgreSQL and MySQL".into(),
+                "Database management only supported for PostgreSQL, MySQL, and MongoDB".into(),
             ));
         }
     };
@@ -174,6 +226,40 @@ pub async fn create_database(
             )
             .await?;
         }
+        "mongodb" => {
+            let env = fetch_env_vars(&state, &id)?;
+            let root_user = env
+                .get("MONGO_INITDB_ROOT_USERNAME")
+                .cloned()
+                .unwrap_or_else(|| "root".into());
+            let root_pass = env.get("MONGO_INITDB_ROOT_PASSWORD").cloned().unwrap_or_default();
+            // db_name/username are already validated to [A-Za-z0-9_]; password is
+            // embedded as a JS string literal (quotes/backslashes escaped).
+            let pwd_js = js_string(password);
+            let eval = format!(
+                "db = db.getSiblingDB('{db_name}'); \
+                 db.createUser({{user:'{username}', pwd:{pwd_js}, roles:[{{role:'readWrite', db:'{db_name}'}}]}}); \
+                 db.pier_init.insertOne({{_init:1}}); \
+                 db.pier_init.drop();"
+            );
+            exec_in_container(
+                &state.docker,
+                &container,
+                &[
+                    "mongosh",
+                    "--quiet",
+                    "--username",
+                    &root_user,
+                    "--password",
+                    &root_pass,
+                    "--authenticationDatabase",
+                    "admin",
+                    "--eval",
+                    &eval,
+                ],
+            )
+            .await?;
+        }
         _ => {
             return Err(AppError::BadRequest("Unsupported database type".into()));
         }
@@ -221,7 +307,10 @@ pub async fn delete_database(
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
     };
 
-    if dbname == "postgres" || dbname == "mysql" || dbname == "information_schema" {
+    if matches!(
+        dbname.as_str(),
+        "postgres" | "mysql" | "information_schema" | "admin" | "local" | "config"
+    ) {
         return Err(AppError::BadRequest(
             "Cannot delete system databases".into(),
         ));
@@ -291,6 +380,36 @@ pub async fn delete_database(
                     "root",
                     "-e",
                     &format!("DROP DATABASE IF EXISTS {dbname}"),
+                ],
+            )
+            .await?;
+        }
+        "mongodb" => {
+            let env = fetch_env_vars(&state, &id)?;
+            let root_user = env
+                .get("MONGO_INITDB_ROOT_USERNAME")
+                .cloned()
+                .unwrap_or_else(|| "root".into());
+            let root_pass = env.get("MONGO_INITDB_ROOT_PASSWORD").cloned().unwrap_or_default();
+            let eval = format!(
+                "db = db.getSiblingDB('{dbname}'); \
+                 db.getUsers().forEach(u => db.dropUser(u.user)); \
+                 db.dropDatabase();"
+            );
+            exec_in_container(
+                &state.docker,
+                &container,
+                &[
+                    "mongosh",
+                    "--quiet",
+                    "--username",
+                    &root_user,
+                    "--password",
+                    &root_pass,
+                    "--authenticationDatabase",
+                    "admin",
+                    "--eval",
+                    &eval,
                 ],
             )
             .await?;
@@ -380,6 +499,36 @@ pub async fn change_password(
         "mysql" | "mariadb" => {
             let sql = format!("ALTER USER '{username}'@'%' IDENTIFIED BY '{password}'; FLUSH PRIVILEGES;");
             exec_in_container(&state.docker, &container, &["mysql", "-u", "root", "-e", &sql]).await?;
+        }
+        "mongodb" => {
+            let env = fetch_env_vars(&state, &id)?;
+            let root_user = env
+                .get("MONGO_INITDB_ROOT_USERNAME")
+                .cloned()
+                .unwrap_or_else(|| "root".into());
+            let root_pass = env.get("MONGO_INITDB_ROOT_PASSWORD").cloned().unwrap_or_default();
+            let pwd_js = js_string(password);
+            let eval = format!(
+                "db = db.getSiblingDB('{dbname}'); \
+                 db.changeUserPassword('{username}', {pwd_js});"
+            );
+            exec_in_container(
+                &state.docker,
+                &container,
+                &[
+                    "mongosh",
+                    "--quiet",
+                    "--username",
+                    &root_user,
+                    "--password",
+                    &root_pass,
+                    "--authenticationDatabase",
+                    "admin",
+                    "--eval",
+                    &eval,
+                ],
+            )
+            .await?;
         }
         _ => return Err(AppError::BadRequest("Unsupported database type".into())),
     }
