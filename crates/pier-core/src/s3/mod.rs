@@ -1,6 +1,8 @@
 pub mod bunny;
 
-use anyhow::Result;
+use std::time::Duration;
+
+use anyhow::{anyhow, Result};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::Client;
 
@@ -11,12 +13,18 @@ pub fn build_client(
     access_key: &str,
     secret_key: &str,
 ) -> Result<Client> {
+    let host = endpoint
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
+
     let creds = Credentials::new(access_key, secret_key, None, None, "pier");
     let region = aws_sdk_s3::config::Region::new(region.to_string());
 
     let config = aws_sdk_s3::Config::builder()
         .region(region)
-        .endpoint_url(format!("https://{endpoint}"))
+        .endpoint_url(format!("https://{host}"))
         .credentials_provider(creds)
         .force_path_style(true)
         .build();
@@ -33,13 +41,14 @@ pub async fn test_connection(
     secret_key: &str,
 ) -> Result<()> {
     let client = build_client(endpoint, region, access_key, secret_key)?;
-    client
-        .list_objects_v2()
-        .bucket(bucket)
-        .max_keys(1)
-        .send()
-        .await?;
-    Ok(())
+    let fut = client.list_objects_v2().bucket(bucket).max_keys(1).send();
+    match tokio::time::timeout(Duration::from_secs(10), fut).await {
+        Ok(res) => {
+            res?;
+            Ok(())
+        }
+        Err(_) => Err(anyhow!("timeout: S3 endpoint did not respond within 10s")),
+    }
 }
 
 /// Upload a file to S3.
