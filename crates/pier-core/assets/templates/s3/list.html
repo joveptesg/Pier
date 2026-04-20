@@ -39,10 +39,22 @@
                             <p class="text-xs text-gray-500"><span x-text="s.endpoint"></span> / <span x-text="s.bucket"></span></p>
                         </div>
                     </div>
-                    <div class="flex items-center gap-3">
-                        <button @click="testConnection(s.id)" class="text-xs text-blue-500 hover:text-blue-700 transition-colors">Test</button>
-                        <button @click="editStorage(s)" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Edit</button>
-                        <button @click="removeStorage(s.id)" class="text-xs text-red-500 hover:text-red-700 transition-colors">Remove</button>
+                    <div class="flex items-center gap-1">
+                        <button @click="testConnection(s.id)" title="Test connection"
+                                class="p-1.5 rounded-md text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-600/10 transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            <span class="sr-only">Test</span>
+                        </button>
+                        <button @click="editStorage(s)" title="Edit"
+                                class="p-1.5 rounded-md text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            <span class="sr-only">Edit</span>
+                        </button>
+                        <button @click="removeStorage(s.id)" title="Remove"
+                                class="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-600/10 transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M10 7V4a1 1 0 011-1h2a1 1 0 011 1v3"/></svg>
+                            <span class="sr-only">Remove</span>
+                        </button>
                     </div>
                 </div>
             </div>
