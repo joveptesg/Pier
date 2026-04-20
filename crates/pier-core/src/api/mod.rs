@@ -130,6 +130,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/resources/{id}/nodes", get(resources::get_nodes))
         .route("/resources/{id}/scale", post(resources::scale))
         .route(
+            "/resources/{id}/load-balance",
+            get(resources::get_load_balance).post(resources::load_balance),
+        )
+        .route(
             "/resources/{id}/port-public",
             put(resources::set_port_public),
         )

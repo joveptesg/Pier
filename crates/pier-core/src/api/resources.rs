@@ -77,6 +77,35 @@ pub struct ScaleRequest {
     pub server_id: Option<String>,
 }
 
+#[derive(Deserialize, Clone)]
+pub struct LoadBalanceSlot {
+    pub server_id: String,
+    pub replicas: i64,
+    #[serde(default = "default_weight")]
+    pub weight: i64,
+}
+
+fn default_weight() -> i64 {
+    1
+}
+
+#[derive(Deserialize)]
+pub struct LoadBalanceRequest {
+    /// Strategy: "round-robin" (default), "weighted", or "sticky".
+    #[serde(default)]
+    pub strategy: Option<String>,
+    /// Cookie name when strategy == "sticky".
+    #[serde(default)]
+    pub sticky_cookie: Option<String>,
+    /// Explicit per-server placement. Takes precedence over `replicas`.
+    #[serde(default)]
+    pub distribution: Vec<LoadBalanceSlot>,
+    /// Shortcut: total replicas on the service's current server. Used when
+    /// `distribution` is empty.
+    #[serde(default)]
+    pub replicas: Option<i64>,
+}
+
 /// Helper: lock DB, run a closure, drop the guard.
 fn with_db<F, R>(state: &SharedState, f: F) -> AppResult<R>
 where
@@ -1780,6 +1809,534 @@ pub async fn scale(
         "node_count": body.node_count,
         "status": "running",
     })))
+}
+
+// ── Load Balancing (Phase 11.2) ─────────────────────────────────────
+
+const LB_MAX_REPLICAS_PER_SERVICE: i64 = 10;
+const LB_PORT_RANGE_START: u16 = 10000;
+const LB_PORT_RANGE_END: u16 = 20000;
+
+/// GET /api/v1/resources/{id}/load-balance — current LB config + distribution.
+pub async fn get_load_balance(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let (replicas, lb_strategy, sticky_cookie, cluster_mode): (
+        i64,
+        String,
+        Option<String>,
+        Option<String>,
+    ) = db
+        .query_row(
+            "SELECT replicas, lb_strategy, lb_sticky_cookie, cluster_mode
+             FROM services WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?;
+
+    let mut stmt = db.prepare(
+        "SELECT r.server_id, r.replica_idx, r.host_port, r.status, r.weight,
+                COALESCE(s.name, 'unknown')
+         FROM service_replicas r
+         LEFT JOIN servers s ON s.id = r.server_id
+         WHERE r.service_id = ?1
+         ORDER BY r.server_id, r.replica_idx",
+    )?;
+    let rows: Vec<(Option<String>, i64, i64, String, i64, String)> = stmt
+        .query_map([&id], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut by_server: std::collections::BTreeMap<String, (String, i64, Vec<serde_json::Value>)> =
+        std::collections::BTreeMap::new();
+    for (server_id, idx, host_port, status, weight, server_name) in rows {
+        let key = server_id.clone().unwrap_or_default();
+        let entry = by_server
+            .entry(key)
+            .or_insert_with(|| (server_name, weight, Vec::new()));
+        entry.2.push(serde_json::json!({
+            "idx": idx,
+            "host_port": host_port,
+            "status": status,
+        }));
+    }
+    let distribution: Vec<serde_json::Value> = by_server
+        .into_iter()
+        .map(|(server_id, (server_name, weight, replicas))| {
+            serde_json::json!({
+                "server_id": server_id,
+                "server_name": server_name,
+                "weight": weight,
+                "replicas": replicas,
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "replicas": replicas,
+        "strategy": lb_strategy,
+        "sticky_cookie": sticky_cookie,
+        "cluster_mode": cluster_mode,
+        "distribution": distribution,
+    })))
+}
+
+/// POST /api/v1/resources/{id}/load-balance — apply a new LB plan.
+///
+/// Body: see `LoadBalanceRequest`. Redeploys compose per affected server,
+/// rewrites `service_replicas`, and regenerates Traefik dynamic config.
+pub async fn load_balance(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<LoadBalanceRequest>,
+) -> AppResult<impl IntoResponse> {
+    // ── Step 1. Read service row ──────────────────────────────────
+    let (name, catalog_id, env_json, network_id, current_server_id, cluster_mode) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT name, catalog_id, env_json, network_id, server_id, cluster_mode
+             FROM services WHERE id = ?1",
+            [&id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+    };
+
+    if cluster_mode.as_deref() == Some("cluster") {
+        return Err(AppError::Conflict(
+            "Cluster-mode services use /scale instead".into(),
+        ));
+    }
+
+    let catalog_id = catalog_id.ok_or_else(|| {
+        AppError::BadRequest("Resource has no catalog_id; LB not supported".into())
+    })?;
+
+    let item = state
+        .catalog
+        .iter()
+        .find(|i| i.meta.id == catalog_id)
+        .ok_or_else(|| {
+            AppError::BadRequest(format!("Catalog template '{catalog_id}' not found"))
+        })?
+        .clone();
+
+    // Reject volume-owning templates (v1: risk of corruption with N writers).
+    if !item.volumes.is_empty() {
+        return Err(AppError::Conflict(
+            "Catalog item has named volumes; multi-replica scaling is disabled in v1".into(),
+        ));
+    }
+
+    let docker = item
+        .docker
+        .as_ref()
+        .ok_or_else(|| AppError::BadRequest("Catalog has no docker section".into()))?;
+
+    // Pick primary container port (first catalog port, deterministic order).
+    let mut port_entries: Vec<(&String, &crate::catalog::PortConfig)> =
+        item.ports.iter().collect();
+    port_entries.sort_by_key(|(k, _)| (*k).clone());
+    let (primary_port_name, primary_port) = port_entries
+        .first()
+        .map(|(k, v)| ((*k).clone(), v.internal))
+        .ok_or_else(|| {
+            AppError::BadRequest("Catalog has no ports; LB not applicable".into())
+        })?;
+
+    // ── Step 2. Parse & normalize request ─────────────────────────
+    let strategy_str = body.strategy.as_deref().unwrap_or("round-robin").to_string();
+    let strategy = match strategy_str.as_str() {
+        "round-robin" => crate::proxy::config::LbStrategy::RoundRobin,
+        "weighted" => crate::proxy::config::LbStrategy::Weighted,
+        "sticky" => crate::proxy::config::LbStrategy::Sticky,
+        other => {
+            return Err(AppError::BadRequest(format!(
+                "Unknown lb_strategy '{other}' (expected round-robin|weighted|sticky)"
+            )));
+        }
+    };
+    let sticky_cookie = if strategy == crate::proxy::config::LbStrategy::Sticky {
+        let c = body
+            .sticky_cookie
+            .clone()
+            .filter(|c| !c.trim().is_empty())
+            .unwrap_or_else(|| "PIER_SESSION".to_string());
+        Some(c)
+    } else {
+        None
+    };
+
+    let mut distribution: Vec<LoadBalanceSlot> = if body.distribution.is_empty() {
+        let total = body.replicas.unwrap_or(1);
+        if total < 1 {
+            return Err(AppError::BadRequest("replicas must be >= 1".into()));
+        }
+        let server_id = current_server_id
+            .clone()
+            .unwrap_or_else(|| "localhost".to_string());
+        vec![LoadBalanceSlot {
+            server_id,
+            replicas: total,
+            weight: 1,
+        }]
+    } else {
+        body.distribution.clone()
+    };
+
+    // Drop empty slots and validate
+    distribution.retain(|s| s.replicas > 0);
+    if distribution.is_empty() {
+        return Err(AppError::BadRequest("No replicas requested".into()));
+    }
+    let total_replicas: i64 = distribution.iter().map(|s| s.replicas).sum();
+    if total_replicas > LB_MAX_REPLICAS_PER_SERVICE {
+        return Err(AppError::BadRequest(format!(
+            "Max {LB_MAX_REPLICAS_PER_SERVICE} replicas per service"
+        )));
+    }
+
+    // Resolve server info once per unique server_id
+    let mut server_info: std::collections::HashMap<String, (String, i64, String, bool)> =
+        std::collections::HashMap::new();
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        for slot in &distribution {
+            if server_info.contains_key(&slot.server_id) {
+                continue;
+            }
+            let info = db
+                .query_row(
+                    "SELECT host, port, agent_token, is_local FROM servers WHERE id = ?1",
+                    [&slot.server_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, bool>(3)?,
+                        ))
+                    },
+                )
+                .map_err(|_| {
+                    AppError::BadRequest(format!("Server '{}' not found", slot.server_id))
+                })?;
+            server_info.insert(slot.server_id.clone(), info);
+        }
+    }
+
+    // ── Step 3. Reset port allocations + insert N replicas ────────
+    let env_vars: HashMap<String, String> = {
+        let decrypted = crate::crypto::decrypt_env_json(env_json.as_deref());
+        serde_json::from_str(&decrypted).unwrap_or_default()
+    };
+
+    let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+    let network_name = if let Some(net_id) = &network_id {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT name FROM networks WHERE id = ?1",
+            [net_id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    } else {
+        None
+    };
+
+    let image = crate::catalog::substitute(&docker.image, &env_vars);
+
+    // Allocate N fresh host ports for all replicas across all servers
+    let port_specs: Vec<(String, u16)> = (1..=total_replicas)
+        .map(|i| (format!("replica_{i}"), primary_port))
+        .collect();
+
+    let allocated_ports: Vec<i64> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        crate::db::ports::free_ports(&db, &id)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("free_ports: {e}")))?;
+        let allocs = crate::db::ports::allocate_ports(
+            &db,
+            &id,
+            &port_specs,
+            LB_PORT_RANGE_START,
+            LB_PORT_RANGE_END,
+        )
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("allocate_ports: {e}")))?;
+        allocs.iter().map(|a| a.host_port).collect()
+    };
+
+    // Assign ports to slots: first slot.replicas ports → slot 1, next → slot 2, …
+    let mut cursor = 0usize;
+    let mut per_server_plan: Vec<(LoadBalanceSlot, Vec<(i64, u16)>)> = Vec::new();
+    for slot in &distribution {
+        let mut replicas_for_slot: Vec<(i64, u16)> = Vec::new();
+        for local_idx in 1..=slot.replicas {
+            let host_port = allocated_ports[cursor] as u16;
+            cursor += 1;
+            replicas_for_slot.push((local_idx, host_port));
+        }
+        per_server_plan.push((slot.clone(), replicas_for_slot));
+    }
+
+    // ── Step 4. Build compose per server, then deploy ──────────────
+    let mut deploy_errors: Vec<String> = Vec::new();
+    for (slot, replicas_for_server) in &per_server_plan {
+        let (host, port, agent_token, is_local) = server_info
+            .get(&slot.server_id)
+            .cloned()
+            .expect("server_info populated above");
+
+        let replicas_arg: Vec<(i64, Vec<(String, u16, u16)>)> = replicas_for_server
+            .iter()
+            .map(|(idx, hp)| {
+                (
+                    *idx,
+                    vec![(primary_port_name.clone(), *hp, primary_port)],
+                )
+            })
+            .collect();
+
+        let yaml = crate::catalog::build_compose_yaml_scaled(
+            &item,
+            &id,
+            &name,
+            &env_vars,
+            &replicas_arg,
+            network_name.as_deref(),
+            !is_local,
+        );
+
+        if is_local {
+            let _ = crate::docker::compose::down_stack(&stack_name, &state.config).await;
+            if let Err(e) =
+                crate::docker::compose::deploy_stack(&stack_name, &yaml, &state.config, None).await
+            {
+                deploy_errors.push(format!("{}: {e}", slot.server_id));
+            }
+        } else {
+            let url = format!("http://{host}:{port}/api/v1/agent/deploy");
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+            let payload = serde_json::json!({
+                "stack_name": stack_name,
+                "compose_yaml": yaml,
+            });
+            match client
+                .post(&url)
+                .header("Authorization", format!("Bearer {agent_token}"))
+                .json(&payload)
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => {}
+                Ok(resp) => deploy_errors.push(format!(
+                    "{}: agent responded {}",
+                    slot.server_id,
+                    resp.status()
+                )),
+                Err(e) => deploy_errors.push(format!("{}: {e}", slot.server_id)),
+            }
+        }
+    }
+
+    // ── Step 5. Persist service + replica rows ─────────────────────
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "UPDATE services SET replicas = ?1, lb_strategy = ?2, lb_sticky_cookie = ?3,
+                                 updated_at = datetime('now')
+             WHERE id = ?4",
+            rusqlite::params![total_replicas, strategy_str, sticky_cookie, id],
+        )?;
+        db.execute(
+            "DELETE FROM service_replicas WHERE service_id = ?1",
+            [&id],
+        )?;
+        for (slot, replicas_for_server) in &per_server_plan {
+            for (local_idx, host_port) in replicas_for_server {
+                let rid = uuid::Uuid::new_v4().to_string();
+                let status = if deploy_errors
+                    .iter()
+                    .any(|e| e.starts_with(&slot.server_id))
+                {
+                    "failed"
+                } else {
+                    "running"
+                };
+                db.execute(
+                    "INSERT INTO service_replicas
+                        (id, service_id, server_id, replica_idx, host_port, weight, status)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    rusqlite::params![
+                        rid,
+                        id,
+                        slot.server_id,
+                        local_idx,
+                        *host_port as i64,
+                        slot.weight,
+                        status
+                    ],
+                )?;
+            }
+        }
+    }
+
+    // ── Step 6. Compute upstream list + regenerate Traefik config ──
+    let name_slug = slug(&name);
+    let mut upstreams: Vec<crate::proxy::config::LbUpstream> = Vec::new();
+    for (slot, replicas_for_server) in &per_server_plan {
+        let (host, _port, _tok, is_local) = server_info
+            .get(&slot.server_id)
+            .cloned()
+            .expect("server_info populated");
+        let single_on_this_server = replicas_for_server.len() == 1;
+        for (idx, host_port) in replicas_for_server {
+            let url = if is_local {
+                if single_on_this_server {
+                    format!("http://pier-{name_slug}:{primary_port}")
+                } else {
+                    format!("http://pier-{name_slug}-{idx}:{primary_port}")
+                }
+            } else {
+                format!("http://{host}:{host_port}")
+            };
+            upstreams.push(crate::proxy::config::LbUpstream {
+                url,
+                weight: slot.weight.max(1) as u32,
+            });
+        }
+    }
+
+    let domains: Vec<(String, bool)> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt = db.prepare("SELECT domain FROM domains WHERE service_id = ?1")?;
+        let list: Vec<(String, bool)> = stmt
+            .query_map([&id], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .map(|d| (d, true))
+            .collect();
+        list
+    };
+
+    if !domains.is_empty() {
+        let lb = crate::proxy::config::LbConfig {
+            strategy,
+            sticky_cookie: sticky_cookie.clone(),
+        };
+        if let Err(e) = crate::proxy::config::regenerate_service_config_lb(
+            &state.config.data_dir,
+            &id,
+            &domains,
+            &upstreams,
+            &lb,
+        ) {
+            tracing::warn!("Failed to regenerate Traefik config: {e}");
+        }
+    }
+
+    // ── Step 7. Log + respond ─────────────────────────────────────
+    let output = if deploy_errors.is_empty() {
+        format!(
+            "LB applied: {} replicas across {} server(s), strategy={}",
+            total_replicas,
+            per_server_plan.len(),
+            strategy_str
+        )
+    } else {
+        format!("LB partial failure: {}", deploy_errors.join("; "))
+    };
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        record_deployment_log(
+            &db,
+            &id,
+            "load_balance",
+            if deploy_errors.is_empty() {
+                "running"
+            } else {
+                "failed"
+            },
+            &output,
+        );
+    }
+
+    if !deploy_errors.is_empty() {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Scale completed with errors: {}",
+            deploy_errors.join("; ")
+        )));
+    }
+
+    let _ = image; // reserved for future use (image metadata in response)
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "replicas_total": total_replicas,
+        "strategy": strategy_str,
+        "sticky_cookie": sticky_cookie,
+        "distribution": per_server_plan.iter().map(|(slot, reps)| {
+            serde_json::json!({
+                "server_id": slot.server_id,
+                "replicas": reps.iter().map(|(idx, hp)| serde_json::json!({
+                    "idx": idx,
+                    "host_port": hp,
+                })).collect::<Vec<_>>(),
+            })
+        }).collect::<Vec<_>>(),
+    })))
+}
+
+fn slug(name: &str) -> String {
+    name.to_lowercase().replace(' ', "-")
 }
 
 // ── Deployment Logs ─────────────────────────────────────────────────

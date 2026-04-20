@@ -267,13 +267,44 @@ pub fn generate_password(len: usize) -> String {
 // ── Compose Builder ─────────────────────────────────────────
 
 /// Build docker-compose.yml for a simple single-container template.
+///
+/// Thin wrapper over `build_compose_yaml_scaled` for backward compatibility.
+/// Generates a single replica bound to `127.0.0.1` (main-server default).
 pub fn build_compose_yaml(
     item: &CatalogItem,
     service_id: &str,
     name: &str,
     env_vars: &HashMap<String, String>,
-    ports: &[(String, u16, u16)], // (port_name, host_port, container_port)
+    ports: &[(String, u16, u16)],
     network_name: Option<&str>,
+) -> String {
+    build_compose_yaml_scaled(
+        item,
+        service_id,
+        name,
+        env_vars,
+        &[(1, ports.to_vec())],
+        network_name,
+        false,
+    )
+}
+
+/// Build docker-compose.yml with N replicas.
+///
+/// - `replicas`: `[(replica_idx, ports_for_this_replica)]`. Each entry produces
+///   one compose service. When `replicas.len() == 1`, the service key and
+///   container name keep the legacy (no-suffix) form to preserve compatibility
+///   with existing deployments.
+/// - `bind_public`: when `true`, ports bind to `0.0.0.0` (used on remote
+///   servers reached from the main Traefik); when `false`, `127.0.0.1`.
+pub fn build_compose_yaml_scaled(
+    item: &CatalogItem,
+    service_id: &str,
+    name: &str,
+    env_vars: &HashMap<String, String>,
+    replicas: &[(i64, Vec<(String, u16, u16)>)],
+    network_name: Option<&str>,
+    bind_public: bool,
 ) -> String {
     let docker = match &item.docker {
         Some(d) => d,
@@ -281,78 +312,89 @@ pub fn build_compose_yaml(
     };
 
     let image = substitute(&docker.image, env_vars);
+    let net = network_name.unwrap_or("pier-net");
+    let bind_addr = if bind_public { "0.0.0.0" } else { "127.0.0.1" };
+    let single_replica = replicas.len() == 1;
 
-    let mut yaml = String::from("services:\n");
-    yaml.push_str(&format!("  {}:\n", item.meta.id));
-    yaml.push_str(&format!("    image: {image}\n"));
-    yaml.push_str(&format!("    container_name: pier-{name}\n"));
+    let cmd_entries: Vec<String> = docker
+        .command
+        .iter()
+        .map(|c| format!("\"{}\"", substitute(c, env_vars)))
+        .collect();
 
-    // Command (e.g., redis-server --requirepass)
-    if !docker.command.is_empty() {
-        let cmd: Vec<String> = docker
-            .command
-            .iter()
-            .map(|c| format!("\"{}\"", substitute(c, env_vars)))
-            .collect();
-        yaml.push_str(&format!("    command: [{}]\n", cmd.join(", ")));
-    }
-
-    // Ports — always bind to 127.0.0.1 (public access via Traefik TCP proxy)
-    if !ports.is_empty() {
-        yaml.push_str("    ports:\n");
-        for (_, host, container) in ports {
-            yaml.push_str(&format!("      - \"127.0.0.1:{host}:{container}\"\n"));
-        }
-    }
-
-    // Environment — only include actual env vars (uppercase keys)
     let env_entries: Vec<_> = env_vars
         .iter()
         .filter(|(key, _)| key.chars().next().is_some_and(|c| c.is_uppercase()))
         .collect();
-    if !env_entries.is_empty() {
-        yaml.push_str("    environment:\n");
-        for (key, val) in env_entries {
-            yaml.push_str(&format!("      {key}: \"{val}\"\n"));
+
+    let mut yaml = String::from("services:\n");
+
+    for (idx, ports) in replicas {
+        let (svc_key, container_name) = if single_replica {
+            (item.meta.id.clone(), format!("pier-{name}"))
+        } else {
+            (
+                format!("{}_{}", item.meta.id, idx),
+                format!("pier-{name}-{idx}"),
+            )
+        };
+
+        yaml.push_str(&format!("  {svc_key}:\n"));
+        yaml.push_str(&format!("    image: {image}\n"));
+        yaml.push_str(&format!("    container_name: {container_name}\n"));
+
+        if !cmd_entries.is_empty() {
+            yaml.push_str(&format!("    command: [{}]\n", cmd_entries.join(", ")));
+        }
+
+        if !ports.is_empty() {
+            yaml.push_str("    ports:\n");
+            for (_, host, container) in ports {
+                yaml.push_str(&format!(
+                    "      - \"{bind_addr}:{host}:{container}\"\n"
+                ));
+            }
+        }
+
+        if !env_entries.is_empty() {
+            yaml.push_str("    environment:\n");
+            for (key, val) in &env_entries {
+                yaml.push_str(&format!("      {key}: \"{val}\"\n"));
+            }
+        }
+
+        if !item.volumes.is_empty() {
+            yaml.push_str("    volumes:\n");
+            for (vol_name, vol) in &item.volumes {
+                yaml.push_str(&format!("      - {vol_name}:{}\n", vol.mount));
+            }
+        }
+
+        if let Some(hc) = &item.healthcheck {
+            yaml.push_str("    healthcheck:\n");
+            let test_str = serde_json::to_string(&hc.test).unwrap_or_default();
+            yaml.push_str(&format!("      test: {test_str}\n"));
+            yaml.push_str(&format!("      interval: {}\n", hc.interval));
+            yaml.push_str(&format!("      timeout: {}\n", hc.timeout));
+            yaml.push_str(&format!("      retries: {}\n", hc.retries));
+            if let Some(sp) = &hc.start_period {
+                yaml.push_str(&format!("      start_period: {sp}\n"));
+            }
+        }
+
+        yaml.push_str("    restart: unless-stopped\n");
+        yaml.push_str("    labels:\n");
+        yaml.push_str(&format!("      pier.service.id: \"{service_id}\"\n"));
+        yaml.push_str(&format!("      pier.catalog.id: \"{}\"\n", item.meta.id));
+        yaml.push_str(&format!("      pier.replica.idx: \"{idx}\"\n"));
+
+        yaml.push_str("    networks:\n");
+        yaml.push_str(&format!("      - {net}\n"));
+        if net != "pier-net" {
+            yaml.push_str("      - pier-net\n");
         }
     }
 
-    // Volumes
-    if !item.volumes.is_empty() {
-        yaml.push_str("    volumes:\n");
-        for (vol_name, vol) in &item.volumes {
-            yaml.push_str(&format!("      - {vol_name}:{}\n", vol.mount));
-        }
-    }
-
-    // Healthcheck
-    if let Some(hc) = &item.healthcheck {
-        yaml.push_str("    healthcheck:\n");
-        let test_str = serde_json::to_string(&hc.test).unwrap_or_default();
-        yaml.push_str(&format!("      test: {test_str}\n"));
-        yaml.push_str(&format!("      interval: {}\n", hc.interval));
-        yaml.push_str(&format!("      timeout: {}\n", hc.timeout));
-        yaml.push_str(&format!("      retries: {}\n", hc.retries));
-        if let Some(sp) = &hc.start_period {
-            yaml.push_str(&format!("      start_period: {sp}\n"));
-        }
-    }
-
-    yaml.push_str("    restart: unless-stopped\n");
-    yaml.push_str("    labels:\n");
-    yaml.push_str(&format!("      pier.service.id: \"{service_id}\"\n"));
-    yaml.push_str(&format!("      pier.catalog.id: \"{}\"\n", item.meta.id));
-
-    // Service networks: always include pier-net (shared) + optional project network
-    let net = network_name.unwrap_or("pier-net");
-    yaml.push_str("    networks:\n");
-    yaml.push_str(&format!("      - {net}\n"));
-    if net != "pier-net" {
-        // Also connect to pier-net so services across networks can communicate
-        yaml.push_str("      - pier-net\n");
-    }
-
-    // Named volumes
     if !item.volumes.is_empty() {
         yaml.push_str("volumes:\n");
         for vol_name in item.volumes.keys() {
@@ -360,7 +402,6 @@ pub fn build_compose_yaml(
         }
     }
 
-    // Network definitions (external — managed by Pier)
     yaml.push_str("networks:\n");
     yaml.push_str(&format!("  {net}:\n"));
     yaml.push_str("    external: true\n");

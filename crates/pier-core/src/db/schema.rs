@@ -436,6 +436,47 @@ const MIGRATIONS: &[&str] = &[
     CREATE UNIQUE INDEX IF NOT EXISTS idx_backup_sched_service_db
         ON backup_schedules(service_id, COALESCE(database_name, ''));
     "#,
+    // Migration 28: Load balancing — replica fan-out for stateless services.
+    // `services.replicas` is the intended total count; `service_replicas`
+    // holds actual placements (one row per running instance, possibly across
+    // multiple servers). Separate from `cluster_config_json`, which is
+    // reserved for DB primary/replica clusters.
+    r#"
+    ALTER TABLE services ADD COLUMN replicas INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE services ADD COLUMN lb_strategy TEXT NOT NULL DEFAULT 'round-robin';
+    ALTER TABLE services ADD COLUMN lb_sticky_cookie TEXT;
+
+    CREATE TABLE IF NOT EXISTS service_replicas (
+        id           TEXT PRIMARY KEY NOT NULL,
+        service_id   TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        server_id    TEXT REFERENCES servers(id) ON DELETE CASCADE,
+        replica_idx  INTEGER NOT NULL,
+        host_port    INTEGER NOT NULL,
+        container_id TEXT,
+        weight       INTEGER NOT NULL DEFAULT 1,
+        status       TEXT NOT NULL DEFAULT 'pending',
+        created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_replicas_slot
+        ON service_replicas(service_id, COALESCE(server_id, ''), replica_idx);
+    CREATE INDEX IF NOT EXISTS idx_replicas_service ON service_replicas(service_id);
+    CREATE INDEX IF NOT EXISTS idx_replicas_server  ON service_replicas(server_id);
+
+    INSERT INTO service_replicas (id, service_id, server_id, replica_idx, host_port, container_id, status)
+    SELECT
+        lower(hex(randomblob(16))),
+        s.id,
+        s.server_id,
+        1,
+        COALESCE(s.port, 0),
+        s.container_id,
+        s.status
+    FROM services s
+    WHERE NOT EXISTS (
+        SELECT 1 FROM service_replicas r WHERE r.service_id = s.id
+    );
+    "#,
 ];
 
 /// Run all pending database migrations.

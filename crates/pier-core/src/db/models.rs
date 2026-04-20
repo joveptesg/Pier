@@ -58,6 +58,25 @@ pub struct Service {
     pub category: Option<String>,
     pub env_json: Option<String>,
     pub volumes_json: Option<String>,
+    // Migration 28 fields
+    pub replicas: i64,
+    pub lb_strategy: String,
+    pub lb_sticky_cookie: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceReplica {
+    pub id: String,
+    pub service_id: String,
+    pub server_id: Option<String>,
+    pub replica_idx: i64,
+    pub host_port: i64,
+    pub container_id: Option<String>,
+    pub weight: i64,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
