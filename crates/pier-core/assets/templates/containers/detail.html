@@ -82,10 +82,13 @@ function containerDetail(id) {
         logLines: [],
         live: true,
         ws: null,
+        eventsWs: null,
         async init() {
             await this.fetchInfo();
             await this.fetchStats();
             this.connectWs();
+            this.connectEventsWs();
+            // Stats still poll — events don't carry CPU/memory metrics.
             setInterval(() => this.fetchStats(), 5000);
         },
         async fetchInfo() {
@@ -126,6 +129,24 @@ function containerDetail(id) {
                 setTimeout(() => this.connectWs(), 3000);
             };
         },
+        connectEventsWs() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = proto + '//' + location.host + '/api/v1/events/ws?container=' + encodeURIComponent(this.id);
+            try {
+                this.eventsWs = new WebSocket(url);
+            } catch { return; }
+            this.eventsWs.onmessage = (e) => {
+                let msg;
+                try { msg = JSON.parse(e.data); } catch { return; }
+                if (msg.lagged) { this.fetchInfo(); return; }
+                // React to lifecycle actions immediately — no 5s wait.
+                const lifecycle = ['start','stop','die','kill','restart','pause','unpause','destroy','rename'];
+                if (lifecycle.includes(msg.action)) this.fetchInfo();
+            };
+            this.eventsWs.onclose = () => {
+                setTimeout(() => this.connectEventsWs(), 3000);
+            };
+        },
         toggleLive() { this.live = !this.live; },
         clearLogs() { this.logLines = []; },
         formatBytes(b) {
@@ -139,7 +160,7 @@ function containerDetail(id) {
             try {
                 await api('/api/v1/containers/' + this.id + '/' + act, { method: 'POST' });
                 toast('Container ' + act + 'ed');
-                setTimeout(() => this.fetchInfo(), 500);
+                // fetchInfo will be triggered by the events stream.
             } catch (e) {
                 toast(e.message, 'error');
             }

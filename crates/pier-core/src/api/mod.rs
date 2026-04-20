@@ -9,6 +9,7 @@ pub mod databases;
 pub mod deployments;
 pub mod domains;
 pub mod env;
+pub mod events;
 pub mod images;
 pub mod networks;
 pub mod projects;
@@ -70,6 +71,8 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/containers/{id}/logs/ws", get(containers::logs_ws))
         .route("/containers/all-stats", get(containers::all_stats))
         .route("/containers/{id}/stats", get(containers::stats))
+        // Docker events fan-out (live container lifecycle)
+        .route("/events/ws", get(events::events_ws))
         // Images
         .route("/images", get(images::list))
         .route("/images/{id}", delete(images::remove))

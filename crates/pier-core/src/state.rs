@@ -7,6 +7,7 @@ use tokio::sync::Notify;
 
 use crate::catalog::CatalogItem;
 use crate::config::PierConfig;
+use crate::docker::events::DockerEventBus;
 
 /// Shared application state passed to all Axum handlers.
 pub struct AppState {
@@ -16,6 +17,10 @@ pub struct AppState {
 
     /// Docker client via Bollard (thread-safe, cloneable).
     pub docker: Docker,
+
+    /// Docker events fan-out bus — one subscription per process, many
+    /// broadcast receivers (WebSocket handlers, alert hooks, etc).
+    pub event_bus: Arc<DockerEventBus>,
 
     /// MiniJinja template environment with all templates loaded.
     pub templates: Environment<'static>,

@@ -190,10 +190,16 @@ async fn main() -> Result<()> {
     let catalog = catalog::load_catalog();
     tracing::info!("Loaded {} catalog templates", catalog.len());
 
+    // Spawn the Docker events fan-out before state is built so handlers can
+    // subscribe from moment one (even before Traefik auto-deploy completes).
+    let event_bus = docker::events::DockerEventBus::spawn(docker.clone());
+    tracing::info!("Docker events bus started");
+
     // Build shared state
     let state = Arc::new(AppState {
         db: Mutex::new(conn),
         docker,
+        event_bus,
         templates,
         config: config.clone(),
         catalog,

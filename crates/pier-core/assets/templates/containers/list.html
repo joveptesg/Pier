@@ -89,9 +89,13 @@ function containersData() {
         containers: [],
         showAll: true,
         loading: true,
+        _ws: null,
+        _refreshScheduled: false,
         async init() {
             await this.refresh();
-            setInterval(() => this.refresh(), 5000);
+            this.openEventsStream();
+            // Fallback poll every 30s — cheap safety net if WS drops silently.
+            setInterval(() => this.refresh(), 30000);
         },
         async refresh() {
             try {
@@ -114,11 +118,38 @@ function containersData() {
                 .map(p => p.public_port + ':' + p.private_port + '/' + p.typ)
                 .join(', ');
         },
+        openEventsStream() {
+            const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+            const url = proto + '://' + location.host + '/api/v1/events/ws';
+            try {
+                this._ws = new WebSocket(url);
+            } catch { return; }
+            this._ws.onmessage = (ev) => {
+                let msg;
+                try { msg = JSON.parse(ev.data); } catch { return; }
+                if (msg.lagged) { this.scheduleRefresh(); return; }
+                // Lifecycle events that change the list or state shown.
+                const lifecycle = ['start','stop','die','kill','destroy','create','restart','pause','unpause','rename'];
+                if (lifecycle.includes(msg.action)) this.scheduleRefresh();
+            };
+            this._ws.onclose = () => {
+                // Reconnect after a short delay.
+                setTimeout(() => this.openEventsStream(), 3000);
+            };
+        },
+        scheduleRefresh() {
+            if (this._refreshScheduled) return;
+            this._refreshScheduled = true;
+            // Coalesce bursts — Docker emits several events per action.
+            setTimeout(() => {
+                this._refreshScheduled = false;
+                this.refresh();
+            }, 300);
+        },
         async action(id, act) {
             try {
                 await api('/api/v1/containers/' + id + '/' + act, { method: 'POST' });
                 toast('Container ' + act + 'ed');
-                setTimeout(() => this.refresh(), 500);
             } catch (e) {
                 toast(e.message, 'error');
             }
