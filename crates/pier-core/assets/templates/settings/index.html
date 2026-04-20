@@ -69,8 +69,11 @@
                     <p class="text-xs text-gray-500">Unused Docker build layers</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-sm font-mono text-yellow-500" x-text="fmtB(info.build_cache)"></span>
-                    <button @click="runCleanup(['build_cache'])" :disabled="cleaning"
+                    <span x-show="infoLoading" x-cloak class="inline-flex items-center">
+                        <svg class="w-3.5 h-3.5 spinner text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30" stroke-dashoffset="10"/></svg>
+                    </span>
+                    <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-yellow-500" x-text="fmtB(info.build_cache)"></span>
+                    <button @click="runCleanup(['build_cache'])" :disabled="cleaning || infoLoading"
                             class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-yellow-100 dark:hover:bg-yellow-900/20 hover:text-yellow-600 rounded transition-colors disabled:opacity-50">Clean</button>
                 </div>
             </div>
@@ -81,8 +84,11 @@
                     <p class="text-xs text-gray-500">Untagged images not used by containers</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-sm font-mono text-blue-400" x-text="fmtB(info.images_reclaimable)"></span>
-                    <button @click="runCleanup(['images'])" :disabled="cleaning"
+                    <span x-show="infoLoading" x-cloak class="inline-flex items-center">
+                        <svg class="w-3.5 h-3.5 spinner text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30" stroke-dashoffset="10"/></svg>
+                    </span>
+                    <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-blue-400" x-text="fmtB(info.images_reclaimable)"></span>
+                    <button @click="runCleanup(['images'])" :disabled="cleaning || infoLoading"
                             class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900/20 hover:text-blue-600 rounded transition-colors disabled:opacity-50">Clean</button>
                 </div>
             </div>
@@ -93,15 +99,18 @@
                     <p class="text-xs text-gray-500">Containers that are not running</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-sm font-mono text-gray-400" x-text="fmtB(info.containers_size)"></span>
-                    <button @click="runCleanup(['containers'])" :disabled="cleaning"
+                    <span x-show="infoLoading" x-cloak class="inline-flex items-center">
+                        <svg class="w-3.5 h-3.5 spinner text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30" stroke-dashoffset="10"/></svg>
+                    </span>
+                    <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-gray-400" x-text="fmtB(info.containers_size)"></span>
+                    <button @click="runCleanup(['containers'])" :disabled="cleaning || infoLoading"
                             class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50">Clean</button>
                 </div>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between pt-2">
                 <span class="text-xs text-gray-500" x-text="cleanMsg"></span>
-                <button @click="runCleanup(['build_cache','images','containers'])" :disabled="cleaning"
+                <button @click="runCleanup(['build_cache','images','containers'])" :disabled="cleaning || infoLoading"
                         class="px-3 py-1.5 text-xs font-medium bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors disabled:opacity-50">
                     <span x-text="cleaning ? 'Cleaning...' : 'Clean All'"></span>
                 </button>
@@ -341,11 +350,14 @@ function generalSettings() {
 function cleanupApp() {
     return {
         info: { build_cache: 0, images_reclaimable: 0, containers_size: 0 },
+        infoLoading: true,
         settings: { enabled: true, interval_hours: 24, prune_build_cache: true, prune_images: true, prune_containers: false },
         cleaning: false, cleanMsg: '',
         fmtB(b) { if (!b) return '0 B'; const k=1024,s=['B','KB','MB','GB']; const i=Math.floor(Math.log(b)/Math.log(k)); return (b/Math.pow(k,i)).toFixed(1)+' '+s[i]; },
         async loadInfo() {
+            this.infoLoading = true;
             try { this.info = await fetch('/api/v1/system/cleanup-info').then(r => r.json()); } catch {}
+            this.infoLoading = false;
         },
         async loadSettings() {
             try { this.settings = await fetch('/api/v1/system/cleanup-settings').then(r => r.json()); } catch {}
