@@ -253,8 +253,7 @@ pub fn substitute(template: &str, vars: &HashMap<String, String>) -> String {
 pub fn generate_password(len: usize) -> String {
     use rand::RngExt;
     // URL-safe charset: upper + lower + digits + safe chars only (no special chars that break URLs/SQL/shell)
-    const CHARSET: &[u8] =
-        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let mut rng = rand::rng();
     (0..len.max(24))
         .map(|_| {
@@ -289,6 +288,12 @@ pub fn build_compose_yaml(
     )
 }
 
+/// `(port_name, host_port, container_port)` — one published port of a replica.
+pub type ReplicaPortMapping = (String, u16, u16);
+
+/// `(replica_index, port_mappings)` — one scaled replica and its ports.
+pub type ReplicaSlot = (i64, Vec<ReplicaPortMapping>);
+
 /// Build docker-compose.yml with N replicas.
 ///
 /// - `replicas`: `[(replica_idx, ports_for_this_replica)]`. Each entry produces
@@ -302,7 +307,7 @@ pub fn build_compose_yaml_scaled(
     service_id: &str,
     name: &str,
     env_vars: &HashMap<String, String>,
-    replicas: &[(i64, Vec<(String, u16, u16)>)],
+    replicas: &[ReplicaSlot],
     network_name: Option<&str>,
     bind_public: bool,
 ) -> String {
@@ -350,9 +355,7 @@ pub fn build_compose_yaml_scaled(
         if !ports.is_empty() {
             yaml.push_str("    ports:\n");
             for (_, host, container) in ports {
-                yaml.push_str(&format!(
-                    "      - \"{bind_addr}:{host}:{container}\"\n"
-                ));
+                yaml.push_str(&format!("      - \"{bind_addr}:{host}:{container}\"\n"));
             }
         }
 

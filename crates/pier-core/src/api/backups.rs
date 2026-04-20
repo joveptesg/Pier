@@ -293,7 +293,12 @@ pub async fn trigger_backup(
 
     let backup_id = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
-    let s3_key = build_s3_key(&name, &catalog_id_str, q.database_name.as_deref(), &timestamp);
+    let s3_key = build_s3_key(
+        &name,
+        &catalog_id_str,
+        q.database_name.as_deref(),
+        &timestamp,
+    );
 
     {
         let db = state
@@ -456,7 +461,9 @@ pub async fn restore_backup(
     Json(body): Json<RestoreRequest>,
 ) -> AppResult<impl IntoResponse> {
     if body.target_database_name.is_empty() {
-        return Err(AppError::BadRequest("target_database_name is required".into()));
+        return Err(AppError::BadRequest(
+            "target_database_name is required".into(),
+        ));
     }
 
     // 1. Resolve backup → service + storage + (cluster/per-DB) flag.
@@ -571,24 +578,37 @@ pub async fn restore_backup(
         serde_json::from_str(&decrypted_env).unwrap_or_default();
     let container_name = format!("pier-{name}");
 
+    let gzipped = crate::backup::restore::is_gzipped(&s3_key);
+
     if catalog_id == "mongodb" {
         // Mongo archives are binary BSON — no tar extraction. `--nsInclude`
         // filters the target DB whether the archive is full-instance or per-DB.
+        // Gzipped archives are handed to mongorestore with `--gzip` so it
+        // decompresses on the fly.
         crate::backup::restore::execute_mongo_restore(
             &container_name,
             &env_vars,
             &body.target_database_name,
+            gzipped,
             blob,
         )
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("restore failed: {e}")))?;
     } else {
-        // SQL path: cluster backups are tar archives — extract the target DB.
-        let sql_bytes = if crate::backup::restore::is_cluster_archive(&s3_key) {
-            crate::backup::restore::extract_db_from_tar(&blob, &body.target_database_name)
-                .map_err(|e| AppError::BadRequest(e.to_string()))?
+        // SQL path. Order: gunzip (if needed) → tar-extract (if cluster) →
+        // stream into psql/mysql. Legacy `.sql` / `.tar` blobs without the
+        // `.gz` suffix bypass the gunzip step so old backups still work.
+        let unpacked = if gzipped {
+            crate::backup::restore::gunzip_bytes(&blob)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("gunzip: {e}")))?
         } else {
             blob
+        };
+        let sql_bytes = if crate::backup::restore::is_cluster_archive(&s3_key) {
+            crate::backup::restore::extract_db_from_tar(&unpacked, &body.target_database_name)
+                .map_err(|e| AppError::BadRequest(e.to_string()))?
+        } else {
+            unpacked
         };
         crate::backup::restore::execute_restore(
             &container_name,
@@ -744,4 +764,71 @@ pub async fn download_backup(
                 .into_response())
         }
     }
+}
+
+/// DELETE /api/v1/backups/{backup_id}
+///
+/// Hard-deletes a backup from both object storage and the `backups` table.
+/// Storage errors are surfaced (so callers know the blob might be orphaned);
+/// if the row still needs removal after a storage failure, run this again
+/// once the storage issue is resolved — it's idempotent on the Bunny side
+/// (404 is treated as success) and on the S3 side (DeleteObject tolerates
+/// missing keys).
+pub async fn delete_backup(
+    State(state): State<SharedState>,
+    Path(backup_id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let (s3_storage_id, s3_key) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT s3_storage_id, s3_key FROM backups WHERE id = ?1",
+            [&backup_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(|_| AppError::NotFound("Backup not found".into()))?
+    };
+
+    let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key FROM s3_storages WHERE id = ?1",
+            [&s3_storage_id],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            )),
+        )?
+    };
+
+    crate::s3::delete_blob(
+        &storage_type,
+        &endpoint,
+        &region,
+        &bucket,
+        &access_key,
+        &secret_key,
+        &s3_key,
+    )
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("storage delete: {e}")))?;
+
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute("DELETE FROM backups WHERE id = ?1", [&backup_id])?;
+    }
+
+    Ok(Json(serde_json::json!({"ok": true})))
 }

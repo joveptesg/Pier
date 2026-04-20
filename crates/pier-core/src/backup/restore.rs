@@ -3,10 +3,27 @@ use std::io::{Cursor, Read};
 use std::process::Stdio;
 
 use anyhow::Result;
+use flate2::read::GzDecoder;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use super::executor::{supports_per_db_backup, DbCredential};
+
+/// Whether the blob at this S3 key was stored with a gzip wrapper.
+/// Written by `build_s3_key`; read here to decide if restore needs a
+/// decompression step first.
+pub fn is_gzipped(s3_key: &str) -> bool {
+    s3_key.ends_with(".gz")
+}
+
+/// Gunzip a byte slice. Returned bytes are whatever was wrapped — plain SQL
+/// for per-DB SQL backups, a tar archive for cluster-wide SQL backups.
+pub fn gunzip_bytes(input: &[u8]) -> Result<Vec<u8>> {
+    let mut decoder = GzDecoder::new(input);
+    let mut out = Vec::with_capacity(input.len() * 4);
+    decoder.read_to_end(&mut out)?;
+    Ok(out)
+}
 
 /// Extract a single per-database SQL file from a cluster-wide tar archive.
 /// Returns the raw SQL bytes if found. Archives are produced by
@@ -30,9 +47,10 @@ pub fn extract_db_from_tar(tar_bytes: &[u8], db_name: &str) -> Result<Vec<u8>> {
 
 /// Decide whether the given backup blob is a cluster-wide tar archive (needs
 /// extraction) or an already-per-DB SQL dump (stream as-is). Cluster-wide
-/// backups are always tar-wrapped — we distinguish by the s3_key suffix.
+/// SQL backups are always tar-wrapped — we distinguish by the s3_key suffix,
+/// matching both the pre-gzip `.tar` and the current `.tar.gz`.
 pub fn is_cluster_archive(s3_key: &str) -> bool {
-    s3_key.ends_with(".tar")
+    s3_key.ends_with(".tar") || s3_key.ends_with(".tar.gz")
 }
 
 /// Restore a per-database backup into the target database inside the
@@ -61,9 +79,19 @@ pub async fn execute_restore(
     }
 
     match catalog_id {
-        "postgresql" => restore_postgres(container_name, env_vars, target_db, owner, sql_bytes).await,
+        "postgresql" => {
+            restore_postgres(container_name, env_vars, target_db, owner, sql_bytes).await
+        }
         "mysql" | "mariadb" => {
-            restore_mysql(container_name, catalog_id, env_vars, target_db, owner, sql_bytes).await
+            restore_mysql(
+                container_name,
+                catalog_id,
+                env_vars,
+                target_db,
+                owner,
+                sql_bytes,
+            )
+            .await
         }
         // Mongo takes a different entry point (`execute_mongo_restore`) because
         // its backups are opaque BSON archives, not plain SQL, and no tar
@@ -76,10 +104,13 @@ pub async fn execute_restore(
 /// both per-DB archives (dumped with `--db=X`) and full-instance archives
 /// (cluster-wide `mongodump --archive`); in both cases `--nsInclude=X.*`
 /// limits the restore to the target DB, and `--drop` recreates collections.
+/// If `gzipped` is true the archive was produced with `mongodump --gzip`
+/// and we pass `--gzip` to mongorestore so it decompresses on the fly.
 pub async fn execute_mongo_restore(
     container_name: &str,
     env_vars: &HashMap<String, String>,
     target_db: &str,
+    gzipped: bool,
     archive_bytes: Vec<u8>,
 ) -> Result<()> {
     let user = env_vars
@@ -90,7 +121,7 @@ pub async fn execute_mongo_restore(
         .get("MONGO_INITDB_ROOT_PASSWORD")
         .cloned()
         .unwrap_or_default();
-    let args = vec![
+    let mut args = vec![
         "exec".to_string(),
         "-i".to_string(),
         container_name.to_string(),
@@ -102,6 +133,9 @@ pub async fn execute_mongo_restore(
         "--drop".to_string(),
         format!("--nsInclude={target_db}.*"),
     ];
+    if gzipped {
+        args.push("--gzip".to_string());
+    }
     pipe_to_docker(&args, archive_bytes).await
 }
 
@@ -116,7 +150,10 @@ async fn restore_postgres(
         .get("POSTGRES_USER")
         .cloned()
         .unwrap_or_else(|| "postgres".into());
-    let root_pass = env_vars.get("POSTGRES_PASSWORD").cloned().unwrap_or_default();
+    let root_pass = env_vars
+        .get("POSTGRES_PASSWORD")
+        .cloned()
+        .unwrap_or_default();
 
     // 1. Terminate active sessions on the target DB, then drop and recreate.
     // pg_terminate_backend ignores our own session (the psql we're running in).

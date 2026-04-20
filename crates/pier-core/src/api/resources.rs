@@ -1859,7 +1859,9 @@ pub async fn get_load_balance(
          WHERE r.service_id = ?1
          ORDER BY r.server_id, r.replica_idx",
     )?;
-    let rows: Vec<(Option<String>, i64, i64, String, i64, Option<String>)> = stmt
+    // `(server_id?, replica_idx, host_port, status, weight, server_name?)`
+    type ReplicaRow = (Option<String>, i64, i64, String, i64, Option<String>);
+    let rows: Vec<ReplicaRow> = stmt
         .query_map([&id], |row| {
             Ok((
                 row.get::<_, Option<String>>(0)?,
@@ -1879,8 +1881,8 @@ pub async fn get_load_balance(
         // Fall back to the canonical local server id/name when the replica
         // row has NULL/empty server_id or points at a now-deleted server.
         let raw = server_id.unwrap_or_default();
-        let (key, display_name) = if !raw.is_empty() && server_name.is_some() {
-            (raw, server_name.unwrap())
+        let (key, display_name) = if let Some(name) = server_name.filter(|_| !raw.is_empty()) {
+            (raw, name)
         } else if let Some((lid, lname)) = local_srv.clone() {
             (lid, lname)
         } else {
@@ -1963,9 +1965,7 @@ pub async fn load_balance(
         .catalog
         .iter()
         .find(|i| i.meta.id == catalog_id)
-        .ok_or_else(|| {
-            AppError::BadRequest(format!("Catalog template '{catalog_id}' not found"))
-        })?
+        .ok_or_else(|| AppError::BadRequest(format!("Catalog template '{catalog_id}' not found")))?
         .clone();
 
     // Reject volume-owning templates (v1: risk of corruption with N writers).
@@ -1981,18 +1981,19 @@ pub async fn load_balance(
         .ok_or_else(|| AppError::BadRequest("Catalog has no docker section".into()))?;
 
     // Pick primary container port (first catalog port, deterministic order).
-    let mut port_entries: Vec<(&String, &crate::catalog::PortConfig)> =
-        item.ports.iter().collect();
+    let mut port_entries: Vec<(&String, &crate::catalog::PortConfig)> = item.ports.iter().collect();
     port_entries.sort_by_key(|(k, _)| (*k).clone());
     let (primary_port_name, primary_port) = port_entries
         .first()
         .map(|(k, v)| ((*k).clone(), v.internal))
-        .ok_or_else(|| {
-            AppError::BadRequest("Catalog has no ports; LB not applicable".into())
-        })?;
+        .ok_or_else(|| AppError::BadRequest("Catalog has no ports; LB not applicable".into()))?;
 
     // ── Step 2. Parse & normalize request ─────────────────────────
-    let strategy_str = body.strategy.as_deref().unwrap_or("round-robin").to_string();
+    let strategy_str = body
+        .strategy
+        .as_deref()
+        .unwrap_or("round-robin")
+        .to_string();
     let strategy = match strategy_str.as_str() {
         "round-robin" => crate::proxy::config::LbStrategy::RoundRobin,
         "weighted" => crate::proxy::config::LbStrategy::Weighted,
@@ -2106,11 +2107,9 @@ pub async fn load_balance(
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row(
-            "SELECT name FROM networks WHERE id = ?1",
-            [net_id],
-            |row| row.get::<_, String>(0),
-        )
+        db.query_row("SELECT name FROM networks WHERE id = ?1", [net_id], |row| {
+            row.get::<_, String>(0)
+        })
         .ok()
     } else {
         None
@@ -2162,14 +2161,9 @@ pub async fn load_balance(
             .cloned()
             .expect("server_info populated above");
 
-        let replicas_arg: Vec<(i64, Vec<(String, u16, u16)>)> = replicas_for_server
+        let replicas_arg: Vec<crate::catalog::ReplicaSlot> = replicas_for_server
             .iter()
-            .map(|(idx, hp)| {
-                (
-                    *idx,
-                    vec![(primary_port_name.clone(), *hp, primary_port)],
-                )
-            })
+            .map(|(idx, hp)| (*idx, vec![(primary_port_name.clone(), *hp, primary_port)]))
             .collect();
 
         let yaml = crate::catalog::build_compose_yaml_scaled(
@@ -2229,17 +2223,11 @@ pub async fn load_balance(
              WHERE id = ?4",
             rusqlite::params![total_replicas, strategy_str, sticky_cookie, id],
         )?;
-        db.execute(
-            "DELETE FROM service_replicas WHERE service_id = ?1",
-            [&id],
-        )?;
+        db.execute("DELETE FROM service_replicas WHERE service_id = ?1", [&id])?;
         for (slot, replicas_for_server) in &per_server_plan {
             for (local_idx, host_port) in replicas_for_server {
                 let rid = uuid::Uuid::new_v4().to_string();
-                let status = if deploy_errors
-                    .iter()
-                    .any(|e| e.starts_with(&slot.server_id))
-                {
+                let status = if deploy_errors.iter().any(|e| e.starts_with(&slot.server_id)) {
                     "failed"
                 } else {
                     "running"

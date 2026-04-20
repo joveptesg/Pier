@@ -37,3 +37,25 @@ pub async fn upload_file(
     }
     Ok(())
 }
+
+/// Delete a single object from Bunny.net storage. 404s are treated as
+/// success so cleanup is idempotent (callers may retry without worrying).
+pub async fn delete_file(
+    storage_zone: &str,
+    access_key: &str,
+    endpoint: &str,
+    path: &str,
+) -> Result<()> {
+    let url = format!("https://{endpoint}/{storage_zone}/{path}");
+    let client = Client::new();
+    let resp = client
+        .delete(&url)
+        .header("AccessKey", access_key)
+        .send()
+        .await?;
+    let status = resp.status();
+    if status.is_success() || status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(());
+    }
+    anyhow::bail!("Bunny delete failed: {status}");
+}

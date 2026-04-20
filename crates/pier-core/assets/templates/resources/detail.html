@@ -424,11 +424,6 @@
                                 </td>
                                 <td class="py-2 px-2 text-right">
                                     <div class="flex items-center justify-end gap-1">
-                                        <button x-show="supportsPerDbBackup"
-                                                @click="triggerBackup(d.name)"
-                                                class="text-gray-400 hover:text-blue-500 p-1" title="Backup this database now">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                                        </button>
                                         <button x-show="d.name !== 'postgres' && d.name !== 'mysql'"
                                                 @click="changeDbPassword = {db: d.name, owner: d.owner, password: ''}; showChangeDbPwd = true"
                                                 class="text-gray-400 hover:text-blue-500 p-1" title="Change password">
@@ -938,10 +933,16 @@ NODE_ENV=production"></textarea>
                     <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Cluster-wide backup</h3>
                     <p class="text-xs text-gray-400 mt-0.5" x-text="catalogId === 'mongodb' ? 'Single archive of the whole instance.' : 'Archive containing one dump per database.'"></p>
                 </div>
-                <div class="flex items-center gap-2">
-                    <button @click="triggerBackup(null)" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">Backup now</button>
-                    <button @click="openScheduleModal(null)" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors" x-text="clusterSchedule ? 'Edit' : 'Configure'"></button>
-                    <button x-show="clusterSchedule" @click="deleteSchedule(clusterSchedule.id)" class="px-3 py-1.5 text-xs font-medium rounded-lg text-red-500 hover:text-red-700 transition-colors">Delete</button>
+                <div class="flex items-center gap-1">
+                    <button @click="triggerBackup(null)" class="p-1.5 text-gray-400 hover:text-blue-500 rounded transition-colors" title="Backup now">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    </button>
+                    <button @click="openScheduleModal(null)" class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded transition-colors" :title="clusterSchedule ? 'Edit schedule' : 'Configure schedule'">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                    </button>
+                    <button x-show="clusterSchedule" @click="deleteSchedule(clusterSchedule.id)" class="p-1.5 text-gray-400 hover:text-red-500 rounded transition-colors" title="Delete schedule">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
                 </div>
             </div>
             <div x-show="clusterSchedule" class="grid grid-cols-2 gap-3 text-sm">
@@ -960,7 +961,9 @@ NODE_ENV=production"></textarea>
                     <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Per-database schedules</h3>
                     <p class="text-xs text-gray-400 mt-0.5">One independent schedule per database. Useful when one DB changes often and others don't.</p>
                 </div>
-                <button @click="openScheduleModal('')" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">+ Add schedule</button>
+                <button @click="openScheduleModal('')" class="p-1.5 text-gray-400 hover:text-blue-500 rounded transition-colors" title="Add schedule">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                </button>
             </div>
             <div x-show="perDbSchedules.length > 0" class="overflow-x-auto">
                 <table class="w-full text-sm">
@@ -983,10 +986,16 @@ NODE_ENV=production"></textarea>
                                 <td class="py-2 px-2 text-xs text-gray-500" x-text="s.last_run_at || 'Never'"></td>
                                 <td class="py-2 px-2 text-xs text-gray-500" x-text="s.next_run_at || '-'"></td>
                                 <td class="py-2 px-2 text-right">
-                                    <div class="flex items-center justify-end gap-2">
-                                        <button @click="triggerBackup(s.database_name)" class="text-xs text-blue-500 hover:text-blue-700">Run</button>
-                                        <button @click="openScheduleModal(s.database_name)" class="text-xs text-gray-500 hover:text-gray-700">Edit</button>
-                                        <button @click="deleteSchedule(s.id)" class="text-xs text-red-500 hover:text-red-700">Delete</button>
+                                    <div class="flex items-center justify-end gap-1">
+                                        <button @click="triggerBackup(s.database_name)" class="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="Run now">
+                                            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                        </button>
+                                        <button @click="openScheduleModal(s.database_name)" class="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded transition-colors" title="Edit schedule">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                        </button>
+                                        <button @click="deleteSchedule(s.id)" class="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="Delete schedule">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -997,22 +1006,52 @@ NODE_ENV=production"></textarea>
             <p x-show="perDbSchedules.length === 0" class="text-sm text-gray-400">No per-database schedules</p>
         </div>
 
-        <!-- Backup history -->
+        <!-- Backup history — accordion grouped by database -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Backup history</h3>
-            <div x-show="backupHistory.length === 0" class="text-sm text-gray-400 text-center py-4">No backups yet</div>
-            <div x-show="backupHistory.length > 0" class="space-y-2">
-                <template x-for="b in backupHistory" :key="b.id">
-                    <div class="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-800 pb-2">
-                        <div class="flex items-center gap-3">
-                            <span :class="b.status === 'completed' ? 'text-green-500' : b.status === 'failed' ? 'text-red-500' : 'text-yellow-500'" class="text-xs font-medium" x-text="b.status"></span>
-                            <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-mono" x-text="b.database_name ? ('db: ' + b.database_name) : 'cluster-wide'"></span>
-                            <span class="text-gray-500 text-xs" x-text="b.started_at"></span>
+            <div class="space-y-2">
+                <template x-for="g in backupGroups" :key="g.key">
+                    <div class="border border-gray-200 dark:border-gray-800 rounded-lg">
+                        <!-- Group header -->
+                        <div class="flex items-center gap-2 p-3 cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-t-lg"
+                             :class="!expandedBackupGroups[g.key] && 'rounded-b-lg'"
+                             @click="toggleBackupGroup(g.key)">
+                            <svg class="w-4 h-4 text-gray-400 transition-transform" :class="expandedBackupGroups[g.key] && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            <span class="text-sm font-medium text-gray-900 dark:text-gray-100" x-text="g.label"></span>
+                            <span x-show="g.isCluster" class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 uppercase tracking-wide">cluster</span>
+                            <span class="text-xs text-gray-400" x-text="g.count + (g.count === 1 ? ' backup' : ' backups')"></span>
+                            <span x-show="g.count > 0" class="text-xs text-gray-400" x-text="'· ' + formatBytes(g.totalBytes)"></span>
+                            <span x-show="g.lastRun" class="text-xs text-gray-400" x-text="'· last ' + g.lastRun"></span>
+                            <div class="ml-auto flex items-center gap-1" @click.stop>
+                                <button @click="triggerBackup(g.isCluster ? null : g.key)" class="p-1.5 text-gray-400 hover:text-blue-500 rounded transition-colors" title="Backup now">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                </button>
+                            </div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-400" x-text="formatBytes(b.size_bytes)"></span>
-                            <a x-show="b.status === 'completed'" :href="'/api/v1/backups/' + b.id + '/download'" class="text-xs text-blue-500 hover:text-blue-700">Download</a>
-                            <button x-show="b.status === 'completed' && supportsPerDbBackup" @click="openRestoreModal(b)" class="text-xs text-amber-600 hover:text-amber-700">Restore</button>
+                        <!-- Expanded body -->
+                        <div x-show="expandedBackupGroups[g.key]" class="border-t border-gray-200 dark:border-gray-800">
+                            <p x-show="g.items.length === 0" class="text-xs text-gray-400 text-center py-4">No backups yet</p>
+                            <template x-for="b in g.items" :key="b.id">
+                                <div class="flex items-center justify-between text-sm px-3 py-2 border-b border-gray-100 dark:border-gray-800/50 last:border-b-0">
+                                    <div class="flex items-center gap-3">
+                                        <span :class="b.status === 'completed' ? 'text-green-500' : b.status === 'failed' ? 'text-red-500' : 'text-yellow-500'" class="text-xs font-medium" x-text="b.status"></span>
+                                        <span class="text-gray-500 text-xs" x-text="b.started_at"></span>
+                                        <span class="text-xs text-gray-400" x-text="formatBytes(b.size_bytes)"></span>
+                                        <span x-show="b.triggered_by === 'manual'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">manual</span>
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <a x-show="b.status === 'completed'" :href="'/api/v1/backups/' + b.id + '/download'" class="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="Download">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                        </a>
+                                        <button x-show="b.status === 'completed' && supportsPerDbBackup" @click="openRestoreModal(b)" class="p-1 text-gray-400 hover:text-amber-600 rounded transition-colors" title="Restore">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                        </button>
+                                        <button @click="deleteBackup(b)" class="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="Delete backup (removes from storage)">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </template>
@@ -1176,6 +1215,7 @@ function resourceDetail(id) {
         schedules: [], backupHistory: [], s3Storages: [], showScheduleModal: false, scheduleFormEditing: false,
         scheduleForm: { s3_storage_id: '', cron_expression: '0 2 * * *', retention_count: 7, database_name: null },
         showRestoreModal: false, restoreSource: null, restoreTarget: '', restoreConfirm: '', restoreRunning: false,
+        expandedBackupGroups: {},
         clusterInfo: null,
         scaleInfo: null, scaleApplying: false, availableServers: [],
         domains: [], showAddDomain: false, newDomainName: '',
@@ -1203,6 +1243,27 @@ function resourceDetail(id) {
         get supportsPerDbBackup() { return ['postgresql','mysql','mariadb','mongodb'].includes(this.catalogId); },
         get clusterSchedule() { return this.schedules.find(s => !s.database_name) || null; },
         get perDbSchedules() { return this.schedules.filter(s => !!s.database_name); },
+        get backupGroups() {
+            // Map-insertion order = display order. Cluster-wide always first,
+            // then one entry per DB known to the Databases tab, then any DB
+            // that only shows up in history (e.g. deleted since).
+            const groups = new Map();
+            groups.set('__cluster__', { key: '__cluster__', label: 'Cluster-wide', isCluster: true, items: [] });
+            (this.dbList || []).forEach(d => {
+                if (d.name) groups.set(d.name, { key: d.name, label: d.name, isCluster: false, items: [] });
+            });
+            (this.backupHistory || []).forEach(b => {
+                const k = b.database_name || '__cluster__';
+                if (!groups.has(k)) groups.set(k, { key: k, label: k, isCluster: false, items: [] });
+                groups.get(k).items.push(b);
+            });
+            return Array.from(groups.values()).map(g => ({
+                ...g,
+                count: g.items.length,
+                totalBytes: g.items.reduce((s, b) => s + (b.size_bytes || 0), 0),
+                lastRun: g.items.length > 0 ? g.items[0].started_at : null,
+            }));
+        },
         showPasswords: false,
         _buildConnStr(host, port, containerPort, masked) {
             if (!this.resource.catalog_id) return '';
@@ -1562,6 +1623,16 @@ function resourceDetail(id) {
         async triggerBackup(databaseName) {
             const url = '/api/v1/resources/'+this.id+'/backups/trigger' + (databaseName ? ('?database_name='+encodeURIComponent(databaseName)) : '');
             try { await api(url,{method:'POST'}); toast('Backup started'); setTimeout(()=>this.loadBackups(),5000); } catch(e){toast(e.message,'error');}
+        },
+        toggleBackupGroup(key) { this.expandedBackupGroups[key] = !this.expandedBackupGroups[key]; },
+        async deleteBackup(b) {
+            const when = b.started_at || '';
+            if (!confirm('Delete backup from ' + when + '? This removes the object from S3 too.')) return;
+            try {
+                await api('/api/v1/backups/'+b.id, { method: 'DELETE' });
+                toast('Backup deleted');
+                await this.loadBackups();
+            } catch(e) { toast(e.message, 'error'); }
         },
         openRestoreModal(b) {
             this.restoreSource = b;

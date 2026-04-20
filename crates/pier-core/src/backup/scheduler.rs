@@ -178,13 +178,8 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
         }
         None => {
             let creds = load_db_credentials(state, &due.service_id)?;
-            super::executor::execute_cluster_backup(
-                &container_name,
-                &catalog_id,
-                &env_vars,
-                &creds,
-            )
-            .await
+            super::executor::execute_cluster_backup(&container_name, &catalog_id, &env_vars, &creds)
+                .await
         }
     };
 
@@ -246,8 +241,11 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
         return Err(e);
     }
 
-    // 6. Mark backup as completed, advance schedule, apply retention
-    {
+    // 6. Mark backup as completed, advance schedule, collect retention list.
+    // The DB lock is a std::sync::Mutex, so we can't hold it across awaits —
+    // all DB work happens here synchronously and the block returns the list
+    // of old backups to delete async.
+    let old_backups: Vec<(String, String, String)> = {
         let db = state
             .db
             .lock()
@@ -256,14 +254,12 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
             "UPDATE backups SET status = 'completed', size_bytes = ?1, finished_at = datetime('now') WHERE id = ?2",
             rusqlite::params![size, backup_id],
         )?;
-
         db.execute(
             "UPDATE backup_schedules SET last_run_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
             [&due.schedule_id],
         )?;
-
-        // Crude next_run_at advancement (existing behavior, will be replaced
-        // when proper cron parsing lands; see scheduler tech-debt).
+        // Crude next_run_at advancement (existing behavior; proper cron
+        // parsing is tech debt tracked separately).
         db.execute(
             "UPDATE backup_schedules SET next_run_at = datetime('now', '+1 day') WHERE id = ?1 AND cron_expression = '0 2 * * *'",
             [&due.schedule_id],
@@ -280,25 +276,37 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
             "UPDATE backup_schedules SET next_run_at = datetime('now', '+1 hour') WHERE id = ?1 AND cron_expression = '0 * * * *'",
             [&due.schedule_id],
         )?;
+        let mut stmt = db.prepare(
+            "SELECT id, s3_storage_id, s3_key FROM backups
+             WHERE schedule_id = ?1 AND status = 'completed'
+             ORDER BY started_at DESC LIMIT -1 OFFSET ?2",
+        )?;
+        let rows: Vec<(String, String, String)> = stmt
+            .query_map(rusqlite::params![due.schedule_id, due.retention], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    };
 
-        // Retention: keep newest N completed backups for this schedule.
-        let old_backups: Vec<String> = {
-            let mut stmt = db.prepare(
-                "SELECT id FROM backups WHERE schedule_id = ?1 AND status = 'completed'
-                 ORDER BY started_at DESC LIMIT -1 OFFSET ?2",
-            )?;
-            let result: Vec<String> = stmt
-                .query_map(rusqlite::params![due.schedule_id, due.retention], |row| {
-                    row.get::<_, String>(0)
-                })?
-                .filter_map(|r| r.ok())
-                .collect();
-            result
-        };
-
-        for old_id in old_backups {
-            db.execute("DELETE FROM backups WHERE id = ?1", [&old_id])?;
+    for (old_id, storage_id, key) in old_backups {
+        if let Err(e) = delete_blob_by_storage_id(state, &storage_id, &key).await {
+            // Don't fail the backup run — the new backup succeeded, and a
+            // stuck cleanup shouldn't abort that. Log and carry on.
+            tracing::warn!(
+                "retention: failed to delete old blob {key} from storage {storage_id}: {e}"
+            );
         }
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute("DELETE FROM backups WHERE id = ?1", [&old_id])?;
     }
 
     tracing::info!("Backup {backup_id} completed: {size} bytes uploaded to {s3_key}");
@@ -314,11 +322,51 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
     Ok(())
 }
 
-/// S3 key format:
-///   - per-DB mongo:  pier-backups/{service}/db_{dbname}_{timestamp}.archive
-///   - per-DB SQL:    pier-backups/{service}/db_{dbname}_{timestamp}.sql
-///   - cluster tar:   pier-backups/{service}/_cluster_{timestamp}.tar
-///   - mongo full:    pier-backups/{service}/mongodb_{timestamp}.archive
+/// Look up an S3 storage row and delete the given blob from whichever
+/// backend (S3 or Bunny) it points to. Used by retention cleanup so old
+/// backups don't leave orphaned blobs behind.
+async fn delete_blob_by_storage_id(
+    state: &SharedState,
+    s3_storage_id: &str,
+    s3_key: &str,
+) -> anyhow::Result<()> {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key FROM s3_storages WHERE id = ?1",
+            [s3_storage_id],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            )),
+        )?
+    };
+    crate::s3::delete_blob(
+        &storage_type,
+        &endpoint,
+        &region,
+        &bucket,
+        &access_key,
+        &secret_key,
+        s3_key,
+    )
+    .await
+}
+
+/// S3 key format (all backups are compressed; `.gz` suffix indicates the
+/// blob needs decompression before use — except for Mongo archives, which
+/// are consumed by mongorestore with its own `--gzip` flag):
+///   - per-DB mongo:  pier-backups/{service}/db_{dbname}_{timestamp}.archive.gz
+///   - per-DB SQL:    pier-backups/{service}/db_{dbname}_{timestamp}.sql.gz
+///   - cluster tar:   pier-backups/{service}/_cluster_{timestamp}.tar.gz
+///   - mongo full:    pier-backups/{service}/mongodb_{timestamp}.archive.gz
 pub fn build_s3_key(
     service_name: &str,
     catalog_id: &str,
@@ -327,12 +375,12 @@ pub fn build_s3_key(
 ) -> String {
     match database_name {
         Some(db) if catalog_id == "mongodb" => {
-            format!("pier-backups/{service_name}/db_{db}_{timestamp}.archive")
+            format!("pier-backups/{service_name}/db_{db}_{timestamp}.archive.gz")
         }
-        Some(db) => format!("pier-backups/{service_name}/db_{db}_{timestamp}.sql"),
+        Some(db) => format!("pier-backups/{service_name}/db_{db}_{timestamp}.sql.gz"),
         None if catalog_id == "mongodb" => {
-            format!("pier-backups/{service_name}/mongodb_{timestamp}.archive")
+            format!("pier-backups/{service_name}/mongodb_{timestamp}.archive.gz")
         }
-        None => format!("pier-backups/{service_name}/_cluster_{timestamp}.tar"),
+        None => format!("pier-backups/{service_name}/_cluster_{timestamp}.tar.gz"),
     }
 }

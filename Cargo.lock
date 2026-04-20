@@ -2350,6 +2350,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "cron",
+ "flate2",
  "futures-util",
  "hex",
  "hmac",

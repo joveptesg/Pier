@@ -83,6 +83,9 @@ hex = { workspace = true }
 # Tar archive (Docker build context)
 tar = { workspace = true }
 
+# Gzip (backup compression)
+flate2 = { workspace = true }
+
 # Temp dirs (scoped registry auth for docker compose CLI)
 tempfile = { workspace = true }
 

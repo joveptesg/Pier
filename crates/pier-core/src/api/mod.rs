@@ -193,6 +193,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/backups/trigger",
             post(backups::trigger_backup),
         )
+        .route("/backups/{backup_id}", delete(backups::delete_backup))
         .route(
             "/backups/{backup_id}/download",
             get(backups::download_backup),

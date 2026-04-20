@@ -1,7 +1,9 @@
 use std::collections::HashMap;
-use std::io::Cursor;
+use std::io::Write;
 
 use anyhow::Result;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use tokio::process::Command;
 
 /// Credentials for one logical database inside a DB instance.
@@ -14,8 +16,9 @@ pub struct DbCredential {
 }
 
 /// Build the docker-exec argv for a per-database dump.
-/// Returns `None` for catalogs that don't support per-DB backup (MongoDB uses
-/// a different code path — see `mongo_dump_args`).
+/// Returns `None` for catalogs that don't support per-DB backup.
+/// Mongo args include `--gzip`, so mongodump writes a compressed archive
+/// directly; SQL dumps come out plain and are gzipped in Rust afterwards.
 fn per_db_dump_args(
     catalog_id: &str,
     env_vars: &HashMap<String, String>,
@@ -31,7 +34,10 @@ fn per_db_dump_args(
                         .get("POSTGRES_USER")
                         .cloned()
                         .unwrap_or_else(|| "postgres".into()),
-                    env_vars.get("POSTGRES_PASSWORD").cloned().unwrap_or_default(),
+                    env_vars
+                        .get("POSTGRES_PASSWORD")
+                        .cloned()
+                        .unwrap_or_default(),
                 ),
             };
             Some(vec![
@@ -67,12 +73,11 @@ fn per_db_dump_args(
                 .get("MONGO_INITDB_ROOT_PASSWORD")
                 .cloned()
                 .unwrap_or_default();
-            // Per-DB credential exists in the UI layer but we authenticate as
-            // root for backups — simpler and avoids per-user role plumbing.
             let _ = cred;
             Some(vec![
                 "mongodump".into(),
                 "--archive".into(),
+                "--gzip".into(),
                 format!("--db={db_name}"),
                 format!("--username={user}"),
                 format!("--password={pass}"),
@@ -83,8 +88,8 @@ fn per_db_dump_args(
     }
 }
 
-/// Full-instance dump (used for MongoDB cluster-wide, where there's no
-/// per-database tracking in PR 2 yet).
+/// Full-instance dump (cluster-wide MongoDB). `--gzip` gives a compressed
+/// archive directly from mongodump.
 fn mongo_dump_args(env_vars: &HashMap<String, String>) -> Vec<String> {
     let user = env_vars
         .get("MONGO_INITDB_ROOT_USERNAME")
@@ -97,6 +102,7 @@ fn mongo_dump_args(env_vars: &HashMap<String, String>) -> Vec<String> {
     vec![
         "mongodump".into(),
         "--archive".into(),
+        "--gzip".into(),
         format!("--username={user}"),
         format!("--password={pass}"),
         "--authenticationDatabase=admin".into(),
@@ -125,8 +131,17 @@ async fn docker_exec(container: &str, argv: &[String]) -> Result<Vec<u8>> {
     Ok(output.stdout)
 }
 
-/// Execute a backup for a single logical database inside the container.
-pub async fn execute_db_backup(
+fn gzip_bytes(input: &[u8]) -> Result<Vec<u8>> {
+    let mut enc = GzEncoder::new(Vec::new(), Compression::default());
+    enc.write_all(input)?;
+    Ok(enc.finish()?)
+}
+
+/// Raw per-database dump (no Rust-side compression). Used both as the
+/// building block for `execute_db_backup` and for assembling cluster tar
+/// archives, where entries stay uncompressed because the whole tar is
+/// wrapped in a single GzEncoder.
+async fn execute_db_dump_raw(
     container_name: &str,
     catalog_id: &str,
     env_vars: &HashMap<String, String>,
@@ -138,15 +153,33 @@ pub async fn execute_db_backup(
     docker_exec(container_name, &argv).await
 }
 
+/// Execute a backup for a single logical database inside the container.
+/// Returns bytes ready to store in S3: gzipped for Postgres/MySQL/MariaDB
+/// (via Rust flate2), already compressed for Mongo (via mongodump `--gzip`).
+pub async fn execute_db_backup(
+    container_name: &str,
+    catalog_id: &str,
+    env_vars: &HashMap<String, String>,
+    cred: Option<&DbCredential>,
+    db_name: &str,
+) -> Result<Vec<u8>> {
+    let raw = execute_db_dump_raw(container_name, catalog_id, env_vars, cred, db_name).await?;
+    if catalog_id == "mongodb" {
+        Ok(raw)
+    } else {
+        gzip_bytes(&raw)
+    }
+}
+
 /// Execute a cluster-wide backup.
 ///
-/// For Postgres/MySQL/MariaDB: iterates over `credentials`, runs per-DB dump
-/// for each, and bundles the results into an uncompressed tar archive. The
-/// archive contains one `<db_name>.sql` entry per database, so a single DB can
-/// be extracted later for restore.
+/// For Postgres/MySQL/MariaDB: iterates over `credentials`, dumps each
+/// database plain, bundles them into a gzipped tar archive. Individual
+/// entries (`<db_name>.sql`) are uncompressed so extraction can read them
+/// directly; the whole tar is gzipped once for storage.
 ///
-/// For MongoDB: runs a single `mongodump --archive` over the whole instance
-/// (credentials list is ignored).
+/// For MongoDB: runs a single `mongodump --gzip --archive` over the whole
+/// instance (credentials list is ignored).
 pub async fn execute_cluster_backup(
     container_name: &str,
     catalog_id: &str,
@@ -168,14 +201,18 @@ pub async fn execute_cluster_backup(
         );
     }
 
-    let buf: Vec<u8> = Vec::new();
-    let cursor = Cursor::new(buf);
-    let mut builder = tar::Builder::new(cursor);
+    let gz = GzEncoder::new(Vec::new(), Compression::default());
+    let mut builder = tar::Builder::new(gz);
 
     for cred in credentials {
-        let dump =
-            execute_db_backup(container_name, catalog_id, env_vars, Some(cred), &cred.db_name)
-                .await?;
+        let dump = execute_db_dump_raw(
+            container_name,
+            catalog_id,
+            env_vars,
+            Some(cred),
+            &cred.db_name,
+        )
+        .await?;
         let mut header = tar::Header::new_gnu();
         header.set_size(dump.len() as u64);
         header.set_mode(0o644);
@@ -184,6 +221,6 @@ pub async fn execute_cluster_backup(
         builder.append_data(&mut header, entry_name, dump.as_slice())?;
     }
 
-    let cursor = builder.into_inner()?;
-    Ok(cursor.into_inner())
+    let gz = builder.into_inner()?;
+    Ok(gz.finish()?)
 }

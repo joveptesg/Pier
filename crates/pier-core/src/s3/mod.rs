@@ -65,7 +65,6 @@ pub async fn upload_file(client: &Client, bucket: &str, key: &str, body: Vec<u8>
 }
 
 /// Delete an object from S3.
-#[allow(dead_code)]
 pub async fn delete_object(client: &Client, bucket: &str, key: &str) -> Result<()> {
     client
         .delete_object()
@@ -74,6 +73,27 @@ pub async fn delete_object(client: &Client, bucket: &str, key: &str) -> Result<(
         .send()
         .await?;
     Ok(())
+}
+
+/// Delete a blob from whichever storage backend (S3-compatible or Bunny)
+/// the passed config points at. Used by the Backup-delete API and by
+/// retention cleanup so orphaned blobs don't accumulate.
+pub async fn delete_blob(
+    storage_type: &str,
+    endpoint: &str,
+    region: &str,
+    bucket: &str,
+    access_key: &str,
+    secret_key: &str,
+    key: &str,
+) -> Result<()> {
+    match storage_type {
+        "bunny" => bunny::delete_file(bucket, access_key, endpoint, key).await,
+        _ => {
+            let client = build_client(endpoint, region, access_key, secret_key)?;
+            delete_object(&client, bucket, key).await
+        }
+    }
 }
 
 /// List objects with a given prefix.
