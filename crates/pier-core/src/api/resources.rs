@@ -1841,15 +1841,25 @@ pub async fn get_load_balance(
         )
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?;
 
+    // Canonical local server (bootstrap guarantees one row with is_local=1).
+    // Used to resolve NULL/empty server_id and any server_id that no longer
+    // exists in `servers` (e.g., legacy service_replicas backfill).
+    let local_srv: Option<(String, String)> = db
+        .query_row(
+            "SELECT id, name FROM servers WHERE is_local = 1 ORDER BY created_at ASC LIMIT 1",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .ok();
+
     let mut stmt = db.prepare(
-        "SELECT r.server_id, r.replica_idx, r.host_port, r.status, r.weight,
-                COALESCE(s.name, 'unknown')
+        "SELECT r.server_id, r.replica_idx, r.host_port, r.status, r.weight, s.name
          FROM service_replicas r
          LEFT JOIN servers s ON s.id = r.server_id
          WHERE r.service_id = ?1
          ORDER BY r.server_id, r.replica_idx",
     )?;
-    let rows: Vec<(Option<String>, i64, i64, String, i64, String)> = stmt
+    let rows: Vec<(Option<String>, i64, i64, String, i64, Option<String>)> = stmt
         .query_map([&id], |row| {
             Ok((
                 row.get::<_, Option<String>>(0)?,
@@ -1857,7 +1867,7 @@ pub async fn get_load_balance(
                 row.get::<_, i64>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?,
-                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(5)?,
             ))
         })?
         .filter_map(|r| r.ok())
@@ -1866,10 +1876,19 @@ pub async fn get_load_balance(
     let mut by_server: std::collections::BTreeMap<String, (String, i64, Vec<serde_json::Value>)> =
         std::collections::BTreeMap::new();
     for (server_id, idx, host_port, status, weight, server_name) in rows {
-        let key = server_id.clone().unwrap_or_default();
+        // Fall back to the canonical local server id/name when the replica
+        // row has NULL/empty server_id or points at a now-deleted server.
+        let raw = server_id.unwrap_or_default();
+        let (key, display_name) = if !raw.is_empty() && server_name.is_some() {
+            (raw, server_name.unwrap())
+        } else if let Some((lid, lname)) = local_srv.clone() {
+            (lid, lname)
+        } else {
+            (raw, "local".to_string())
+        };
         let entry = by_server
             .entry(key)
-            .or_insert_with(|| (server_name, weight, Vec::new()));
+            .or_insert_with(|| (display_name, weight, Vec::new()));
         entry.2.push(serde_json::json!({
             "idx": idx,
             "host_port": host_port,
@@ -2000,9 +2019,28 @@ pub async fn load_balance(
         if total < 1 {
             return Err(AppError::BadRequest("replicas must be >= 1".into()));
         }
-        let server_id = current_server_id
-            .clone()
-            .unwrap_or_else(|| "localhost".to_string());
+        // Resolve fallback server: services.server_id if it exists, otherwise
+        // the canonical local server row. Never use the literal "localhost"
+        // — the servers table uses `id='local'`, not `localhost`.
+        let server_id = match current_server_id.clone().filter(|s| !s.is_empty()) {
+            Some(id) => id,
+            None => {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.query_row(
+                    "SELECT id FROM servers WHERE is_local = 1 ORDER BY created_at ASC LIMIT 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(|_| {
+                    AppError::Internal(anyhow::anyhow!(
+                        "No local server found; cannot resolve default server_id"
+                    ))
+                })?
+            }
+        };
         vec![LoadBalanceSlot {
             server_id,
             replicas: total,

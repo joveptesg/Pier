@@ -635,6 +635,7 @@ NODE_ENV=production"></textarea>
                         <option value="weighted">Weighted</option>
                         <option value="sticky">Sticky sessions (cookie)</option>
                     </select>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed" x-text="strategyDescription()"></p>
                 </div>
 
                 <div x-show="scaleInfo.strategy === 'sticky'">
@@ -644,13 +645,14 @@ NODE_ENV=production"></textarea>
                 </div>
 
                 <div>
-                    <div class="flex items-center justify-between mb-1">
+                    <div class="mb-2">
                         <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Per-server placement</label>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">On which servers to run replicas, and how many per server.</p>
                     </div>
                     <div class="space-y-2">
                         <template x-for="row in scaleInfo.distribution" :key="row.server_id">
                             <div class="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
-                                <span class="text-xs text-gray-500 font-mono flex-1" x-text="row.server_name"></span>
+                                <span class="text-xs text-gray-700 dark:text-gray-200 font-medium flex-1" x-text="row.server_name"></span>
                                 <label class="text-xs text-gray-500">replicas
                                     <input type="number" min="0" max="10" x-model.number="row.replicas"
                                            @input="recomputeTotal()"
@@ -660,7 +662,11 @@ NODE_ENV=production"></textarea>
                                     <input type="number" min="1" max="100" x-model.number="row.weight"
                                            class="w-14 ml-1 px-1.5 py-0.5 text-xs bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded">
                                 </label>
-                                <span class="text-xs text-gray-400" x-text="(row.running || 0) + '/' + row.replicas"></span>
+                                <span class="text-xs text-gray-400"
+                                      :title="(row.running || 0) + ' running of ' + row.replicas + ' requested'">
+                                    <span x-text="(row.running || 0) + '/' + row.replicas"></span>
+                                    running
+                                </span>
                             </div>
                         </template>
                     </div>
@@ -1382,22 +1388,27 @@ function resourceDetail(id) {
                 if (!this.availableServers.length) {
                     this.availableServers = await fetch('/api/v1/servers').then(r => r.ok ? r.json() : []).catch(() => []);
                 }
-                const currentServerId = this.resource.server_id || 'localhost';
+                // Resolve the "default" server as the actual local one from the
+                // servers table, not a hard-coded literal. Fall back to the
+                // resource's own server_id, then the first known server.
+                const localSrv = this.availableServers.find(s => s.is_local) || null;
+                const resolveName = (id) => this.availableServers.find(s => s.id === id)?.name || id;
+                const defaultServerId = localSrv?.id || this.resource.server_id || this.availableServers[0]?.id || '';
                 const byServer = new Map();
                 for (const row of (info.distribution || [])) {
-                    byServer.set(row.server_id, {
-                        server_id: row.server_id,
-                        server_name: row.server_name || row.server_id,
+                    const sid = row.server_id || defaultServerId;
+                    byServer.set(sid, {
+                        server_id: sid,
+                        server_name: row.server_name || resolveName(sid),
                         replicas: (row.replicas || []).length,
                         running: (row.replicas || []).filter(r => r.status === 'running').length,
                         weight: row.weight || 1,
                     });
                 }
-                if (!byServer.has(currentServerId)) {
-                    const srv = this.availableServers.find(s => s.id === currentServerId);
-                    byServer.set(currentServerId, {
-                        server_id: currentServerId,
-                        server_name: srv?.name || currentServerId,
+                if (!byServer.size && defaultServerId) {
+                    byServer.set(defaultServerId, {
+                        server_id: defaultServerId,
+                        server_name: resolveName(defaultServerId),
                         replicas: 1, running: 0, weight: 1,
                     });
                 }
@@ -1408,6 +1419,14 @@ function resourceDetail(id) {
                     distribution: Array.from(byServer.values()),
                 };
             } catch (e) { this.scaleInfo = null; }
+        },
+        strategyDescription() {
+            switch (this.scaleInfo?.strategy) {
+                case 'round-robin': return 'Requests cycle evenly across replicas. Simple and predictable — best when replicas are identical and stateless.';
+                case 'weighted':    return 'Each replica gets traffic proportional to its weight. Useful when replicas run on servers with different capacity.';
+                case 'sticky':      return 'Traefik sets a cookie on the first request and pins every subsequent request from that client to the same replica. Required for in-memory HTTP sessions or long-lived WebSocket connections.';
+                default:            return '';
+            }
         },
         recomputeTotal() {
             if (!this.scaleInfo) return;
