@@ -138,7 +138,20 @@ pub async fn deploy(
     };
 
     let yaml = yaml.ok_or_else(|| AppError::BadRequest("Stack has no YAML content".into()))?;
-    let output = docker::compose::deploy_stack(&name, &yaml, &state.config).await?;
+
+    let auth_map = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| docker::auth::auth_map_for_service(&db, &id).ok())
+        .unwrap_or_default();
+    let auth = if auth_map.is_empty() {
+        None
+    } else {
+        Some(auth_map)
+    };
+
+    let output = docker::compose::deploy_stack(&name, &yaml, &state.config, auth).await?;
 
     // Update status
     let db = state

@@ -406,6 +406,25 @@ const MIGRATIONS: &[&str] = &[
         ('preset-cleanup-failed',   'Docker cleanup failed',        0, 'docker_cleanup_failure',  'global', NULL, 'eq', 0, 'warning',  'telegram', '', 60),
         ('preset-server-reachable', 'Remote server back online',    0, 'server_reachable',        'global', NULL, 'eq', 0, 'info',     'telegram', '', 10);
     "#,
+    // Migration 26: Registry credentials (per-project + global fallback).
+    // Pulled/built images lookup creds by registry host; project-specific
+    // entries override global ones for the same host.
+    r#"
+    CREATE TABLE IF NOT EXISTS registry_credentials (
+        id           TEXT PRIMARY KEY NOT NULL,
+        project_id   TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        registry     TEXT NOT NULL,
+        username     TEXT NOT NULL,
+        password_enc TEXT NOT NULL,
+        label        TEXT,
+        created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_regcreds_scope
+        ON registry_credentials(COALESCE(project_id, ''), registry);
+    CREATE INDEX IF NOT EXISTS idx_regcreds_project
+        ON registry_credentials(project_id);
+    "#,
 ];
 
 /// Run all pending database migrations.

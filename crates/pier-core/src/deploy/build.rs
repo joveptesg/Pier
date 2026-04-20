@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
+use bollard::auth::DockerCredentials;
 use bollard::query_parameters::BuildImageOptions;
 use bollard::Docker;
 use bytes::Bytes;
@@ -17,7 +19,10 @@ pub async fn clone_repo(url: &str, branch: &str, dest: &Path) -> Result<String> 
         .args(["clone", "--depth", "1", "--branch", branch, url])
         .arg(dest.to_string_lossy().as_ref())
         .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("HOME", std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+        .env(
+            "HOME",
+            std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
+        )
         .output()
         .await?;
 
@@ -33,7 +38,16 @@ pub async fn clone_repo(url: &str, branch: &str, dest: &Path) -> Result<String> 
 }
 
 /// Build a Docker image from a Dockerfile in the given directory.
-pub async fn docker_build(docker: &Docker, context_dir: &Path, image_tag: &str) -> Result<String> {
+///
+/// `auth_map` provides registry credentials keyed by host — Bollard forwards
+/// them as `X-Registry-Config` so that `FROM` pulls from private registries
+/// succeed. Pass `None` to fall back to the Docker daemon's default auth.
+pub async fn docker_build(
+    docker: &Docker,
+    context_dir: &Path,
+    image_tag: &str,
+    auth_map: Option<HashMap<String, DockerCredentials>>,
+) -> Result<String> {
     // Create a tar archive of the build context
     let tar_bytes = create_tar_archive(context_dir).await?;
 
@@ -45,7 +59,7 @@ pub async fn docker_build(docker: &Docker, context_dir: &Path, image_tag: &str) 
     };
 
     let body = http_body_util::Either::Left(Full::new(Bytes::from(tar_bytes)));
-    let mut stream = docker.build_image(options, None, Some(body));
+    let mut stream = docker.build_image(options, auth_map, Some(body));
     let mut log = String::new();
 
     while let Some(result) = stream.next().await {
@@ -189,8 +203,10 @@ pub fn generate_compose_for_image(
          \x20   external: true\n"
     ));
     if network_name != "pier-net" {
-        yaml.push_str("\x20 pier-net:\n\
-             \x20   external: true\n");
+        yaml.push_str(
+            "\x20 pier-net:\n\
+             \x20   external: true\n",
+        );
     }
     yaml
 }

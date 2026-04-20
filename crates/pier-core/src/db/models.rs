@@ -93,3 +93,17 @@ pub struct Setting {
     pub value: String,
     pub updated_at: String,
 }
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryCredential {
+    pub id: String,
+    pub project_id: Option<String>,
+    pub registry: String,
+    pub username: String,
+    #[serde(skip_serializing)]
+    pub password_enc: String,
+    pub label: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}

@@ -20,7 +20,11 @@ fn pick_http_port(ports: &[crate::db::models::PortAllocation]) -> Option<i64> {
     let http_keywords = ["management", "http", "web", "ui", "dashboard", "console"];
     ports
         .iter()
-        .find(|p| http_keywords.iter().any(|k| p.port_name.to_lowercase().contains(k)))
+        .find(|p| {
+            http_keywords
+                .iter()
+                .any(|k| p.port_name.to_lowercase().contains(k))
+        })
         .or(ports.first())
         .map(|p| p.container_port)
 }
@@ -231,32 +235,24 @@ pub async fn create(
 
     // Resolve network_id: use provided or fall back to default
     let network_id = body.network_id.clone().or_else(|| {
-        state
-            .db
-            .lock()
+        state.db.lock().ok().and_then(|db| {
+            db.query_row(
+                "SELECT id FROM networks WHERE is_default = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
             .ok()
-            .and_then(|db| {
-                db.query_row(
-                    "SELECT id FROM networks WHERE is_default = 1 LIMIT 1",
-                    [],
-                    |row| row.get(0),
-                )
-                .ok()
-            })
+        })
     });
 
     // Resolve network name for compose YAML
     let network_name: Option<String> = network_id.as_ref().and_then(|nid| {
-        state
-            .db
-            .lock()
-            .ok()
-            .and_then(|db| {
-                db.query_row("SELECT name FROM networks WHERE id = ?1", [nid], |row| {
-                    row.get(0)
-                })
-                .ok()
+        state.db.lock().ok().and_then(|db| {
+            db.query_row("SELECT name FROM networks WHERE id = ?1", [nid], |row| {
+                row.get(0)
             })
+            .ok()
+        })
     });
 
     let allocated_ports = with_db(&state, |db| {
@@ -370,7 +366,7 @@ pub async fn create(
 
         // Deploy cluster stack
         let deploy_result =
-            docker::compose::deploy_stack(&stack_name, &cluster_yaml, &state.config).await;
+            docker::compose::deploy_stack(&stack_name, &cluster_yaml, &state.config, None).await;
 
         let status = if deploy_result.is_ok() {
             "running"
@@ -426,11 +422,32 @@ pub async fn create(
     let yaml = if let Some(compose) = &item.compose {
         catalog::build_from_template(&compose.template, &vars)
     } else {
-        catalog::build_compose_yaml(&item, &service_id, &name, &vars, &port_mappings, network_name.as_deref())
+        catalog::build_compose_yaml(
+            &item,
+            &service_id,
+            &name,
+            &vars,
+            &port_mappings,
+            network_name.as_deref(),
+        )
+    };
+
+    // Resolve registry auth for this service's project (empty → None).
+    let auth_map = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| docker::auth::auth_map_for_service(&db, &service_id).ok())
+        .unwrap_or_default();
+    let deploy_auth = if auth_map.is_empty() {
+        None
+    } else {
+        Some(auth_map)
     };
 
     // Deploy (the only await point)
-    let deploy_result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await;
+    let deploy_result =
+        docker::compose::deploy_stack(&stack_name, &yaml, &state.config, deploy_auth).await;
 
     // Update status based on result
     let status = if deploy_result.is_ok() {
@@ -516,7 +533,7 @@ async fn create_compose(
         Ok(())
     })?;
 
-    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config).await;
+    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config, None).await;
 
     let status = if deploy_result.is_ok() {
         "running"
@@ -634,7 +651,7 @@ async fn create_dockerfile(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Write Dockerfile: {e}")))?;
 
     // Deploy
-    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config).await;
+    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config, None).await;
 
     let status = if deploy_result.is_ok() {
         "running"
@@ -903,7 +920,7 @@ async fn create_git_deploy(
     );
 
     // Deploy
-    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config).await;
+    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config, None).await;
 
     let status = if deploy_result.is_ok() {
         "running"
@@ -1054,7 +1071,12 @@ async fn create_git_deploy_github_app(
     // Resolve network_id
     let network_id = body.network_id.clone().or_else(|| {
         state.db.lock().ok().and_then(|db| {
-            db.query_row("SELECT id FROM networks WHERE is_default = 1 LIMIT 1", [], |row| row.get(0)).ok()
+            db.query_row(
+                "SELECT id FROM networks WHERE is_default = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
         })
     });
 
@@ -1217,7 +1239,12 @@ pub async fn get(
         .map(|s| s.to_string())
         .unwrap_or_else(|| {
             // Try to parse container_name from compose YAML on disk
-            let compose_path = state.config.data_dir.join("stacks").join(&default_name).join("docker-compose.yml");
+            let compose_path = state
+                .config
+                .data_dir
+                .join("stacks")
+                .join(&default_name)
+                .join("docker-compose.yml");
             if let Ok(yaml) = std::fs::read_to_string(&compose_path) {
                 yaml.lines()
                     .find_map(|l| {
@@ -1257,9 +1284,14 @@ pub async fn remove(
     };
 
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
-    let delete_volumes = params.get("delete_volumes").map(|v| v == "true").unwrap_or(false);
+    let delete_volumes = params
+        .get("delete_volumes")
+        .map(|v| v == "true")
+        .unwrap_or(false);
 
-    tracing::info!("Deleting resource '{name}' (id={id}, stack={stack_name}, delete_volumes={delete_volumes})");
+    tracing::info!(
+        "Deleting resource '{name}' (id={id}, stack={stack_name}, delete_volumes={delete_volumes})"
+    );
 
     // Stop containers (with or without volumes)
     if delete_volumes {
@@ -1389,7 +1421,7 @@ pub async fn start(
     let yaml = yaml.ok_or_else(|| AppError::BadRequest("No compose content found".into()))?;
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
-    let result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await;
+    let result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config, None).await;
 
     let status = if result.is_ok() { "running" } else { "failed" };
     let db = state
@@ -1438,7 +1470,7 @@ pub async fn restart(
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
     let _ = docker::compose::down_stack(&stack_name, &state.config).await;
-    let result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await;
+    let result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config, None).await;
 
     let status = if result.is_ok() { "running" } else { "failed" };
     let db = state
@@ -1480,7 +1512,14 @@ pub async fn redeploy(
         db.query_row(
             "SELECT name, compose_content, git_repo_url, git_branch FROM services WHERE id = ?1",
             [&id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
         )
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
     };
@@ -1496,7 +1535,10 @@ pub async fn redeploy(
             };
             // Set deploying status
             {
-                let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
                 let _ = db.execute("UPDATE services SET status = 'deploying', updated_at = datetime('now') WHERE id = ?1", [&id]);
             }
             let state_clone = std::sync::Arc::clone(&state);
@@ -1504,7 +1546,9 @@ pub async fn redeploy(
             tokio::spawn(async move {
                 crate::deploy::run_pipeline(state_clone, sid, commit, "redeploy").await;
             });
-            return Ok(Json(serde_json::json!({"ok": true, "message": "Redeploy pipeline started"})));
+            return Ok(Json(
+                serde_json::json!({"ok": true, "message": "Redeploy pipeline started"}),
+            ));
         }
     }
 
@@ -1527,11 +1571,25 @@ pub async fn redeploy(
         );
     }
 
+    // Registry auth scoped to this service's project.
+    let auth_map = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| docker::auth::auth_map_for_service(&db, &id).ok())
+        .unwrap_or_default();
+    let redeploy_auth = if auth_map.is_empty() {
+        None
+    } else {
+        Some(auth_map)
+    };
+
     // Redeploy (with optional --no-cache for force deploy)
     let result = if no_cache {
-        docker::compose::deploy_stack_no_cache(&stack_name, &yaml, &state.config).await
+        docker::compose::deploy_stack_no_cache(&stack_name, &yaml, &state.config, redeploy_auth)
+            .await
     } else {
-        docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await
+        docker::compose::deploy_stack(&stack_name, &yaml, &state.config, redeploy_auth).await
     };
 
     let status = if result.is_ok() { "running" } else { "failed" };
@@ -1696,7 +1754,8 @@ pub async fn scale(
 
     // Redeploy with new compose
     let _ = docker::compose::down_stack(&stack_name, &state.config).await;
-    let deploy_result = docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config).await;
+    let deploy_result =
+        docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config, None).await;
 
     let status = if deploy_result.is_ok() {
         "running"
@@ -1882,7 +1941,9 @@ pub async fn set_port_public(
             .map_err(|_| AppError::NotFound(format!("No ports for resource {id}")))?;
 
         let svc_name: String = db
-            .query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| row.get(0))
+            .query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| {
+                row.get(0)
+            })
             .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
 
         // Update is_public and public_port
@@ -1950,11 +2011,18 @@ pub async fn set_port_public(
                 )
                 .ok()
                 .flatten();
-            cid.filter(|c| !c.is_empty())
-                .unwrap_or_else(|| format!("pier-{}", service_name.to_lowercase().replace(' ', "-")))
+            cid.filter(|c| !c.is_empty()).unwrap_or_else(|| {
+                format!("pier-{}", service_name.to_lowercase().replace(' ', "-"))
+            })
         };
-        crate::proxy::config::write_tcp_route(&state.config.data_dir, &id, pp, &container_name, container_port)
-            .map_err(|e| anyhow::anyhow!("Write TCP route: {e}"))?;
+        crate::proxy::config::write_tcp_route(
+            &state.config.data_dir,
+            &id,
+            pp,
+            &container_name,
+            container_port,
+        )
+        .map_err(|e| anyhow::anyhow!("Write TCP route: {e}"))?;
 
         // Collect all active public TCP ports for static config
         let tcp_ports = {
@@ -2015,9 +2083,19 @@ pub async fn set_port_public(
         .map_err(|e| anyhow::anyhow!("Regenerate static config: {e}"))?;
 
         // Recreate Traefik with new TCP port binding (bridge mode needs port bindings)
-        if let Err(e) = crate::proxy::deploy_traefik(&state.docker, &state.config.data_dir, &acme_email, dashboard, &traefik_version).await {
+        if let Err(e) = crate::proxy::deploy_traefik(
+            &state.docker,
+            &state.config.data_dir,
+            &acme_email,
+            dashboard,
+            &traefik_version,
+        )
+        .await
+        {
             tracing::error!("Traefik redeploy for TCP port failed: {e}");
-            return Err(AppError::Internal(anyhow::anyhow!("Failed to enable public port {pp}: {e}")));
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "Failed to enable public port {pp}: {e}"
+            )));
         }
         tracing::info!("Public TCP port {pp} enabled for {id} → localhost:{host_port}");
     } else {
@@ -2104,7 +2182,8 @@ pub async fn set_network(
 
         let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
         let _ = docker::compose::down_stack(&stack_name, &state.config).await;
-        let result = docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config).await;
+        let result =
+            docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config, None).await;
 
         let status = if result.is_ok() { "running" } else { "failed" };
         {
@@ -2191,7 +2270,9 @@ fn replace_network_in_compose(yaml: &str, new_network: &str) -> String {
 
     // Fallback: just append networks section
     let mut result: String = lines[..cut_at].join("\n");
-    result.push_str(&format!("\nnetworks:\n  {new_network}:\n    external: true\n"));
+    result.push_str(&format!(
+        "\nnetworks:\n  {new_network}:\n    external: true\n"
+    ));
     if new_network != "pier-net" {
         result.push_str("  pier-net:\n    external: true\n");
     }
@@ -2249,14 +2330,25 @@ pub async fn rename(
 ) -> AppResult<impl IntoResponse> {
     let new_name = body.name.trim().to_lowercase().replace(' ', "-");
 
-    if new_name.is_empty() || !new_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return Err(AppError::BadRequest("Name must contain only lowercase letters, numbers, hyphens".into()));
+    if new_name.is_empty()
+        || !new_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(AppError::BadRequest(
+            "Name must contain only lowercase letters, numbers, hyphens".into(),
+        ));
     }
 
     let old_name = {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| row.get::<_, String>(0))
-            .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
     };
 
     if old_name == new_name {
@@ -2266,7 +2358,9 @@ pub async fn rename(
     let old_stack = format!("pier-{}", old_name.to_lowercase().replace(' ', "-"));
     let new_stack = format!("pier-{new_name}");
 
-    tracing::info!("Renaming resource '{old_name}' → '{new_name}' (stack: {old_stack} → {new_stack})");
+    tracing::info!(
+        "Renaming resource '{old_name}' → '{new_name}' (stack: {old_stack} → {new_stack})"
+    );
 
     // 1. Stop old stack
     let _ = docker::compose::down_stack(&old_stack, &state.config).await;
@@ -2277,14 +2371,23 @@ pub async fn rename(
     let mut yaml = if compose_file.exists() {
         std::fs::read_to_string(&compose_file).unwrap_or_default()
     } else {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row("SELECT compose_content FROM services WHERE id = ?1", [&id], |row| row.get::<_, Option<String>>(0))
-            .unwrap_or(None)
-            .unwrap_or_default()
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT compose_content FROM services WHERE id = ?1",
+            [&id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .unwrap_or(None)
+        .unwrap_or_default()
     };
 
     if yaml.is_empty() {
-        return Err(AppError::BadRequest("No compose content found for this service".into()));
+        return Err(AppError::BadRequest(
+            "No compose content found for this service".into(),
+        ));
     }
 
     // Replace container_name
@@ -2306,7 +2409,10 @@ pub async fn rename(
 
     // 4. Update DB
     {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.execute(
             "UPDATE services SET name = ?1, compose_content = ?2, updated_at = datetime('now') WHERE id = ?3",
             rusqlite::params![new_name, yaml, id],
@@ -2314,11 +2420,13 @@ pub async fn rename(
     }
 
     // 5. Deploy with new name
-    match docker::compose::deploy_stack(&new_stack, &yaml, &state.config).await {
+    match docker::compose::deploy_stack(&new_stack, &yaml, &state.config, None).await {
         Ok(out) => tracing::info!("Stack {new_stack} deployed: {out}"),
         Err(e) => {
             tracing::error!("Failed to deploy renamed stack {new_stack}: {e}");
-            return Err(AppError::Internal(anyhow::anyhow!("Deploy after rename failed: {e}")));
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "Deploy after rename failed: {e}"
+            )));
         }
     }
 

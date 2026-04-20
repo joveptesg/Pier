@@ -86,7 +86,10 @@ pub async fn update_env(
                     branch,
                 };
                 {
-                    let db = state.db.lock().map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+                    let db = state
+                        .db
+                        .lock()
+                        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
                     let _ = db.execute("UPDATE services SET status = 'deploying', updated_at = datetime('now') WHERE id = ?1", [&id]);
                 }
                 let state_clone = std::sync::Arc::clone(&state);
@@ -146,7 +149,14 @@ pub async fn update_env(
                 if let Some(compose) = &item.compose {
                     crate::catalog::build_from_template(&compose.template, &body.env)
                 } else {
-                    crate::catalog::build_compose_yaml(item, &id, &name, &body.env, &ports, network_name.as_deref())
+                    crate::catalog::build_compose_yaml(
+                        item,
+                        &id,
+                        &name,
+                        &body.env,
+                        &ports,
+                        network_name.as_deref(),
+                    )
                 }
             } else {
                 yaml.clone()
@@ -167,7 +177,8 @@ pub async fn update_env(
             }
 
             // Redeploy
-            let result = docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config).await;
+            let result =
+                docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config, None).await;
             let status = if result.is_ok() { "running" } else { "failed" };
             {
                 let db = state

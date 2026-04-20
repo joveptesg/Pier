@@ -1,31 +1,53 @@
-use anyhow::Result;
+use std::collections::HashMap;
 use std::path::PathBuf;
+
+use anyhow::Result;
+use bollard::auth::DockerCredentials;
 use tokio::process::Command;
 
 use crate::config::PierConfig;
+use crate::docker::auth::write_docker_config;
 
 /// Base directory for compose stacks.
 fn stacks_dir(config: &PierConfig) -> PathBuf {
     config.data_dir.join("stacks")
 }
 
+/// Auth map passed to compose CLI. `None` means "use Docker daemon defaults".
+pub type ComposeAuth = Option<HashMap<String, DockerCredentials>>;
+
+fn apply_auth_env(cmd: &mut Command, auth_dir: &Option<tempfile::TempDir>) {
+    if let Some(dir) = auth_dir {
+        cmd.env("DOCKER_CONFIG", dir.path());
+    }
+}
+
 /// Write compose YAML to disk and run `docker compose up -d`.
-pub async fn deploy_stack(name: &str, yaml_content: &str, config: &PierConfig) -> Result<String> {
+pub async fn deploy_stack(
+    name: &str,
+    yaml_content: &str,
+    config: &PierConfig,
+    auth: ComposeAuth,
+) -> Result<String> {
     let stack_dir = stacks_dir(config).join(name);
     tokio::fs::create_dir_all(&stack_dir).await?;
 
     let compose_file = stack_dir.join("docker-compose.yml");
     tokio::fs::write(&compose_file, yaml_content).await?;
 
-    let output = Command::new("docker")
-        .args(["compose", "-f"])
+    let auth_dir = auth
+        .as_ref()
+        .and_then(|a| write_docker_config(a).ok().flatten());
+
+    let mut cmd = Command::new("docker");
+    cmd.args(["compose", "-f"])
         .arg(&compose_file)
         .args(["up", "-d"])
         .current_dir(&stack_dir)
-        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
-        .output()
-        .await?;
+        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir));
+    apply_auth_env(&mut cmd, &auth_dir);
 
+    let output = cmd.output().await?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{stdout}{stderr}");
@@ -38,32 +60,42 @@ pub async fn deploy_stack(name: &str, yaml_content: &str, config: &PierConfig) -
 }
 
 /// Write compose YAML and run `docker compose up -d --force-recreate --pull always` (no cache).
-pub async fn deploy_stack_no_cache(name: &str, yaml_content: &str, config: &PierConfig) -> Result<String> {
+pub async fn deploy_stack_no_cache(
+    name: &str,
+    yaml_content: &str,
+    config: &PierConfig,
+    auth: ComposeAuth,
+) -> Result<String> {
     let stack_dir = stacks_dir(config).join(name);
     tokio::fs::create_dir_all(&stack_dir).await?;
 
     let compose_file = stack_dir.join("docker-compose.yml");
     tokio::fs::write(&compose_file, yaml_content).await?;
 
+    let auth_dir = auth
+        .as_ref()
+        .and_then(|a| write_docker_config(a).ok().flatten());
+
     // Build without cache if there's a build context
-    let _ = Command::new("docker")
+    let mut build_cmd = Command::new("docker");
+    build_cmd
         .args(["compose", "-f"])
         .arg(&compose_file)
         .args(["build", "--no-cache"])
         .current_dir(&stack_dir)
-        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
-        .output()
-        .await;
+        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir));
+    apply_auth_env(&mut build_cmd, &auth_dir);
+    let _ = build_cmd.output().await;
 
-    let output = Command::new("docker")
-        .args(["compose", "-f"])
+    let mut cmd = Command::new("docker");
+    cmd.args(["compose", "-f"])
         .arg(&compose_file)
         .args(["up", "-d", "--force-recreate", "--pull", "always"])
         .current_dir(&stack_dir)
-        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
-        .output()
-        .await?;
+        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir));
+    apply_auth_env(&mut cmd, &auth_dir);
 
+    let output = cmd.output().await?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{stdout}{stderr}");

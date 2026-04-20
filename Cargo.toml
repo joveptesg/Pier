@@ -86,6 +86,9 @@ hex = "0.4"
 # Tar archive (Docker build context)
 tar = "0.4"
 
+# Temp dirs (scoped ~/.docker/config.json for registry auth)
+tempfile = "3"
+
 # HTTP body (Docker build context)
 bytes = "1"
 http-body-util = "0.1"

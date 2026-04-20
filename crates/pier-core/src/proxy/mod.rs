@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
+use bollard::auth::DockerCredentials;
 use bollard::models::{ContainerCreateBody, HostConfig, NetworkCreateRequest, PortBinding};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, RemoveContainerOptions, StartContainerOptions,
@@ -50,7 +51,7 @@ pub async fn deploy_traefik(
 
     // Pull image if not present
     let image = traefik_image(version);
-    pull_image_if_needed(docker, &image).await?;
+    pull_image_if_needed(docker, &image, None).await?;
 
     // Remove old container if exists
     let _ = docker.stop_container(TRAEFIK_CONTAINER, None).await;
@@ -151,9 +152,7 @@ pub async fn deploy_traefik(
 /// Restart the Traefik container (for static config changes like new entryPoints).
 #[allow(dead_code)]
 pub async fn restart_traefik(docker: &Docker) -> Result<()> {
-    docker
-        .restart_container(TRAEFIK_CONTAINER, None)
-        .await?;
+    docker.restart_container(TRAEFIK_CONTAINER, None).await?;
     tracing::info!("Traefik restarted for config update");
     Ok(())
 }
@@ -231,8 +230,14 @@ async fn ensure_network(docker: &Docker) -> Result<()> {
     Ok(())
 }
 
-/// Pull Traefik image if not already present.
-async fn pull_image_if_needed(docker: &Docker, image: &str) -> Result<()> {
+/// Pull an image if not already present. `creds` plumbs registry auth for
+/// private images; callers resolve it via `docker::auth::credentials_for`.
+/// Traefik's own image is public, so the current caller passes `None`.
+pub async fn pull_image_if_needed(
+    docker: &Docker,
+    image: &str,
+    creds: Option<DockerCredentials>,
+) -> Result<()> {
     use futures_util::StreamExt;
 
     if docker.inspect_image(image).await.is_ok() {
@@ -245,7 +250,7 @@ async fn pull_image_if_needed(docker: &Docker, image: &str) -> Result<()> {
         ..Default::default()
     };
 
-    let mut stream = docker.create_image(Some(opts), None, None);
+    let mut stream = docker.create_image(Some(opts), None, creds);
     while let Some(result) = stream.next().await {
         if let Err(e) = result {
             return Err(anyhow::anyhow!("Failed to pull {image}: {e}"));
@@ -288,9 +293,8 @@ async fn detect_data_volume(docker: &Docker, data_dir: &Path) -> Result<String> 
     }
 
     // 3. Native mode: use absolute host path as bind-mount source for Traefik
-    let abs = std::fs::canonicalize(data_dir).map_err(|e| {
-        anyhow::anyhow!("Cannot resolve data_dir '{}': {e}", data_dir.display())
-    })?;
+    let abs = std::fs::canonicalize(data_dir)
+        .map_err(|e| anyhow::anyhow!("Cannot resolve data_dir '{}': {e}", data_dir.display()))?;
     tracing::info!("Native mode detected — using host path for Traefik bind-mount");
     Ok(abs.to_string_lossy().to_string())
 }

@@ -3,9 +3,9 @@ pub mod auth;
 pub mod backups;
 pub mod canvas;
 pub mod catalog;
-pub mod databases;
 pub mod compose;
 pub mod containers;
+pub mod databases;
 pub mod deployments;
 pub mod domains;
 pub mod env;
@@ -13,6 +13,7 @@ pub mod images;
 pub mod networks;
 pub mod projects;
 pub mod proxy;
+pub mod registries;
 pub mod resources;
 pub mod s3;
 pub mod servers;
@@ -50,10 +51,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/webhooks/github", post(webhooks::github))
         .route("/webhooks/gitlab", post(webhooks::gitlab))
         // GitHub App manifest callback (public — GitHub redirects here)
-        .route(
-            "/sources/github/callback",
-            get(sources::github_callback),
-        );
+        .route("/sources/github/callback", get(sources::github_callback));
 
     let protected = Router::new()
         // Auth
@@ -93,6 +91,16 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
                 .put(projects::update)
                 .delete(projects::delete),
         )
+        // Registry credentials (per-project + global)
+        .route(
+            "/registries",
+            get(registries::list).post(registries::create),
+        )
+        .route(
+            "/registries/{id}",
+            put(registries::update).delete(registries::remove),
+        )
+        .route("/registries/{id}/test", post(registries::test))
         // Catalog
         .route("/catalog", get(catalog::list))
         .route("/catalog/{id}", get(catalog::get))
@@ -112,18 +120,9 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/port-public",
             put(resources::set_port_public),
         )
-        .route(
-            "/resources/{id}/network",
-            put(resources::set_network),
-        )
-        .route(
-            "/resources/{id}/settings",
-            put(resources::update_settings),
-        )
-        .route(
-            "/resources/{id}/rename",
-            put(resources::rename),
-        )
+        .route("/resources/{id}/network", put(resources::set_network))
+        .route("/resources/{id}/settings", put(resources::update_settings))
+        .route("/resources/{id}/rename", put(resources::rename))
         .route(
             "/resources/{id}/deployment-logs",
             get(resources::deployment_logs),
@@ -181,7 +180,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/sources", get(sources::list).post(sources::create))
         .route("/sources/{id}", get(sources::get).delete(sources::remove))
         .route("/sources/{id}/repos", get(sources::list_repos))
-        .route("/sources/{id}/branches/{*repo}", get(sources::list_branches))
+        .route(
+            "/sources/{id}/branches/{*repo}",
+            get(sources::list_branches),
+        )
         .route("/sources/{id}/file", get(sources::get_file))
         .route("/sources/github/manifest", get(sources::github_manifest))
         // S3 Storages
@@ -222,11 +224,20 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/system/disk-usage", get(system::disk_usage))
         .route("/system/cleanup-info", get(system::cleanup_info))
         .route("/system/cleanup", post(system::cleanup))
-        .route("/system/cleanup-settings", get(system::cleanup_settings_get).put(system::cleanup_settings_update))
+        .route(
+            "/system/cleanup-settings",
+            get(system::cleanup_settings_get).put(system::cleanup_settings_update),
+        )
         .route("/system/update-check", get(system::update_check))
         .route("/system/update", post(system::update_now))
-        .route("/system/update-settings", get(system::update_settings).put(system::save_update_settings))
-        .route("/system/timezone", get(system::get_timezone).put(system::set_timezone))
+        .route(
+            "/system/update-settings",
+            get(system::update_settings).put(system::save_update_settings),
+        )
+        .route(
+            "/system/timezone",
+            get(system::get_timezone).put(system::set_timezone),
+        )
         // Alerts (Phase 11.5) — advanced/custom rules
         .route("/alerts", get(alerts::list).post(alerts::create))
         .route("/alerts/events", get(alerts::events_feed))

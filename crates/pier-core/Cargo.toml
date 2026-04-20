@@ -83,6 +83,9 @@ hex = { workspace = true }
 # Tar archive (Docker build context)
 tar = { workspace = true }
 
+# Temp dirs (scoped registry auth for docker compose CLI)
+tempfile = { workspace = true }
+
 # HTTP body (Docker build context)
 bytes = { workspace = true }
 http-body-util = { workspace = true }

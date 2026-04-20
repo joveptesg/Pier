@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Registry Credentials{% endblock %}
+
+{% block content %}
+<div x-data="registriesPage()" x-init="init()" class="p-6 space-y-6">
+    <!-- Header -->
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Registry Credentials</h2>
+            <p class="text-sm text-gray-500 mt-0.5">Sign in to private container registries so deploys can pull images.</p>
+        </div>
+        <button @click="openCreate()"
+                class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors">
+            Add registry
+        </button>
+    </div>
+
+    <!-- Scope filter -->
+    <div class="flex gap-6 border-b border-gray-200 dark:border-gray-800">
+        <button @click="scope='all'; load()"
+                class="relative -mb-px px-1 py-3 text-sm font-medium whitespace-nowrap transition-colors"
+                :class="scope === 'all'
+                    ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500'
+                    : 'text-gray-500 dark:text-gray-400 border-b-2 border-transparent hover:text-gray-900 dark:hover:text-gray-200'">
+            All
+        </button>
+        <button @click="scope='global'; load()"
+                class="relative -mb-px px-1 py-3 text-sm font-medium whitespace-nowrap transition-colors"
+                :class="scope === 'global'
+                    ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500'
+                    : 'text-gray-500 dark:text-gray-400 border-b-2 border-transparent hover:text-gray-900 dark:hover:text-gray-200'">
+            Global only
+        </button>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+        <table class="min-w-full text-sm">
+            <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
+                <tr>
+                    <th class="px-4 py-3 text-left font-medium">Registry</th>
+                    <th class="px-4 py-3 text-left font-medium">Username</th>
+                    <th class="px-4 py-3 text-left font-medium">Scope</th>
+                    <th class="px-4 py-3 text-left font-medium">Label</th>
+                    <th class="px-4 py-3 text-left font-medium">Updated</th>
+                    <th class="px-4 py-3 text-right font-medium">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                <template x-for="row in items" :key="row.id">
+                    <tr>
+                        <td class="px-4 py-3 font-mono text-gray-900 dark:text-white" x-text="row.registry"></td>
+                        <td class="px-4 py-3 text-gray-700 dark:text-gray-300" x-text="row.username"></td>
+                        <td class="px-4 py-3">
+                            <span x-show="row.is_global" class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500">Global</span>
+                            <span x-show="!row.is_global" class="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400" x-text="'Project'"></span>
+                        </td>
+                        <td class="px-4 py-3 text-gray-500" x-text="row.label || '—'"></td>
+                        <td class="px-4 py-3 text-xs text-gray-500" x-text="formatDate(row.updated_at)"></td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="inline-flex items-center gap-2">
+                                <button @click="test(row)" :disabled="testingId === row.id"
+                                        class="px-2 py-1 text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-50">
+                                    <span x-text="testingId === row.id ? 'Testing…' : 'Test'"></span>
+                                </button>
+                                <button @click="openEdit(row)"
+                                        class="px-2 py-1 text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">Edit</button>
+                                <button @click="remove(row)"
+                                        class="px-2 py-1 text-[11px] font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20 rounded">Delete</button>
+                            </div>
+                        </td>
+                    </tr>
+                </template>
+                <tr x-show="!items.length" x-cloak>
+                    <td colspan="6" class="px-4 py-6 text-center text-xs text-gray-500">
+                        No registry credentials yet.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Status toast -->
+    <div x-show="status" x-cloak class="fixed bottom-4 right-4 px-4 py-2 rounded-lg text-sm shadow"
+         :class="statusOk ? 'bg-green-500/90 text-white' : 'bg-red-500/90 text-white'">
+        <span x-text="status"></span>
+    </div>
+
+    <!-- Modal -->
+    <div x-show="modalOpen" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+        <div class="bg-white dark:bg-gray-900 rounded-xl w-full max-w-md p-6 space-y-4">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white"
+                x-text="editing ? 'Edit registry' : 'Add registry'"></h3>
+
+            <div class="space-y-3">
+                <label class="block">
+                    <span class="block text-xs text-gray-500 mb-1">Registry host</span>
+                    <input type="text" x-model="form.registry" :disabled="editing"
+                           placeholder="ghcr.io"
+                           class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white disabled:opacity-60">
+                </label>
+                <label class="block">
+                    <span class="block text-xs text-gray-500 mb-1">Username</span>
+                    <input type="text" x-model="form.username"
+                           class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
+                </label>
+                <label class="block">
+                    <span class="block text-xs text-gray-500 mb-1">
+                        <span x-text="editing ? 'New password / token (leave blank to keep)' : 'Password / token'"></span>
+                    </span>
+                    <input type="password" x-model="form.password"
+                           class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
+                </label>
+                <label class="block">
+                    <span class="block text-xs text-gray-500 mb-1">Label (optional)</span>
+                    <input type="text" x-model="form.label" placeholder="CI token"
+                           class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
+                </label>
+            </div>
+
+            <div class="flex items-center justify-end gap-2">
+                <button @click="modalOpen=false"
+                        class="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">Cancel</button>
+                <button @click="save()" :disabled="saving"
+                        class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50">
+                    <span x-text="saving ? 'Saving…' : (editing ? 'Save' : 'Add')"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function registriesPage() {
+    return {
+        items: [],
+        scope: 'all',
+        modalOpen: false,
+        editing: null,
+        form: { registry: '', username: '', password: '', label: '', project_id: null },
+        saving: false,
+        testingId: null,
+        status: '',
+        statusOk: true,
+
+        async init() { await this.load(); },
+        async load() {
+            const url = this.scope === 'global'
+                ? '/api/v1/registries?global=true'
+                : '/api/v1/registries';
+            try {
+                this.items = await fetch(url).then(r => r.json());
+            } catch {}
+        },
+        formatDate(s) { try { return new Date(s + 'Z').toLocaleString(); } catch { return s || ''; } },
+
+        openCreate() {
+            this.editing = null;
+            this.form = { registry: '', username: '', password: '', label: '', project_id: null };
+            this.modalOpen = true;
+        },
+        openEdit(row) {
+            this.editing = row;
+            this.form = {
+                registry: row.registry,
+                username: row.username,
+                password: '',
+                label: row.label || '',
+                project_id: row.project_id,
+            };
+            this.modalOpen = true;
+        },
+
+        async save() {
+            this.saving = true;
+            try {
+                if (this.editing) {
+                    const body = { username: this.form.username, label: this.form.label };
+                    if (this.form.password) body.password = this.form.password;
+                    const r = await fetch('/api/v1/registries/' + this.editing.id, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    if (!r.ok) throw new Error((await r.json()).error || ('HTTP ' + r.status));
+                } else {
+                    const r = await fetch('/api/v1/registries', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.form),
+                    });
+                    if (!r.ok) throw new Error((await r.json()).error || ('HTTP ' + r.status));
+                }
+                this.modalOpen = false;
+                this.toast('Saved', true);
+                await this.load();
+            } catch (e) { this.toast(e.message, false); }
+            this.saving = false;
+        },
+
+        async remove(row) {
+            if (!confirm('Delete credentials for ' + row.registry + '?')) return;
+            try {
+                const r = await fetch('/api/v1/registries/' + row.id, { method: 'DELETE' });
+                if (!r.ok) throw new Error((await r.json()).error || ('HTTP ' + r.status));
+                this.toast('Deleted', true);
+                await this.load();
+            } catch (e) { this.toast(e.message, false); }
+        },
+
+        async test(row) {
+            this.testingId = row.id;
+            try {
+                const r = await fetch('/api/v1/registries/' + row.id + '/test', { method: 'POST' });
+                const j = await r.json();
+                if (j.ok) this.toast('Connection OK', true);
+                else this.toast('Failed: ' + (j.error || 'unknown'), false);
+            } catch (e) { this.toast(e.message, false); }
+            this.testingId = null;
+        },
+
+        toast(msg, ok) {
+            this.status = msg;
+            this.statusOk = ok;
+            setTimeout(() => { this.status = ''; }, 4000);
+        },
+    };
+}
+</script>
+{% endblock %}

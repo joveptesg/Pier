@@ -147,7 +147,10 @@ pub async fn run_pipeline(
     flush_log(&state, &deploy_id, &log);
 
     match build::clone_repo(&clone_url, branch, &repo_dir).await {
-        Ok(output) => { log.push_str(&output); flush_log(&state, &deploy_id, &log); }
+        Ok(output) => {
+            log.push_str(&output);
+            flush_log(&state, &deploy_id, &log);
+        }
         Err(e) => {
             log.push_str(&format!("Clone failed: {e}\n"));
             finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
@@ -160,10 +163,28 @@ pub async fn run_pipeline(
     log.push_str("Building...\n");
     flush_log(&state, &deploy_id, &log);
 
+    // Resolve registry credentials for this service's project (empty map → no auth).
+    let auth_map = {
+        let db = state.db.lock().ok();
+        db.as_ref()
+            .and_then(|d| docker::auth::auth_map_for_service(d, &service_id).ok())
+            .unwrap_or_default()
+    };
+    let build_auth = if auth_map.is_empty() {
+        None
+    } else {
+        Some(auth_map.clone())
+    };
+
     match strategy {
         "dockerfile" => {
-            match build::docker_build(&state.docker, &repo_dir, &image_tag).await {
-                Ok(output) => { log.push_str(&output); flush_log(&state, &deploy_id, &log); }
+            match build::docker_build(&state.docker, &repo_dir, &image_tag, build_auth.clone())
+                .await
+            {
+                Ok(output) => {
+                    log.push_str(&output);
+                    flush_log(&state, &deploy_id, &log);
+                }
                 Err(e) => {
                     log.push_str(&format!("Build failed: {e}\n"));
                     finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
@@ -184,7 +205,14 @@ pub async fn run_pipeline(
             log.push_str("Deploying...\n");
             flush_log(&state, &deploy_id, &log);
 
-            match docker::compose::deploy_stack(&stack_name, &yaml, &state.config).await {
+            match docker::compose::deploy_stack(
+                &stack_name,
+                &yaml,
+                &state.config,
+                build_auth.clone(),
+            )
+            .await
+            {
                 Ok(output) => {
                     log.push_str(&format!("Deploy: {output}\n"));
                     flush_log(&state, &deploy_id, &log);
@@ -210,7 +238,12 @@ pub async fn run_pipeline(
             // Write .env from service env_json into repo dir
             write_env_file(&state, &service_id, &stack_name).await;
             // Also copy .env to repo dir for docker-compose build context
-            let stack_env = state.config.data_dir.join("stacks").join(&stack_name).join(".env");
+            let stack_env = state
+                .config
+                .data_dir
+                .join("stacks")
+                .join(&stack_name)
+                .join(".env");
             if stack_env.exists() {
                 let _ = tokio::fs::copy(&stack_env, repo_dir.join(".env")).await;
             }
@@ -242,14 +275,35 @@ pub async fn run_pipeline(
                     log.push_str("Building & deploying with docker-compose...\n");
                     flush_log(&state, &deploy_id, &log);
 
+                    // Registry auth: scoped ~/.docker/config.json via DOCKER_CONFIG.
+                    let auth_dir = if auth_map.is_empty() {
+                        None
+                    } else {
+                        docker::auth::write_docker_config(&auth_map).ok().flatten()
+                    };
+
                     // Merge stderr into stdout so we get all output in one stream
-                    let child = tokio::process::Command::new("sh")
-                        .args(["-c", &format!("docker compose -p {} up -d --build 2>&1", stack_name)])
+                    let mut shell_cmd = tokio::process::Command::new("sh");
+                    shell_cmd
+                        .args([
+                            "-c",
+                            &format!("docker compose -p {} up -d --build 2>&1", stack_name),
+                        ])
                         .current_dir(&stack_dir)
-                        .env("HOME", state.config.data_dir.parent().unwrap_or(&state.config.data_dir))
+                        .env(
+                            "HOME",
+                            state
+                                .config
+                                .data_dir
+                                .parent()
+                                .unwrap_or(&state.config.data_dir),
+                        )
                         .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::null())
-                        .spawn();
+                        .stderr(std::process::Stdio::null());
+                    if let Some(dir) = &auth_dir {
+                        shell_cmd.env("DOCKER_CONFIG", dir.path());
+                    }
+                    let child = shell_cmd.spawn();
 
                     match child {
                         Ok(mut proc) => {
@@ -275,19 +329,40 @@ pub async fn run_pipeline(
                                 }
                                 Ok(_) => {
                                     log.push_str("Deploy failed (non-zero exit)\n");
-                                    finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+                                    finish_deployment(
+                                        &state,
+                                        &deploy_id,
+                                        &service_id,
+                                        "failed",
+                                        &log,
+                                        start,
+                                    );
                                     return;
                                 }
                                 Err(e) => {
                                     log.push_str(&format!("Deploy wait error: {e}\n"));
-                                    finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+                                    finish_deployment(
+                                        &state,
+                                        &deploy_id,
+                                        &service_id,
+                                        "failed",
+                                        &log,
+                                        start,
+                                    );
                                     return;
                                 }
                             }
                         }
                         Err(e) => {
                             log.push_str(&format!("Deploy failed: {e}\n"));
-                            finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+                            finish_deployment(
+                                &state,
+                                &deploy_id,
+                                &service_id,
+                                "failed",
+                                &log,
+                                start,
+                            );
                             return;
                         }
                     }
@@ -533,7 +608,12 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
         if in_services && !trimmed.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
             in_services = false; // new top-level key
         }
-        if in_services && !trimmed.is_empty() && trimmed.ends_with(':') && (line.starts_with("  ") || line.starts_with('\t')) && !line.starts_with("    ") {
+        if in_services
+            && !trimmed.is_empty()
+            && trimmed.ends_with(':')
+            && (line.starts_with("  ") || line.starts_with('\t'))
+            && !line.starts_with("    ")
+        {
             service_indices.push(i);
         }
     }
@@ -549,8 +629,14 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
         let mut end = lines.len();
         for (j, line) in lines.iter().enumerate().skip(idx + 1) {
             let trimmed = line.trim();
-            if trimmed.is_empty() { continue; }
-            if (line.starts_with("  ") || line.starts_with('\t')) && !line.starts_with("    ") && !line.starts_with("\t\t") && trimmed.ends_with(':') {
+            if trimmed.is_empty() {
+                continue;
+            }
+            if (line.starts_with("  ") || line.starts_with('\t'))
+                && !line.starts_with("    ")
+                && !line.starts_with("\t\t")
+                && trimmed.ends_with(':')
+            {
                 end = j;
                 break;
             }
@@ -567,15 +653,20 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
             let trimmed = line.trim();
             if trimmed == "networks:" && (line.starts_with("    ") || line.starts_with("\t\t")) {
                 net_start = Some(j);
-            } else if net_start.is_some() && net_end.is_none()
-                && !trimmed.starts_with("- ") && !trimmed.is_empty() {
-                    net_end = Some(j);
-                }
+            } else if net_start.is_some()
+                && net_end.is_none()
+                && !trimmed.starts_with("- ")
+                && !trimmed.is_empty()
+            {
+                net_end = Some(j);
+            }
         }
         if let Some(start) = net_start {
             let end_idx = net_end.unwrap_or(end);
             for _ in start..end_idx {
-                if start < lines.len() { lines.remove(start); }
+                if start < lines.len() {
+                    lines.remove(start);
+                }
             }
         }
 
@@ -583,8 +674,14 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
         let mut new_end = lines.len();
         for (j, line) in lines.iter().enumerate().skip(idx + 1) {
             let trimmed = line.trim();
-            if trimmed.is_empty() { continue; }
-            if (line.starts_with("  ") || line.starts_with('\t')) && !line.starts_with("    ") && !line.starts_with("\t\t") && trimmed.ends_with(':') {
+            if trimmed.is_empty() {
+                continue;
+            }
+            if (line.starts_with("  ") || line.starts_with('\t'))
+                && !line.starts_with("    ")
+                && !line.starts_with("\t\t")
+                && trimmed.ends_with(':')
+            {
                 new_end = j;
                 break;
             }
@@ -647,19 +744,28 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
         }
         if in_ports {
             if trimmed.starts_with("- ") {
-                let port_str = trimmed.strip_prefix("- ").unwrap_or("").trim().trim_matches('"').trim_matches('\'');
+                let port_str = trimmed
+                    .strip_prefix("- ")
+                    .unwrap_or("")
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'');
                 // Remove protocol suffix (/tcp, /udp)
                 let port_str = port_str.split('/').next().unwrap_or(port_str);
                 // Parse: "host:container" or "ip:host:container"
                 let parts: Vec<&str> = port_str.split(':').collect();
                 match parts.len() {
                     2 => {
-                        if let (Ok(host), Ok(container)) = (parts[0].parse::<u16>(), parts[1].parse::<u16>()) {
+                        if let (Ok(host), Ok(container)) =
+                            (parts[0].parse::<u16>(), parts[1].parse::<u16>())
+                        {
                             ports.push((host, container));
                         }
                     }
                     3 => {
-                        if let (Ok(host), Ok(container)) = (parts[1].parse::<u16>(), parts[2].parse::<u16>()) {
+                        if let (Ok(host), Ok(container)) =
+                            (parts[1].parse::<u16>(), parts[2].parse::<u16>())
+                        {
                             ports.push((host, container));
                         }
                     }
@@ -676,7 +782,9 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
         }
     }
 
-    if ports.is_empty() { return; }
+    if ports.is_empty() {
+        return;
+    }
 
     if let Ok(db) = state.db.lock() {
         // Preserve existing public-exposure state across redeploys: a compose
@@ -704,11 +812,18 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
         };
 
         // Delete old port allocations for this service
-        let _ = db.execute("DELETE FROM port_allocations WHERE service_id = ?1", [service_id]);
+        let _ = db.execute(
+            "DELETE FROM port_allocations WHERE service_id = ?1",
+            [service_id],
+        );
 
         // Insert new ports from compose, restoring is_public/public_port by port_name.
         for (i, (host_port, container_port)) in ports.iter().enumerate() {
-            let port_name = if i == 0 { "primary".to_string() } else { format!("port-{}", i) };
+            let port_name = if i == 0 {
+                "primary".to_string()
+            } else {
+                format!("port-{}", i)
+            };
             let id = uuid::Uuid::new_v4().to_string();
             let (is_public, public_port) = prev_public
                 .get(&port_name)
@@ -1005,7 +1120,11 @@ fn regenerate_domain_configs(state: &AppState, service_id: &str) {
     } else {
         tracing::info!(
             "Regenerated Traefik configs for {service_id}: {} → {target_url}",
-            domains.iter().map(|(d, _)| d.as_str()).collect::<Vec<_>>().join(", ")
+            domains
+                .iter()
+                .map(|(d, _)| d.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
 }

@@ -280,7 +280,9 @@ pub async fn heartbeat(
                     &s,
                     "server_reachable",
                     None,
-                    format!("Server {name} is back online (id: {sid}, previous status: {prev_status})"),
+                    format!(
+                        "Server {name} is back online (id: {sid}, previous status: {prev_status})"
+                    ),
                 )
                 .await;
             });
@@ -332,33 +334,35 @@ pub async fn get(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    let server = db.query_row(
-        "SELECT id, name, host, port, agent_token, status, last_heartbeat, os_info,
+    let server = db
+        .query_row(
+            "SELECT id, name, host, port, agent_token, status, last_heartbeat, os_info,
                 cpu_count, memory_total, docker_version, is_local, created_at,
                 country, city, country_code
          FROM servers WHERE id = ?1",
-        [&id],
-        |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "name": row.get::<_, String>(1)?,
-                "host": row.get::<_, String>(2)?,
-                "port": row.get::<_, i64>(3)?,
-                "agent_token": row.get::<_, String>(4)?,
-                "status": row.get::<_, String>(5)?,
-                "last_heartbeat": row.get::<_, Option<String>>(6)?,
-                "os_info": row.get::<_, Option<String>>(7)?,
-                "cpu_count": row.get::<_, Option<i64>>(8)?,
-                "memory_total": row.get::<_, Option<i64>>(9)?,
-                "docker_version": row.get::<_, Option<String>>(10)?,
-                "is_local": row.get::<_, bool>(11)?,
-                "created_at": row.get::<_, String>(12)?,
-                "country": row.get::<_, Option<String>>(13)?,
-                "city": row.get::<_, Option<String>>(14)?,
-                "country_code": row.get::<_, Option<String>>(15)?,
-            }))
-        },
-    ).map_err(|_| AppError::NotFound(format!("Server {id} not found")))?;
+            [&id],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "name": row.get::<_, String>(1)?,
+                    "host": row.get::<_, String>(2)?,
+                    "port": row.get::<_, i64>(3)?,
+                    "agent_token": row.get::<_, String>(4)?,
+                    "status": row.get::<_, String>(5)?,
+                    "last_heartbeat": row.get::<_, Option<String>>(6)?,
+                    "os_info": row.get::<_, Option<String>>(7)?,
+                    "cpu_count": row.get::<_, Option<i64>>(8)?,
+                    "memory_total": row.get::<_, Option<i64>>(9)?,
+                    "docker_version": row.get::<_, Option<String>>(10)?,
+                    "is_local": row.get::<_, bool>(11)?,
+                    "created_at": row.get::<_, String>(12)?,
+                    "country": row.get::<_, Option<String>>(13)?,
+                    "city": row.get::<_, Option<String>>(14)?,
+                    "country_code": row.get::<_, Option<String>>(15)?,
+                }))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Server {id} not found")))?;
 
     // Count services on this server
     let service_count: i64 = db.query_row(
@@ -416,7 +420,9 @@ pub async fn containers(
         .send()
         .await
         .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON: {e}")))?;
     Ok(Json(data))
 }
@@ -431,12 +437,16 @@ pub async fn deploy_to_server(
 
     if is_local {
         // Deploy locally
-        let stack_name = body["stack_name"].as_str()
+        let stack_name = body["stack_name"]
+            .as_str()
             .ok_or_else(|| AppError::BadRequest("stack_name required".into()))?;
-        let compose_yaml = body["compose_yaml"].as_str()
+        let compose_yaml = body["compose_yaml"]
+            .as_str()
             .ok_or_else(|| AppError::BadRequest("compose_yaml required".into()))?;
-        let output = crate::docker::compose::deploy_stack(stack_name, compose_yaml, &state.config).await
-            .map_err(AppError::Internal)?;
+        let output =
+            crate::docker::compose::deploy_stack(stack_name, compose_yaml, &state.config, None)
+                .await
+                .map_err(AppError::Internal)?;
         return Ok(Json(serde_json::json!({"ok": true, "output": output})));
     }
 
@@ -453,7 +463,9 @@ pub async fn deploy_to_server(
         .send()
         .await
         .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON: {e}")))?;
     Ok(Json(data))
 }
@@ -467,9 +479,11 @@ pub async fn stop_on_server(
     let (host, port, agent_token, is_local) = get_server_info(&state, &id)?;
 
     if is_local {
-        let stack_name = body["stack_name"].as_str()
+        let stack_name = body["stack_name"]
+            .as_str()
             .ok_or_else(|| AppError::BadRequest("stack_name required".into()))?;
-        let output = crate::docker::compose::down_stack(stack_name, &state.config).await
+        let output = crate::docker::compose::down_stack(stack_name, &state.config)
+            .await
             .map_err(AppError::Internal)?;
         return Ok(Json(serde_json::json!({"ok": true, "output": output})));
     }
@@ -486,7 +500,9 @@ pub async fn stop_on_server(
         .send()
         .await
         .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON: {e}")))?;
     Ok(Json(data))
 }
@@ -503,13 +519,21 @@ pub async fn install_script(
 
     // Get Pier server's public IP and port
     let server_ip = {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row("SELECT value FROM settings WHERE key = 'server.public_ip'", [], |row| row.get::<_, String>(0))
-            .unwrap_or_else(|_| "YOUR_PIER_SERVER_IP".to_string())
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT value FROM settings WHERE key = 'server.public_ip'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| "YOUR_PIER_SERVER_IP".to_string())
     };
     let pier_port = state.config.port;
 
-    let script = format!(r#"#!/bin/bash
+    let script = format!(
+        r#"#!/bin/bash
 set -e
 
 # Pier Agent Installer
@@ -588,7 +612,8 @@ curl -s -X POST "$PIER_CORE_URL/api/v1/servers/heartbeat" \
 
 echo ""
 echo "Agent registered with Pier core."
-"#);
+"#
+    );
 
     Ok((
         [(axum::http::header::CONTENT_TYPE, "text/x-shellscript")],
@@ -605,11 +630,14 @@ fn get_server_info(state: &SharedState, id: &str) -> Result<(String, i64, String
     db.query_row(
         "SELECT host, port, agent_token, is_local FROM servers WHERE id = ?1",
         [id],
-        |row| Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, bool>(3)?,
-        )),
-    ).map_err(|_| AppError::NotFound(format!("Server {id} not found")))
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, bool>(3)?,
+            ))
+        },
+    )
+    .map_err(|_| AppError::NotFound(format!("Server {id} not found")))
 }
