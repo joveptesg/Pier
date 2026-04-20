@@ -1,3 +1,4 @@
+pub mod account;
 pub mod alerts;
 pub mod auth;
 pub mod backups;
@@ -58,6 +59,15 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Auth
         .route("/auth/logout", post(auth::logout))
         .route("/auth/session", get(auth::session_check))
+        // Account (current-user profile, password, sessions)
+        .route("/account/me", get(account::me))
+        .route("/account/password", put(account::change_password))
+        .route("/account/sessions", get(account::list_sessions))
+        .route(
+            "/account/sessions/revoke-others",
+            post(account::revoke_other_sessions),
+        )
+        .route("/account/sessions/{id}", delete(account::revoke_session))
         // Containers
         .route("/containers", get(containers::list))
         .route(

@@ -12,6 +12,10 @@ pub struct AuthUser {
     pub id: String,
     pub username: String,
     pub role: String,
+    /// ID of the session cookie this request authenticated with. Lets handlers
+    /// distinguish "current session" from other active sessions (e.g. to avoid
+    /// revoking the caller's own session in /account/sessions).
+    pub session_id: String,
 }
 
 /// Middleware that checks for a valid session cookie.
@@ -54,6 +58,7 @@ pub async fn require_auth(
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
+        let sid = session_id.clone();
         let result = db.query_row(
             "SELECT u.id, u.username, u.role
              FROM sessions s
@@ -67,6 +72,7 @@ pub async fn require_auth(
                     id: row.get(0)?,
                     username: row.get(1)?,
                     role: row.get(2)?,
+                    session_id: sid.clone(),
                 })
             },
         );

@@ -215,14 +215,14 @@ pub async fn settings_page(
     )
 }
 
-/// GET /settings/registries
+/// GET /registries
 pub async fn registries_page(
     State(state): State<SharedState>,
     axum::Extension(user): axum::Extension<AuthUser>,
 ) -> PageResult {
     render(
         &state,
-        "settings/registries.html",
+        "registries/index.html",
         minijinja::context! { user => user.username, page => "registries" },
     )
 }

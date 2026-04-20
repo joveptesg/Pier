@@ -2,15 +2,29 @@
 {% block title %}Settings{% endblock %}
 
 {% block content %}
-<div class="p-6 space-y-6">
+<div x-data="settingsPage()" x-init="init()" class="p-6 space-y-6">
     <!-- Header -->
     <div>
         <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Settings</h2>
         <p class="text-sm text-gray-500 mt-1">Application configuration</p>
     </div>
 
-    <!-- General Settings -->
-    <div x-data="generalSettings()" x-init="load()" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+    <!-- Tabs -->
+    <div class="flex gap-6 border-b border-gray-200 dark:border-gray-800 overflow-x-auto">
+        <template x-for="t in tabs" :key="t.id">
+            <button @click="selectTab(t.id)"
+                    class="relative -mb-px px-1 py-3 text-sm font-medium whitespace-nowrap transition-colors"
+                    :class="tab === t.id
+                        ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500'
+                        : 'text-gray-500 dark:text-gray-400 border-b-2 border-transparent hover:text-gray-900 dark:hover:text-gray-200'">
+                <span x-text="t.label"></span>
+            </button>
+        </template>
+    </div>
+
+    <!-- ── Tab: General ──────────────────────────────────────── -->
+    <div x-show="tab === 'general'" x-cloak x-data="generalSettings()" x-init="load()"
+         class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
         <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">General</h3>
         <div class="space-y-4">
             <div class="flex items-center justify-between py-2">
@@ -42,52 +56,9 @@
         </div>
     </div>
 
-    <script>
-    function generalSettings() {
-        // Browser-provided IANA list — always current in modern browsers.
-        let list = [];
-        try { list = (Intl.supportedValuesOf && Intl.supportedValuesOf('timeZone')) || []; } catch {}
-        if (!list.length) {
-            list = ['UTC','Europe/London','Europe/Berlin','Europe/Moscow','Europe/Kyiv','Asia/Almaty','Asia/Dubai','Asia/Shanghai','America/New_York','America/Los_Angeles','Australia/Sydney'];
-        }
-        return {
-            appUrl: window.location.origin,
-            tz: 'UTC',
-            tzList: list,
-            tzNow: '',
-            savingTz: false,
-            tzStatus: '',
-            tzError: false,
-            async load() {
-                try {
-                    const r = await fetch('/api/v1/system/timezone').then(r => r.json());
-                    this.tz = r.timezone || 'UTC';
-                    this.tzNow = r.now || '';
-                } catch {}
-            },
-            async saveTz() {
-                this.savingTz = true;
-                this.tzStatus = '';
-                this.tzError = false;
-                try {
-                    const r = await fetch('/api/v1/system/timezone', {
-                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ timezone: this.tz }),
-                    });
-                    const j = await r.json();
-                    if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                    this.tzNow = j.now || '';
-                    this.tzStatus = 'Saved';
-                } catch (e) { this.tzStatus = e.message; this.tzError = true; }
-                this.savingTz = false;
-                setTimeout(() => { this.tzStatus = ''; }, 3000);
-            },
-        };
-    }
-    </script>
-
-    <!-- System Cleanup -->
-    <div x-data="cleanupApp()" x-init="loadInfo(); loadSettings()" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+    <!-- ── Tab: Cleanup ──────────────────────────────────────── -->
+    <div x-show="tab === 'cleanup'" x-cloak x-data="cleanupApp()" x-init="loadInfo(); loadSettings()"
+         class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
         <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">System Cleanup</h3>
 
         <!-- Current Usage -->
@@ -181,61 +152,112 @@
             </div>
         </div>
     </div>
-    <script>
-    function cleanupApp() {
-        return {
-            info: { build_cache: 0, images_reclaimable: 0, containers_size: 0 },
-            settings: { enabled: true, interval_hours: 24, prune_build_cache: true, prune_images: true, prune_containers: false },
-            cleaning: false, cleanMsg: '',
-            fmtB(b) { if (!b) return '0 B'; const k=1024,s=['B','KB','MB','GB']; const i=Math.floor(Math.log(b)/Math.log(k)); return (b/Math.pow(k,i)).toFixed(1)+' '+s[i]; },
-            async loadInfo() {
-                try { this.info = await fetch('/api/v1/system/cleanup-info').then(r => r.json()); } catch {}
-            },
-            async loadSettings() {
-                try { this.settings = await fetch('/api/v1/system/cleanup-settings').then(r => r.json()); } catch {}
-            },
-            async saveSettings() {
-                try {
-                    await fetch('/api/v1/system/cleanup-settings', {
-                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(this.settings),
-                    });
-                } catch {}
-            },
-            async runCleanup(targets) {
-                this.cleaning = true; this.cleanMsg = 'Cleaning...';
-                try {
-                    const r = await fetch('/api/v1/system/cleanup', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ targets }),
-                    }).then(r => r.json());
-                    this.cleanMsg = 'Done! Refreshing...';
-                    await this.loadInfo();
-                    this.cleanMsg = 'Cleanup complete';
-                    setTimeout(() => this.cleanMsg = '', 3000);
-                } catch (e) { this.cleanMsg = 'Error: ' + e.message; }
-                this.cleaning = false;
-            },
-        };
-    }
-    </script>
 
-    <!-- Account -->
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Account</h3>
-        <div class="space-y-4">
-            <div class="flex items-center justify-between py-2">
-                <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Username</p>
-                    <p class="text-xs text-gray-500 mt-0.5">Your account username</p>
+    <!-- ── Tab: Account ──────────────────────────────────────── -->
+    <div x-show="tab === 'account'" x-cloak x-data="accountPanel()" x-init="load()" class="space-y-6">
+        <!-- Profile info -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Profile</h3>
+            <dl class="divide-y divide-gray-100 dark:divide-gray-800/50 text-sm">
+                <div class="flex items-center justify-between py-2.5">
+                    <dt class="text-gray-500">Username</dt>
+                    <dd class="text-gray-900 dark:text-white" x-text="profile.username || '—'"></dd>
                 </div>
-                <span class="text-sm text-gray-600 dark:text-gray-400">{{ user }}</span>
+                <div class="flex items-center justify-between py-2.5">
+                    <dt class="text-gray-500">Email</dt>
+                    <dd class="text-gray-900 dark:text-white" x-text="profile.email || '—'"></dd>
+                </div>
+                <div class="flex items-center justify-between py-2.5">
+                    <dt class="text-gray-500">Role</dt>
+                    <dd>
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                              x-text="profile.role || '—'"></span>
+                    </dd>
+                </div>
+                <div class="flex items-center justify-between py-2.5">
+                    <dt class="text-gray-500">Member since</dt>
+                    <dd class="text-gray-900 dark:text-white" x-text="fmtDate(profile.created_at)"></dd>
+                </div>
+                <div class="flex items-center justify-between py-2.5">
+                    <dt class="text-gray-500">Last login</dt>
+                    <dd class="text-gray-900 dark:text-white" x-text="fmtDate(profile.last_login_at)"></dd>
+                </div>
+            </dl>
+        </div>
+
+        <!-- Change password -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Change password</h3>
+            <div class="space-y-3 max-w-md">
+                <label class="block">
+                    <span class="block text-xs text-gray-500 mb-1">Current password</span>
+                    <input type="password" x-model="pw.current" autocomplete="current-password"
+                           class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
+                </label>
+                <label class="block">
+                    <span class="block text-xs text-gray-500 mb-1">New password (min 8 chars)</span>
+                    <input type="password" x-model="pw.next" autocomplete="new-password"
+                           class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
+                </label>
+                <label class="block">
+                    <span class="block text-xs text-gray-500 mb-1">Confirm new password</span>
+                    <input type="password" x-model="pw.confirm" autocomplete="new-password"
+                           class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
+                </label>
+                <p class="text-xs text-gray-500">All other active sessions will be logged out.</p>
+                <div>
+                    <button @click="changePassword()" :disabled="pwSaving"
+                            class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50">
+                        <span x-text="pwSaving ? 'Updating…' : 'Update password'"></span>
+                    </button>
+                </div>
             </div>
+        </div>
+
+        <!-- Active sessions -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-4">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Active sessions</h3>
+                <button @click="revokeOthers()" :disabled="sessionsBusy || sessions.length < 2"
+                        class="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-50">
+                    Logout everywhere else
+                </button>
+            </div>
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
+                    <tr>
+                        <th class="px-4 py-2 text-left font-medium">Device</th>
+                        <th class="px-4 py-2 text-left font-medium">IP</th>
+                        <th class="px-4 py-2 text-left font-medium">Started</th>
+                        <th class="px-4 py-2 text-right font-medium">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                    <template x-for="s in sessions" :key="s.id">
+                        <tr>
+                            <td class="px-4 py-2 text-gray-900 dark:text-white" x-text="shortUA(s.user_agent)"></td>
+                            <td class="px-4 py-2 font-mono text-gray-600 dark:text-gray-400" x-text="s.ip_address || '—'"></td>
+                            <td class="px-4 py-2 text-xs text-gray-500" x-text="fmtDate(s.created_at)"></td>
+                            <td class="px-4 py-2 text-right">
+                                <span x-show="s.is_current" class="text-[11px] px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">This session</span>
+                                <button x-show="!s.is_current" @click="revoke(s.id)" :disabled="sessionsBusy"
+                                        class="px-2 py-0.5 text-[11px] font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20 rounded">
+                                    Revoke
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="!sessions.length" x-cloak>
+                        <td colspan="4" class="px-4 py-4 text-center text-xs text-gray-500">No active sessions.</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 
-    <!-- Danger Zone -->
-    <div class="bg-white dark:bg-gray-900 border border-red-200 dark:border-red-500/20 rounded-xl p-5">
+    <!-- ── Tab: Danger ───────────────────────────────────────── -->
+    <div x-show="tab === 'danger'" x-cloak
+         class="bg-white dark:bg-gray-900 border border-red-200 dark:border-red-500/20 rounded-xl p-5">
         <h3 class="text-sm font-medium text-red-600 dark:text-red-400 mb-4">Danger Zone</h3>
         <div class="flex items-center justify-between py-2">
             <div>
@@ -249,4 +271,192 @@
         </div>
     </div>
 </div>
+
+<script>
+function settingsPage() {
+    return {
+        tabs: [
+            { id: 'general', label: 'General' },
+            { id: 'cleanup', label: 'Cleanup' },
+            { id: 'account', label: 'Account' },
+            { id: 'danger',  label: 'Danger' },
+        ],
+        tab: 'general',
+        init() {
+            const hash = (location.hash || '').replace('#', '');
+            if (this.tabs.some(t => t.id === hash)) this.tab = hash;
+            window.addEventListener('hashchange', () => {
+                const h = (location.hash || '').replace('#', '');
+                if (this.tabs.some(t => t.id === h)) this.tab = h;
+            });
+        },
+        selectTab(id) {
+            this.tab = id;
+            history.replaceState(null, '', '#' + id);
+        },
+    };
+}
+
+function generalSettings() {
+    let list = [];
+    try { list = (Intl.supportedValuesOf && Intl.supportedValuesOf('timeZone')) || []; } catch {}
+    if (!list.length) {
+        list = ['UTC','Europe/London','Europe/Berlin','Europe/Moscow','Europe/Kyiv','Asia/Almaty','Asia/Dubai','Asia/Shanghai','America/New_York','America/Los_Angeles','Australia/Sydney'];
+    }
+    return {
+        appUrl: window.location.origin,
+        tz: 'UTC',
+        tzList: list,
+        tzNow: '',
+        savingTz: false,
+        tzStatus: '',
+        tzError: false,
+        async load() {
+            try {
+                const r = await fetch('/api/v1/system/timezone').then(r => r.json());
+                this.tz = r.timezone || 'UTC';
+                this.tzNow = r.now || '';
+            } catch {}
+        },
+        async saveTz() {
+            this.savingTz = true;
+            this.tzStatus = '';
+            this.tzError = false;
+            try {
+                const r = await fetch('/api/v1/system/timezone', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timezone: this.tz }),
+                });
+                const j = await r.json();
+                if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+                this.tzNow = j.now || '';
+                this.tzStatus = 'Saved';
+            } catch (e) { this.tzStatus = e.message; this.tzError = true; }
+            this.savingTz = false;
+            setTimeout(() => { this.tzStatus = ''; }, 3000);
+        },
+    };
+}
+
+function cleanupApp() {
+    return {
+        info: { build_cache: 0, images_reclaimable: 0, containers_size: 0 },
+        settings: { enabled: true, interval_hours: 24, prune_build_cache: true, prune_images: true, prune_containers: false },
+        cleaning: false, cleanMsg: '',
+        fmtB(b) { if (!b) return '0 B'; const k=1024,s=['B','KB','MB','GB']; const i=Math.floor(Math.log(b)/Math.log(k)); return (b/Math.pow(k,i)).toFixed(1)+' '+s[i]; },
+        async loadInfo() {
+            try { this.info = await fetch('/api/v1/system/cleanup-info').then(r => r.json()); } catch {}
+        },
+        async loadSettings() {
+            try { this.settings = await fetch('/api/v1/system/cleanup-settings').then(r => r.json()); } catch {}
+        },
+        async saveSettings() {
+            try {
+                await fetch('/api/v1/system/cleanup-settings', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.settings),
+                });
+            } catch {}
+        },
+        async runCleanup(targets) {
+            this.cleaning = true; this.cleanMsg = 'Cleaning...';
+            try {
+                await fetch('/api/v1/system/cleanup', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ targets }),
+                }).then(r => r.json());
+                this.cleanMsg = 'Done! Refreshing...';
+                await this.loadInfo();
+                this.cleanMsg = 'Cleanup complete';
+                setTimeout(() => this.cleanMsg = '', 3000);
+            } catch (e) { this.cleanMsg = 'Error: ' + e.message; }
+            this.cleaning = false;
+        },
+    };
+}
+
+function accountPanel() {
+    return {
+        profile: {},
+        sessions: [],
+        pw: { current: '', next: '', confirm: '' },
+        pwSaving: false,
+        sessionsBusy: false,
+
+        async load() {
+            await Promise.all([this.loadProfile(), this.loadSessions()]);
+        },
+        async loadProfile() {
+            try { this.profile = await fetch('/api/v1/account/me').then(r => r.json()); } catch {}
+        },
+        async loadSessions() {
+            try { this.sessions = await fetch('/api/v1/account/sessions').then(r => r.json()); } catch {}
+        },
+        fmtDate(s) {
+            if (!s) return '—';
+            try { return new Date(s.endsWith('Z') ? s : s + 'Z').toLocaleString(); } catch { return s; }
+        },
+        shortUA(ua) {
+            if (!ua) return 'Unknown';
+            const m = ua.match(/(Chrome|Firefox|Safari|Edge|Opera)[\/\s](\d+)/);
+            const os = ua.match(/(Windows|Mac|Linux|Android|iOS|iPhone|iPad)/);
+            const browser = m ? (m[1] + ' ' + m[2]) : ua.slice(0, 40);
+            return browser + (os ? ' · ' + os[1] : '');
+        },
+
+        async changePassword() {
+            if (this.pw.next !== this.pw.confirm) {
+                toast('Passwords do not match', 'error');
+                return;
+            }
+            if (this.pw.next.length < 8) {
+                toast('Password must be at least 8 characters', 'error');
+                return;
+            }
+            this.pwSaving = true;
+            try {
+                const r = await fetch('/api/v1/account/password', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ current_password: this.pw.current, new_password: this.pw.next }),
+                });
+                const j = await r.json();
+                if (r.status === 401) { toast('Current password is incorrect', 'error'); }
+                else if (!r.ok) { toast(j.error || 'Failed', 'error'); }
+                else {
+                    toast('Password updated — other sessions logged out');
+                    this.pw = { current: '', next: '', confirm: '' };
+                    await this.loadSessions();
+                }
+            } catch (e) { toast(e.message, 'error'); }
+            this.pwSaving = false;
+        },
+
+        async revoke(id) {
+            if (!confirm('Revoke this session?')) return;
+            this.sessionsBusy = true;
+            try {
+                const r = await fetch('/api/v1/account/sessions/' + id, { method: 'DELETE' });
+                if (!r.ok) throw new Error((await r.json()).error || 'Failed');
+                await this.loadSessions();
+                toast('Session revoked');
+            } catch (e) { toast(e.message, 'error'); }
+            this.sessionsBusy = false;
+        },
+
+        async revokeOthers() {
+            if (!confirm('Log out all other sessions?')) return;
+            this.sessionsBusy = true;
+            try {
+                const r = await fetch('/api/v1/account/sessions/revoke-others', { method: 'POST' });
+                const j = await r.json();
+                if (!r.ok) throw new Error(j.error || 'Failed');
+                await this.loadSessions();
+                toast('Revoked ' + (j.revoked || 0) + ' session(s)');
+            } catch (e) { toast(e.message, 'error'); }
+            this.sessionsBusy = false;
+        },
+    };
+}
+</script>
 {% endblock %}

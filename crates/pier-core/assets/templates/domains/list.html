@@ -50,6 +50,22 @@
         </div>
     </div>
 
+    <!-- Filter -->
+    <div x-show="!loading && domains.length > 0" x-cloak class="flex items-center gap-3">
+        <div class="relative flex-1 max-w-sm">
+            <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input type="text" x-model="serviceFilter"
+                   placeholder="Filter by service..."
+                   class="w-full pl-9 pr-8 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white">
+            <button x-show="serviceFilter" @click="serviceFilter = ''" x-cloak
+                    class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <span x-show="serviceFilter" x-cloak class="text-xs text-gray-500"
+              x-text="'Showing ' + filteredDomains.length + ' of ' + domains.length"></span>
+    </div>
+
     <!-- Domains Table -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
         <div x-show="loading" class="p-6 text-center text-sm text-gray-400">Loading...</div>
@@ -58,7 +74,11 @@
             <p class="text-sm text-gray-500">No domains configured</p>
             <p class="text-xs text-gray-400 mt-1">Add a custom domain or deploy a service with proxy enabled</p>
         </div>
-        <table x-show="!loading && domains.length > 0" class="w-full text-sm">
+        <div x-show="!loading && domains.length > 0 && filteredDomains.length === 0" x-cloak class="p-6 text-center">
+            <p class="text-sm text-gray-500">No domains match filter</p>
+            <button @click="serviceFilter = ''" class="text-xs text-blue-500 hover:underline mt-1">Clear filter</button>
+        </div>
+        <table x-show="!loading && filteredDomains.length > 0" class="w-full text-sm">
             <thead class="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-800">
                 <tr>
                     <th class="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Domain</th>
@@ -69,7 +89,7 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                <template x-for="d in domains" :key="d.id">
+                <template x-for="d in filteredDomains" :key="d.id">
                     <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                         <td class="px-4 py-3">
                             <div class="flex items-center gap-2">
@@ -124,6 +144,15 @@ function domainsPage() {
         busy: false,
         toast: '',
         toastType: 'success',
+        serviceFilter: '',
+
+        get filteredDomains() {
+            const q = this.serviceFilter.trim().toLowerCase();
+            if (!q) return this.domains;
+            return this.domains.filter(d =>
+                (d.service_name || d.service_id || '').toLowerCase().includes(q)
+            );
+        },
 
         async load() {
             try {
