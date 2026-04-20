@@ -205,7 +205,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/sources/github/manifest", get(sources::github_manifest))
         // S3 Storages
         .route("/s3", get(s3::list).post(s3::create))
-        .route("/s3/{id}", delete(s3::remove))
+        .route("/s3/{id}", put(s3::update).delete(s3::remove))
         .route("/s3/{id}/test", post(s3::test))
         // Servers
         .route("/servers", get(servers::list).post(servers::create))

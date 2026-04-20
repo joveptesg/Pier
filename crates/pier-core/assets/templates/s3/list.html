@@ -9,7 +9,7 @@
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">S3 Storages</h2>
             <p class="text-sm text-gray-500 mt-0.5">S3-compatible storage for database backups and file storage</p>
         </div>
-        <button @click="showAdd = true"
+        <button @click="resetForm(); showAdd = true"
                 class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
             Add Storage
@@ -41,6 +41,7 @@
                     </div>
                     <div class="flex items-center gap-3">
                         <button @click="testConnection(s.id)" class="text-xs text-blue-500 hover:text-blue-700 transition-colors">Test</button>
+                        <button @click="editStorage(s)" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Edit</button>
                         <button @click="removeStorage(s.id)" class="text-xs text-red-500 hover:text-red-700 transition-colors">Remove</button>
                     </div>
                 </div>
@@ -48,10 +49,10 @@
         </template>
     </div>
 
-    <!-- Add Storage Modal -->
-    <div x-show="showAdd" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showAdd = false">
+    <!-- Add/Edit Storage Modal -->
+    <div x-show="showAdd" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="closeModal()">
             <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add S3 Storage</h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="editingId ? 'Edit S3 Storage' : 'Add S3 Storage'"></h3>
             <div class="grid grid-cols-2 gap-3">
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
@@ -92,13 +93,13 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Secret Key</label>
-                    <input x-model="form.secret_key" type="password" placeholder="secret"
+                    <input x-model="form.secret_key" type="password" :placeholder="editingId ? 'Leave empty to keep current' : 'secret'"
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
             </div>
             <div class="flex justify-end gap-2 pt-2">
-                <button @click="showAdd = false" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200">Cancel</button>
-                <button @click="addStorage()" class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Save</button>
+                <button @click="closeModal()" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200">Cancel</button>
+                <button @click="saveStorage()" class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Save</button>
             </div>
             </div>
         </div>
@@ -111,6 +112,7 @@ function s3Data() {
         storages: [],
         loading: true,
         showAdd: false,
+        editingId: null,
         form: { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '' },
         async init() {
             try {
@@ -118,18 +120,46 @@ function s3Data() {
             } catch { this.storages = []; }
             this.loading = false;
         },
-        async addStorage() {
+        resetForm() {
+            this.form = { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '' };
+            this.editingId = null;
+        },
+        closeModal() {
+            this.showAdd = false;
+            this.resetForm();
+        },
+        editStorage(s) {
+            this.editingId = s.id;
+            this.form = {
+                name: s.name,
+                storage_type: s.storage_type || 's3',
+                endpoint: s.endpoint,
+                region: s.region || '',
+                bucket: s.bucket,
+                access_key: s.access_key,
+                secret_key: '',
+            };
+            this.showAdd = true;
+        },
+        async saveStorage() {
             if (!this.form.name || !this.form.endpoint || !this.form.bucket) {
                 toast('Name, endpoint, and bucket are required', 'error'); return;
             }
             try {
-                await api('/api/v1/s3', {
-                    method: 'POST',
-                    body: JSON.stringify(this.form),
-                });
-                toast('Storage added');
-                this.showAdd = false;
-                this.form = { name: '', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '' };
+                if (this.editingId) {
+                    await api('/api/v1/s3/' + this.editingId, {
+                        method: 'PUT',
+                        body: JSON.stringify(this.form),
+                    });
+                    toast('Storage updated');
+                } else {
+                    await api('/api/v1/s3', {
+                        method: 'POST',
+                        body: JSON.stringify(this.form),
+                    });
+                    toast('Storage added');
+                }
+                this.closeModal();
                 await this.init();
             } catch (e) { toast(e.message, 'error'); }
         },

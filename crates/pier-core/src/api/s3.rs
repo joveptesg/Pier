@@ -19,6 +19,20 @@ pub struct CreateS3Request {
     pub secret_key: String,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateS3Request {
+    pub name: String,
+    #[serde(default = "default_s3_type")]
+    pub storage_type: String,
+    pub endpoint: String,
+    #[serde(default)]
+    pub region: String,
+    pub bucket: String,
+    pub access_key: String,
+    #[serde(default)]
+    pub secret_key: String,
+}
+
 fn default_s3_type() -> String {
     "s3".to_string()
 }
@@ -84,6 +98,64 @@ pub async fn create(
         ],
     )?;
     Ok(Json(serde_json::json!({"ok": true, "id": id})))
+}
+
+/// PUT /api/v1/s3/{id}
+pub async fn update(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateS3Request>,
+) -> AppResult<impl IntoResponse> {
+    if body.name.trim().is_empty()
+        || body.endpoint.trim().is_empty()
+        || body.bucket.trim().is_empty()
+    {
+        return Err(AppError::BadRequest(
+            "Name, endpoint, and bucket are required".into(),
+        ));
+    }
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let rows = if body.secret_key.is_empty() {
+        db.execute(
+            "UPDATE s3_storages
+             SET name = ?1, storage_type = ?2, endpoint = ?3, region = ?4,
+                 bucket = ?5, access_key = ?6
+             WHERE id = ?7",
+            rusqlite::params![
+                body.name.trim(),
+                body.storage_type,
+                body.endpoint.trim(),
+                body.region,
+                body.bucket.trim(),
+                body.access_key,
+                id,
+            ],
+        )?
+    } else {
+        db.execute(
+            "UPDATE s3_storages
+             SET name = ?1, storage_type = ?2, endpoint = ?3, region = ?4,
+                 bucket = ?5, access_key = ?6, secret_key = ?7
+             WHERE id = ?8",
+            rusqlite::params![
+                body.name.trim(),
+                body.storage_type,
+                body.endpoint.trim(),
+                body.region,
+                body.bucket.trim(),
+                body.access_key,
+                body.secret_key,
+                id,
+            ],
+        )?
+    };
+    if rows == 0 {
+        return Err(AppError::NotFound(format!("S3 storage {id} not found")));
+    }
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 /// DELETE /api/v1/s3/{id}
