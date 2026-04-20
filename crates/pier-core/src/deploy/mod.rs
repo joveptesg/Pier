@@ -86,6 +86,15 @@ pub async fn run_pipeline(
             Ok(db) => db,
             Err(_) => return,
         };
+        // Supersede any prior in-flight deployments for this service.
+        // The old tokio task may still run to completion — `finish_deployment`
+        // guards with `status='building'` so it won't overwrite this.
+        let _ = db.execute(
+            "UPDATE deployments
+             SET status = 'cancelled', finished_at = datetime('now')
+             WHERE service_id = ?1 AND status IN ('building', 'pending')",
+            [&service_id],
+        );
         let _ = db.execute(
             "INSERT INTO deployments (id, service_id, commit_sha, commit_message, branch, status, triggered_by, image_tag)
              VALUES (?1, ?2, ?3, ?4, ?5, 'building', ?6, ?7)",
@@ -522,10 +531,19 @@ fn finish_deployment(
     };
 
     if let Ok(db) = state.db.lock() {
-        let _ = db.execute(
-            "UPDATE deployments SET status = ?1, build_log = ?2, duration_secs = ?3, finished_at = datetime('now') WHERE id = ?4",
-            rusqlite::params![status, log, duration, deploy_id],
-        );
+        // Only finalise if still in progress — a later redeploy may have
+        // marked this row 'cancelled'; don't resurrect it.
+        let updated = db
+            .execute(
+                "UPDATE deployments SET status = ?1, build_log = ?2, duration_secs = ?3, finished_at = datetime('now')
+                 WHERE id = ?4 AND status IN ('building', 'pending')",
+                rusqlite::params![status, log, duration, deploy_id],
+            )
+            .unwrap_or(0);
+        if updated == 0 {
+            // Row was superseded (cancelled) — don't touch the service row either.
+            return;
+        }
         let _ = db.execute(
             "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
             rusqlite::params![service_status, service_id],

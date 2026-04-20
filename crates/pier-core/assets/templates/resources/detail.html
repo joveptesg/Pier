@@ -109,6 +109,9 @@
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Environment</button>
         <button @click="tab = 'domains'" :class="tab === 'domains' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Domains</button>
+        <button x-show="supportsScaling && !clusterInfo?.cluster" @click="tab = 'scale'; loadScaleInfo()"
+                :class="tab === 'scale' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Scale</button>
         <button @click="tab = 'git'; loadGitConfig()" :class="tab === 'git' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Git</button>
         <button @click="tab = 'deployments'; loadDeployments(); loadDeploymentLogs()" :class="tab === 'deployments' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
@@ -155,78 +158,6 @@
                               :class="resource.status === 'running' ? 'bg-green-500' : 'bg-gray-400'"></span>
                     </div>
                 </template>
-            </div>
-        </div>
-
-        <!-- Scale & Load Balancer (stateless services only) -->
-        <div x-show="scaleInfo && !clusterInfo?.cluster && supportsScaling"
-             class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Scale &amp; Load Balancer</h3>
-                <span class="text-xs text-gray-400" x-text="(scaleInfo.replicas || 1) + ' replica' + ((scaleInfo.replicas || 1) !== 1 ? 's' : '')"></span>
-            </div>
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Total replicas</label>
-                    <div class="flex items-center gap-3">
-                        <input type="range" min="1" max="10" x-model.number="scaleInfo.replicas"
-                               @input="rebalanceDistribution()"
-                               class="flex-1 accent-blue-500">
-                        <input type="number" min="1" max="10" x-model.number="scaleInfo.replicas"
-                               @input="rebalanceDistribution()"
-                               class="w-16 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100">
-                    </div>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Strategy</label>
-                    <select x-model="scaleInfo.strategy"
-                            class="w-full px-2 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100">
-                        <option value="round-robin">Round-robin</option>
-                        <option value="weighted">Weighted</option>
-                        <option value="sticky">Sticky sessions (cookie)</option>
-                    </select>
-                </div>
-
-                <div x-show="scaleInfo.strategy === 'sticky'">
-                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Session cookie name</label>
-                    <input type="text" x-model="scaleInfo.sticky_cookie" placeholder="PIER_SESSION"
-                           class="w-full px-2 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100">
-                </div>
-
-                <div>
-                    <div class="flex items-center justify-between mb-1">
-                        <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Per-server placement</label>
-                    </div>
-                    <div class="space-y-2">
-                        <template x-for="row in scaleInfo.distribution" :key="row.server_id">
-                            <div class="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
-                                <span class="text-xs text-gray-500 font-mono flex-1" x-text="row.server_name"></span>
-                                <label class="text-xs text-gray-500">replicas
-                                    <input type="number" min="0" max="10" x-model.number="row.replicas"
-                                           @input="recomputeTotal()"
-                                           class="w-14 ml-1 px-1.5 py-0.5 text-xs bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded">
-                                </label>
-                                <label x-show="scaleInfo.strategy === 'weighted'" class="text-xs text-gray-500">weight
-                                    <input type="number" min="1" max="100" x-model.number="row.weight"
-                                           class="w-14 ml-1 px-1.5 py-0.5 text-xs bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded">
-                                </label>
-                                <span class="text-xs text-gray-400" x-text="(row.running || 0) + '/' + row.replicas"></span>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-
-                <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
-                    <button @click="loadScaleInfo()"
-                            class="px-3 py-1.5 text-xs font-medium rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
-                        Reset
-                    </button>
-                    <button @click="applyLoadBalance()" :disabled="scaleApplying"
-                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
-                        <span x-text="scaleApplying ? 'Applying…' : 'Apply'"></span>
-                    </button>
-                </div>
             </div>
         </div>
 
@@ -669,6 +600,86 @@ NODE_ENV=production"></textarea>
         <!-- Add Domain Modal moved to global level -->
     </div>
 
+    <!-- Scale Tab (stateless services only) -->
+    <div x-show="tab === 'scale'" class="space-y-4">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Scale &amp; Load Balancer</h3>
+                    <p class="text-xs text-gray-500 mt-0.5">Run multiple replicas of this service and distribute traffic via Traefik.</p>
+                </div>
+                <span x-show="scaleInfo" class="text-xs text-gray-400"
+                      x-text="(scaleInfo?.replicas || 1) + ' replica' + ((scaleInfo?.replicas || 1) !== 1 ? 's' : '')"></span>
+            </div>
+
+            <div x-show="!scaleInfo" class="text-sm text-gray-400 py-6 text-center">Loading…</div>
+
+            <div x-show="scaleInfo" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Total replicas</label>
+                    <div class="flex items-center gap-3">
+                        <input type="range" min="1" max="10" x-model.number="scaleInfo.replicas"
+                               @input="rebalanceDistribution()"
+                               class="flex-1 accent-blue-500">
+                        <input type="number" min="1" max="10" x-model.number="scaleInfo.replicas"
+                               @input="rebalanceDistribution()"
+                               class="w-16 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Strategy</label>
+                    <select x-model="scaleInfo.strategy"
+                            class="w-full px-2 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100">
+                        <option value="round-robin">Round-robin</option>
+                        <option value="weighted">Weighted</option>
+                        <option value="sticky">Sticky sessions (cookie)</option>
+                    </select>
+                </div>
+
+                <div x-show="scaleInfo.strategy === 'sticky'">
+                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Session cookie name</label>
+                    <input type="text" x-model="scaleInfo.sticky_cookie" placeholder="PIER_SESSION"
+                           class="w-full px-2 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100">
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Per-server placement</label>
+                    </div>
+                    <div class="space-y-2">
+                        <template x-for="row in scaleInfo.distribution" :key="row.server_id">
+                            <div class="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                                <span class="text-xs text-gray-500 font-mono flex-1" x-text="row.server_name"></span>
+                                <label class="text-xs text-gray-500">replicas
+                                    <input type="number" min="0" max="10" x-model.number="row.replicas"
+                                           @input="recomputeTotal()"
+                                           class="w-14 ml-1 px-1.5 py-0.5 text-xs bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded">
+                                </label>
+                                <label x-show="scaleInfo.strategy === 'weighted'" class="text-xs text-gray-500">weight
+                                    <input type="number" min="1" max="100" x-model.number="row.weight"
+                                           class="w-14 ml-1 px-1.5 py-0.5 text-xs bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded">
+                                </label>
+                                <span class="text-xs text-gray-400" x-text="(row.running || 0) + '/' + row.replicas"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
+                    <button @click="loadScaleInfo()"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
+                        Reset
+                    </button>
+                    <button @click="applyLoadBalance()" :disabled="scaleApplying"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                        <span x-text="scaleApplying ? 'Applying…' : 'Apply'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Git Tab -->
     <div x-show="tab === 'git'" class="space-y-4">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
@@ -774,10 +785,10 @@ NODE_ENV=production"></textarea>
             <div x-show="!selectedDeploy" class="space-y-3">
                 <template x-for="dep in ciDeployments.slice((deploysPage-1)*deploysPerPage, deploysPage*deploysPerPage)" :key="dep.id">
                     <div class="border-l-2 pl-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-r-lg transition-colors" @click="openDeployDetail(dep.id)"
-                         :class="dep.status === 'success' ? 'border-green-500' : dep.status === 'failed' ? 'border-red-500' : dep.status === 'building' ? 'border-blue-500' : 'border-yellow-400'">
+                         :class="dep.status === 'success' ? 'border-green-500' : dep.status === 'failed' ? 'border-red-500' : dep.status === 'cancelled' ? 'border-gray-400' : dep.status === 'building' ? 'border-blue-500' : 'border-yellow-400'">
                         <div class="flex items-center gap-2 mb-1">
                             <span class="text-xs font-medium px-2 py-0.5 rounded-full"
-                                  :class="dep.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : dep.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : dep.status === 'building' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'"
+                                  :class="dep.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : dep.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : dep.status === 'cancelled' ? 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400' : dep.status === 'building' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'"
                                   x-text="dep.status.charAt(0).toUpperCase() + dep.status.slice(1)"></span>
                             <span x-show="dep.commit_sha" class="text-xs font-mono text-gray-500" x-text="(dep.commit_sha || '').substring(0,8)"></span>
                             <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500" x-text="dep.triggered_by"></span>
@@ -800,9 +811,14 @@ NODE_ENV=production"></textarea>
                 </button>
                 <div class="flex items-center gap-3 mb-3">
                     <span class="text-xs font-medium px-2 py-0.5 rounded-full"
-                          :class="selectedDeploy?.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : selectedDeploy?.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400'"
+                          :class="selectedDeploy?.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : selectedDeploy?.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : selectedDeploy?.status === 'cancelled' ? 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400' : 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400'"
                           x-text="(selectedDeploy?.status || '').charAt(0).toUpperCase() + (selectedDeploy?.status || '').slice(1)"></span>
                     <span class="text-sm font-medium text-gray-700 dark:text-gray-300" x-text="selectedDeploy?.commit_message || 'Manual deployment'"></span>
+                    <button x-show="selectedDeploy?.status === 'building' || selectedDeploy?.status === 'pending'"
+                            @click="cancelDeployment(selectedDeploy.id)" :disabled="cancellingDeploy"
+                            class="ml-auto px-3 py-1 text-xs font-medium rounded-lg bg-red-100 dark:bg-red-600/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-600/30 transition-colors disabled:opacity-50">
+                        <span x-text="cancellingDeploy ? 'Cancelling…' : 'Cancel deploy'"></span>
+                    </button>
                 </div>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                     <div><span class="text-gray-500 block">Commit</span><span class="font-mono text-gray-300" x-text="(selectedDeploy?.commit_sha || '-').substring(0,12)"></span></div>
@@ -1162,7 +1178,7 @@ function resourceDetail(id) {
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitSources: [], showWebhookSecret: false,
-        ciDeployments: [], expandedLog: null, selectedDeploy: null, deploysPage: 1, deploysPerPage: 10,
+        ciDeployments: [], expandedLog: null, selectedDeploy: null, deploysPage: 1, deploysPerPage: 10, cancellingDeploy: false,
         togglingPublic: false,
         publicPort: 0,
         changingNetwork: false,
@@ -1877,6 +1893,23 @@ function resourceDetail(id) {
                 this.resource[key] = newVal;
                 toast(key.replace('_', ' ') + ' ' + (newVal ? 'enabled' : 'disabled'));
             } catch(e) { toast(e.message, 'error'); }
+        },
+        async cancelDeployment(depId) {
+            if (!depId) return;
+            if (!confirm('Cancel this deployment? The build task may still finish in the background, but the deployment will be marked cancelled.')) return;
+            this.cancellingDeploy = true;
+            try {
+                await api('/api/v1/resources/'+this.id+'/deployments/'+depId+'/cancel', { method: 'POST' });
+                toast('Deployment cancelled');
+                await this.refresh();
+                await this.loadDeployments();
+                const latest = this.ciDeployments.find(d => d.id === depId);
+                if (latest) this.selectedDeploy = {...this.selectedDeploy, ...latest};
+            } catch (e) {
+                toast(e.message || 'Cancel failed', 'error');
+            } finally {
+                this.cancellingDeploy = false;
+            }
         },
         async rollbackDeploy() {
             if(!confirm('Rollback to the previous version?'))return;

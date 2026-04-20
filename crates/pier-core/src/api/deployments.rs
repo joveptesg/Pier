@@ -81,6 +81,52 @@ pub async fn get(
     Ok(Json(deployment))
 }
 
+/// POST /api/v1/resources/{id}/deployments/{dep_id}/cancel — mark an in-flight
+/// deployment as cancelled. The underlying build task is not killed (we don't
+/// track `JoinHandle`s); the guard in `finish_deployment` ensures it won't
+/// resurrect the cancelled row.
+pub async fn cancel(
+    State(state): State<SharedState>,
+    Path((id, dep_id)): Path<(String, String)>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let updated = db.execute(
+        "UPDATE deployments
+         SET status = 'cancelled', finished_at = datetime('now')
+         WHERE id = ?1 AND service_id = ?2 AND status IN ('building', 'pending')",
+        rusqlite::params![dep_id, id],
+    )?;
+
+    if updated == 0 {
+        return Err(AppError::Conflict(
+            "Deployment is not in progress".into(),
+        ));
+    }
+
+    // Clear the service's 'deploying' flag if no other deploy is active.
+    let still_active: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM deployments
+             WHERE service_id = ?1 AND status IN ('building', 'pending')",
+            [&id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if still_active == 0 {
+        let _ = db.execute(
+            "UPDATE services SET status = 'running', updated_at = datetime('now')
+             WHERE id = ?1 AND status = 'deploying'",
+            [&id],
+        );
+    }
+
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 /// POST /api/v1/resources/{id}/deploy — manual deploy trigger.
 pub async fn manual_deploy(
     State(state): State<SharedState>,

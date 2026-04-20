@@ -157,6 +157,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/deployments/{dep_id}",
             get(deployments::get),
         )
+        .route(
+            "/resources/{id}/deployments/{dep_id}/cancel",
+            post(deployments::cancel),
+        )
         // Database management (PostgreSQL/MySQL)
         .route(
             "/resources/{id}/databases",
