@@ -164,8 +164,8 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Ports</h3>
-                <div x-show="(resource.ports || []).length > 0" class="space-y-2">
-                    <template x-for="(p, i) in resource.ports || []" :key="p.name">
+                <div x-show="logicalPorts.length > 0" class="space-y-2">
+                    <template x-for="(p, i) in logicalPorts" :key="p.container + '-' + (p.is_public ? 'pub' : 'priv')">
                         <div class="flex items-center justify-between text-sm">
                             <span class="text-gray-500" x-text="p.name"></span>
                             <div class="flex items-center gap-2">
@@ -176,13 +176,23 @@
                                       class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
                                       :title="domains.map(d => d.domain).join(', ')"
                                       x-text="'+ ' + domains.length + ' domain' + (domains.length > 1 ? 's' : '')"></span>
-                                <code class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
-                                      x-text="(p.is_public ? (resource.public_ip || '0.0.0.0') : '127.0.0.1') + ':' + (p.is_public && p.public_port ? p.public_port : p.host) + ':' + p.container"></code>
+                                <code x-show="p.is_public"
+                                      class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
+                                      x-text="(resource.public_ip || '0.0.0.0') + ':' + p.public_port + ' \u2192 :' + p.container"></code>
+                                <code x-show="!p.is_public && replicaCount <= 1"
+                                      class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
+                                      x-text="'127.0.0.1:' + p.host + ' \u2192 :' + p.container"></code>
+                                <code x-show="!p.is_public && replicaCount > 1"
+                                      class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
+                                      x-text="'internal \u2192 :' + p.container"></code>
                             </div>
                         </div>
                     </template>
+                    <p x-show="replicaCount > 1" class="text-xs text-gray-400 mt-1">
+                        × <span x-text="replicaCount"></span> replicas &mdash; Traefik load-balances internally
+                    </p>
                 </div>
-                <p x-show="(resource.ports || []).length === 0" class="text-sm text-gray-400">No ports allocated</p>
+                <p x-show="logicalPorts.length === 0" class="text-sm text-gray-400">No ports allocated</p>
 
                 <!-- Public access (via Traefik TCP proxy) -->
                 <div x-show="(resource.ports || []).length > 0" class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-800">
@@ -1234,6 +1244,29 @@ function resourceDetail(id) {
         changeDbPassword: { db: '', owner: '', password: '' },
         newDb: { database: '', username: '', password: '' },
         get portIsPublic() { return this.resource.ports?.[0]?.is_public || false; },
+        get logicalPorts() {
+            const all = this.resource.ports || [];
+            if (!all.length) return [];
+            // Collapse per-replica allocations (port_name="replica_1", "replica_2", …)
+            // into one logical row per (container, is_public) pair. Host port is
+            // volatile across scale operations, so we hide it from this view.
+            const seen = new Map();
+            for (const p of all) {
+                const key = p.container + ':' + (p.is_public ? 'pub' : 'priv');
+                if (seen.has(key)) continue;
+                seen.set(key, {
+                    name: (p.name && !/^replica_\d+$/.test(p.name)) ? p.name : 'http',
+                    container: p.container,
+                    host: p.host,
+                    is_public: p.is_public,
+                    public_port: p.public_port,
+                });
+            }
+            return Array.from(seen.values());
+        },
+        get replicaCount() {
+            return (this.scaleInfo?.replicas) || this.resource.replicas || 1;
+        },
         get catalogId() { return this.resource.catalog_id || ''; },
         get supportsBackup() { return ['postgresql','mysql','mariadb','mongodb'].includes(this.catalogId); },
         get supportsScaling() {
