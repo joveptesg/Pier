@@ -1624,8 +1624,16 @@ function resourceDetail(id) {
         async loadSchedules() { try { this.schedules=await fetch('/api/v1/resources/'+this.id+'/backup-schedules').then(r=>r.ok?r.json():[]); } catch{this.schedules=[];} },
         async loadBackups() { try { this.backupHistory=await fetch('/api/v1/resources/'+this.id+'/backups').then(r=>r.ok?r.json():[]); } catch{this.backupHistory=[];} },
         openScheduleModal(databaseName) {
-            // databaseName: null = cluster-wide; '' = new per-DB; string = edit existing per-DB
-            const existing = this.schedules.find(s => (s.database_name || '') === (databaseName || ''));
+            // databaseName semantics:
+            //   null = cluster-wide (edit if one already exists, else create)
+            //   ''   = new per-DB schedule (user still has to pick the DB)
+            //   <str> = edit existing per-DB schedule for that DB
+            let existing = null;
+            if (databaseName === null) {
+                existing = this.schedules.find(s => !s.database_name) || null;
+            } else if (databaseName) {
+                existing = this.schedules.find(s => s.database_name === databaseName) || null;
+            }
             this.scheduleFormEditing = !!existing;
             this.scheduleForm = {
                 s3_storage_id: existing?.s3_storage_id || '',
