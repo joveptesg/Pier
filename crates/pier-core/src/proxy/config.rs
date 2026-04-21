@@ -470,20 +470,25 @@ pub fn remove_platform_domain_config(data_dir: &Path) -> Result<()> {
 }
 
 /// Write a Traefik TCP dynamic config for exposing a service port publicly.
-/// Creates `tcp-{service_id}.yml` in the dynamic config directory.
-pub fn write_tcp_route(
+/// Each upstream is a raw `host:port` string (can be a Docker DNS name
+/// for local replicas or `ip:port` for remote replicas). Traefik's TCP
+/// provider distributes connections across all listed upstreams (WRR).
+pub fn write_tcp_route_lb(
     data_dir: &Path,
     service_id: &str,
     public_port: u16,
-    container_name: &str,
-    container_port: u16,
+    upstreams: &[String],
 ) -> Result<()> {
     let dynamic_dir = data_dir.join("traefik").join("dynamic");
     std::fs::create_dir_all(&dynamic_dir)?;
 
     let ep_name = format!("tcp-{public_port}");
+    let servers_yaml: String = upstreams
+        .iter()
+        .map(|addr| format!("          - address: \"{addr}\"\n"))
+        .collect();
     let config = format!(
-        r#"# TCP proxy for service {service_id} (port {public_port} -> {container_name}:{container_port})
+        r#"# TCP proxy for service {service_id} (public :{public_port} -> {} upstream(s))
 tcp:
   routers:
     tcp-{service_id}:
@@ -495,8 +500,8 @@ tcp:
     tcp-{service_id}:
       loadBalancer:
         servers:
-          - address: "{container_name}:{container_port}"
-"#
+{servers_yaml}"#,
+        upstreams.len()
     );
 
     std::fs::write(
@@ -504,6 +509,24 @@ tcp:
         config,
     )?;
     Ok(())
+}
+
+/// Legacy single-upstream wrapper kept for callers that still deal with
+/// one container.
+#[allow(dead_code)]
+pub fn write_tcp_route(
+    data_dir: &Path,
+    service_id: &str,
+    public_port: u16,
+    container_name: &str,
+    container_port: u16,
+) -> Result<()> {
+    write_tcp_route_lb(
+        data_dir,
+        service_id,
+        public_port,
+        &[format!("{container_name}:{container_port}")],
+    )
 }
 
 /// Remove a TCP route config for a service.

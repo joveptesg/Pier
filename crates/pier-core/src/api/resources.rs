@@ -1817,6 +1817,68 @@ const LB_MAX_REPLICAS_PER_SERVICE: i64 = 10;
 const LB_PORT_RANGE_START: u16 = 10000;
 const LB_PORT_RANGE_END: u16 = 20000;
 
+/// Build Traefik TCP `loadBalancer.servers` addresses covering every
+/// replica across every server. Local replicas are reached via their
+/// Docker container name + internal `container_port`; remote replicas
+/// via `{server.host}:{host_port}`. When a server has a single local
+/// replica, the legacy un-suffixed container name is used to match
+/// what `build_compose_yaml_scaled` actually emits.
+fn build_tcp_upstreams(
+    db: &rusqlite::Connection,
+    service_id: &str,
+    container_port: u16,
+    service_name: &str,
+) -> Vec<String> {
+    let slug = service_name.to_lowercase().replace(' ', "-");
+    let mut stmt = match db.prepare(
+        "SELECT r.server_id, r.replica_idx, r.host_port,
+                COALESCE(s.host, ''), COALESCE(s.is_local, 0)
+         FROM service_replicas r
+         LEFT JOIN servers s ON s.id = r.server_id
+         WHERE r.service_id = ?1
+         ORDER BY r.server_id, r.replica_idx",
+    ) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let rows: Vec<(Option<String>, i64, i64, String, i64)> = stmt
+        .query_map([service_id], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .map(|iter| iter.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+
+    let mut per_server_count: HashMap<String, usize> = HashMap::new();
+    for (sid, _, _, _, _) in &rows {
+        let key = sid.clone().unwrap_or_default();
+        *per_server_count.entry(key).or_insert(0) += 1;
+    }
+
+    rows.iter()
+        .map(|(sid, idx, host_port, host, is_local)| {
+            let key = sid.clone().unwrap_or_default();
+            let many = per_server_count.get(&key).copied().unwrap_or(1) > 1;
+            let local =
+                *is_local != 0 || sid.as_deref().map(|s| s == "local").unwrap_or(false);
+            if local {
+                if many {
+                    format!("pier-{slug}-{idx}:{container_port}")
+                } else {
+                    format!("pier-{slug}:{container_port}")
+                }
+            } else {
+                format!("{host}:{host_port}")
+            }
+        })
+        .collect()
+}
+
 /// GET /api/v1/resources/{id}/load-balance — current LB config + distribution.
 pub async fn get_load_balance(
     State(state): State<SharedState>,
@@ -2122,6 +2184,24 @@ pub async fn load_balance(
         .map(|i| (format!("replica_{i}"), primary_port))
         .collect();
 
+    // Snapshot the public-port state so we can restore it on the fresh
+    // allocations; `free_ports` below would otherwise drop the is_public
+    // + public_port flags entirely.
+    let public_snapshot: Option<i64> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT public_port FROM port_allocations
+             WHERE service_id = ?1 AND is_public = 1 AND public_port IS NOT NULL
+             LIMIT 1",
+            [&id],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok()
+    };
+
     let allocated_ports: Vec<i64> = {
         let db = state
             .db
@@ -2137,6 +2217,14 @@ pub async fn load_balance(
             LB_PORT_RANGE_END,
         )
         .map_err(|e| AppError::Internal(anyhow::anyhow!("allocate_ports: {e}")))?;
+        // Re-apply public flag so the user's toggle survives a scale.
+        if let Some(pub_port) = public_snapshot {
+            let _ = db.execute(
+                "UPDATE port_allocations SET is_public = 1, public_port = ?1
+                 WHERE service_id = ?2",
+                rusqlite::params![pub_port, id],
+            );
+        }
         allocs.iter().map(|a| a.host_port).collect()
     };
 
@@ -2303,6 +2391,30 @@ pub async fn load_balance(
             &lb,
         ) {
             tracing::warn!("Failed to regenerate Traefik config: {e}");
+        }
+    }
+
+    // Regenerate the public TCP route (if any) to cover all replicas across
+    // all servers. Without this, Traefik keeps pointing at the pre-scale
+    // container name and stops routing after Apply.
+    if let Some(pub_port) = public_snapshot {
+        let tcp_upstreams = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            build_tcp_upstreams(&db, &id, primary_port, &name)
+        };
+        if tcp_upstreams.is_empty() {
+            let _ =
+                crate::proxy::config::remove_tcp_route(&state.config.data_dir, &id);
+        } else if let Err(e) = crate::proxy::config::write_tcp_route_lb(
+            &state.config.data_dir,
+            &id,
+            pub_port as u16,
+            &tcp_upstreams,
+        ) {
+            tracing::warn!("Failed to regenerate TCP route: {e}");
         }
     }
 
@@ -2579,31 +2691,32 @@ pub async fn set_port_public(
     };
 
     if body.is_public {
-        // Create Traefik TCP route (target container via Docker network)
-        // Use actual container name from DB (docker-compose services may not have pier- prefix)
-        let container_name = {
+        // Target every replica of this service. For a non-scaled service
+        // this is exactly one upstream (pier-{slug}:container_port); for
+        // scaled services it's one entry per replica, across servers.
+        let upstreams = {
             let db = state
                 .db
                 .lock()
                 .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            let cid: Option<String> = db
-                .query_row(
-                    "SELECT container_id FROM services WHERE id = ?1",
-                    [&id],
-                    |row| row.get(0),
-                )
-                .ok()
-                .flatten();
-            cid.filter(|c| !c.is_empty()).unwrap_or_else(|| {
-                format!("pier-{}", service_name.to_lowercase().replace(' ', "-"))
-            })
+            let ups = build_tcp_upstreams(&db, &id, container_port, &service_name);
+            if ups.is_empty() {
+                // Fall back to legacy single-container name when no replica
+                // rows exist yet (e.g., first deploy before any scale op).
+                vec![format!(
+                    "pier-{}:{}",
+                    service_name.to_lowercase().replace(' ', "-"),
+                    container_port
+                )]
+            } else {
+                ups
+            }
         };
-        crate::proxy::config::write_tcp_route(
+        crate::proxy::config::write_tcp_route_lb(
             &state.config.data_dir,
             &id,
             pp,
-            &container_name,
-            container_port,
+            &upstreams,
         )
         .map_err(|e| anyhow::anyhow!("Write TCP route: {e}"))?;
 
