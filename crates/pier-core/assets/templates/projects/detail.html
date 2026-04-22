@@ -237,9 +237,14 @@ function projectDetail(id) {
         credForm: { registry: '', username: '', password: '', label: '' },
         credSaving: false,
         credTestingId: null,
+        _bgInterval: null,
         async init() {
             await this.refresh();
             await this.loadCreds();
+            this._bgInterval = setInterval(() => { this.refresh(); }, 5000);
+        },
+        destroy() {
+            if (this._bgInterval) { clearInterval(this._bgInterval); this._bgInterval = null; }
         },
         async refresh() {
             try {

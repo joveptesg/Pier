@@ -171,8 +171,13 @@ function projectsData() {
         loading: true,
         showCreate: false,
         newProject: { name: '', description: '', port_range_start: null, port_range_end: null },
+        _bgInterval: null,
         async init() {
             await this.refresh();
+            this._bgInterval = setInterval(() => { this.refresh(); }, 5000);
+        },
+        destroy() {
+            if (this._bgInterval) { clearInterval(this._bgInterval); this._bgInterval = null; }
         },
         async refresh() {
             try {
