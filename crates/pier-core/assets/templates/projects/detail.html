@@ -251,7 +251,9 @@ function projectDetail(id) {
                 const data = await fetch('/api/v1/projects/' + this.id).then(r => r.json());
                 this.project = data.project || {};
                 this.services = data.services || [];
-                this.editForm = { ...this.project };
+                if (!this.editing) {
+                    this.editForm = { ...this.project };
+                }
             } catch (e) {
                 toast('Failed to load project', 'error');
             }
