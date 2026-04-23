@@ -114,6 +114,12 @@ mkdir -p "${PIER_DATA}/traefik/dynamic"
 mkdir -p "${PIER_DATA}/tmp"
 mkdir -p "${PIER_DIR}/.docker"
 
+# Ensure /root/.docker exists before pier starts so the systemd unit's
+# BindReadOnlyPaths=-/root/.docker actually creates the mount; otherwise
+# the first `docker login` after install would require `systemctl restart pier`.
+mkdir -p /root/.docker
+chmod 700 /root/.docker
+
 # ── Install binary ───────────────────────────────────────────────────────────
 
 info "Installing binary to ${PIER_BIN}"
@@ -198,8 +204,12 @@ RestartSec=5
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=${PIER_DATA}
+ReadWritePaths=${PIER_DATA} ${PIER_DIR}/.docker /tmp
 ProtectHome=true
+BindReadOnlyPaths=-/root/.docker
+Environment=HOME=${PIER_DIR}
+Environment=DOCKER_CONFIG=/root/.docker
+Environment=GIT_CONFIG_NOSYSTEM=1
 
 # Logging
 StandardOutput=journal
