@@ -9,10 +9,16 @@
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Registry Credentials</h2>
             <p class="text-sm text-gray-500 mt-0.5">Sign in to private container registries so deploys can pull images.</p>
         </div>
-        <button @click="openCreate()"
-                class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors">
-            Add registry
-        </button>
+        <div class="flex items-center gap-2">
+            <button @click="openCreateDockerHub()"
+                    class="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">
+                + Add Docker Hub
+            </button>
+            <button @click="openCreate()"
+                    class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors">
+                Add registry
+            </button>
+        </div>
     </div>
 
     <!-- Scope filter -->
@@ -158,6 +164,11 @@ function registriesPage() {
         openCreate() {
             this.editing = null;
             this.form = { registry: '', username: '', password: '', label: '', project_id: null };
+            this.modalOpen = true;
+        },
+        openCreateDockerHub() {
+            this.editing = null;
+            this.form = { registry: 'docker.io', username: '', password: '', label: 'Docker Hub', project_id: null };
             this.modalOpen = true;
         },
         openEdit(row) {

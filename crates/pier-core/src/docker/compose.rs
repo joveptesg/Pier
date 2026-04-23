@@ -43,8 +43,7 @@ pub async fn deploy_stack(
     cmd.args(["compose", "-f"])
         .arg(&compose_file)
         .args(["up", "-d"])
-        .current_dir(&stack_dir)
-        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir));
+        .current_dir(&stack_dir);
     apply_auth_env(&mut cmd, &auth_dir);
 
     let output = cmd.output().await?;
@@ -82,8 +81,7 @@ pub async fn deploy_stack_no_cache(
         .args(["compose", "-f"])
         .arg(&compose_file)
         .args(["build", "--no-cache"])
-        .current_dir(&stack_dir)
-        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir));
+        .current_dir(&stack_dir);
     apply_auth_env(&mut build_cmd, &auth_dir);
     let _ = build_cmd.output().await;
 
@@ -91,8 +89,7 @@ pub async fn deploy_stack_no_cache(
     cmd.args(["compose", "-f"])
         .arg(&compose_file)
         .args(["up", "-d", "--force-recreate", "--pull", "always"])
-        .current_dir(&stack_dir)
-        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir));
+        .current_dir(&stack_dir);
     apply_auth_env(&mut cmd, &auth_dir);
 
     let output = cmd.output().await?;
@@ -121,7 +118,6 @@ pub async fn down_stack(name: &str, config: &PierConfig) -> Result<String> {
         .arg(&compose_file)
         .arg("down")
         .current_dir(&stack_dir)
-        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
         .output()
         .await?;
 
@@ -145,7 +141,6 @@ pub async fn down_stack_with_volumes(name: &str, config: &PierConfig) -> Result<
         .arg(&compose_file)
         .args(["down", "-v"])
         .current_dir(&stack_dir)
-        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
         .output()
         .await?;
 

@@ -477,6 +477,25 @@ const MIGRATIONS: &[&str] = &[
         SELECT 1 FROM service_replicas r WHERE r.service_id = s.id
     );
     "#,
+    // Migration 29: Enforce unique service name within (project_id) scope.
+    // Pre-dedupe: keep newest row per (project_id, name); failed orphans are safe to drop.
+    r#"
+    DELETE FROM services
+    WHERE id IN (
+        SELECT s.id FROM services s
+        JOIN (
+            SELECT COALESCE(project_id,'') AS pid, name, MAX(created_at) AS max_ts
+            FROM services
+            GROUP BY COALESCE(project_id,''), name
+            HAVING COUNT(*) > 1
+        ) dup
+          ON COALESCE(s.project_id,'') = dup.pid AND s.name = dup.name
+        WHERE s.created_at < dup.max_ts
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_scope
+        ON services(COALESCE(project_id,''), name);
+    "#,
 ];
 
 /// Run all pending database migrations.

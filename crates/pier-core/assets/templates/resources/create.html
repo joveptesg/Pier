@@ -516,6 +516,13 @@ function createResource(catalogId) {
                 toast(name + ' deployed successfully');
                 window.location.href = '/resources/' + result.id;
             } catch (e) {
+                if (e.code === 'name_conflict' && e.existing_id) {
+                    toast(`Resource "${e.name}" already exists — opening it`, 'error');
+                    setTimeout(() => {
+                        window.location.href = '/resources/' + e.existing_id;
+                    }, 800);
+                    return;
+                }
                 toast(e.message, 'error');
                 this.deploying = false;
             }

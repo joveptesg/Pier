@@ -118,6 +118,31 @@ where
     f(&db)
 }
 
+/// Reject create when a service with the same (project_id, name) already exists.
+/// Returns `AppError::ResourceNameConflict` carrying the existing service id so the UI
+/// can offer "Open existing" / Retry instead of silently creating a duplicate row.
+fn check_name_available(
+    state: &SharedState,
+    project_id: Option<&str>,
+    name: &str,
+) -> AppResult<()> {
+    let pid = project_id.unwrap_or("").to_string();
+    let name = name.to_string();
+    let existing: Option<String> = with_db(state, |db| {
+        Ok(db
+            .query_row(
+                "SELECT id FROM services WHERE COALESCE(project_id,'') = ?1 AND name = ?2 LIMIT 1",
+                rusqlite::params![pid, name],
+                |row| row.get::<_, String>(0),
+            )
+            .ok())
+    })?;
+    if let Some(existing_id) = existing {
+        return Err(AppError::ResourceNameConflict { name, existing_id });
+    }
+    Ok(())
+}
+
 /// POST /api/v1/resources — create and deploy a resource from catalog.
 pub async fn create(
     State(state): State<SharedState>,
@@ -127,6 +152,11 @@ pub async fn create(
     if name.is_empty() {
         return Err(AppError::BadRequest("Name is required".into()));
     }
+
+    // Block duplicates up-front: if a service with the same (project_id, name) already exists
+    // (incl. failed/deploying), return 409 with the existing id so the UI can route the user
+    // to Retry/Delete instead of silently creating a sibling row.
+    check_name_available(&state, body.project_id.as_deref(), &name)?;
 
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
@@ -1864,8 +1894,7 @@ fn build_tcp_upstreams(
         .map(|(sid, idx, host_port, host, is_local)| {
             let key = sid.clone().unwrap_or_default();
             let many = per_server_count.get(&key).copied().unwrap_or(1) > 1;
-            let local =
-                *is_local != 0 || sid.as_deref().map(|s| s == "local").unwrap_or(false);
+            let local = *is_local != 0 || sid.as_deref().map(|s| s == "local").unwrap_or(false);
             if local {
                 if many {
                     format!("pier-{slug}-{idx}:{container_port}")
@@ -2406,8 +2435,7 @@ pub async fn load_balance(
             build_tcp_upstreams(&db, &id, primary_port, &name)
         };
         if tcp_upstreams.is_empty() {
-            let _ =
-                crate::proxy::config::remove_tcp_route(&state.config.data_dir, &id);
+            let _ = crate::proxy::config::remove_tcp_route(&state.config.data_dir, &id);
         } else if let Err(e) = crate::proxy::config::write_tcp_route_lb(
             &state.config.data_dir,
             &id,
@@ -2712,13 +2740,8 @@ pub async fn set_port_public(
                 ups
             }
         };
-        crate::proxy::config::write_tcp_route_lb(
-            &state.config.data_dir,
-            &id,
-            pp,
-            &upstreams,
-        )
-        .map_err(|e| anyhow::anyhow!("Write TCP route: {e}"))?;
+        crate::proxy::config::write_tcp_route_lb(&state.config.data_dir, &id, pp, &upstreams)
+            .map_err(|e| anyhow::anyhow!("Write TCP route: {e}"))?;
 
         // Collect all active public TCP ports for static config
         let tcp_ports = {

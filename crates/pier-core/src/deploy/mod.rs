@@ -881,7 +881,6 @@ async fn detect_container_name(stack_name: &str, config: &crate::config::PierCon
     let output = tokio::process::Command::new("docker")
         .args(["compose", "-p", stack_name, "ps", "--format", "{{.Name}}"])
         .current_dir(&stack_dir)
-        .env("HOME", config.data_dir.parent().unwrap_or(&config.data_dir))
         .output()
         .await;
 
