@@ -19,11 +19,13 @@ ProtectSystem=strict
 ReadWritePaths=/opt/pier/data /opt/pier/.docker /tmp
 ProtectHome=true
 # Expose root's docker config (read-only) so `docker login` on the host
-# transparently feeds Pier deploys. The leading `-` makes the mount optional
-# (skipped if /root/.docker doesn't exist yet — install.sh creates it).
-BindReadOnlyPaths=-/root/.docker
+# transparently feeds Pier deploys. We mount it OUTSIDE /root because
+# ProtectHome=true overwrites /root with an inaccessible tmpfs even when a
+# bind targets /root/.docker. Leading `-` makes the source optional;
+# install.sh creates /root/.docker so the bind always succeeds.
+BindReadOnlyPaths=-/root/.docker:/opt/pier/host-docker
 Environment=HOME=/opt/pier
-Environment=DOCKER_CONFIG=/root/.docker
+Environment=DOCKER_CONFIG=/opt/pier/host-docker
 Environment=GIT_CONFIG_NOSYSTEM=1
 
 # Logging

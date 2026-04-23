@@ -114,9 +114,13 @@ mkdir -p "${PIER_DATA}/traefik/dynamic"
 mkdir -p "${PIER_DATA}/tmp"
 mkdir -p "${PIER_DIR}/.docker"
 
-# Ensure /root/.docker exists before pier starts so the systemd unit's
-# BindReadOnlyPaths=-/root/.docker actually creates the mount; otherwise
-# the first `docker login` after install would require `systemctl restart pier`.
+# Bind-mount target for /root/.docker — ProtectHome=true makes /root inaccessible
+# even with BindReadOnlyPaths, so we mount the host's docker config under
+# /opt/pier/host-docker (outside ProtectHome's scope) and point DOCKER_CONFIG there.
+mkdir -p "${PIER_DIR}/host-docker"
+
+# Ensure /root/.docker exists pre-start so the optional bind always has a source;
+# any future `docker login` updates the same file the bind exposes to pier.
 mkdir -p /root/.docker
 chmod 700 /root/.docker
 
@@ -206,9 +210,9 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=${PIER_DATA} ${PIER_DIR}/.docker /tmp
 ProtectHome=true
-BindReadOnlyPaths=-/root/.docker
+BindReadOnlyPaths=-/root/.docker:${PIER_DIR}/host-docker
 Environment=HOME=${PIER_DIR}
-Environment=DOCKER_CONFIG=/root/.docker
+Environment=DOCKER_CONFIG=${PIER_DIR}/host-docker
 Environment=GIT_CONFIG_NOSYSTEM=1
 
 # Logging
