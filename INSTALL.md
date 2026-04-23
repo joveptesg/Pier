@@ -152,6 +152,41 @@ http://SERVER_IP:8443/setup
 
 ---
 
+## 9. Docker Hub / приватные registry
+
+Чтобы Pier мог тянуть образы из Docker Hub без rate-limit (или из приватных registry), есть два пути:
+
+### Вариант A — `docker login` под root
+
+```bash
+sudo docker login -u YOUR_USERNAME
+# (использовать PAT, не пароль: https://app.docker.com/settings)
+```
+
+`install.sh` настраивает systemd unit так, что `/root/.docker/config.json` через bind-mount виден pier-сервису (read-only, в `/opt/pier/host-docker`). При ротации PAT повторяешь `docker login` — Pier сразу подхватывает, рестарт не нужен.
+
+> **Требуется пакет `acl`** — `install.sh` ставит его автоматически (apt/dnf/yum/apk). Если не получилось — увидишь warn:
+>
+> ```
+> [WARN] setfacl not found — пакет 'acl' не установлен...
+> ```
+>
+> В этом случае сделай:
+> ```bash
+> apt install -y acl
+> sudo bash /tmp/pier/scripts/install.sh --binary /tmp/pier/target/release/pier
+> ```
+>
+> Без `acl` сработает fallback `chmod 644` на `config.json`, но **следующий `docker login` сбросит права** и Pier снова перестанет видеть. Установка `acl` решает это навсегда — default ACL наследуется любым будущим `config.json`.
+
+### Вариант B — через UI Pier
+
+Settings → Registries → **«+ Add Docker Hub»** → username + PAT → Save.
+
+Креды хранятся в БД Pier (зашифрованы), per-project или global. Подходит, когда не хочется давать pier-сервису доступ к `/root/.docker` или нужны разные креды для разных проектов.
+
+---
+
 ## Порты
 
 | Порт | Назначение |

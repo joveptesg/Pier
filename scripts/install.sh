@@ -147,8 +147,18 @@ if command -v setfacl &>/dev/null; then
     setfacl -d -m u:"$PIER_USER":r /root/.docker || true
     [[ -f /root/.docker/config.json ]] && setfacl -m u:"$PIER_USER":r /root/.docker/config.json || true
 else
-    warn "Could not install setfacl. Falling back to chmod 644 on config.json — will reset on next 'docker login'."
     [[ -f /root/.docker/config.json ]] && chmod 644 /root/.docker/config.json || true
+    warn "setfacl not found — пакет 'acl' не установлен и не удалось поставить автоматически."
+    warn "Сейчас сработал fallback chmod 644 — это работает разово, но СЛЕДУЮЩИЙ"
+    warn "'docker login' сбросит права обратно на 600 и Pier перестанет видеть config.json."
+    warn ""
+    warn "Для надёжности (особенно при ротации PAT каждые 90 дней) — установи acl"
+    warn "и перезапусти install:"
+    warn "    apt install -y acl     # или dnf/yum/apk install acl"
+    warn "    sudo bash $(realpath "$0") --binary $BINARY_PATH"
+    warn ""
+    warn "После этого default ACL на /root/.docker будет наследоваться любыми"
+    warn "будущими config.json автоматически."
 fi
 
 # ── Install binary ───────────────────────────────────────────────────────────
