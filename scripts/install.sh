@@ -116,8 +116,12 @@ mkdir -p "${PIER_DIR}/.docker"
 
 # Bind-mount target for /root/.docker — ProtectHome=true makes /root inaccessible
 # even with BindReadOnlyPaths, so we mount the host's docker config under
-# /opt/pier/host-docker (outside ProtectHome's scope) and point DOCKER_CONFIG there.
+# /opt/pier/host-docker (outside ProtectHome's scope, read-only).
+# DOCKER_CONFIG points to /opt/pier/.docker (writable); we symlink config.json
+# from there into the read-only bind so docker CLI subcommands (buildx,
+# contexts, plugins) can write state without fighting the read-only auth source.
 mkdir -p "${PIER_DIR}/host-docker"
+ln -sfn "${PIER_DIR}/host-docker/config.json" "${PIER_DIR}/.docker/config.json"
 
 # Ensure /root/.docker exists pre-start so the optional bind always has a source;
 # any future `docker login` updates the same file the bind exposes to pier.
@@ -249,7 +253,7 @@ ReadWritePaths=${PIER_DATA} ${PIER_DIR}/.docker /tmp
 ProtectHome=true
 BindReadOnlyPaths=-/root/.docker:${PIER_DIR}/host-docker
 Environment=HOME=${PIER_DIR}
-Environment=DOCKER_CONFIG=${PIER_DIR}/host-docker
+Environment=DOCKER_CONFIG=${PIER_DIR}/.docker
 Environment=GIT_CONFIG_NOSYSTEM=1
 
 # Logging

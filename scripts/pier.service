@@ -23,9 +23,14 @@ ProtectHome=true
 # ProtectHome=true overwrites /root with an inaccessible tmpfs even when a
 # bind targets /root/.docker. Leading `-` makes the source optional;
 # install.sh creates /root/.docker so the bind always succeeds.
+#
+# DOCKER_CONFIG points to a WRITABLE pier-owned dir; install.sh symlinks
+# config.json from there into the read-only bind. That way docker CLI can
+# write buildx/, contexts/, plugins/ state without fighting the read-only
+# auth source.
 BindReadOnlyPaths=-/root/.docker:/opt/pier/host-docker
 Environment=HOME=/opt/pier
-Environment=DOCKER_CONFIG=/opt/pier/host-docker
+Environment=DOCKER_CONFIG=/opt/pier/.docker
 Environment=GIT_CONFIG_NOSYSTEM=1
 
 # Logging
