@@ -32,10 +32,7 @@ pub fn start_ssl_monitor(state: Arc<AppState>) {
     });
 }
 
-async fn check_certificates(
-    state: &Arc<AppState>,
-    data_dir: &Path,
-) -> anyhow::Result<()> {
+async fn check_certificates(state: &Arc<AppState>, data_dir: &Path) -> anyhow::Result<()> {
     let acme_path = data_dir.join("traefik").join("acme.json");
     if !acme_path.exists() {
         return Ok(());
@@ -46,7 +43,8 @@ async fn check_certificates(
 
     // Extract domains that have certificates from acme.json
     // Structure: { "letsencrypt": { "Certificates": [ { "domain": { "main": "..." }, "certificate": "...", "key": "..." } ] } }
-    let mut cert_domains: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut cert_domains: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
 
     if let Some(resolver) = acme.get("letsencrypt") {
         if let Some(certs) = resolver.get("Certificates").and_then(|c| c.as_array()) {
@@ -71,7 +69,11 @@ async fn check_certificates(
                 cert_domains.insert(main.to_string(), expiry_str.clone());
 
                 // Also add SANs if present
-                if let Some(sans) = cert.get("domain").and_then(|d| d.get("sans")).and_then(|s| s.as_array()) {
+                if let Some(sans) = cert
+                    .get("domain")
+                    .and_then(|d| d.get("sans"))
+                    .and_then(|s| s.as_array())
+                {
                     for san in sans {
                         if let Some(s) = san.as_str() {
                             cert_domains.insert(s.to_string(), expiry_str.clone());
@@ -92,9 +94,7 @@ async fn check_certificates(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-    let mut stmt = db.prepare(
-        "SELECT id, domain, ssl_status FROM domains",
-    )?;
+    let mut stmt = db.prepare("SELECT id, domain, ssl_status FROM domains")?;
 
     let domains: Vec<(String, String, String)> = stmt
         .query_map([], |row| {

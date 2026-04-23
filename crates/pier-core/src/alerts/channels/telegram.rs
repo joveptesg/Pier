@@ -32,7 +32,11 @@ fn format_markdown(msg: &AlertMessage) -> String {
     let state_label = if msg.state == "resolved" {
         "✅ *RESOLVED*".to_string()
     } else {
-        format!("{} *{}*", severity_prefix(&msg.severity), msg.severity.to_uppercase())
+        format!(
+            "{} *{}*",
+            severity_prefix(&msg.severity),
+            msg.severity.to_uppercase()
+        )
     };
 
     let metric_label = format_metric_label(&msg.metric);

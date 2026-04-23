@@ -42,13 +42,17 @@ pub async fn github(
                         rusqlite::params![installation_id, app_id.to_string()],
                     ).unwrap_or(0);
                     if rows > 0 {
-                        tracing::info!("GitHub App installation_id {installation_id} saved for app {app_id}");
+                        tracing::info!(
+                            "GitHub App installation_id {installation_id} saved for app {app_id}"
+                        );
                     }
                 }
             }
         }
 
-        return Ok(Json(serde_json::json!({"ok": true, "event": "installation"})));
+        return Ok(Json(
+            serde_json::json!({"ok": true, "event": "installation"}),
+        ));
     }
 
     if event != "push" {

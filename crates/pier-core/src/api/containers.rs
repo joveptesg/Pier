@@ -111,9 +111,7 @@ pub async fn stats(
 }
 
 /// GET /api/v1/containers/all-stats — memory/cpu stats for all running containers.
-pub async fn all_stats(
-    State(state): State<SharedState>,
-) -> AppResult<impl IntoResponse> {
+pub async fn all_stats(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let containers = docker::containers::list_containers(&state.docker, false).await?;
     let mut results = Vec::new();
 

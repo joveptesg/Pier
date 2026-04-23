@@ -74,17 +74,24 @@ pub async fn create(
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let (name, cid): (String, Option<String>) = db.query_row(
-            "SELECT name, container_id FROM services WHERE id = ?1",
-            [&body.service_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|_| AppError::NotFound(format!("Service {} not found", body.service_id)))?;
+        let (name, cid): (String, Option<String>) = db
+            .query_row(
+                "SELECT name, container_id FROM services WHERE id = ?1",
+                [&body.service_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| AppError::NotFound(format!("Service {} not found", body.service_id)))?;
         // Use container_port from port_allocations (prefer non-management HTTP port)
         let http_keywords = ["management", "metrics", "prometheus"];
-        let mut stmt = db.prepare("SELECT port_name, container_port FROM port_allocations WHERE service_id = ?1")?;
-        let ports: Vec<(String, i32)> = stmt.query_map([&body.service_id], |row| Ok((row.get(0)?, row.get(1)?)))?.filter_map(|r| r.ok()).collect();
-        let cp = ports.iter()
+        let mut stmt = db.prepare(
+            "SELECT port_name, container_port FROM port_allocations WHERE service_id = ?1",
+        )?;
+        let ports: Vec<(String, i32)> = stmt
+            .query_map([&body.service_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let cp = ports
+            .iter()
             .find(|(n, _)| !http_keywords.iter().any(|k| n.to_lowercase().contains(k)))
             .or(ports.first())
             .map(|(_, p)| *p);
@@ -110,7 +117,11 @@ pub async fn create(
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         // Store full domain+path for uniqueness (same domain with different paths = different routes)
-        let domain_with_path = if path_prefix.is_empty() { domain.clone() } else { format!("{domain}{path_prefix}") };
+        let domain_with_path = if path_prefix.is_empty() {
+            domain.clone()
+        } else {
+            format!("{domain}{path_prefix}")
+        };
         db.execute(
             "INSERT INTO domains (id, domain, service_id, ssl_provider, path_prefix)
              VALUES (?1, ?2, ?3, 'letsencrypt', ?4)",
@@ -118,7 +129,9 @@ pub async fn create(
         )
         .map_err(|e| {
             if e.to_string().contains("UNIQUE") {
-                AppError::Conflict(format!("Domain {domain}{path_prefix} is already registered"))
+                AppError::Conflict(format!(
+                    "Domain {domain}{path_prefix} is already registered"
+                ))
             } else {
                 AppError::Database(e)
             }
@@ -212,10 +225,13 @@ pub async fn remove(
             )
             .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?;
         // Use container_port from port_allocations
-        let cp: Option<i32> = db.query_row(
-            "SELECT container_port FROM port_allocations WHERE service_id = ?1 LIMIT 1",
-            [&sid], |row| row.get(0),
-        ).ok();
+        let cp: Option<i32> = db
+            .query_row(
+                "SELECT container_port FROM port_allocations WHERE service_id = ?1 LIMIT 1",
+                [&sid],
+                |row| row.get(0),
+            )
+            .ok();
         let row = (sid, cp, sname);
         db.execute("DELETE FROM domains WHERE id = ?1", [&id])?;
         row
@@ -236,7 +252,11 @@ pub async fn remove(
         rows
     };
 
-    let target_url = format!("http://pier-{}:{}", svc_name.to_lowercase().replace(' ', "-"), port.unwrap_or(0));
+    let target_url = format!(
+        "http://pier-{}:{}",
+        svc_name.to_lowercase().replace(' ', "-"),
+        port.unwrap_or(0)
+    );
     if let Err(e) = config::regenerate_service_config(
         &state.config.data_dir,
         &service_id,

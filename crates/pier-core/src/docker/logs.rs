@@ -26,10 +26,9 @@ pub async fn stream_logs_ws(docker: &Docker, container_id: &str, mut socket: Web
                 Ok(output) => {
                     retry_count = 0;
                     let text = output.to_string().trim_end().to_string();
-                    if !text.is_empty()
-                        && socket.send(Message::Text(text.into())).await.is_err() {
-                            return; // client disconnected
-                        }
+                    if !text.is_empty() && socket.send(Message::Text(text.into())).await.is_err() {
+                        return; // client disconnected
+                    }
                 }
                 Err(_) => break, // stream ended, will retry
             }
@@ -43,11 +42,7 @@ pub async fn stream_logs_ws(docker: &Docker, container_id: &str, mut socket: Web
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // Check if WS client still connected
-        if socket
-            .send(Message::Ping(vec![].into()))
-            .await
-            .is_err()
-        {
+        if socket.send(Message::Ping(vec![].into())).await.is_err() {
             return;
         }
     }

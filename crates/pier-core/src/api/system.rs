@@ -70,8 +70,8 @@ pub async fn disk_usage(State(_state): State<SharedState>) -> AppResult<impl Int
 
     let raw = String::from_utf8_lossy(&output.stdout);
     // Output is one big JSON object with Images[], Containers[], Volumes[], BuildCache[]
-    let df: serde_json::Value = serde_json::from_str(&raw)
-        .map_err(|e| anyhow::anyhow!("Parse docker df: {e}"))?;
+    let df: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| anyhow::anyhow!("Parse docker df: {e}"))?;
 
     let mut total: u64 = 0;
 
@@ -108,7 +108,11 @@ pub async fn disk_usage(State(_state): State<SharedState>) -> AppResult<impl Int
             let size = parse_docker_size(v["Size"].as_str().unwrap_or("0"));
             total += size;
             let name = v["Name"].as_str().unwrap_or("?");
-            let short = if name.len() > 40 { format!("{}...", &name[..37]) } else { name.to_string() };
+            let short = if name.len() > 40 {
+                format!("{}...", &name[..37])
+            } else {
+                name.to_string()
+            };
             serde_json::json!({ "name": short, "size": size })
         })
         .collect();
@@ -186,7 +190,9 @@ pub async fn cleanup_info() -> AppResult<impl IntoResponse> {
             let size_part = reclaimable.split('(').next().unwrap_or("0B").trim();
             match typ {
                 "Images" => images_reclaimable = parse_docker_size(size_part),
-                "Containers" => containers_size = parse_docker_size(obj["Size"].as_str().unwrap_or("0B")),
+                "Containers" => {
+                    containers_size = parse_docker_size(obj["Size"].as_str().unwrap_or("0B"))
+                }
                 "Build Cache" => build_cache = parse_docker_size(size_part),
                 _ => {}
             }
@@ -284,11 +290,9 @@ pub async fn cleanup_settings_get(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let get = |key: &str| -> String {
-        db.query_row(
-            "SELECT value FROM settings WHERE key = ?1",
-            [key],
-            |row| row.get(0),
-        )
+        db.query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+            row.get(0)
+        })
         .unwrap_or_default()
     };
 
@@ -303,7 +307,9 @@ pub async fn cleanup_settings_get(
 
 fn parse_docker_size(s: &str) -> u64 {
     let s = s.trim();
-    if s.is_empty() || s == "0B" || s == "0" { return 0; }
+    if s.is_empty() || s == "0B" || s == "0" {
+        return 0;
+    }
     let (num_str, unit) = if let Some(rest) = s.strip_suffix("GB") {
         (rest, 1_073_741_824u64)
     } else if let Some(rest) = s.strip_suffix("MB") {
@@ -318,25 +324,31 @@ fn parse_docker_size(s: &str) -> u64 {
     num_str.trim().parse::<f64>().unwrap_or(0.0) as u64 * unit
 }
 
-const GITHUB_RELEASE_URL: &str =
-    "https://api.github.com/repos/joveptesg/Pier/releases/tags/latest";
+const GITHUB_RELEASE_URL: &str = "https://api.github.com/repos/joveptesg/Pier/releases/tags/latest";
 const BINARY_ASSET_NAME: &str = "pier-linux-amd64";
 
 /// GET /api/v1/system/update-settings
-pub async fn update_settings(
-    State(state): State<SharedState>,
-) -> AppResult<impl IntoResponse> {
+pub async fn update_settings(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let mode = db
-        .query_row("SELECT value FROM settings WHERE key = 'update.mode'", [], |row| row.get::<_, String>(0))
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'update.mode'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
         .unwrap_or_else(|_| "notify".to_string());
     let auto_check = db
-        .query_row("SELECT value FROM settings WHERE key = 'update.auto_check'", [], |row| row.get::<_, String>(0))
-        .unwrap_or_else(|_| "true".to_string()) == "true";
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'update.auto_check'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| "true".to_string())
+        == "true";
 
     Ok(Json(serde_json::json!({
         "mode": mode,
@@ -413,9 +425,10 @@ pub async fn update_check() -> AppResult<impl IntoResponse> {
 
     // Find the binary asset
     let assets = release["assets"].as_array();
-    let asset = assets.and_then(|a| a.iter().find(|x| {
-        x["name"].as_str().unwrap_or("") == BINARY_ASSET_NAME
-    }));
+    let asset = assets.and_then(|a| {
+        a.iter()
+            .find(|x| x["name"].as_str().unwrap_or("") == BINARY_ASSET_NAME)
+    });
 
     let (download_url, asset_updated, asset_size) = match asset {
         Some(a) => (
@@ -471,7 +484,10 @@ pub async fn update_now() -> AppResult<impl IntoResponse> {
 
     let download_url = release["assets"]
         .as_array()
-        .and_then(|a| a.iter().find(|x| x["name"].as_str().unwrap_or("") == BINARY_ASSET_NAME))
+        .and_then(|a| {
+            a.iter()
+                .find(|x| x["name"].as_str().unwrap_or("") == BINARY_ASSET_NAME)
+        })
         .and_then(|a| a["browser_download_url"].as_str())
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("Binary asset not found")))?
         .to_string();
@@ -580,9 +596,10 @@ pub async fn set_timezone(
     Json(body): Json<TimezoneRequest>,
 ) -> AppResult<impl IntoResponse> {
     // Validate the IANA name by parsing through chrono_tz.
-    let _tz: chrono_tz::Tz = body.timezone.parse().map_err(|_| {
-        AppError::BadRequest(format!("Invalid IANA timezone: {}", body.timezone))
-    })?;
+    let _tz: chrono_tz::Tz = body
+        .timezone
+        .parse()
+        .map_err(|_| AppError::BadRequest(format!("Invalid IANA timezone: {}", body.timezone)))?;
     {
         let db = state
             .db

@@ -194,13 +194,13 @@ pub async fn container_stats(docker: &Docker, id: &str) -> Result<serde_json::Va
             .as_ref()
             .and_then(|b| b.io_service_bytes_recursive.as_ref())
             .map(|entries| {
-                entries.iter().fold((0u64, 0u64), |(r, w), e| {
-                    match e.op.as_deref() {
+                entries
+                    .iter()
+                    .fold((0u64, 0u64), |(r, w), e| match e.op.as_deref() {
                         Some("read") | Some("Read") => (r + e.value.unwrap_or(0), w),
                         Some("write") | Some("Write") => (r, w + e.value.unwrap_or(0)),
                         _ => (r, w),
-                    }
-                })
+                    })
             })
             .unwrap_or((0, 0));
 

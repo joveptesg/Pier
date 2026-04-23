@@ -48,7 +48,10 @@ pub fn run_recovery_if_needed(state: &SharedState) {
         return;
     }
 
-    tracing::info!("Starting env_json recovery with {} candidate keys", keys.len());
+    tracing::info!(
+        "Starting env_json recovery with {} candidate keys",
+        keys.len()
+    );
 
     let stable_key = crypto::get_secret_key();
 
@@ -60,24 +63,22 @@ pub fn run_recovery_if_needed(state: &SharedState) {
                 return;
             }
         };
-        let mut stmt = match db.prepare(
-            "SELECT id, env_json FROM services WHERE env_json LIKE 'ENC:%'",
-        ) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("Recovery prepare failed: {e}");
-                return;
-            }
-        };
-        let iter = match stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        }) {
-            Ok(it) => it,
-            Err(e) => {
-                tracing::error!("Recovery query failed: {e}");
-                return;
-            }
-        };
+        let mut stmt =
+            match db.prepare("SELECT id, env_json FROM services WHERE env_json LIKE 'ENC:%'") {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("Recovery prepare failed: {e}");
+                    return;
+                }
+            };
+        let iter =
+            match stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+                Ok(it) => it,
+                Err(e) => {
+                    tracing::error!("Recovery query failed: {e}");
+                    return;
+                }
+            };
         iter.filter_map(|r| r.ok()).collect()
     };
 
@@ -111,28 +112,24 @@ pub fn run_recovery_if_needed(state: &SharedState) {
         });
 
         match restored {
-            Some(plain) => {
-                match crypto::encrypt(&plain, &stable_key) {
-                    Ok(re_enc) => {
-                        if let Ok(db) = state.db.lock() {
-                            let _ = db.execute(
+            Some(plain) => match crypto::encrypt(&plain, &stable_key) {
+                Ok(re_enc) => {
+                    if let Ok(db) = state.db.lock() {
+                        let _ = db.execute(
                                 "UPDATE services SET env_json = ?1, updated_at = datetime('now') WHERE id = ?2",
                                 rusqlite::params![re_enc, id],
                             );
-                        }
-                        recovered += 1;
                     }
-                    Err(e) => {
-                        tracing::error!("Re-encrypt failed for {id}: {e}");
-                        lost += 1;
-                    }
+                    recovered += 1;
                 }
-            }
+                Err(e) => {
+                    tracing::error!("Re-encrypt failed for {id}: {e}");
+                    lost += 1;
+                }
+            },
             None => {
                 lost += 1;
-                tracing::warn!(
-                    "Service {id}: env_json cannot be recovered with any known key"
-                );
+                tracing::warn!("Service {id}: env_json cannot be recovered with any known key");
             }
         }
     }

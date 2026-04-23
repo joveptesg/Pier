@@ -46,12 +46,7 @@ pub async fn list_databases(
         db.query_row(
             "SELECT catalog_id, name FROM services WHERE id = ?1",
             [&id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
-            },
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
         )
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
     };
@@ -127,11 +122,22 @@ pub async fn list_databases(
     // Parse output into structured data
     // Load stored credentials
     let creds: std::collections::HashMap<String, (String, String)> = {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let mut stmt = db.prepare("SELECT db_name, username, password FROM database_credentials WHERE service_id = ?1")?;
-        let rows = stmt.query_map([&id], |row| {
-            Ok((row.get::<_, String>(0)?, (row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
-        })?.filter_map(|r| r.ok()).collect();
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt = db.prepare(
+            "SELECT db_name, username, password FROM database_credentials WHERE service_id = ?1",
+        )?;
+        let rows = stmt
+            .query_map([&id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    (row.get::<_, String>(1)?, row.get::<_, String>(2)?),
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
         rows
     };
 
@@ -190,12 +196,7 @@ pub async fn create_database(
         db.query_row(
             "SELECT catalog_id, name FROM services WHERE id = ?1",
             [&id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
-            },
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
         )
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
     };
@@ -207,13 +208,28 @@ pub async fn create_database(
         "postgresql" => {
             // Each command must run separately — CREATE DATABASE cannot run inside a transaction
             let create_user = format!("CREATE USER {username} WITH PASSWORD '{password}'");
-            exec_in_container(&state.docker, &container, &["psql", "-U", "postgres", "-c", &create_user]).await?;
+            exec_in_container(
+                &state.docker,
+                &container,
+                &["psql", "-U", "postgres", "-c", &create_user],
+            )
+            .await?;
 
             let create_db = format!("CREATE DATABASE {db_name} OWNER {username}");
-            exec_in_container(&state.docker, &container, &["psql", "-U", "postgres", "-c", &create_db]).await?;
+            exec_in_container(
+                &state.docker,
+                &container,
+                &["psql", "-U", "postgres", "-c", &create_db],
+            )
+            .await?;
 
             let grant = format!("GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {username}");
-            exec_in_container(&state.docker, &container, &["psql", "-U", "postgres", "-c", &grant]).await?;
+            exec_in_container(
+                &state.docker,
+                &container,
+                &["psql", "-U", "postgres", "-c", &grant],
+            )
+            .await?;
         }
         "mysql" | "mariadb" => {
             let sql = format!(
@@ -232,7 +248,10 @@ pub async fn create_database(
                 .get("MONGO_INITDB_ROOT_USERNAME")
                 .cloned()
                 .unwrap_or_else(|| "root".into());
-            let root_pass = env.get("MONGO_INITDB_ROOT_PASSWORD").cloned().unwrap_or_default();
+            let root_pass = env
+                .get("MONGO_INITDB_ROOT_PASSWORD")
+                .cloned()
+                .unwrap_or_default();
             // db_name/username are already validated to [A-Za-z0-9_]; password is
             // embedded as a JS string literal (quotes/backslashes escaped).
             let pwd_js = js_string(password);
@@ -267,7 +286,10 @@ pub async fn create_database(
 
     // Store credentials in database_credentials table
     {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let cred_id = uuid::Uuid::new_v4().to_string();
         let _ = db.execute(
             "INSERT INTO database_credentials (id, service_id, db_name, username, password) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -297,12 +319,7 @@ pub async fn delete_database(
         db.query_row(
             "SELECT catalog_id, name FROM services WHERE id = ?1",
             [&id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
-            },
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
         )
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
     };
@@ -390,7 +407,10 @@ pub async fn delete_database(
                 .get("MONGO_INITDB_ROOT_USERNAME")
                 .cloned()
                 .unwrap_or_else(|| "root".into());
-            let root_pass = env.get("MONGO_INITDB_ROOT_PASSWORD").cloned().unwrap_or_default();
+            let root_pass = env
+                .get("MONGO_INITDB_ROOT_PASSWORD")
+                .cloned()
+                .unwrap_or_default();
             let eval = format!(
                 "db = db.getSiblingDB('{dbname}'); \
                  db.getUsers().forEach(u => db.dropUser(u.user)); \
@@ -421,7 +441,10 @@ pub async fn delete_database(
 
     // Remove stored credentials
     {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let _ = db.execute(
             "DELETE FROM database_credentials WHERE service_id = ?1 AND db_name = ?2",
             rusqlite::params![id, dbname],
@@ -449,10 +472,16 @@ pub async fn change_password(
     }
 
     let (catalog_id, name) = {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row("SELECT catalog_id, name FROM services WHERE id = ?1", [&id], |row| {
-            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?))
-        }).map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT catalog_id, name FROM services WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
     };
 
     let container = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
@@ -460,13 +489,18 @@ pub async fn change_password(
 
     // Get username: from stored credentials, or query PostgreSQL for DB owner
     let username: String = {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
             "SELECT username FROM database_credentials WHERE service_id = ?1 AND db_name = ?2",
             rusqlite::params![id, dbname],
             |row| row.get(0),
-        ).ok()
-    }.unwrap_or_else(|| {
+        )
+        .ok()
+    }
+    .unwrap_or_else(|| {
         // Fallback: query DB owner from PostgreSQL
         String::new()
     });
@@ -488,17 +522,31 @@ pub async fn change_password(
     };
 
     if username.is_empty() {
-        return Err(AppError::BadRequest(format!("Could not find owner for database {dbname}")));
+        return Err(AppError::BadRequest(format!(
+            "Could not find owner for database {dbname}"
+        )));
     }
 
     match catalog.as_str() {
         "postgresql" => {
             let sql = format!("ALTER USER {username} WITH PASSWORD '{password}'");
-            exec_in_container(&state.docker, &container, &["psql", "-U", "postgres", "-c", &sql]).await?;
+            exec_in_container(
+                &state.docker,
+                &container,
+                &["psql", "-U", "postgres", "-c", &sql],
+            )
+            .await?;
         }
         "mysql" | "mariadb" => {
-            let sql = format!("ALTER USER '{username}'@'%' IDENTIFIED BY '{password}'; FLUSH PRIVILEGES;");
-            exec_in_container(&state.docker, &container, &["mysql", "-u", "root", "-e", &sql]).await?;
+            let sql = format!(
+                "ALTER USER '{username}'@'%' IDENTIFIED BY '{password}'; FLUSH PRIVILEGES;"
+            );
+            exec_in_container(
+                &state.docker,
+                &container,
+                &["mysql", "-u", "root", "-e", &sql],
+            )
+            .await?;
         }
         "mongodb" => {
             let env = fetch_env_vars(&state, &id)?;
@@ -506,7 +554,10 @@ pub async fn change_password(
                 .get("MONGO_INITDB_ROOT_USERNAME")
                 .cloned()
                 .unwrap_or_else(|| "root".into());
-            let root_pass = env.get("MONGO_INITDB_ROOT_PASSWORD").cloned().unwrap_or_default();
+            let root_pass = env
+                .get("MONGO_INITDB_ROOT_PASSWORD")
+                .cloned()
+                .unwrap_or_default();
             let pwd_js = js_string(password);
             let eval = format!(
                 "db = db.getSiblingDB('{dbname}'); \
@@ -535,7 +586,10 @@ pub async fn change_password(
 
     // Upsert stored credentials
     {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let updated = db.execute(
             "UPDATE database_credentials SET password = ?1 WHERE service_id = ?2 AND db_name = ?3",
             rusqlite::params![password, id, dbname],
@@ -576,7 +630,9 @@ async fn exec_in_container(
         .await
         .map_err(|e| {
             if e.to_string().contains("404") || e.to_string().contains("No such container") {
-                AppError::BadRequest(format!("Container '{container}' not found. Make sure the service is running."))
+                AppError::BadRequest(format!(
+                    "Container '{container}' not found. Make sure the service is running."
+                ))
             } else {
                 AppError::Internal(anyhow::anyhow!("Docker exec: {e}"))
             }

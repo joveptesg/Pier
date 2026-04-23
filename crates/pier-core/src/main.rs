@@ -103,7 +103,12 @@ async fn main() -> Result<()> {
                         if let Some(old) = files.first() {
                             let _ = tokio::fs::remove_file(old).await;
                             // Also remove matching env backup
-                            let env_name = old.file_name().unwrap_or_default().to_string_lossy().replace("pier-", "env-").replace(".db", ".bak");
+                            let env_name = old
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .replace("pier-", "env-")
+                                .replace(".db", ".bak");
                             let _ = tokio::fs::remove_file(backup_dir.join(env_name)).await;
                         }
                         files.remove(0);
@@ -228,14 +233,26 @@ async fn main() -> Result<()> {
     {
         if let Ok(db) = state.db.lock() {
             let mut stmt = db.prepare("SELECT id FROM domains WHERE domain LIKE 'https://%' OR domain LIKE 'http://%'").unwrap();
-            let invalid_ids: Vec<String> = stmt.query_map([], |row| row.get(0)).unwrap().filter_map(|r| r.ok()).collect();
+            let invalid_ids: Vec<String> = stmt
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect();
             for did in &invalid_ids {
                 let _ = db.execute("DELETE FROM domains WHERE id = ?1", [did]);
-                let config_path = state.config.data_dir.join("traefik").join("dynamic").join(format!("{did}.yml"));
+                let config_path = state
+                    .config
+                    .data_dir
+                    .join("traefik")
+                    .join("dynamic")
+                    .join(format!("{did}.yml"));
                 let _ = std::fs::remove_file(&config_path);
             }
             if !invalid_ids.is_empty() {
-                tracing::info!("Cleaned up {} invalid domain(s) with protocol prefix", invalid_ids.len());
+                tracing::info!(
+                    "Cleaned up {} invalid domain(s) with protocol prefix",
+                    invalid_ids.len()
+                );
             }
         }
     }
@@ -293,8 +310,8 @@ async fn main() -> Result<()> {
                     }
 
                     if local_count == 0 {
-                        let hostname = sysinfo::System::host_name()
-                            .unwrap_or_else(|| "localhost".to_string());
+                        let hostname =
+                            sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string());
                         let _ = db.execute(
                             "INSERT INTO servers (id, name, host, port, agent_token, status, is_local, os_info)
                              VALUES ('local', ?1, ?2, 0, '', 'online', 1, ?3)",
@@ -387,7 +404,9 @@ async fn main() -> Result<()> {
                     };
                     (
                         get("cleanup.enabled", "true") == "true",
-                        get("cleanup.interval_hours", "24").parse::<u64>().unwrap_or(24),
+                        get("cleanup.interval_hours", "24")
+                            .parse::<u64>()
+                            .unwrap_or(24),
                         get("cleanup.prune_build_cache", "true") != "false",
                         get("cleanup.prune_images", "true") != "false",
                         get("cleanup.prune_containers", "false") == "true",
@@ -405,9 +424,14 @@ async fn main() -> Result<()> {
                     let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
                     let s = state_ref.clone();
                     async move {
-                        match tokio::process::Command::new("docker").args(&args).output().await {
+                        match tokio::process::Command::new("docker")
+                            .args(&args)
+                            .output()
+                            .await
+                        {
                             Ok(out) => {
-                                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                                let stdout =
+                                    String::from_utf8_lossy(&out.stdout).trim().to_string();
                                 tracing::info!("Cleanup {name}: {stdout}");
                                 alerts::hooks::fire_event(
                                     &s,
@@ -431,9 +455,15 @@ async fn main() -> Result<()> {
                     }
                 };
 
-                if do_images { run("images", &["image", "prune", "-f"]).await; }
-                if do_cache { run("build_cache", &["builder", "prune", "-f"]).await; }
-                if do_containers { run("containers", &["container", "prune", "-f"]).await; }
+                if do_images {
+                    run("images", &["image", "prune", "-f"]).await;
+                }
+                if do_cache {
+                    run("build_cache", &["builder", "prune", "-f"]).await;
+                }
+                if do_containers {
+                    run("containers", &["container", "prune", "-f"]).await;
+                }
             }
         });
     }
@@ -456,14 +486,8 @@ async fn main() -> Result<()> {
 async fn detect_geolocation(ip: &str) -> anyhow::Result<(String, String, String)> {
     let url = format!("http://ip-api.com/json/{ip}?fields=country,city,countryCode");
     let resp: serde_json::Value = reqwest::get(&url).await?.json().await?;
-    let country = resp["country"]
-        .as_str()
-        .unwrap_or("Unknown")
-        .to_string();
+    let country = resp["country"].as_str().unwrap_or("Unknown").to_string();
     let city = resp["city"].as_str().unwrap_or("Unknown").to_string();
-    let code = resp["countryCode"]
-        .as_str()
-        .unwrap_or("XX")
-        .to_string();
+    let code = resp["countryCode"].as_str().unwrap_or("XX").to_string();
     Ok((country, city, code))
 }

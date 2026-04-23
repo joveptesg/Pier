@@ -29,7 +29,9 @@ pub fn current_tz(state: &SharedState) -> Tz {
 /// Shape: `2026-04-19 18:42 MSK`.
 pub fn format_local(state: &SharedState, ts: DateTime<Utc>) -> String {
     let tz = current_tz(state);
-    ts.with_timezone(&tz).format("%Y-%m-%d %H:%M %Z").to_string()
+    ts.with_timezone(&tz)
+        .format("%Y-%m-%d %H:%M %Z")
+        .to_string()
 }
 
 /// Format "now" in the configured system timezone.

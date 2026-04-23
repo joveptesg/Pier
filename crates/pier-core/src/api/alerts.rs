@@ -31,13 +31,27 @@ pub struct CreateRuleRequest {
     pub enabled: bool,
 }
 
-fn default_scope() -> String { "global".to_string() }
-fn default_comparison() -> String { "gt".to_string() }
-fn default_duration() -> i64 { 60 }
-fn default_severity() -> String { "warning".to_string() }
-fn default_channel() -> String { "telegram".to_string() }
-fn default_cooldown() -> i64 { 30 }
-fn default_true() -> bool { true }
+fn default_scope() -> String {
+    "global".to_string()
+}
+fn default_comparison() -> String {
+    "gt".to_string()
+}
+fn default_duration() -> i64 {
+    60
+}
+fn default_severity() -> String {
+    "warning".to_string()
+}
+fn default_channel() -> String {
+    "telegram".to_string()
+}
+fn default_cooldown() -> i64 {
+    30
+}
+fn default_true() -> bool {
+    true
+}
 
 /// GET /api/v1/alerts — list alert rules (config masked).
 pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
@@ -327,14 +341,16 @@ pub async fn test(
         .map_err(|_| AppError::NotFound(format!("Alert {id} not found")))?
     };
 
-    let (name, severity, metric, scope, scope_id, channel, config_enc, threshold, comparison) = rule;
+    let (name, severity, metric, scope, scope_id, channel, config_enc, threshold, comparison) =
+        rule;
     let scope_label = crate::alerts::metrics::scope_label(&state, &scope, scope_id.as_deref());
 
     let key = crate::crypto::get_secret_key();
     let config_json = crate::crypto::decrypt(&config_enc, &key)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Decrypt: {e}")))?;
 
-    let server_label = crate::alerts::metrics::resolve_server_label(&state, &scope, scope_id.as_deref());
+    let server_label =
+        crate::alerts::metrics::resolve_server_label(&state, &scope, scope_id.as_deref());
     let msg = AlertMessage {
         rule_name: format!("[TEST] {name}"),
         severity,
@@ -573,9 +589,7 @@ pub async fn channel_put(
 pub async fn channel_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let (_enabled, config_enc) = read_channel(&state, "telegram")?;
     if config_enc.is_empty() {
-        return Err(AppError::BadRequest(
-            "Telegram is not configured".into(),
-        ));
+        return Err(AppError::BadRequest("Telegram is not configured".into()));
     }
     let key = crate::crypto::get_secret_key();
     let plain = crate::crypto::decrypt(&config_enc, &key)
@@ -666,7 +680,9 @@ pub struct ApiKeyPatch {
     pub api_key: Option<String>,
 }
 
-fn load_email_config(state: &SharedState) -> AppResult<crate::alerts::channels::email::EmailConfig> {
+fn load_email_config(
+    state: &SharedState,
+) -> AppResult<crate::alerts::channels::email::EmailConfig> {
     let (_enabled, enc) = read_channel(state, "email")?;
     if enc.is_empty() {
         return Ok(Default::default());
@@ -721,27 +737,49 @@ pub async fn channel_email_put(
     if cfg.driver.is_empty() {
         cfg.driver = "smtp".into();
     }
-    if let Some(v) = body.from_name { cfg.from_name = v; }
-    if let Some(v) = body.from_address { cfg.from_address = v; }
-    if let Some(v) = body.to_address { cfg.to_address = v; }
+    if let Some(v) = body.from_name {
+        cfg.from_name = v;
+    }
+    if let Some(v) = body.from_address {
+        cfg.from_address = v;
+    }
+    if let Some(v) = body.to_address {
+        cfg.to_address = v;
+    }
     if let Some(s) = body.smtp {
-        if let Some(v) = s.host { cfg.smtp.host = v; }
-        if let Some(v) = s.port { cfg.smtp.port = v; }
-        if let Some(v) = s.encryption { cfg.smtp.encryption = v; }
-        if let Some(v) = s.username { cfg.smtp.username = v; }
-        if let Some(v) = s.password {
-            if !v.is_empty() { cfg.smtp.password = v; }
+        if let Some(v) = s.host {
+            cfg.smtp.host = v;
         }
-        if let Some(v) = s.timeout { cfg.smtp.timeout = v; }
+        if let Some(v) = s.port {
+            cfg.smtp.port = v;
+        }
+        if let Some(v) = s.encryption {
+            cfg.smtp.encryption = v;
+        }
+        if let Some(v) = s.username {
+            cfg.smtp.username = v;
+        }
+        if let Some(v) = s.password {
+            if !v.is_empty() {
+                cfg.smtp.password = v;
+            }
+        }
+        if let Some(v) = s.timeout {
+            cfg.smtp.timeout = v;
+        }
     }
     if let Some(b) = body.brevo {
         if let Some(v) = b.api_key {
-            if !v.is_empty() { cfg.brevo.api_key = v; }
+            if !v.is_empty() {
+                cfg.brevo.api_key = v;
+            }
         }
     }
     if let Some(r) = body.resend {
         if let Some(v) = r.api_key {
-            if !v.is_empty() { cfg.resend.api_key = v; }
+            if !v.is_empty() {
+                cfg.resend.api_key = v;
+            }
         }
     }
 
@@ -841,8 +879,7 @@ where
     let key = crate::crypto::get_secret_key();
     let plain = crate::crypto::decrypt(&enc, &key)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("decrypt: {e}")))?;
-    serde_json::from_str(&plain)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("parse cfg: {e}")))
+    serde_json::from_str(&plain).map_err(|e| AppError::Internal(anyhow::anyhow!("parse cfg: {e}")))
 }
 
 /// GET /api/v1/notifications/channels/discord
@@ -890,7 +927,9 @@ pub async fn channel_discord_put(
 }
 
 /// POST /api/v1/notifications/channels/discord/test
-pub async fn channel_discord_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+pub async fn channel_discord_test(
+    State(state): State<SharedState>,
+) -> AppResult<impl IntoResponse> {
     let cfg: crate::alerts::channels::discord::DiscordConfig =
         load_webhook_config(&state, "discord")?;
     if cfg.webhook_url.is_empty() {
@@ -945,8 +984,7 @@ pub async fn channel_slack_put(
 
 /// POST /api/v1/notifications/channels/slack/test
 pub async fn channel_slack_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
-    let cfg: crate::alerts::channels::slack::SlackConfig =
-        load_webhook_config(&state, "slack")?;
+    let cfg: crate::alerts::channels::slack::SlackConfig = load_webhook_config(&state, "slack")?;
     if cfg.webhook_url.is_empty() {
         return Err(AppError::BadRequest("Slack is not configured".into()));
     }

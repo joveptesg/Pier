@@ -202,9 +202,7 @@ pub async fn list_branches(
 /// Exchange a GitHub App Manifest code for app credentials.
 /// Called after user creates an app via the manifest flow.
 /// Returns: (app_id, slug, pem, webhook_secret, client_id, client_secret, owner_login)
-pub async fn exchange_manifest_code(
-    code: &str,
-) -> Result<ManifestExchangeResult> {
+pub async fn exchange_manifest_code(code: &str) -> Result<ManifestExchangeResult> {
     let client = reqwest::Client::new();
     let url = format!("https://api.github.com/app-manifests/{code}/conversions");
 

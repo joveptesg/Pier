@@ -102,9 +102,7 @@ pub async fn cancel(
     )?;
 
     if updated == 0 {
-        return Err(AppError::Conflict(
-            "Deployment is not in progress".into(),
-        ));
+        return Err(AppError::Conflict("Deployment is not in progress".into()));
     }
 
     // Clear the service's 'deploying' flag if no other deploy is active.

@@ -71,9 +71,8 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
             .collect();
 
         // Networks
-        let mut stmt = db.prepare(
-            "SELECT id, name, is_default FROM networks ORDER BY is_default DESC, name",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT id, name, is_default FROM networks ORDER BY is_default DESC, name")?;
         let networks: Vec<serde_json::Value> = stmt
             .query_map([], |row| {
                 Ok(serde_json::json!({
@@ -131,15 +130,21 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
         };
 
         // Collect which keys reference which targets (deduplicate per target)
-        let mut target_keys: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut target_keys: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
         for entry in &env_list {
             if let Some((key, val)) = entry.split_once('=') {
                 let val_lower = val.to_lowercase();
                 for (tname, tid) in &name_to_id {
-                    if tid == source_id { continue; }
+                    if tid == source_id {
+                        continue;
+                    }
                     let cn_pattern = format!("pier-{tname}");
                     if val_lower.contains(&cn_pattern) || val_lower.contains(tname) {
-                        target_keys.entry(tid.clone()).or_default().push(key.to_string());
+                        target_keys
+                            .entry(tid.clone())
+                            .or_default()
+                            .push(key.to_string());
                     }
                 }
             }
@@ -148,15 +153,23 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
         // Create one edge per (source→target) with friendly label
         for (tid, keys) in target_keys {
             let edge_key = format!("{source_id}->{tid}");
-            if seen_edges.contains(&edge_key) { continue; }
+            if seen_edges.contains(&edge_key) {
+                continue;
+            }
             seen_edges.insert(edge_key);
 
             let keys_lower: Vec<String> = keys.iter().map(|k| k.to_lowercase()).collect();
-            let label = if keys_lower.iter().any(|k| k.contains("postgres") || k.contains("database") || k.contains("db_host")) {
+            let label = if keys_lower
+                .iter()
+                .any(|k| k.contains("postgres") || k.contains("database") || k.contains("db_host"))
+            {
                 "PostgreSQL"
             } else if keys_lower.iter().any(|k| k.contains("redis")) {
                 "Redis"
-            } else if keys_lower.iter().any(|k| k.contains("rabbit") || k.contains("amqp")) {
+            } else if keys_lower
+                .iter()
+                .any(|k| k.contains("rabbit") || k.contains("amqp"))
+            {
                 "RabbitMQ"
             } else if keys_lower.iter().any(|k| k.contains("mongo")) {
                 "MongoDB"

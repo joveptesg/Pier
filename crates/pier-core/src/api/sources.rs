@@ -168,7 +168,8 @@ pub async fn list_branches(
     };
 
     let app_id = app_id.ok_or_else(|| AppError::BadRequest("Missing app_id".into()))?;
-    let inst_id = installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
+    let inst_id =
+        installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
     let pk = private_key.ok_or_else(|| AppError::BadRequest("Missing private_key".into()))?;
 
     // repo comes as path param — Axum already decodes it
@@ -215,9 +216,8 @@ pub async fn get(
         .map_err(|_| AppError::NotFound(format!("Source {id} not found")))?;
 
     // Get resources using this source
-    let mut stmt = db.prepare(
-        "SELECT id, name, status, catalog_id FROM services WHERE git_source_id = ?1",
-    )?;
+    let mut stmt =
+        db.prepare("SELECT id, name, status, catalog_id FROM services WHERE git_source_id = ?1")?;
     let resources: Vec<serde_json::Value> = stmt
         .query_map([&id], |row| {
             Ok(serde_json::json!({
@@ -237,9 +237,7 @@ pub async fn get(
 }
 
 /// GET /api/v1/sources/github/manifest — generate manifest + redirect info
-pub async fn github_manifest(
-    State(state): State<SharedState>,
-) -> AppResult<impl IntoResponse> {
+pub async fn github_manifest(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     // Get platform domain for callback URL
     let platform_url = {
         let db = state
@@ -318,10 +316,7 @@ pub async fn github_callback(
             }
 
             // Redirect to GitHub App install page to select repositories
-            let install_url = format!(
-                "https://github.com/apps/{}/installations/new",
-                result.slug
-            );
+            let install_url = format!("https://github.com/apps/{}/installations/new", result.slug);
             axum::response::Redirect::to(&install_url)
         }
         Err(e) => {
@@ -337,30 +332,43 @@ pub async fn get_file(
     Path(source_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult<impl IntoResponse> {
-    let repo = params.get("repo").ok_or_else(|| AppError::BadRequest("repo is required".into()))?;
+    let repo = params
+        .get("repo")
+        .ok_or_else(|| AppError::BadRequest("repo is required".into()))?;
     let branch = params.get("branch").map(|s| s.as_str()).unwrap_or("main");
-    let file_path = params.get("path").map(|s| s.as_str()).unwrap_or("docker-compose.yml");
+    let file_path = params
+        .get("path")
+        .map(|s| s.as_str())
+        .unwrap_or("docker-compose.yml");
 
     let (app_id, installation_id, private_key) = {
-        let db = state.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
             "SELECT app_id, installation_id, private_key FROM git_sources WHERE id = ?1",
             [&source_id],
-            |row| Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<i64>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            )),
-        ).map_err(|_| AppError::NotFound(format!("Source {source_id} not found")))?
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Source {source_id} not found")))?
     };
 
     let app_id = app_id.ok_or_else(|| AppError::BadRequest("Missing app_id".into()))?;
-    let inst_id = installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
+    let inst_id =
+        installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
     let pk = private_key.ok_or_else(|| AppError::BadRequest("Missing private_key".into()))?;
 
-    let content = crate::git::github_app::get_file_content(&app_id, inst_id, &pk, repo, branch, file_path)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("{e}")))?;
+    let content =
+        crate::git::github_app::get_file_content(&app_id, inst_id, &pk, repo, branch, file_path)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("{e}")))?;
 
     Ok(Json(serde_json::json!({
         "content": content,

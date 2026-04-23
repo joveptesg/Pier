@@ -117,12 +117,11 @@ async fn process_rule(state: &SharedState, rule: AlertRule) -> anyhow::Result<()
         return Ok(());
     }
 
-    let value = match metrics::fetch(state, &rule.metric, &rule.scope, rule.scope_id.as_deref())
-        .await
-    {
-        Some(v) => v,
-        None => return Ok(()),
-    };
+    let value =
+        match metrics::fetch(state, &rule.metric, &rule.scope, rule.scope_id.as_deref()).await {
+            Some(v) => v,
+            None => return Ok(()),
+        };
 
     let breached = evaluator::compare(value, rule.threshold.unwrap_or(0.0), &rule.comparison);
 
@@ -214,11 +213,7 @@ fn update_breach_window(
     Ok(())
 }
 
-pub async fn fire(
-    state: &SharedState,
-    rule: &AlertRule,
-    value: Option<f64>,
-) -> anyhow::Result<()> {
+pub async fn fire(state: &SharedState, rule: &AlertRule, value: Option<f64>) -> anyhow::Result<()> {
     let msg = build_message(state, rule, "firing", value, None);
     send_and_record(state, rule, &msg, "firing", value).await
 }
@@ -248,10 +243,7 @@ pub async fn fire_with_context(
 /// rely on the global `notification_channels` table. Legacy rules keep their
 /// own per-rule config. Returns `None` if the channel is disabled or has no
 /// configuration set.
-fn resolve_channel_config(
-    state: &SharedState,
-    rule: &AlertRule,
-) -> anyhow::Result<Option<String>> {
+fn resolve_channel_config(state: &SharedState, rule: &AlertRule) -> anyhow::Result<Option<String>> {
     let key = crate::crypto::get_secret_key();
 
     if !rule.channel_config_enc.is_empty() {
@@ -319,7 +311,8 @@ async fn send_and_record(
             // the user simply hasn't set up notifications yet.
             tracing::debug!(
                 "Alert '{}' would fire but channel '{}' is not configured — skipping",
-                rule.name, rule.channel
+                rule.name,
+                rule.channel
             );
             return Ok(());
         }
@@ -328,12 +321,7 @@ async fn send_and_record(
     let delivery = channels::send(&rule.channel, &config_json, msg).await;
 
     let event_id = uuid::Uuid::new_v4().to_string();
-    let short_msg = format!(
-        "{} {} — {}",
-        msg.severity,
-        state_label,
-        msg.scope_label
-    );
+    let short_msg = format!("{} {} — {}", msg.severity, state_label, msg.scope_label);
 
     {
         let db = state

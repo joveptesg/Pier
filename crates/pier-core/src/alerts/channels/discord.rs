@@ -52,7 +52,11 @@ fn build_payload(cfg: &DiscordConfig, msg: &AlertMessage) -> serde_json::Value {
             "warning" => "⚠️",
             _ => "ℹ️",
         };
-        format!("{prefix} {} — {}", msg.severity.to_uppercase(), msg.rule_name)
+        format!(
+            "{prefix} {} — {}",
+            msg.severity.to_uppercase(),
+            msg.rule_name
+        )
     };
 
     let mut fields: Vec<serde_json::Value> = Vec::new();

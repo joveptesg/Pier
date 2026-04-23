@@ -63,7 +63,12 @@ pub async fn create(
     let driver = body.driver.as_deref().unwrap_or("bridge");
 
     // Check if Docker network already exists
-    if state.docker.inspect_network(&docker_name, None).await.is_err() {
+    if state
+        .docker
+        .inspect_network(&docker_name, None)
+        .await
+        .is_err()
+    {
         state
             .docker
             .create_network(NetworkCreateRequest {
@@ -86,10 +91,17 @@ pub async fn create(
     db.execute(
         "INSERT INTO networks (id, name, description, driver)
          VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![id, docker_name, body.description.unwrap_or_default(), driver],
+        rusqlite::params![
+            id,
+            docker_name,
+            body.description.unwrap_or_default(),
+            driver
+        ],
     )?;
 
-    Ok(Json(serde_json::json!({"ok": true, "id": id, "name": docker_name})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "id": id, "name": docker_name}),
+    ))
 }
 
 /// DELETE /api/v1/networks/{id}

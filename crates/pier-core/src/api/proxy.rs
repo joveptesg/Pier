@@ -307,9 +307,9 @@ fn version_is_newer(a: &str, b: &str) -> bool {
 
 /// POST /api/v1/proxy/update — pull latest Traefik image and recreate container.
 pub async fn update(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
-    let latest = fetch_latest_traefik_version()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Could not fetch latest Traefik version: {e}")))?;
+    let latest = fetch_latest_traefik_version().await.map_err(|e| {
+        AppError::BadRequest(format!("Could not fetch latest Traefik version: {e}"))
+    })?;
 
     // Persist the new version so auto-deploy paths use it on startup.
     {

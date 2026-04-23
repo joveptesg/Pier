@@ -115,22 +115,19 @@ async fn fetch_server_host_metric(
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse().ok())
             .or_else(|| json.get("memory_percent").and_then(|v| v.as_f64())),
-        "disk" => json
-            .get("disks")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|d| {
-                        let total = d.get("total")?.as_u64()? as f64;
-                        let avail = d.get("available")?.as_u64()? as f64;
-                        if total > 0.0 {
-                            Some(((total - avail) / total) * 100.0)
-                        } else {
-                            None
-                        }
-                    })
-                    .fold(0.0_f64, f64::max)
-            }),
+        "disk" => json.get("disks").and_then(|v| v.as_array()).map(|arr| {
+            arr.iter()
+                .filter_map(|d| {
+                    let total = d.get("total")?.as_u64()? as f64;
+                    let avail = d.get("available")?.as_u64()? as f64;
+                    if total > 0.0 {
+                        Some(((total - avail) / total) * 100.0)
+                    } else {
+                        None
+                    }
+                })
+                .fold(0.0_f64, f64::max)
+        }),
         _ => None,
     }
 }
@@ -303,11 +300,9 @@ pub fn scope_label(state: &SharedState, scope: &str, scope_id: Option<&str>) -> 
             .lock()
             .ok()
             .and_then(|db| {
-                db.query_row(
-                    "SELECT name FROM services WHERE id = ?1",
-                    [id],
-                    |row| row.get::<_, String>(0),
-                )
+                db.query_row("SELECT name FROM services WHERE id = ?1", [id], |row| {
+                    row.get::<_, String>(0)
+                })
                 .ok()
             })
             .unwrap_or_else(|| format!("service {id}")),
@@ -316,11 +311,9 @@ pub fn scope_label(state: &SharedState, scope: &str, scope_id: Option<&str>) -> 
             .lock()
             .ok()
             .and_then(|db| {
-                db.query_row(
-                    "SELECT domain FROM domains WHERE id = ?1",
-                    [id],
-                    |row| row.get::<_, String>(0),
-                )
+                db.query_row("SELECT domain FROM domains WHERE id = ?1", [id], |row| {
+                    row.get::<_, String>(0)
+                })
                 .ok()
             })
             .unwrap_or_else(|| format!("domain {id}")),

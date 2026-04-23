@@ -63,7 +63,11 @@ fn parse_ts(s: &Option<String>) -> Option<DateTime<Utc>> {
     chrono::DateTime::parse_from_str(&padded, "%Y-%m-%d %H:%M:%S%:z")
         .ok()
         .map(|d| d.with_timezone(&Utc))
-        .or_else(|| chrono::DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&Utc)))
+        .or_else(|| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|d| d.with_timezone(&Utc))
+        })
 }
 
 #[cfg(test)]

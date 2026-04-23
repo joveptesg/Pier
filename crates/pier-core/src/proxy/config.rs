@@ -504,10 +504,7 @@ tcp:
         upstreams.len()
     );
 
-    std::fs::write(
-        dynamic_dir.join(format!("tcp-{service_id}.yml")),
-        config,
-    )?;
+    std::fs::write(dynamic_dir.join(format!("tcp-{service_id}.yml")), config)?;
     Ok(())
 }
 
@@ -551,9 +548,7 @@ pub fn regenerate_static_config_with_tcp(
 ) -> Result<()> {
     let mut tcp_entries = String::new();
     for port in tcp_ports {
-        tcp_entries.push_str(&format!(
-            "  tcp-{port}:\n    address: \":{port}\"\n"
-        ));
+        tcp_entries.push_str(&format!("  tcp-{port}:\n    address: \":{port}\"\n"));
     }
 
     let dashboard_section = if dashboard {

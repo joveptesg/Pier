@@ -71,7 +71,11 @@ fn format_body_text(msg: &AlertMessage) -> String {
     let state_label = if msg.state == "resolved" {
         "RESOLVED".to_string()
     } else {
-        format!("{} {}", severity_prefix(&msg.severity), msg.severity.to_uppercase())
+        format!(
+            "{} {}",
+            severity_prefix(&msg.severity),
+            msg.severity.to_uppercase()
+        )
     };
     let mut lines = vec![format!("{state_label} — {}", msg.rule_name)];
     if let Some(srv) = &msg.server_label {
@@ -151,8 +155,16 @@ async fn send_smtp(
         )
         .map_err(|e| anyhow::anyhow!("Build email: {e}"))?;
 
-    let port = if cfg.smtp.port == 0 { 587 } else { cfg.smtp.port };
-    let timeout_secs = if cfg.smtp.timeout == 0 { 30 } else { cfg.smtp.timeout };
+    let port = if cfg.smtp.port == 0 {
+        587
+    } else {
+        cfg.smtp.port
+    };
+    let timeout_secs = if cfg.smtp.timeout == 0 {
+        30
+    } else {
+        cfg.smtp.timeout
+    };
 
     let mut builder = match cfg.smtp.encryption.as_str() {
         "tls" => AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.smtp.host)
