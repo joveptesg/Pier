@@ -124,6 +124,19 @@ mkdir -p "${PIER_DIR}/host-docker"
 mkdir -p /root/.docker
 chmod 700 /root/.docker
 
+# Grant pier user read access to /root/.docker via ACL. docker login writes
+# config.json with mode 600 (owner-only), so the docker group membership of
+# pier doesn't help; we need an explicit user ACL. Default ACL ensures new
+# config.json files (after PAT rotation) inherit the permission.
+if command -v setfacl &>/dev/null; then
+    setfacl -m u:"$PIER_USER":rx /root/.docker || warn "setfacl on /root/.docker failed — pier may not see host docker creds"
+    setfacl -d -m u:"$PIER_USER":r /root/.docker || true
+    [[ -f /root/.docker/config.json ]] && setfacl -m u:"$PIER_USER":r /root/.docker/config.json || true
+else
+    warn "setfacl not found (install 'acl' package). Falling back to chmod 644 on config.json — will reset on next 'docker login'."
+    [[ -f /root/.docker/config.json ]] && chmod 644 /root/.docker/config.json || true
+fi
+
 # ── Install binary ───────────────────────────────────────────────────────────
 
 info "Installing binary to ${PIER_BIN}"
