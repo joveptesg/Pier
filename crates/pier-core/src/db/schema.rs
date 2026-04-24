@@ -496,6 +496,35 @@ const MIGRATIONS: &[&str] = &[
     CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_scope
         ON services(COALESCE(project_id,''), name);
     "#,
+    // Migration 30: Core↔Core federation (Mode 2 "pier-core → pier-core").
+    // peer_cores  — peers this instance CAN CONTROL (outgoing).
+    // peer_grants — tokens this instance accepts FROM remote cores (incoming).
+    r#"
+    CREATE TABLE IF NOT EXISTS peer_cores (
+        id              TEXT PRIMARY KEY NOT NULL,
+        name            TEXT NOT NULL,
+        url             TEXT NOT NULL,
+        api_token       TEXT NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        last_heartbeat  TEXT,
+        remote_version  TEXT,
+        last_error      TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_peer_cores_status ON peer_cores(status);
+
+    CREATE TABLE IF NOT EXISTS peer_grants (
+        id              TEXT PRIMARY KEY NOT NULL,
+        name            TEXT NOT NULL,
+        token           TEXT NOT NULL UNIQUE,
+        is_active       INTEGER NOT NULL DEFAULT 1,
+        last_used_at    TEXT,
+        last_used_ip    TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_peer_grants_token ON peer_grants(token);
+    "#,
 ];
 
 /// Run all pending database migrations.

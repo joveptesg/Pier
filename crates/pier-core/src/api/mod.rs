@@ -13,7 +13,9 @@ pub mod env;
 pub mod events;
 pub mod images;
 pub mod networks;
+pub mod peers;
 pub mod projects;
+pub mod promote;
 pub mod proxy;
 pub mod registries;
 pub mod resources;
@@ -24,7 +26,7 @@ pub mod system;
 pub mod webhooks;
 
 use axum::extract::State;
-use axum::routing::{delete, get, patch, post, put};
+use axum::routing::{any, delete, get, patch, post, put};
 use axum::Router;
 
 use crate::auth::middleware::require_auth;
@@ -226,6 +228,24 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/{id}/containers", get(servers::containers))
         .route("/servers/{id}/deploy", post(servers::deploy_to_server))
         .route("/servers/{id}/stop", post(servers::stop_on_server))
+        // Mode 3 — export or apply a promotion bundle so this server can graduate to a standalone pier-core.
+        .route("/servers/{id}/promote-bundle", get(promote::bundle))
+        .route("/servers/{id}/promote", post(promote::trigger))
+        // Peer cores (federation — Mode 2: pier-core ↔ pier-core).
+        // `/peers/probe` is the incoming endpoint hit by remote cores to verify their grant.
+        // Order matters for axum 0.8: static `/peers/probe` is registered before `/peers/{id}`.
+        .route("/peers/probe", get(peers::probe))
+        .route("/peers", get(peers::list).post(peers::create))
+        .route("/peers/{id}", get(peers::get).delete(peers::remove))
+        .route("/peers/{id}/name", put(peers::rename))
+        .route("/peers/{id}/test", post(peers::test))
+        .route("/peers/{id}/proxy/{*rest}", any(peers::proxy))
+        // Peer grants (incoming auth tokens). "Allow another core to control this one."
+        .route(
+            "/peer-grants",
+            get(peers::grants_list).post(peers::grants_create),
+        )
+        .route("/peer-grants/{id}", delete(peers::grants_revoke))
         // Canvas (architect view)
         .route("/canvas", get(canvas::get_canvas))
         .route("/canvas/positions", put(canvas::save_positions))

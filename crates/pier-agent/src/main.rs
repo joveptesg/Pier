@@ -318,6 +318,185 @@ async fn stack_status(
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/v1/agent/promote
+//
+// Promotes this agent to a full pier-core. The Core passes in a promotion bundle
+// (exported from its database) plus optional parameters. The agent:
+//   1. Writes the bundle to its data dir.
+//   2. Writes a shell script that downloads pier-core, imports the bundle,
+//      installs a systemd unit, stops pier-agent and starts pier.
+//   3. Spawns the script detached from the HTTP request and returns 202.
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct PromoteRequest {
+    /// Opaque bundle produced by Core's `GET /api/v1/servers/{id}/promote-bundle`.
+    /// We don't validate its structure here — pier-core's `--import-bundle`
+    /// CLI does that and fails loudly if the bundle is malformed.
+    bundle: serde_json::Value,
+    /// Download URL for the pier-core binary. Defaults to GitHub latest release.
+    #[serde(default)]
+    core_download_url: Option<String>,
+    /// Port pier-core should listen on after promotion (default: 8443).
+    #[serde(default)]
+    core_port: Option<u16>,
+}
+
+async fn promote(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(body): Json<PromoteRequest>,
+) -> impl IntoResponse {
+    require_auth!(headers, state);
+
+    // 1. Write bundle to disk.
+    let promote_dir = format!("{}/promote", state.data_dir);
+    if let Err(e) = tokio::fs::create_dir_all(&promote_dir).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("mkdir: {e}")})),
+        )
+            .into_response();
+    }
+    let bundle_path = format!("{promote_dir}/bundle.json");
+    let bundle_text = match serde_json::to_string(&body.bundle) {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("bundle serialize: {e}")})),
+            )
+                .into_response();
+        }
+    };
+    if let Err(e) = tokio::fs::write(&bundle_path, &bundle_text).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("write bundle: {e}")})),
+        )
+            .into_response();
+    }
+
+    // 2. Build and write the promotion shell script.
+    let download_url = body.core_download_url.unwrap_or_else(|| {
+        "https://github.com/joveptesg/Pier/releases/download/latest/pier-linux-amd64".to_string()
+    });
+    let core_port = body.core_port.unwrap_or(8443);
+    let script_path = format!("{promote_dir}/promote.sh");
+    let script = promotion_script(&download_url, &bundle_path, core_port);
+
+    if let Err(e) = tokio::fs::write(&script_path, &script).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("write script: {e}")})),
+        )
+            .into_response();
+    }
+    // Make the script executable on Unix.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ =
+            tokio::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).await;
+    }
+
+    // 3. Spawn detached. `setsid` detaches from the controlling terminal, and the
+    //    final `&` + redirect to a log file ensures the script survives after
+    //    pier-agent is killed by its own script.
+    let log_path = format!("{promote_dir}/promote.log");
+    let spawn_cmd = format!(
+        "setsid nohup bash {script_path} >{log_path} 2>&1 </dev/null &",
+        script_path = script_path,
+        log_path = log_path
+    );
+    let spawn = tokio::process::Command::new("bash")
+        .arg("-c")
+        .arg(&spawn_cmd)
+        .spawn();
+    match spawn {
+        Ok(_) => {
+            tracing::info!("Promotion started; see {log_path} on the target server for progress");
+            (
+                StatusCode::ACCEPTED,
+                Json(serde_json::json!({
+                    "ok": true,
+                    "message": "Promotion started. Agent will stop itself and pier-core will take over.",
+                    "log_path": log_path,
+                    "bundle_path": bundle_path,
+                    "script_path": script_path,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("spawn: {e}")})),
+        )
+            .into_response(),
+    }
+}
+
+/// Build the self-contained promotion shell script. No interpolation beyond
+/// the inputs — keep it portable and debuggable.
+fn promotion_script(download_url: &str, bundle_path: &str, core_port: u16) -> String {
+    format!(
+        r#"#!/bin/bash
+set -e
+LOG() {{ echo "[$(date '+%F %T')] $*"; }}
+
+LOG "=== pier-agent → pier-core promotion ==="
+
+CORE_URL="{download_url}"
+BUNDLE="{bundle_path}"
+CORE_DATA_DIR="/var/lib/pier"
+CORE_PORT="{core_port}"
+
+mkdir -p /opt/pier/bin "$CORE_DATA_DIR"
+LOG "Downloading pier-core from $CORE_URL"
+if ! curl -fsSL -o /opt/pier/bin/pier "$CORE_URL"; then
+    LOG "ERROR: download failed"
+    exit 1
+fi
+chmod +x /opt/pier/bin/pier
+
+LOG "Importing bundle into fresh database"
+PIER_DATA_DIR="$CORE_DATA_DIR" /opt/pier/bin/pier --import-bundle "$BUNDLE"
+
+LOG "Writing systemd unit for pier-core"
+cat >/etc/systemd/system/pier.service <<'UNIT'
+[Unit]
+Description=Pier
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+Environment="PIER_DATA_DIR=/var/lib/pier"
+Environment="PIER_PORT={core_port}"
+Environment="RUST_LOG=info"
+ExecStart=/opt/pier/bin/pier
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable pier
+
+LOG "Stopping pier-agent"
+systemctl stop pier-agent || true
+
+LOG "Starting pier-core on port $CORE_PORT"
+systemctl start pier
+
+LOG "Promotion complete. Visit http://$(hostname -I | awk '{{print $1}}'):$CORE_PORT to create an admin user."
+"#
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -359,6 +538,7 @@ async fn main() -> Result<()> {
         .route("/api/v1/agent/stop", post(stop))
         .route("/api/v1/agent/exec", post(exec_cmd))
         .route("/api/v1/agent/status", get(stack_status))
+        .route("/api/v1/agent/promote", post(promote))
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");

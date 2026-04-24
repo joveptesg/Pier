@@ -28,6 +28,15 @@ use state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // One-shot CLI modes handled before the long-lived server starts.
+    // Usage: `pier --import-bundle path/to/bundle.json` — hydrate a fresh DB
+    // from a bundle exported by another core's `/api/v1/servers/{id}/promote-bundle`
+    // endpoint, then exit.
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 3 && args[1] == "--import-bundle" {
+        return import_bundle_cli(&args[2]);
+    }
+
     let config = PierConfig::from_env();
 
     tracing_subscriber::fmt()
@@ -468,6 +477,9 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Peer-core heartbeat: refresh status for every registered federated core.
+    api::peers::spawn_heartbeat_task(state.clone());
+
     let app = ui::ui_router(state.clone())
         .merge(api::api_router(state.clone()))
         .with_state(state);
@@ -479,6 +491,50 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
 
+    Ok(())
+}
+
+/// Hydrate a fresh pier-core DB from a bundle file. Invoked via `--import-bundle`.
+/// Exits the process on completion — the server does not start afterward, so the
+/// operator can inspect the import result before running pier normally.
+fn import_bundle_cli(path: &str) -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+
+    let config = PierConfig::from_env();
+    tracing::info!(
+        "Importing bundle from {path} into {}",
+        config.db_path.display()
+    );
+
+    crypto::self_check();
+
+    let raw =
+        std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("reading bundle {path}: {e}"))?;
+    let bundle: api::promote::PromoteBundle =
+        serde_json::from_str(&raw).map_err(|e| anyhow::anyhow!("parsing bundle: {e}"))?;
+
+    tracing::info!(
+        "Bundle source: server '{}' (id {}), exported {}, pier v{}",
+        bundle.source_server_name,
+        bundle.source_server_id,
+        bundle.exported_at,
+        bundle.pier_version
+    );
+
+    let conn = db::init_db(&config.db_path)?;
+    let summary = api::promote::import_bundle(&conn, &bundle)?;
+    tracing::info!(
+        "Import complete: {} rows across {} tables",
+        summary.total_rows,
+        summary.per_table.len()
+    );
+    for (table, count) in &summary.per_table {
+        tracing::info!("  {table}: {count}");
+    }
     Ok(())
 }
 

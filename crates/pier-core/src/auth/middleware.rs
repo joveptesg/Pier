@@ -6,6 +6,10 @@ use axum::response::{IntoResponse, Redirect, Response};
 use crate::error::AppError;
 use crate::state::SharedState;
 
+/// Header used by a remote Pier core to authenticate its cross-core API calls.
+/// Must match a row in the `peer_grants` table with `is_active = 1`.
+pub const PEER_TOKEN_HEADER: &str = "X-Pier-Peer-Token";
+
 /// User info extracted from a valid session, stored in request extensions.
 #[derive(Clone, Debug)]
 pub struct AuthUser {
@@ -15,12 +19,14 @@ pub struct AuthUser {
     /// ID of the session cookie this request authenticated with. Lets handlers
     /// distinguish "current session" from other active sessions (e.g. to avoid
     /// revoking the caller's own session in /account/sessions).
+    ///
+    /// Empty string for peer-token authenticated requests (no session).
     pub session_id: String,
 }
 
-/// Middleware that checks for a valid session cookie.
+/// Middleware that checks for a valid session cookie OR a peer-core bearer token.
 /// For protected routes: injects AuthUser into request extensions.
-/// If no valid session: redirects to /login for UI routes, returns 401 for API routes.
+/// If no valid auth: redirects to /login for UI routes, returns 401 for API routes.
 pub async fn require_auth(
     State(state): State<SharedState>,
     mut req: Request,
@@ -28,7 +34,54 @@ pub async fn require_auth(
 ) -> Result<Response, AppError> {
     let is_api = req.uri().path().starts_with("/api/");
 
-    // Extract session cookie
+    // 1. Check for peer-core token first — only accepted on API routes.
+    //    This lets another pier-core act as an admin on this instance.
+    let peer_token_opt = if is_api {
+        req.headers()
+            .get(PEER_TOKEN_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+    if let Some(token) = peer_token_opt {
+        let peer_grant = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+            db.query_row(
+                "SELECT id, name FROM peer_grants WHERE token = ?1 AND is_active = 1",
+                [&token],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .ok()
+        };
+        if let Some((grant_id, grant_name)) = peer_grant {
+            // Update last_used_at (best-effort; ignore errors).
+            {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+                let _ = db.execute(
+                    "UPDATE peer_grants SET last_used_at = datetime('now') WHERE id = ?1",
+                    [&grant_id],
+                );
+            }
+            req.extensions_mut().insert(AuthUser {
+                id: format!("peer:{grant_id}"),
+                username: format!("peer:{grant_name}"),
+                role: "peer_admin".to_string(),
+                session_id: String::new(),
+            });
+            return Ok(next.run(req).await);
+        }
+        // Token present but invalid — fail fast rather than fall through to session auth.
+        return Err(AppError::Unauthorized);
+    }
+
+    // 2. Fall back to session cookie.
     let session_id = req
         .headers()
         .get(COOKIE)

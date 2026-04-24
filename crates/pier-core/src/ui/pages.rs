@@ -179,6 +179,31 @@ pub async fn server_detail(
     )
 }
 
+/// GET /peers — list federated pier-core instances.
+pub async fn peers_list(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "peers/list.html",
+        minijinja::context! { user => user.username, page => "peers" },
+    )
+}
+
+/// GET /peers/{id} — peer detail (read-only snapshot via proxy).
+pub async fn peer_detail(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+) -> PageResult {
+    render(
+        &state,
+        "peers/detail.html",
+        minijinja::context! { user => user.username, page => "peers", peer_id => id },
+    )
+}
+
 /// GET /updates
 pub async fn updates_page(
     State(state): State<SharedState>,
