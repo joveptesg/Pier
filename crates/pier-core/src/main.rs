@@ -478,7 +478,7 @@ async fn main() -> Result<()> {
     }
 
     // Peer-core heartbeat: refresh status for every registered federated core.
-    api::peers::spawn_heartbeat_task(state.clone());
+    api::servers::spawn_heartbeat_task(state.clone());
 
     let app = ui::ui_router(state.clone())
         .merge(api::api_router(state.clone()))

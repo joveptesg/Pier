@@ -1,20 +1,52 @@
-use axum::extract::{Path, State};
-use axum::response::IntoResponse;
+use axum::body::Body;
+use axum::extract::{Path, Request, State};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 
+use crate::auth::middleware::PEER_TOKEN_HEADER;
 use crate::catalog;
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
+/// What kind of remote infrastructure a `servers` row represents.
+/// Stored in the `servers.kind` column (migration 31).
+///
+/// * `local` — this very machine (`is_local = 1`).
+/// * `agent` — remote host running `pier-agent` (lightweight, stateless).
+///   `host`, `port`, `agent_token` are the connection params.
+/// * `peer`  — remote host running a full `pier-core` with its own DB.
+///   `url` is the HTTPS base address, `agent_token` reused as peer grant token.
+pub const KIND_LOCAL: &str = "local";
+pub const KIND_AGENT: &str = "agent";
+pub const KIND_PEER: &str = "peer";
+
 #[derive(Deserialize)]
 pub struct CreateServerRequest {
     pub name: String,
-    pub host: String,
+    /// "agent" (default) or "peer". `local` is set internally, never from request.
+    #[serde(default = "default_kind")]
+    pub kind: String,
+
+    // Agent fields (required when kind == "agent").
+    #[serde(default)]
+    pub host: Option<String>,
     #[serde(default = "default_port")]
     pub port: i64,
     pub ssh_user: Option<String>,
     pub ssh_port: Option<i64>,
+
+    // Peer fields (required when kind == "peer").
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Token issued by the remote core ("Allow external control" → Issue Token).
+    #[serde(default)]
+    pub api_token: Option<String>,
+}
+
+fn default_kind() -> String {
+    KIND_AGENT.to_string()
 }
 
 fn default_port() -> i64 {
@@ -37,27 +69,33 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let mut stmt = db.prepare(
-        "SELECT id, name, host, port, status, last_heartbeat, os_info, cpu_count, memory_total, docker_version, is_local, created_at, country, city, country_code
-         FROM servers ORDER BY is_local DESC, created_at ASC",
+        "SELECT id, name, kind, host, port, url, status, last_heartbeat, os_info, cpu_count,
+                memory_total, docker_version, remote_version, last_error, is_local, created_at,
+                country, city, country_code
+         FROM servers ORDER BY is_local DESC, kind ASC, created_at ASC",
     )?;
     let items: Vec<serde_json::Value> = stmt
         .query_map([], |row| {
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "name": row.get::<_, String>(1)?,
-                "host": row.get::<_, String>(2)?,
-                "port": row.get::<_, i64>(3)?,
-                "status": row.get::<_, String>(4)?,
-                "last_heartbeat": row.get::<_, Option<String>>(5)?,
-                "os_info": row.get::<_, Option<String>>(6)?,
-                "cpu_count": row.get::<_, Option<i64>>(7)?,
-                "memory_total": row.get::<_, Option<i64>>(8)?,
-                "docker_version": row.get::<_, Option<String>>(9)?,
-                "is_local": row.get::<_, bool>(10)?,
-                "created_at": row.get::<_, String>(11)?,
-                "country": row.get::<_, Option<String>>(12)?,
-                "city": row.get::<_, Option<String>>(13)?,
-                "country_code": row.get::<_, Option<String>>(14)?,
+                "kind": row.get::<_, String>(2)?,
+                "host": row.get::<_, String>(3)?,
+                "port": row.get::<_, i64>(4)?,
+                "url": row.get::<_, Option<String>>(5)?,
+                "status": row.get::<_, String>(6)?,
+                "last_heartbeat": row.get::<_, Option<String>>(7)?,
+                "os_info": row.get::<_, Option<String>>(8)?,
+                "cpu_count": row.get::<_, Option<i64>>(9)?,
+                "memory_total": row.get::<_, Option<i64>>(10)?,
+                "docker_version": row.get::<_, Option<String>>(11)?,
+                "remote_version": row.get::<_, Option<String>>(12)?,
+                "last_error": row.get::<_, Option<String>>(13)?,
+                "is_local": row.get::<_, bool>(14)?,
+                "created_at": row.get::<_, String>(15)?,
+                "country": row.get::<_, Option<String>>(16)?,
+                "city": row.get::<_, Option<String>>(17)?,
+                "country_code": row.get::<_, Option<String>>(18)?,
             }))
         })?
         .filter_map(|r| r.ok())
@@ -66,39 +104,98 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
 }
 
 /// POST /api/v1/servers
+/// Two shapes accepted:
+///   { kind: "agent", name, host, port? }              — Core generates agent_token.
+///   { kind: "peer",  name, url,  api_token }          — Core stores caller-provided token.
 pub async fn create(
     State(state): State<SharedState>,
     Json(body): Json<CreateServerRequest>,
 ) -> AppResult<impl IntoResponse> {
-    if body.name.trim().is_empty() || body.host.trim().is_empty() {
-        return Err(AppError::BadRequest("Name and host are required".into()));
+    let name = body.name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("Name is required".into()));
     }
     let id = uuid::Uuid::new_v4().to_string();
-    let agent_token = catalog::generate_password(32);
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    db.execute(
-        "INSERT INTO servers (id, name, host, port, agent_token, ssh_user, ssh_port)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![
-            id,
-            body.name.trim(),
-            body.host.trim(),
-            body.port,
-            agent_token,
-            body.ssh_user,
-            body.ssh_port.unwrap_or(22)
-        ],
-    )?;
-
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "id": id,
-        "agent_token": agent_token
-    })))
+    match body.kind.as_str() {
+        KIND_AGENT => {
+            let host = body
+                .host
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| AppError::BadRequest("host is required for agent".into()))?
+                .to_string();
+            let agent_token = catalog::generate_password(32);
+            {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.execute(
+                    "INSERT INTO servers (id, name, kind, host, port, agent_token, ssh_user, ssh_port)
+                     VALUES (?1, ?2, 'agent', ?3, ?4, ?5, ?6, ?7)",
+                    rusqlite::params![
+                        id,
+                        name,
+                        host,
+                        body.port,
+                        agent_token,
+                        body.ssh_user,
+                        body.ssh_port.unwrap_or(22)
+                    ],
+                )?;
+            }
+            Ok(Json(serde_json::json!({
+                "ok": true,
+                "id": id,
+                "kind": "agent",
+                "agent_token": agent_token,
+            })))
+        }
+        KIND_PEER => {
+            let url = body
+                .url
+                .as_deref()
+                .map(|s| s.trim().trim_end_matches('/'))
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| AppError::BadRequest("url is required for peer".into()))?
+                .to_string();
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                return Err(AppError::BadRequest(
+                    "url must start with http:// or https://".into(),
+                ));
+            }
+            let token = body
+                .api_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| AppError::BadRequest("api_token is required for peer".into()))?
+                .to_string();
+            {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.execute(
+                    "INSERT INTO servers (id, name, kind, host, port, url, agent_token)
+                     VALUES (?1, ?2, 'peer', '', 0, ?3, ?4)",
+                    rusqlite::params![id, name, url, token],
+                )?;
+            }
+            // Synchronous probe so the UI gets a meaningful status immediately.
+            let _ = probe_peer(&state, &id).await;
+            Ok(Json(serde_json::json!({
+                "ok": true,
+                "id": id,
+                "kind": "peer",
+            })))
+        }
+        other => Err(AppError::BadRequest(format!(
+            "unknown kind '{other}' — expected 'agent' or 'peer'"
+        ))),
+    }
 }
 
 /// DELETE /api/v1/servers/{id}
@@ -119,61 +216,287 @@ pub async fn remove(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-/// POST /api/v1/servers/{id}/test
+/// POST /api/v1/servers/{id}/test — checks connectivity to the right endpoint for the kind.
 pub async fn test_connection(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let (host, port, agent_token) = {
+    let kind = get_server_kind(&state, &id)?;
+    match kind.as_str() {
+        KIND_PEER => {
+            let info = probe_peer(&state, &id).await?;
+            Ok(Json(
+                serde_json::json!({"ok": true, "kind": "peer", "peer": info}),
+            ))
+        }
+        KIND_AGENT => {
+            let (host, port, agent_token, _, _) = get_server_info(&state, &id)?;
+            let url = format!("http://{host}:{port}/health");
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+            let resp = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {agent_token}"))
+                .send()
+                .await
+                .map_err(|e| {
+                    AppError::BadRequest(format!("Cannot connect to agent at {url}: {e}"))
+                })?;
+            if resp.status().is_success() {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.execute(
+                    "UPDATE servers SET status = 'online', last_heartbeat = datetime('now'),
+                        last_error = NULL, updated_at = datetime('now') WHERE id = ?1",
+                    [&id],
+                )?;
+                Ok(Json(
+                    serde_json::json!({"ok": true, "kind": "agent", "message": "Agent is online"}),
+                ))
+            } else {
+                Err(AppError::BadRequest(format!(
+                    "Agent responded with status: {}",
+                    resp.status()
+                )))
+            }
+        }
+        KIND_LOCAL => Ok(Json(
+            serde_json::json!({"ok": true, "kind": "local", "message": "Local core"}),
+        )),
+        other => Err(AppError::BadRequest(format!("unknown kind '{other}'"))),
+    }
+}
+
+/// Probe a peer core's `/api/v1/peers/probe` endpoint with its X-Pier-Peer-Token.
+/// Updates `servers` row (status, last_heartbeat, remote_version, last_error).
+pub(crate) async fn probe_peer(state: &SharedState, id: &str) -> AppResult<serde_json::Value> {
+    let (url, token) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT host, port, agent_token FROM servers WHERE id = ?1",
-            [&id],
+            "SELECT url, agent_token FROM servers WHERE id = ?1 AND kind = 'peer'",
+            [id],
             |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                    row.get::<_, String>(1)?,
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Server {id} not found")))?
+        .map_err(|_| AppError::NotFound(format!("Peer {id} not found")))?
     };
 
-    let url = format!("http://{}:{}/health", host, port);
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(8))
         .build()
         .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
-
+    let probe_url = format!("{url}/api/v1/peers/probe");
     let resp = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {agent_token}"))
+        .get(&probe_url)
+        .header(PEER_TOKEN_HEADER, &token)
         .send()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Cannot connect to agent at {url}: {e}")))?;
+        .await;
 
-    if resp.status().is_success() {
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            let body: serde_json::Value = r.json().await.unwrap_or(serde_json::json!({}));
+            let version = body
+                .get("version")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            db.execute(
+                "UPDATE servers SET status = 'online', last_heartbeat = datetime('now'),
+                    remote_version = COALESCE(?2, remote_version), last_error = NULL,
+                    updated_at = datetime('now') WHERE id = ?1",
+                rusqlite::params![id, version],
+            )?;
+            Ok(body)
+        }
+        Ok(r) => {
+            let status = r.status();
+            let text = r.text().await.unwrap_or_default();
+            let err = format!("HTTP {status}: {text}");
+            mark_peer_error(state, id, &err)?;
+            Err(AppError::BadRequest(err))
+        }
+        Err(e) => {
+            let err = format!("unreachable: {e}");
+            mark_peer_error(state, id, &err)?;
+            Err(AppError::BadRequest(err))
+        }
+    }
+}
+
+fn mark_peer_error(state: &SharedState, id: &str, msg: &str) -> AppResult<()> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    db.execute(
+        "UPDATE servers SET status = 'offline', last_error = ?2, updated_at = datetime('now')
+         WHERE id = ?1",
+        rusqlite::params![id, msg],
+    )?;
+    Ok(())
+}
+
+/// Proxy any request to a peer's API. Route: `/api/v1/servers/{id}/proxy/{*rest}`.
+/// Rejects the call if the target server is not `kind='peer'`.
+pub async fn proxy(
+    State(state): State<SharedState>,
+    Path((id, rest)): Path<(String, String)>,
+    req: Request,
+) -> Result<Response, AppError> {
+    let (url, token) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.execute(
-            "UPDATE servers SET status = 'online', last_heartbeat = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
+        db.query_row(
+            "SELECT url, agent_token FROM servers WHERE id = ?1 AND kind = 'peer'",
             [&id],
-        )?;
-        Ok(Json(
-            serde_json::json!({"ok": true, "message": "Agent is online"}),
-        ))
-    } else {
-        Err(AppError::BadRequest(format!(
-            "Agent responded with status: {}",
-            resp.status()
-        )))
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                    row.get::<_, String>(1)?,
+                ))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Peer {id} not found")))?
+    };
+
+    let method = req.method().clone();
+    let query = req.uri().query().map(|s| s.to_string());
+    let mut target = format!("{url}/api/v1/{rest}");
+    if let Some(q) = query {
+        target.push('?');
+        target.push_str(&q);
     }
+
+    let mut fwd_headers = HeaderMap::new();
+    for (name, value) in req.headers().iter() {
+        if should_forward_header(name) {
+            fwd_headers.insert(name.clone(), value.clone());
+        }
+    }
+    fwd_headers.insert(
+        HeaderName::from_static("x-pier-peer-token"),
+        HeaderValue::from_str(&token)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("header: {e}")))?,
+    );
+
+    let body_bytes = axum::body::to_bytes(req.into_body(), 32 * 1024 * 1024)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("body read: {e}")))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+    let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("method: {e}")))?;
+    let resp = client
+        .request(reqwest_method, &target)
+        .headers(
+            fwd_headers
+                .iter()
+                .map(|(n, v)| {
+                    (
+                        reqwest::header::HeaderName::from_bytes(n.as_str().as_bytes()).unwrap(),
+                        reqwest::header::HeaderValue::from_bytes(v.as_bytes()).unwrap(),
+                    )
+                })
+                .collect(),
+        )
+        .body(body_bytes.to_vec())
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("peer unreachable: {e}")))?;
+
+    let status =
+        StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let mut builder = Response::builder().status(status);
+    for (k, v) in resp.headers().iter() {
+        let name_str = k.as_str().to_ascii_lowercase();
+        if name_str == "transfer-encoding"
+            || name_str == "content-length"
+            || name_str == "content-encoding"
+            || name_str == "connection"
+        {
+            continue;
+        }
+        if let (Ok(name), Ok(value)) = (
+            HeaderName::from_bytes(k.as_str().as_bytes()),
+            HeaderValue::from_bytes(v.as_bytes()),
+        ) {
+            builder = builder.header(name, value);
+        }
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("peer body: {e}")))?;
+    builder
+        .body(Body::from(bytes))
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("response build: {e}")))
+}
+
+fn should_forward_header(name: &HeaderName) -> bool {
+    let n = name.as_str().to_ascii_lowercase();
+    !matches!(
+        n.as_str(),
+        "host" | "cookie" | "authorization" | "content-length" | "connection" | "x-pier-peer-token"
+    )
+}
+
+/// Background task: probe every registered peer on a 30s timer.
+/// Agents have their own push-based heartbeat (`POST /api/v1/servers/heartbeat`),
+/// so we only poll peers here.
+pub fn spawn_heartbeat_task(state: SharedState) {
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        loop {
+            let peer_ids: Vec<String> = {
+                let Ok(db) = state.db.lock() else {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    continue;
+                };
+                db.prepare("SELECT id FROM servers WHERE kind = 'peer'")
+                    .and_then(|mut stmt| {
+                        stmt.query_map([], |row| row.get::<_, String>(0))?
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap_or_default()
+            };
+            for id in peer_ids {
+                if let Err(e) = probe_peer(&state, &id).await {
+                    tracing::debug!("Peer {id} probe failed: {e}");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+    });
+}
+
+fn get_server_kind(state: &SharedState, id: &str) -> AppResult<String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    db.query_row("SELECT kind FROM servers WHERE id = ?1", [id], |row| {
+        row.get::<_, String>(0)
+    })
+    .map_err(|_| AppError::NotFound(format!("Server {id} not found")))
 }
 
 /// GET /api/v1/servers/{id}/metrics
@@ -336,29 +659,33 @@ pub async fn get(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let server = db
         .query_row(
-            "SELECT id, name, host, port, agent_token, status, last_heartbeat, os_info,
-                cpu_count, memory_total, docker_version, is_local, created_at,
-                country, city, country_code
+            "SELECT id, name, kind, host, port, url, agent_token, status, last_heartbeat, os_info,
+                cpu_count, memory_total, docker_version, remote_version, last_error,
+                is_local, created_at, country, city, country_code
          FROM servers WHERE id = ?1",
             [&id],
             |row| {
                 Ok(serde_json::json!({
                     "id": row.get::<_, String>(0)?,
                     "name": row.get::<_, String>(1)?,
-                    "host": row.get::<_, String>(2)?,
-                    "port": row.get::<_, i64>(3)?,
-                    "agent_token": row.get::<_, String>(4)?,
-                    "status": row.get::<_, String>(5)?,
-                    "last_heartbeat": row.get::<_, Option<String>>(6)?,
-                    "os_info": row.get::<_, Option<String>>(7)?,
-                    "cpu_count": row.get::<_, Option<i64>>(8)?,
-                    "memory_total": row.get::<_, Option<i64>>(9)?,
-                    "docker_version": row.get::<_, Option<String>>(10)?,
-                    "is_local": row.get::<_, bool>(11)?,
-                    "created_at": row.get::<_, String>(12)?,
-                    "country": row.get::<_, Option<String>>(13)?,
-                    "city": row.get::<_, Option<String>>(14)?,
-                    "country_code": row.get::<_, Option<String>>(15)?,
+                    "kind": row.get::<_, String>(2)?,
+                    "host": row.get::<_, String>(3)?,
+                    "port": row.get::<_, i64>(4)?,
+                    "url": row.get::<_, Option<String>>(5)?,
+                    "agent_token": row.get::<_, String>(6)?,
+                    "status": row.get::<_, String>(7)?,
+                    "last_heartbeat": row.get::<_, Option<String>>(8)?,
+                    "os_info": row.get::<_, Option<String>>(9)?,
+                    "cpu_count": row.get::<_, Option<i64>>(10)?,
+                    "memory_total": row.get::<_, Option<i64>>(11)?,
+                    "docker_version": row.get::<_, Option<String>>(12)?,
+                    "remote_version": row.get::<_, Option<String>>(13)?,
+                    "last_error": row.get::<_, Option<String>>(14)?,
+                    "is_local": row.get::<_, bool>(15)?,
+                    "created_at": row.get::<_, String>(16)?,
+                    "country": row.get::<_, Option<String>>(17)?,
+                    "city": row.get::<_, Option<String>>(18)?,
+                    "country_code": row.get::<_, Option<String>>(19)?,
                 }))
             },
         )
@@ -381,7 +708,7 @@ pub async fn containers(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let (host, port, agent_token, is_local) = get_server_info(&state, &id)?;
+    let (host, port, agent_token, is_local, _) = get_server_info(&state, &id)?;
 
     if is_local {
         // Return local containers directly
@@ -433,7 +760,7 @@ pub async fn deploy_to_server(
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> AppResult<impl IntoResponse> {
-    let (host, port, agent_token, is_local) = get_server_info(&state, &id)?;
+    let (host, port, agent_token, is_local, _) = get_server_info(&state, &id)?;
 
     if is_local {
         // Deploy locally
@@ -476,7 +803,7 @@ pub async fn stop_on_server(
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> AppResult<impl IntoResponse> {
-    let (host, port, agent_token, is_local) = get_server_info(&state, &id)?;
+    let (host, port, agent_token, is_local, _) = get_server_info(&state, &id)?;
 
     if is_local {
         let stack_name = body["stack_name"]
@@ -622,13 +949,18 @@ echo "Agent registered with Pier core."
 }
 
 /// Helper: extract server connection info
-fn get_server_info(state: &SharedState, id: &str) -> Result<(String, i64, String, bool), AppError> {
+/// Returns (host, port, agent_token, is_local, kind). For peer kind, `host`/`port`
+/// are empty/0 and callers should route through the proxy handler instead.
+fn get_server_info(
+    state: &SharedState,
+    id: &str,
+) -> Result<(String, i64, String, bool, String), AppError> {
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     db.query_row(
-        "SELECT host, port, agent_token, is_local FROM servers WHERE id = ?1",
+        "SELECT host, port, agent_token, is_local, kind FROM servers WHERE id = ?1",
         [id],
         |row| {
             Ok((
@@ -636,6 +968,7 @@ fn get_server_info(state: &SharedState, id: &str) -> Result<(String, i64, String
                 row.get::<_, i64>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, bool>(3)?,
+                row.get::<_, String>(4)?,
             ))
         },
     )

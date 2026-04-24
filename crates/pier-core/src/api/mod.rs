@@ -11,9 +11,9 @@ pub mod deployments;
 pub mod domains;
 pub mod env;
 pub mod events;
+pub mod grants;
 pub mod images;
 pub mod networks;
-pub mod peers;
 pub mod projects;
 pub mod promote;
 pub mod proxy;
@@ -228,24 +228,16 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/{id}/containers", get(servers::containers))
         .route("/servers/{id}/deploy", post(servers::deploy_to_server))
         .route("/servers/{id}/stop", post(servers::stop_on_server))
+        // Proxy API calls to a kind='peer' server (Core↔Core federation).
+        .route("/servers/{id}/proxy/{*rest}", any(servers::proxy))
         // Mode 3 — export or apply a promotion bundle so this server can graduate to a standalone pier-core.
         .route("/servers/{id}/promote-bundle", get(promote::bundle))
         .route("/servers/{id}/promote", post(promote::trigger))
-        // Peer cores (federation — Mode 2: pier-core ↔ pier-core).
-        // `/peers/probe` is the incoming endpoint hit by remote cores to verify their grant.
-        // Order matters for axum 0.8: static `/peers/probe` is registered before `/peers/{id}`.
-        .route("/peers/probe", get(peers::probe))
-        .route("/peers", get(peers::list).post(peers::create))
-        .route("/peers/{id}", get(peers::get).delete(peers::remove))
-        .route("/peers/{id}/name", put(peers::rename))
-        .route("/peers/{id}/test", post(peers::test))
-        .route("/peers/{id}/proxy/{*rest}", any(peers::proxy))
-        // Peer grants (incoming auth tokens). "Allow another core to control this one."
-        .route(
-            "/peer-grants",
-            get(peers::grants_list).post(peers::grants_create),
-        )
-        .route("/peer-grants/{id}", delete(peers::grants_revoke))
+        // Federation handshake: remote peer-cores probe here with their grant token.
+        .route("/peers/probe", get(grants::probe))
+        // External access — tokens that authorize another pier-core to control this one.
+        .route("/grants", get(grants::list).post(grants::create))
+        .route("/grants/{id}", delete(grants::revoke))
         // Canvas (architect view)
         .route("/canvas", get(canvas::get_canvas))
         .route("/canvas/positions", put(canvas::save_positions))

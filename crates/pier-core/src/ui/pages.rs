@@ -179,28 +179,15 @@ pub async fn server_detail(
     )
 }
 
-/// GET /peers — list federated pier-core instances.
-pub async fn peers_list(
+/// GET /settings/external-access — manage tokens that let other pier-cores control this one.
+pub async fn external_access_page(
     State(state): State<SharedState>,
     axum::Extension(user): axum::Extension<AuthUser>,
 ) -> PageResult {
     render(
         &state,
-        "peers/list.html",
-        minijinja::context! { user => user.username, page => "peers" },
-    )
-}
-
-/// GET /peers/{id} — peer detail (read-only snapshot via proxy).
-pub async fn peer_detail(
-    State(state): State<SharedState>,
-    axum::Extension(user): axum::Extension<AuthUser>,
-    Path(id): Path<String>,
-) -> PageResult {
-    render(
-        &state,
-        "peers/detail.html",
-        minijinja::context! { user => user.username, page => "peers", peer_id => id },
+        "settings/external-access.html",
+        minijinja::context! { user => user.username, page => "settings" },
     )
 }
 

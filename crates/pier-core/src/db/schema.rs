@@ -525,6 +525,36 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_peer_grants_token ON peer_grants(token);
     "#,
+    // Migration 31: Unify peer_cores into servers via a `kind` discriminator.
+    // Rationale: UX-wise the two are "remote infrastructure I control" —
+    // keeping them in separate tables meant two of everything (pages, forms,
+    // heartbeat tasks, proxies). After this migration `servers.kind` is the
+    // single source of truth; `is_local` stays as a convenience flag used
+    // by older queries.
+    r#"
+    ALTER TABLE servers ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent';
+    ALTER TABLE servers ADD COLUMN url TEXT;
+    ALTER TABLE servers ADD COLUMN remote_version TEXT;
+    ALTER TABLE servers ADD COLUMN last_error TEXT;
+
+    UPDATE servers SET kind = 'local' WHERE is_local = 1;
+
+    -- Copy every peer_cores row into servers with kind='peer'.
+    -- For peers: host is left empty (url is the real address), port 0.
+    -- The api_token from peer_cores lands in servers.agent_token — same column,
+    -- different semantics per kind (Bearer for agents, X-Pier-Peer-Token for peers).
+    INSERT OR IGNORE INTO servers
+        (id, name, host, port, agent_token, status, last_heartbeat,
+         kind, url, remote_version, last_error, is_local, created_at, updated_at)
+    SELECT
+        id, name, '', 0, api_token, status, last_heartbeat,
+        'peer', url, remote_version, last_error, 0, created_at, updated_at
+    FROM peer_cores;
+
+    DROP TABLE IF EXISTS peer_cores;
+
+    CREATE INDEX IF NOT EXISTS idx_servers_kind ON servers(kind);
+    "#,
 ];
 
 /// Run all pending database migrations.

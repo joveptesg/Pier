@@ -162,6 +162,106 @@
         </div>
     </div>
 
+    <!-- ── Tab: External Access ──────────────────────────────── -->
+    <div x-show="tab === 'external-access'" x-cloak x-data="externalAccess()" x-init="load()"
+         class="space-y-6">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">What is this?</h3>
+            <div class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
+                <p>
+                    Federation works in two directions. This tab is about the <strong>incoming</strong>
+                    direction — giving another pier-core the right to control this one.
+                </p>
+                <ul class="list-disc ml-5 space-y-1">
+                    <li><strong>Outgoing</strong> (controlling other servers from here) is managed on the <a href="/servers" class="text-blue-500 hover:underline">Servers</a> page via the "Peer core" kind.</li>
+                    <li><strong>Incoming</strong> is here: you issue a token and hand it to the operator of another pier-core. They paste it into their own "Add Server → Peer core" form, and their panel gains admin-equivalent access to yours over REST.</li>
+                </ul>
+                <p>
+                    Tokens grant full admin rights — revoke any time; this core keeps working autonomously either way.
+                </p>
+                <p class="text-xs text-gray-500">
+                    Protocol: requests authenticated with the <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">X-Pier-Peer-Token</code> header match a row in <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">peer_grants</code> and are treated as an admin session for that call.
+                </p>
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800/50">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Issued tokens</h3>
+                <button @click="showIssue = true; form.name = ''; lastToken = ''"
+                        class="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Issue Token
+                </button>
+            </div>
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wide text-gray-500">
+                    <tr>
+                        <th class="text-left px-4 py-3 font-medium">Name</th>
+                        <th class="text-left px-4 py-3 font-medium">Status</th>
+                        <th class="text-left px-4 py-3 font-medium">Last used</th>
+                        <th class="text-left px-4 py-3 font-medium">From IP</th>
+                        <th class="text-right px-4 py-3 font-medium">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                    <template x-for="g in grants" :key="g.id">
+                        <tr>
+                            <td class="px-4 py-3 text-gray-900 dark:text-white" x-text="g.name"></td>
+                            <td class="px-4 py-3">
+                                <span class="inline-flex items-center gap-1.5 text-xs" :class="g.is_active ? 'text-green-600 dark:text-green-400' : 'text-gray-400'">
+                                    <span class="w-2 h-2 rounded-full" :class="g.is_active ? 'bg-green-500' : 'bg-gray-400'"></span>
+                                    <span x-text="g.is_active ? 'active' : 'revoked'"></span>
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-gray-600 dark:text-gray-400" x-text="g.last_used_at || '—'"></td>
+                            <td class="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono" x-text="g.last_used_ip || '—'"></td>
+                            <td class="px-4 py-3 text-right">
+                                <button @click="revoke(g.id, g.name)" class="text-xs text-red-500 hover:text-red-700">Revoke</button>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="grants.length === 0"><td colspan="5" class="text-center py-6 text-sm text-gray-500">No tokens issued yet.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Issue token modal -->
+        <div x-show="showIssue" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showIssue = false; lastToken = ''">
+            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4" @click.stop>
+                <template x-if="!lastToken">
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Issue peer token</h3>
+                        <p class="text-sm text-gray-500">Generate a long-lived token that authorizes another pier-core to manage this panel via its API.</p>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                            <input x-model="form.name" type="text" placeholder="HQ panel"
+                                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="flex justify-end gap-2 pt-2">
+                            <button @click="showIssue = false" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
+                            <button @click="issue()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">Generate</button>
+                        </div>
+                    </div>
+                </template>
+                <template x-if="lastToken">
+                    <div class="space-y-4">
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Token issued</h3>
+                        <div class="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/30 rounded-lg p-4">
+                            <p class="text-xs font-medium text-yellow-800 dark:text-yellow-400 mb-2">This token is shown only once. Copy it now.</p>
+                            <div class="bg-white dark:bg-gray-800 rounded px-3 py-2 border border-yellow-200 dark:border-yellow-600/30">
+                                <code class="text-sm font-mono text-yellow-900 dark:text-yellow-300 break-all select-all" x-text="lastToken"></code>
+                            </div>
+                        </div>
+                        <div class="flex justify-end pt-2">
+                            <button @click="showIssue = false; lastToken = ''" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">Done</button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
     <!-- ── Tab: Account ──────────────────────────────────────── -->
     <div x-show="tab === 'account'" x-cloak x-data="accountPanel()" x-init="load()" class="space-y-6">
         <!-- Profile info -->
@@ -285,10 +385,11 @@
 function settingsPage() {
     return {
         tabs: [
-            { id: 'general', label: 'General' },
-            { id: 'cleanup', label: 'Cleanup' },
-            { id: 'account', label: 'Account' },
-            { id: 'danger',  label: 'Danger' },
+            { id: 'general',         label: 'General' },
+            { id: 'cleanup',         label: 'Cleanup' },
+            { id: 'external-access', label: 'External Access' },
+            { id: 'account',         label: 'Account' },
+            { id: 'danger',          label: 'Danger' },
         ],
         tab: 'general',
         init() {
@@ -302,6 +403,33 @@ function settingsPage() {
         selectTab(id) {
             this.tab = id;
             history.replaceState(null, '', '#' + id);
+        },
+    };
+}
+
+function externalAccess() {
+    return {
+        grants: [],
+        showIssue: false,
+        form: { name: '' },
+        lastToken: '',
+
+        async load() {
+            try { this.grants = await fetch('/api/v1/grants').then(r => r.ok ? r.json() : []); }
+            catch { this.grants = []; }
+        },
+        async issue() {
+            if (!this.form.name.trim()) { toast('Name required', 'error'); return; }
+            try {
+                const res = await api('/api/v1/grants', { method: 'POST', body: JSON.stringify({ name: this.form.name.trim() }) });
+                this.lastToken = res.token || '';
+                await this.load();
+            } catch (e) { toast(e.message, 'error'); }
+        },
+        async revoke(id, name) {
+            if (!confirm('Revoke token "' + name + '"?')) return;
+            try { await api('/api/v1/grants/' + id, { method: 'DELETE' }); toast('Token revoked'); await this.load(); }
+            catch (e) { toast(e.message, 'error'); }
         },
     };
 }

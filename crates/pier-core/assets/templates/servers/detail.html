@@ -26,10 +26,15 @@
                         <span class="w-1.5 h-1.5 rounded-full" :class="server.status === 'online' ? 'bg-green-500' : 'bg-gray-400'"></span>
                         <span x-text="server.status || '--'"></span>
                     </span>
-                    <span x-show="server.is_local" class="px-2 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full">LOCAL</span>
+                    <span class="px-2 py-0.5 text-[10px] font-medium rounded-full uppercase tracking-wide"
+                          :class="kindBadgeClass(server.kind)"
+                          x-text="server.kind || '--'"></span>
                 </div>
                 <p class="text-sm text-gray-500 mt-0.5">
-                    <span x-text="server.host || ''"></span>
+                    <span x-text="server.kind === 'peer' ? server.url : server.host"></span>
+                    <template x-if="server.kind === 'peer' && server.remote_version">
+                        <span class="ml-2 text-gray-400">v<span x-text="server.remote_version"></span></span>
+                    </template>
                     <template x-if="server.country_code">
                         <span> &middot; <span x-text="countryFlag(server.country_code) + ' ' + [server.city, server.country].filter(Boolean).join(', ')"></span></span>
                     </template>
@@ -43,7 +48,11 @@
                 <svg class="w-3.5 h-3.5" :class="testing && 'spinner'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 <span x-text="testing ? 'Testing...' : 'Test Connection'"></span>
             </button>
-            <button x-show="!server.is_local" @click="showPromote = true"
+            <a x-show="server.kind === 'peer'" :href="server.url" target="_blank" rel="noopener"
+               class="px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-100 dark:bg-purple-600/20 text-purple-700 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-600/30 transition-colors">
+                Open panel
+            </a>
+            <button x-show="server.kind === 'agent'" @click="showPromote = true"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 dark:bg-amber-600/20 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-600/30 transition-colors">
                 Promote to standalone
             </button>
@@ -264,8 +273,8 @@ systemctl enable --now pier</pre>
         </div>
     </div>
 
-    <!-- Agent Install (remote servers only) -->
-    <template x-if="!server.is_local && server.agent_token">
+    <!-- Agent Install (agent kind only) -->
+    <template x-if="server.kind === 'agent' && server.agent_token">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Agent Install</h3>
             <p class="text-xs text-gray-500 mb-3">Run this command on the remote server to install and start the Pier Agent:</p>
@@ -318,19 +327,23 @@ function serverDetail(serverId) {
 
         async fetchMetrics() {
             try {
-                const url = this.server.is_local
-                    ? '/api/v1/system/metrics'
-                    : '/api/v1/servers/' + this.serverId + '/metrics';
+                let url;
+                if (this.server.kind === 'local') url = '/api/v1/system/metrics';
+                else if (this.server.kind === 'peer') url = '/api/v1/servers/' + this.serverId + '/proxy/system/metrics';
+                else url = '/api/v1/servers/' + this.serverId + '/metrics';
                 const res = await fetch(url, { credentials: 'include' });
                 if (!res.ok) throw new Error('Metrics unavailable');
                 const data = await res.json();
                 this.metrics = data;
                 this.metricsError = '';
 
-                // Also fetch docker info for local servers
-                if (this.server.is_local) {
+                if (this.server.kind === 'local') {
                     try {
                         this.docker = await fetch('/api/v1/system/docker', { credentials: 'include' }).then(r => r.json());
+                    } catch {}
+                } else if (this.server.kind === 'peer') {
+                    try {
+                        this.docker = await fetch('/api/v1/servers/' + this.serverId + '/proxy/system/docker', { credentials: 'include' }).then(r => r.json());
                     } catch {}
                 } else if (data.docker) {
                     this.docker = data.docker;
@@ -342,12 +355,24 @@ function serverDetail(serverId) {
 
         async fetchContainers() {
             try {
-                const url = this.server.is_local
-                    ? '/api/v1/containers'
-                    : '/api/v1/servers/' + this.serverId + '/containers';
-                this.containers = await fetch(url, { credentials: 'include' }).then(r => r.ok ? r.json() : []);
+                let url;
+                if (this.server.kind === 'local') url = '/api/v1/containers';
+                else if (this.server.kind === 'peer') url = '/api/v1/servers/' + this.serverId + '/proxy/containers';
+                else url = '/api/v1/servers/' + this.serverId + '/containers';
+                const res = await fetch(url, { credentials: 'include' });
+                const raw = res.ok ? await res.json() : [];
+                // Peer proxy returns the same shape as /api/v1/containers; agent endpoint returns {containers: [...]}
+                this.containers = Array.isArray(raw) ? raw : (raw.containers || []);
             } catch {
                 this.containers = [];
+            }
+        },
+
+        kindBadgeClass(kind) {
+            switch (kind) {
+                case 'local': return 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400';
+                case 'peer':  return 'bg-purple-100 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400';
+                default:      return 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300';
             }
         },
 
