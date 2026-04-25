@@ -758,6 +758,12 @@ async fn extract_and_save_ports(state: &AppState, service_id: &str, yaml: &str) 
 }
 
 fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
+    // Resolve `${VAR}` / `${VAR:-default}` like docker-compose does, using
+    // the service's env_json as the source for VAR values. Without this,
+    // entries like `${PORT:-6031}:6031` would never parse and the service
+    // would keep stale port_allocations.
+    let env_map = load_env_map(state, service_id);
+
     let mut ports = Vec::new();
     let mut in_ports = false;
 
@@ -775,8 +781,11 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
                     .trim()
                     .trim_matches('"')
                     .trim_matches('\'');
+                // Substitute compose vars BEFORE splitting (a `${VAR:-N}` token
+                // contains a `:` that would break the host:container split).
+                let substituted = substitute_compose_vars(port_str, &env_map);
                 // Remove protocol suffix (/tcp, /udp)
-                let port_str = port_str.split('/').next().unwrap_or(port_str);
+                let port_str = substituted.split('/').next().unwrap_or(&substituted);
                 // Parse: "host:container" or "ip:host:container"
                 let parts: Vec<&str> = port_str.split(':').collect();
                 match parts.len() {
@@ -941,6 +950,68 @@ fn strip_compose_ports(yaml: &str) -> String {
     }
 
     result.join("\n")
+}
+
+/// Load a service's env vars from `services.env_json` into a flat map for
+/// docker-compose-style `${VAR}` substitution. Returns an empty map on any
+/// error (caller treats unset vars as empty).
+fn load_env_map(state: &AppState, service_id: &str) -> std::collections::HashMap<String, String> {
+    let env_json: Option<String> = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| {
+            db.query_row(
+                "SELECT env_json FROM services WHERE id = ?1",
+                [service_id],
+                |row| row.get(0),
+            )
+            .ok()
+        })
+        .flatten();
+    let decrypted = crate::crypto::decrypt_env_json(env_json.as_deref());
+    match serde_json::from_str::<serde_json::Value>(&decrypted) {
+        Ok(serde_json::Value::Object(map)) => map
+            .into_iter()
+            .map(|(k, v)| {
+                let s = match v {
+                    serde_json::Value::String(s) => s,
+                    other => other.to_string(),
+                };
+                (k, s)
+            })
+            .collect(),
+        _ => std::collections::HashMap::new(),
+    }
+}
+
+/// Substitute docker-compose-style variable references in a single token.
+/// Supports `${VAR}` (empty if unset) and `${VAR:-default}` (default if unset).
+/// Other `$` usages are left as-is.
+fn substitute_compose_vars(s: &str, env: &std::collections::HashMap<String, String>) -> String {
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'$' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
+            if let Some(close_off) = bytes[i + 2..].iter().position(|&b| b == b'}') {
+                let inner = &s[i + 2..i + 2 + close_off];
+                let resolved = if let Some(idx) = inner.find(":-") {
+                    let var = &inner[..idx];
+                    let default = &inner[idx + 2..];
+                    env.get(var).cloned().unwrap_or_else(|| default.to_string())
+                } else {
+                    env.get(inner).cloned().unwrap_or_default()
+                };
+                out.push_str(&resolved);
+                i += 2 + close_off + 1;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
 }
 
 /// Strip the obsolete `version:` field from docker-compose YAML.
