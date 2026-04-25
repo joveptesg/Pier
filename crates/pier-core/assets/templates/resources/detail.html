@@ -770,6 +770,32 @@ NODE_ENV=production"></textarea>
                 </div>
             </div>
         </div>
+        <!-- Live compose preview + Reload ports from git -->
+        <div x-show="gitConfig.git_repo_url && gitConfig.build_strategy === 'docker-compose'"
+             class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-3">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">docker-compose.yml in git</h3>
+                    <p class="text-xs text-gray-400 mt-0.5">Live read from <span class="font-mono" x-text="gitConfig.git_branch || 'main'"></span>. <strong>Reload</strong> re-syncs port_allocations + Traefik routes <em>without</em> rebuilding the container — useful when only <span class="font-mono">ports:</span> changed in git.</p>
+                </div>
+                <div class="flex gap-2 shrink-0">
+                    <button @click="loadGitCompose()" :disabled="gitComposeLoading"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                        <span x-show="!gitComposeLoading">Refresh</span>
+                        <span x-show="gitComposeLoading">Loading...</span>
+                    </button>
+                    <button @click="reloadComposePorts()" :disabled="reloadingCompose"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50">
+                        <span x-show="!reloadingCompose">Reload ports from git</span>
+                        <span x-show="reloadingCompose">Reloading...</span>
+                    </button>
+                </div>
+            </div>
+            <pre x-show="gitComposePreview"
+                 class="text-xs font-mono bg-gray-50 dark:bg-gray-800 p-3 rounded-lg overflow-auto max-h-96 whitespace-pre"
+                 x-text="gitComposePreview"></pre>
+            <p x-show="!gitComposePreview && !gitComposeLoading" class="text-xs text-gray-500">Click <strong>Refresh</strong> to fetch the current file from git.</p>
+        </div>
         <!-- Deploy Now -->
         <div x-show="gitConfig.git_repo_url" class="flex justify-end">
             <button @click="manualDeploy()" class="px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
@@ -1267,6 +1293,7 @@ function resourceDetail(id) {
         logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0, buildLogFollow: true,
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
+        gitComposePreview: '', gitComposeLoading: false, reloadingCompose: false,
         gitSources: [], showWebhookSecret: false,
         ciDeployments: [], expandedLog: null, selectedDeploy: null, deploysPage: 1, deploysPerPage: 10, cancellingDeploy: false,
         togglingPublic: false,
@@ -1956,6 +1983,25 @@ function resourceDetail(id) {
                 this.selectedDeploy = null;
                 this.pollDeployStatus();
             } catch(e){toast(e.message,'error');}
+        },
+        async loadGitCompose() {
+            this.gitComposeLoading = true;
+            try {
+                const res = await api('/api/v1/resources/'+this.id+'/git-compose');
+                this.gitComposePreview = res.yaml || '';
+            } catch(e){toast(e.message,'error');}
+            this.gitComposeLoading = false;
+        },
+        async reloadComposePorts() {
+            if(!confirm('Reload compose from git? Ports and Traefik routes will be re-synced (the running container is NOT rebuilt).'))return;
+            this.reloadingCompose = true;
+            try {
+                const res = await api('/api/v1/resources/'+this.id+'/reload-compose',{method:'POST'});
+                this.gitComposePreview = res.yaml || '';
+                toast('Compose reloaded — ports and Traefik routes refreshed');
+                await this.refresh();
+            } catch(e){toast(e.message,'error');}
+            this.reloadingCompose = false;
         },
         async loadDeployments() {
             try { this.ciDeployments = await fetch('/api/v1/resources/'+this.id+'/deployments').then(r=>r.ok?r.json():[]); } catch { this.ciDeployments = []; }

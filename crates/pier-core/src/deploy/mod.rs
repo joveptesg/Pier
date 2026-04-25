@@ -427,6 +427,69 @@ pub async fn run_pipeline(
     tracing::info!("Pipeline complete for {service_id}: deploy {deploy_id} succeeded");
 }
 
+/// Clone the service's git repo (HEAD of the configured branch) into a temp
+/// directory, read `docker-compose.yml` from the clone, remove the temp dir,
+/// and return the file contents. Used by the "Reload compose from git" UI
+/// action so users can see and re-sync the live file without rebuilding the
+/// running container.
+pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Result<String> {
+    let svc = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image
+             FROM services WHERE id = ?1",
+            [service_id],
+            |row| {
+                Ok(ServiceInfo {
+                    name: row.get(0)?,
+                    git_repo_url: row.get(1)?,
+                    git_branch: row.get(2)?,
+                    git_source_id: row.get(3)?,
+                    build_strategy: row.get(4)?,
+                    compose_content: row.get(5)?,
+                    current_image: row.get(6)?,
+                })
+            },
+        )?
+    };
+
+    if svc.git_repo_url.as_deref().unwrap_or("").is_empty() {
+        return Err(anyhow::anyhow!("Service has no git_repo_url configured"));
+    }
+
+    let clone_url = resolve_clone_url(state, &svc).await?;
+    let branch = svc.git_branch.as_deref().unwrap_or("main");
+
+    let tmp = state
+        .config
+        .data_dir
+        .join("tmp")
+        .join(format!("compose-fetch-{}", uuid::Uuid::new_v4()));
+    build::clone_repo(&clone_url, branch, &tmp).await?;
+
+    let compose_path = tmp.join("docker-compose.yml");
+    let yaml = tokio::fs::read_to_string(&compose_path).await.map_err(|e| {
+        anyhow::anyhow!("docker-compose.yml not found in repo (branch {branch}): {e}")
+    });
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+    yaml
+}
+
+/// Re-read the live docker-compose.yml from git and re-sync the service's
+/// `port_allocations` + Traefik dynamic routes — without touching the running
+/// container. Returns the compose YAML on success so the UI can refresh its
+/// preview in one round-trip.
+pub async fn reload_compose_ports(state: &AppState, service_id: &str) -> Result<String> {
+    let yaml = fetch_compose_from_git(state, service_id).await?;
+    let yaml_stripped_version = strip_compose_version(&yaml);
+    update_ports_from_compose(state, service_id, &yaml_stripped_version);
+    crate::proxy::sync_tcp_routes_for_service(state, service_id).await?;
+    Ok(yaml)
+}
+
 /// Resolve the clone URL, injecting auth tokens if needed.
 async fn resolve_clone_url(state: &AppState, svc: &ServiceInfo) -> Result<String> {
     let repo_url = svc

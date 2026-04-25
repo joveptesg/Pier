@@ -2803,6 +2803,35 @@ pub struct SetPortPublicRequest {
     pub cascade_delete_domains: Option<bool>,
 }
 
+/// GET /api/v1/resources/{id}/git-compose — fetch the live docker-compose.yml
+/// directly from the configured git repo (HEAD of the branch). The file is
+/// returned verbatim — no `strip_compose_ports`, no version munging — so the
+/// UI can show users exactly what they wrote.
+pub async fn get_git_compose(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let yaml = crate::deploy::fetch_compose_from_git(&state, &id)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Fetch compose: {e}")))?;
+    Ok(Json(serde_json::json!({ "yaml": yaml })))
+}
+
+/// POST /api/v1/resources/{id}/reload-compose — re-read the compose file from
+/// git, refresh `port_allocations`, and reconcile Traefik TCP routes. Does
+/// NOT rebuild the container — only the port topology + proxy config are
+/// updated. Useful when only `ports:` changed in git and the user wants the
+/// new mapping reflected without a full redeploy.
+pub async fn reload_compose(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let yaml = crate::deploy::reload_compose_ports(&state, &id)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Reload compose: {e}")))?;
+    Ok(Json(serde_json::json!({ "ok": true, "yaml": yaml })))
+}
+
 /// PUT /api/v1/resources/{id}/network — change network assignment.
 pub async fn set_network(
     State(state): State<SharedState>,

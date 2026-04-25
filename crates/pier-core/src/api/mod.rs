@@ -151,6 +151,14 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/git",
             get(resources::get_git_config).put(resources::update_git_config),
         )
+        .route(
+            "/resources/{id}/git-compose",
+            get(resources::get_git_compose),
+        )
+        .route(
+            "/resources/{id}/reload-compose",
+            post(resources::reload_compose),
+        )
         // Deployments (CI/CD pipeline)
         .route("/resources/{id}/deploy", post(deployments::manual_deploy))
         .route("/resources/{id}/rollback", post(deployments::rollback))
