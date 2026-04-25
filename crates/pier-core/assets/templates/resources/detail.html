@@ -218,6 +218,10 @@
                         </button>
                     </div>
                     <p x-show="togglingPublic" class="text-xs text-blue-500 mt-2">Updating Traefik proxy...</p>
+                    <p x-show="!portTcpPublished && domains && domains.length > 0 && !togglingPublic"
+                       class="text-xs text-gray-400 mt-2">
+                        Public via <span x-text="domains.length"></span> domain<span x-show="domains.length > 1">s</span> (HTTP). Toggle off to remove all and make private.
+                    </p>
                 </div>
             </div>
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
@@ -1178,6 +1182,35 @@ NODE_ENV=production"></textarea>
         </div>
     </div>
 
+    <!-- Disable Public Access Confirmation Modal -->
+    <div x-show="showPublicConfirm" x-cloak
+         class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
+         style="top:0;left:0"
+         @click.self="showPublicConfirm = false">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
+            <h3 class="text-lg font-semibold text-amber-600 dark:text-amber-400 mb-2">Make service private?</h3>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Disabling public access will <strong>remove the following domain(s)</strong> and tear down their HTTPS routes:
+            </p>
+            <ul class="mb-4 max-h-40 overflow-auto rounded-lg bg-gray-50 dark:bg-gray-800 p-3 text-sm font-mono text-gray-800 dark:text-gray-200">
+                <template x-for="d in publicConfirmDomains" :key="d">
+                    <li x-text="d" class="py-0.5"></li>
+                </template>
+            </ul>
+            <p class="text-xs text-gray-500 mb-4">The raw TCP port (if any) will also be closed. This is reversible — you can re-add domains later.</p>
+            <div class="flex justify-end gap-2">
+                <button @click="showPublicConfirm = false"
+                        class="px-4 py-2 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
+                    Cancel
+                </button>
+                <button @click="confirmDisablePublic()"
+                        class="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition-colors">
+                    Remove domains and disable
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Schedule Modal -->
     <div x-show="showScheduleModal" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showScheduleModal = false">
             <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
@@ -1238,13 +1271,15 @@ function resourceDetail(id) {
         ciDeployments: [], expandedLog: null, selectedDeploy: null, deploysPage: 1, deploysPerPage: 10, cancellingDeploy: false,
         togglingPublic: false,
         publicPort: 0,
+        showPublicConfirm: false, publicConfirmDomains: [], publicConfirmPort: 0,
         changingNetwork: false,
         availableNetworks: [],
         dbList: [], dbLoading: false, dbCreating: false,
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
         newDb: { database: '', username: '', password: '' },
-        get portIsPublic() { return this.resource.ports?.[0]?.is_public || false; },
+        get portIsPublic() { return (this.resource.ports?.[0]?.is_public || false) || (this.domains && this.domains.length > 0); },
+        get portTcpPublished() { return this.resource.ports?.[0]?.is_public || false; },
         get logicalPorts() {
             const all = this.resource.ports || [];
             if (!all.length) return [];
@@ -1354,14 +1389,45 @@ function resourceDetail(id) {
                 this.publicPort = this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
             }
             const port = this.publicPort || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
+            await this._applyPublic(newState, port, false);
+        },
+        async _applyPublic(newState, port, cascade) {
             this.togglingPublic = true;
             try {
-                await api('/api/v1/resources/'+this.id+'/port-public', { method: 'PUT', body: JSON.stringify({ is_public: newState, public_port: port }) });
+                const body = { is_public: newState, public_port: port };
+                if (!newState && cascade) body.cascade_delete_domains = true;
+                const res = await fetch('/api/v1/resources/'+this.id+'/port-public', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                if (res.status === 409) {
+                    const data = await res.json().catch(() => ({}));
+                    if (data.code === 'domains_require_confirmation') {
+                        this.publicConfirmDomains = data.domains || [];
+                        this.publicConfirmPort = port;
+                        this.showPublicConfirm = true;
+                        this.togglingPublic = false;
+                        return;
+                    }
+                    throw new Error(data.error || 'Conflict');
+                }
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || ('HTTP '+res.status));
+                }
                 toast(newState ? 'Public access enabled (port ' + port + ')' : 'Public access disabled');
                 await this.refresh();
+                await this.loadDomains();
                 this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
             } catch(e) { toast(e.message, 'error'); }
             this.togglingPublic = false;
+        },
+        async confirmDisablePublic() {
+            this.showPublicConfirm = false;
+            await this._applyPublic(false, this.publicConfirmPort, true);
+            this.publicConfirmDomains = [];
+            this.publicConfirmPort = 0;
         },
         async updatePublicPort() {
             if (!this.publicPort || this.publicPort < 1024) return;

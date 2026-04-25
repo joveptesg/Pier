@@ -19,6 +19,9 @@ pub enum AppError {
     #[error("Resource name '{name}' already exists")]
     ResourceNameConflict { name: String, existing_id: String },
 
+    #[error("Service has {} domain(s) — confirmation required", .domains.len())]
+    DomainsRequireConfirmation { domains: Vec<String> },
+
     #[error("Docker error: {0}")]
     Docker(#[from] bollard::errors::Error),
 
@@ -44,12 +47,25 @@ impl IntoResponse for AppError {
                 .into_response();
         }
 
+        if let Self::DomainsRequireConfirmation { domains } = &self {
+            return (
+                StatusCode::CONFLICT,
+                axum::Json(serde_json::json!({
+                    "error": "Disabling public access will remove existing domains",
+                    "code": "domains_require_confirmation",
+                    "domains": domains,
+                })),
+            )
+                .into_response();
+        }
+
         let (status, message) = match &self {
             Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".into()),
             Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             Self::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             Self::ResourceNameConflict { .. } => unreachable!(),
+            Self::DomainsRequireConfirmation { .. } => unreachable!(),
             Self::Docker(e) => {
                 tracing::error!("Docker error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Docker error".into())

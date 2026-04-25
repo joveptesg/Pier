@@ -2648,6 +2648,52 @@ pub async fn set_port_public(
 ) -> AppResult<impl IntoResponse> {
     let public_port = body.public_port.unwrap_or(0) as u16;
 
+    // Disabling public access: if the service has domains attached, require
+    // explicit confirmation (the domains will be deleted as part of the master
+    // "make this service private" action).
+    if !body.is_public {
+        let domains: Vec<String> = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            let mut stmt =
+                db.prepare("SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain")?;
+            let rows: Vec<String> = stmt
+                .query_map([&id], |row| row.get::<_, String>(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows
+        };
+        if !domains.is_empty() {
+            if body.cascade_delete_domains != Some(true) {
+                return Err(AppError::DomainsRequireConfirmation { domains });
+            }
+            // Cascade-delete: drop domains + tear down Traefik HTTP routes for this service.
+            {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.execute("DELETE FROM domains WHERE service_id = ?1", [&id])?;
+            }
+            // Empty domain list deletes the per-service dynamic config file.
+            if let Err(e) = crate::proxy::config::regenerate_service_config(
+                &state.config.data_dir,
+                &id,
+                &[],
+                "",
+            ) {
+                tracing::warn!("Failed to remove Traefik config for {id}: {e}");
+            }
+            tracing::info!(
+                "Cascade-deleted {} domain(s) for {id}: {:?}",
+                domains.len(),
+                domains
+            );
+        }
+    }
+
     // Get host_port, container_port, and service name from DB
     let (host_port, container_port, service_name) = {
         let db = state
@@ -2835,6 +2881,12 @@ pub async fn set_port_public(
 pub struct SetPortPublicRequest {
     pub is_public: bool,
     pub public_port: Option<i64>,
+    /// When `is_public=false` and the service has attached domains, the request
+    /// is rejected with 409 unless this is `Some(true)`. If true, all domains
+    /// for the service are deleted (and their Traefik routes torn down) before
+    /// the public TCP port is disabled.
+    #[serde(default)]
+    pub cascade_delete_domains: Option<bool>,
 }
 
 /// PUT /api/v1/resources/{id}/network — change network assignment.
