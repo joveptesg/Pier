@@ -1,0 +1,45 @@
+name: Sponsor
+description: Claim your spot on the sponsors page after a donation.
+title: "Sponsor: <your name or handle>"
+labels: ["sponsor"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for supporting Pier!
+        After your on-chain donation, fill in the fields below — the maintainer will add you to https://pier.team/sponsor.
+  - type: input
+    id: name
+    attributes:
+      label: Display name or handle
+      description: Exactly as you want it to appear on pier.team/sponsor.
+      placeholder: e.g. "Jane Doe" or "@janedoe"
+    validations:
+      required: true
+  - type: input
+    id: tx
+    attributes:
+      label: Transaction hash or block-explorer link
+      description: Tx hash on Tronscan / mempool.space etc., so the donation can be verified.
+    validations:
+      required: true
+  - type: dropdown
+    id: asset
+    attributes:
+      label: Asset
+      options:
+        - USDT (TRC20)
+        - BTC (on-chain)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Optional URL (website, GitHub, X)
+      description: Where the click on your name should lead. Leave empty if you prefer no link.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Optional message to the maintainer.
