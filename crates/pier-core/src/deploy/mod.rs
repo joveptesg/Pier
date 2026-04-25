@@ -261,7 +261,7 @@ pub async fn run_pipeline(
                 Ok(yaml) => {
                     let yaml = strip_compose_version(&yaml);
                     // Extract ports before stripping (for port_allocations DB update)
-                    extract_and_save_ports(&state, &service_id, &yaml);
+                    extract_and_save_ports(&state, &service_id, &yaml).await;
                     // Inject pier-net (and project network) so services can communicate across stacks
                     let yaml = inject_pier_networks(&state, &service_id, &yaml);
                     // Remove host port bindings (Traefik handles public access via Docker network)
@@ -744,10 +744,17 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
     lines.join("\n")
 }
 
-/// Parse ports from compose YAML and update port_allocations in DB.
-/// Handles formats: "5201:5201", "127.0.0.1:5201:5201", "3000:3000/tcp"
-fn extract_and_save_ports(state: &AppState, service_id: &str, yaml: &str) {
+/// Parse ports from compose YAML, update `port_allocations` in DB, and
+/// reconcile Traefik dynamic config to match.
+///
+/// Handles formats: "5201:5201", "127.0.0.1:5201:5201", "3000:3000/tcp".
+async fn extract_and_save_ports(state: &AppState, service_id: &str, yaml: &str) {
     update_ports_from_compose(state, service_id, yaml);
+    if let Err(e) = crate::proxy::sync_tcp_routes_for_service(state, service_id).await {
+        // Don't fail the deploy on a Traefik hiccup — port_allocations is the
+        // source of truth and the next redeploy will re-converge.
+        tracing::warn!("Traefik TCP sync failed for {service_id}: {e}");
+    }
 }
 
 fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
@@ -821,15 +828,38 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
                 format!("port-{}", i)
             };
             let id = uuid::Uuid::new_v4().to_string();
+
+            // Refuse to claim a public host port already taken by another service.
+            // The port stays as Local (is_public=0) so Pier still shows it in the
+            // UI; the user can manually toggle once the conflict is resolved.
+            let conflict: Option<String> = db
+                .query_row(
+                    "SELECT service_id FROM port_allocations \
+                     WHERE is_public = 1 AND public_port = ?1 AND service_id != ?2 LIMIT 1",
+                    rusqlite::params![*host_port as i64, service_id],
+                    |row| row.get(0),
+                )
+                .ok();
+            let (is_public, public_port): (i64, Option<i64>) = if let Some(other) = conflict {
+                tracing::warn!(
+                    "Compose port {host_port} for {service_id} conflicts with public port already held by {other}; staying local"
+                );
+                (0, None)
+            } else {
+                (1, Some(*host_port as i64))
+            };
+
             let _ = db.execute(
                 "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', 1, ?4)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', ?6, ?7)",
                 rusqlite::params![
                     id,
                     service_id,
                     port_name,
                     *host_port as i64,
                     *container_port as i64,
+                    is_public,
+                    public_port,
                 ],
             );
         }

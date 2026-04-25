@@ -2764,110 +2764,24 @@ pub async fn set_port_public(
         host_port
     };
 
-    if body.is_public {
-        // Target every replica of this service. For a non-scaled service
-        // this is exactly one upstream (pier-{slug}:container_port); for
-        // scaled services it's one entry per replica, across servers.
-        let upstreams = {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            let ups = build_tcp_upstreams(&db, &id, container_port, &service_name);
-            if ups.is_empty() {
-                // Fall back to legacy single-container name when no replica
-                // rows exist yet (e.g., first deploy before any scale op).
-                vec![format!(
-                    "pier-{}:{}",
-                    service_name.to_lowercase().replace(' ', "-"),
-                    container_port
-                )]
-            } else {
-                ups
-            }
-        };
-        crate::proxy::config::write_tcp_route_lb(&state.config.data_dir, &id, pp, &upstreams)
-            .map_err(|e| anyhow::anyhow!("Write TCP route: {e}"))?;
-
-        // Collect all active public TCP ports for static config
-        let tcp_ports = {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            let mut stmt = db.prepare(
-                "SELECT DISTINCT public_port FROM port_allocations WHERE is_public = 1 AND public_port IS NOT NULL",
-            )?;
-            let ports: Vec<u16> = stmt
-                .query_map([], |row| row.get::<_, i64>(0).map(|p| p as u16))?
-                .filter_map(|r| r.ok())
-                .collect();
-            ports
-        };
-
-        // Get proxy settings for static config
-        let (acme_email, dashboard, traefik_version) = {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            let email = db
-                .query_row(
-                    "SELECT value FROM settings WHERE key = 'proxy.acme_email'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap_or_else(|_| "admin@pier.local".to_string());
-            let dash = db
-                .query_row(
-                    "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap_or_default()
-                == "true";
-            let version = db
-                .query_row(
-                    "SELECT value FROM settings WHERE key = 'proxy.traefik_version'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .ok()
-                .filter(|v: &String| !v.is_empty())
-                .unwrap_or_else(|| crate::proxy::DEFAULT_TRAEFIK_VERSION.to_string());
-            (email, dash, version)
-        };
-
-        // Regenerate static config with TCP entryPoints + restart Traefik
-        crate::proxy::config::regenerate_static_config_with_tcp(
-            &state.config.data_dir,
-            &acme_email,
-            dashboard,
-            &tcp_ports,
-        )
-        .map_err(|e| anyhow::anyhow!("Regenerate static config: {e}"))?;
-
-        // Recreate Traefik with new TCP port binding (bridge mode needs port bindings)
-        if let Err(e) = crate::proxy::deploy_traefik(
-            &state.docker,
-            &state.config.data_dir,
-            &acme_email,
-            dashboard,
-            &traefik_version,
-        )
-        .await
-        {
-            tracing::error!("Traefik redeploy for TCP port failed: {e}");
-            return Err(AppError::Internal(anyhow::anyhow!(
-                "Failed to enable public port {pp}: {e}"
-            )));
-        }
-        tracing::info!("Public TCP port {pp} enabled for {id} → localhost:{host_port}");
-    } else {
-        // Remove Traefik TCP route
+    // Drop the per-service TCP route file when disabling — sync_tcp_routes
+    // will not see the row anymore but it also won't notice deletions of
+    // ports that already left port_allocations.
+    if !body.is_public {
         let _ = crate::proxy::config::remove_tcp_route(&state.config.data_dir, &id);
+    }
+
+    crate::proxy::sync_tcp_routes_for_service(&state, &id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Sync TCP routes for {id} failed: {e}");
+            AppError::Internal(anyhow::anyhow!("Sync TCP routes: {e}"))
+        })?;
+
+    if body.is_public {
+        tracing::info!("Public TCP port {pp} enabled for {id} → {service_name}:{container_port}");
+    } else {
         tracing::info!("Public TCP port disabled for {id}");
-        // Note: entryPoint stays in static config until next restart, harmless
     }
 
     Ok(Json(serde_json::json!({

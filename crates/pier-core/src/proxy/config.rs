@@ -473,6 +473,10 @@ pub fn remove_platform_domain_config(data_dir: &Path) -> Result<()> {
 /// Each upstream is a raw `host:port` string (can be a Docker DNS name
 /// for local replicas or `ip:port` for remote replicas). Traefik's TCP
 /// provider distributes connections across all listed upstreams (WRR).
+///
+/// File name is `tcp-{service_id}-{public_port}.yml` so a single service can
+/// expose multiple raw TCP ports simultaneously (e.g. REST 4471 + MQTT 1883).
+/// Router/service names inside the YAML include the port for the same reason.
 pub fn write_tcp_route_lb(
     data_dir: &Path,
     service_id: &str,
@@ -483,6 +487,7 @@ pub fn write_tcp_route_lb(
     std::fs::create_dir_all(&dynamic_dir)?;
 
     let ep_name = format!("tcp-{public_port}");
+    let route_name = format!("tcp-{service_id}-{public_port}");
     let servers_yaml: String = upstreams
         .iter()
         .map(|addr| format!("          - address: \"{addr}\"\n"))
@@ -491,20 +496,20 @@ pub fn write_tcp_route_lb(
         r#"# TCP proxy for service {service_id} (public :{public_port} -> {} upstream(s))
 tcp:
   routers:
-    tcp-{service_id}:
+    {route_name}:
       entryPoints:
         - "{ep_name}"
       rule: "HostSNI(`*`)"
-      service: "tcp-{service_id}"
+      service: "{route_name}"
   services:
-    tcp-{service_id}:
+    {route_name}:
       loadBalancer:
         servers:
 {servers_yaml}"#,
         upstreams.len()
     );
 
-    std::fs::write(dynamic_dir.join(format!("tcp-{service_id}.yml")), config)?;
+    std::fs::write(dynamic_dir.join(format!("{route_name}.yml")), config)?;
     Ok(())
 }
 
@@ -526,12 +531,42 @@ pub fn write_tcp_route(
     )
 }
 
-/// Remove a TCP route config for a service.
+/// Remove all TCP route configs for a service: both the legacy
+/// `tcp-{service_id}.yml` (single-port era) and the per-port files
+/// `tcp-{service_id}-{port}.yml`.
 pub fn remove_tcp_route(data_dir: &Path, service_id: &str) -> Result<()> {
+    let dynamic_dir = data_dir.join("traefik").join("dynamic");
+    // Legacy single-port file
+    let legacy = dynamic_dir.join(format!("tcp-{service_id}.yml"));
+    if legacy.exists() {
+        let _ = std::fs::remove_file(&legacy);
+    }
+    // Per-port files: tcp-{service_id}-{port}.yml
+    let prefix = format!("tcp-{service_id}-");
+    if let Ok(entries) = std::fs::read_dir(&dynamic_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with(&prefix) && name_str.ends_with(".yml") {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Remove the TCP route file for a single (service, port) pair, leaving
+/// other ports of the same service untouched.
+#[allow(dead_code)]
+pub fn remove_tcp_route_for_port(
+    data_dir: &Path,
+    service_id: &str,
+    public_port: u16,
+) -> Result<()> {
     let path = data_dir
         .join("traefik")
         .join("dynamic")
-        .join(format!("tcp-{service_id}.yml"));
+        .join(format!("tcp-{service_id}-{public_port}.yml"));
     if path.exists() {
         std::fs::remove_file(path)?;
     }

@@ -298,3 +298,176 @@ async fn detect_data_volume(docker: &Docker, data_dir: &Path) -> Result<String> 
     tracing::info!("Native mode detected — using host path for Traefik bind-mount");
     Ok(abs.to_string_lossy().to_string())
 }
+
+/// Reconcile Traefik configuration with the current `port_allocations` rows
+/// for a given service. Idempotent and safe to call after any change that
+/// affects `is_public` / `public_port` for the service:
+///
+/// - `set_port_public` toggle from the UI
+/// - `update_ports_from_compose` after a redeploy
+/// - manual DB edits
+///
+/// Behavior:
+/// 1. Removes all stale `tcp-{service_id}-*.yml` dynamic configs whose port is
+///    no longer marked `is_public=1`.
+/// 2. Writes a fresh `tcp-{service_id}-{public_port}.yml` for each public port.
+/// 3. Regenerates the static config with the union of every public TCP port in
+///    the database (across all services) and recreates the Traefik container
+///    with matching host port bindings.
+///
+/// On a service with zero public ports, all per-service TCP files are deleted.
+pub async fn sync_tcp_routes_for_service(
+    state: &crate::state::AppState,
+    service_id: &str,
+) -> Result<()> {
+    // Snapshot all DB state under one lock.
+    struct Snapshot {
+        public_ports: Vec<(u16, u16)>, // (public_port, container_port)
+        service_name: String,
+        container_name: Option<String>,
+        all_tcp_ports: Vec<u16>,
+        acme_email: String,
+        dashboard: bool,
+        traefik_version: String,
+    }
+
+    let snap = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+        let mut stmt = db.prepare(
+            "SELECT public_port, container_port FROM port_allocations \
+             WHERE service_id = ?1 AND is_public = 1 AND public_port IS NOT NULL \
+             ORDER BY port_name",
+        )?;
+        let public_ports: Vec<(u16, u16)> = stmt
+            .query_map([service_id], |row| {
+                Ok((row.get::<_, i64>(0)? as u16, row.get::<_, i64>(1)? as u16))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let (service_name, container_name): (String, Option<String>) = db
+            .query_row(
+                "SELECT name, container_id FROM services WHERE id = ?1",
+                [service_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| anyhow::anyhow!("Service {service_id} not found"))?;
+
+        let mut s2 = db.prepare(
+            "SELECT DISTINCT public_port FROM port_allocations \
+             WHERE is_public = 1 AND public_port IS NOT NULL",
+        )?;
+        let all_tcp_ports: Vec<u16> = s2
+            .query_map([], |row| row.get::<_, i64>(0).map(|p| p as u16))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let acme_email = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'proxy.acme_email'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_else(|_| "admin@pier.local".to_string());
+        let dashboard = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_default()
+            == "true";
+        let traefik_version = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'proxy.traefik_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .filter(|v: &String| !v.is_empty())
+            .unwrap_or_else(|| DEFAULT_TRAEFIK_VERSION.to_string());
+
+        Snapshot {
+            public_ports,
+            service_name,
+            container_name,
+            all_tcp_ports,
+            acme_email,
+            dashboard,
+            traefik_version,
+        }
+    };
+
+    // Resolve upstream Docker DNS name. Compose services with explicit
+    // `container_name:` (e.g. `myhome-backend`) need the actual container
+    // name; auto-named services fall back to `pier-{slug}`.
+    let upstream_host = snap
+        .container_name
+        .as_deref()
+        .filter(|c| !c.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            format!(
+                "pier-{}",
+                snap.service_name.to_lowercase().replace(' ', "-")
+            )
+        });
+
+    // Wipe stale per-service TCP files whose port is no longer public, then
+    // re-emit a file per current public port.
+    let want_ports: std::collections::HashSet<u16> =
+        snap.public_ports.iter().map(|(p, _)| *p).collect();
+    let dynamic_dir = state.config.data_dir.join("traefik").join("dynamic");
+    if let Ok(entries) = std::fs::read_dir(&dynamic_dir) {
+        let prefix = format!("tcp-{service_id}-");
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with(&prefix) && name_str.ends_with(".yml") {
+                let port_str = &name_str[prefix.len()..name_str.len() - ".yml".len()];
+                if let Ok(p) = port_str.parse::<u16>() {
+                    if !want_ports.contains(&p) {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    }
+    // Drop the legacy single-file tcp-{service_id}.yml — superseded by
+    // the per-port files even if the service has just one public port.
+    let legacy = dynamic_dir.join(format!("tcp-{service_id}.yml"));
+    if legacy.exists() {
+        let _ = std::fs::remove_file(&legacy);
+    }
+
+    for (public_port, container_port) in &snap.public_ports {
+        let upstreams = vec![format!("{upstream_host}:{container_port}")];
+        config::write_tcp_route_lb(&state.config.data_dir, service_id, *public_port, &upstreams)?;
+    }
+
+    config::regenerate_static_config_with_tcp(
+        &state.config.data_dir,
+        &snap.acme_email,
+        snap.dashboard,
+        &snap.all_tcp_ports,
+    )?;
+
+    deploy_traefik(
+        &state.docker,
+        &state.config.data_dir,
+        &snap.acme_email,
+        snap.dashboard,
+        &snap.traefik_version,
+    )
+    .await?;
+
+    tracing::info!(
+        "Synced TCP routes for {service_id}: ports {:?} → {upstream_host}",
+        snap.public_ports
+    );
+    Ok(())
+}
