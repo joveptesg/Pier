@@ -99,7 +99,7 @@ O [Coolify](https://coolify.io) é ótimo, mas roda **6+ contêineres** e consom
 ### Opção A: Instalação com um comando (Ubuntu/Debian)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/setup.sh | sudo bash
+curl -fsSL https://pier.team/install | sudo bash
 ```
 
 ### Opção B: Compilar a partir do código-fonte

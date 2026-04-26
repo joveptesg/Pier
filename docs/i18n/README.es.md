@@ -99,7 +99,7 @@ Despliega contenedores, stacks de Docker Compose y repositorios Git con SSL auto
 ### Opción A: Instalación con un solo comando (Ubuntu/Debian)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/setup.sh | sudo bash
+curl -fsSL https://pier.team/install | sudo bash
 ```
 
 ### Opción B: Compilar desde el código fuente

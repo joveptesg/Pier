@@ -99,7 +99,7 @@ Deployen Sie Container, Docker-Compose-Stacks und Git-Repositories mit automatis
 ### Option A: Ein-Befehl-Installation (Ubuntu/Debian)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/setup.sh | sudo bash
+curl -fsSL https://pier.team/install | sudo bash
 ```
 
 ### Option B: Aus Quellcode bauen

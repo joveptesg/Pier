@@ -99,7 +99,7 @@
 ### Вариант A: Установка одной командой (Ubuntu/Debian)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/setup.sh | sudo bash
+curl -fsSL https://pier.team/install | sudo bash
 ```
 
 ### Вариант B: Сборка из исходного кода

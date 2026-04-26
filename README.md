@@ -97,8 +97,10 @@ Deploy containers, Docker Compose stacks, and Git repositories with automatic SS
 ### Option A: One-command install (Ubuntu/Debian)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/setup.sh | sudo bash
+curl -fsSL https://pier.team/install | sudo bash
 ```
+
+> The short URL redirects to [`scripts/bootstrap.sh`](scripts/bootstrap.sh). The script installs Docker, downloads the latest release binary (with sha256 verification), and runs `install.sh`.
 
 ### Option B: Build from source
 

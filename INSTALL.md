@@ -1,5 +1,21 @@
 # Pier — Установка на чистый Ubuntu-сервер
 
+## Быстрая установка (one-liner)
+
+Если нужен Pier «здесь и сейчас», без ручной сборки из исходников:
+
+```bash
+curl -fsSL https://pier.team/install | sudo bash
+```
+
+Скрипт ставит Docker, скачивает готовый бинарь из [GitHub Releases](https://github.com/joveptesg/pier/releases/tag/latest) (с проверкой sha256) и запускает [`install.sh`](scripts/install.sh). Подходит для свежей Ubuntu/Debian. Дальнейшие шаги (создание admin-аккаунта на `http://SERVER_IP:8443/setup`) — см. §8.
+
+> Альтернативные варианты установки (Docker, ручная сборка) — см. [README.md](README.md#quick-start).
+
+Если нужен полный контроль над каждым шагом (security hardening, firewall, hardening SSH, ручная сборка из исходников) — следуй секциям §0-§9 ниже.
+
+---
+
 ## 0. Безопасность сервера
 
 ### 0.1 Создать sudo-юзера (на сервере под root)
@@ -110,10 +126,12 @@ docker compose version
 
 ## 4. Rust
 
+Минимальная версия — **Rust 1.93+** (см. `rust-version` в [Cargo.toml](Cargo.toml)). `rustup` ставит свежий stable, этого достаточно. Если используется `rustup` из apt — сначала `rustup update stable`.
+
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source ~/.cargo/env
-rustc --version
+rustc --version   # должно быть >= 1.93
 ```
 
 ## 5. Сборка Pier
@@ -125,6 +143,17 @@ cargo build --release
 ```
 
 > Сборка занимает ~5-10 минут.
+>
+> Если не нужен исходник — можно пропустить шаги 4-5 и взять готовый бинарь:
+> ```bash
+> mkdir -p /tmp/pier && cd /tmp/pier
+> curl -fsSL -o pier https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64
+> curl -fsSL -o pier.sha256 https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64.sha256
+> sha256sum -c <(awk -v f=pier '{print $1"  "f}' pier.sha256)
+> chmod +x pier
+> curl -fsSL -o install.sh https://raw.githubusercontent.com/joveptesg/pier/main/scripts/install.sh
+> ```
+> И на §6 запускать `sudo bash install.sh --binary /tmp/pier/pier`.
 
 ## 6. Установка
 

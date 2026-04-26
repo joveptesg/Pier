@@ -99,7 +99,7 @@
 ### オプション A: ワンコマンドインストール (Ubuntu/Debian)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/setup.sh | sudo bash
+curl -fsSL https://pier.team/install | sudo bash
 ```
 
 ### オプション B: ソースからビルド

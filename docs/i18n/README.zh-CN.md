@@ -99,7 +99,7 @@
 ### 方式 A：一键安装（Ubuntu/Debian）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/setup.sh | sudo bash
+curl -fsSL https://pier.team/install | sudo bash
 ```
 
 ### 方式 B：从源码构建
