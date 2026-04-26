@@ -555,6 +555,18 @@ const MIGRATIONS: &[&str] = &[
 
     CREATE INDEX IF NOT EXISTS idx_servers_kind ON servers(kind);
     "#,
+    // Migration 32: per-compose-service tagging for port_allocations and domains.
+    // A single Pier resource can deploy a docker-compose with N services, each
+    // needing its own domain. NULL = legacy single-service (current behavior);
+    // non-NULL = the YAML key under `services:` this row belongs to.
+    r#"
+    ALTER TABLE port_allocations ADD COLUMN compose_service TEXT;
+    ALTER TABLE domains ADD COLUMN compose_service TEXT;
+    CREATE INDEX IF NOT EXISTS idx_port_alloc_compose_svc
+        ON port_allocations(service_id, compose_service);
+    CREATE INDEX IF NOT EXISTS idx_domains_compose_svc
+        ON domains(service_id, compose_service);
+    "#,
 ];
 
 /// Run all pending database migrations.

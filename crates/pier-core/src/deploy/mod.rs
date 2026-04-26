@@ -820,6 +820,183 @@ async fn extract_and_save_ports(state: &AppState, service_id: &str, yaml: &str) 
     }
 }
 
+/// One compose `services:` entry, distilled to the bits Pier cares about
+/// for routing decisions (container DNS name + ports).
+#[derive(Debug, Clone)]
+pub struct ComposeService {
+    /// YAML key under `services:`.
+    pub name: String,
+    /// Explicit `container_name:` value if set. Empty when not specified —
+    /// callers that need the runtime name should fall back to `pier-{slug}`
+    /// or query `docker compose ps`.
+    #[allow(dead_code)] // consumed by Patch C2 (per-service domain wiring)
+    pub container_name: String,
+    /// Resolved (host, container) port pairs after `${VAR}` substitution.
+    pub ports: Vec<(u16, u16)>,
+}
+
+/// Lightweight parser for the `services:` block of a docker-compose file.
+/// Only what Pier needs: per-service `container_name` and `ports`. We avoid
+/// pulling in a full YAML crate because (a) the format we care about is a
+/// stable subset and (b) the existing line-by-line parser already worked for
+/// `ports:` — this just generalises it to track the enclosing service.
+///
+/// Indentation rules (matching how docker-compose files are conventionally
+/// written; both 2-space and 4-space styles are supported):
+///   services:                ← top-level (column 0)
+///     <name>:                ← service name (one indent)
+///       container_name: ...  ← service property (two indents)
+///       ports:               ← service property
+///         - "host:container" ← list item (three indents)
+pub fn parse_compose_services(
+    yaml: &str,
+    env: &std::collections::HashMap<String, String>,
+) -> Vec<ComposeService> {
+    let mut services: Vec<ComposeService> = Vec::new();
+    let mut in_services = false;
+    let mut service_indent: Option<usize> = None; // indent of `<name>:` rows
+    let mut prop_indent: Option<usize> = None; // indent of `container_name:` / `ports:` rows
+    let mut in_ports = false;
+    let mut ports_item_indent: Option<usize> = None;
+
+    let push_current = |services: &mut Vec<ComposeService>,
+                        name: &mut Option<String>,
+                        container: &mut String,
+                        ports: &mut Vec<(u16, u16)>| {
+        if let Some(n) = name.take() {
+            services.push(ComposeService {
+                name: n,
+                container_name: std::mem::take(container),
+                ports: std::mem::take(ports),
+            });
+        }
+    };
+
+    let mut current_name: Option<String> = None;
+    let mut current_container = String::new();
+    let mut current_ports: Vec<(u16, u16)> = Vec::new();
+
+    for raw_line in yaml.lines() {
+        // Strip trailing comment (after a `#` preceded by whitespace).
+        let line: &str = match raw_line.find(" #") {
+            Some(idx) => &raw_line[..idx],
+            None => raw_line,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+
+        // Top-level key: leaves any previous services: scope.
+        if indent == 0 {
+            push_current(
+                &mut services,
+                &mut current_name,
+                &mut current_container,
+                &mut current_ports,
+            );
+            in_services = trimmed == "services:";
+            service_indent = None;
+            prop_indent = None;
+            in_ports = false;
+            ports_item_indent = None;
+            continue;
+        }
+
+        if !in_services {
+            continue;
+        }
+
+        // First indented line under `services:` establishes the service-level indent.
+        if service_indent.is_none() {
+            service_indent = Some(indent);
+        }
+        let svc_ind = service_indent.unwrap();
+
+        if indent == svc_ind && trimmed.ends_with(':') {
+            // New service definition.
+            push_current(
+                &mut services,
+                &mut current_name,
+                &mut current_container,
+                &mut current_ports,
+            );
+            current_name = Some(trimmed.trim_end_matches(':').to_string());
+            current_container.clear();
+            current_ports.clear();
+            prop_indent = None;
+            in_ports = false;
+            ports_item_indent = None;
+            continue;
+        }
+
+        if current_name.is_none() {
+            continue;
+        }
+
+        // First indented line *inside* a service block establishes the prop indent.
+        if prop_indent.is_none() && indent > svc_ind {
+            prop_indent = Some(indent);
+        }
+        let pi = prop_indent.unwrap_or(svc_ind + 2);
+
+        if indent == pi {
+            // Service property.
+            in_ports = false;
+            if let Some(rest) = trimmed.strip_prefix("container_name:") {
+                let val = rest.trim().trim_matches('"').trim_matches('\'');
+                current_container = val.to_string();
+            } else if trimmed == "ports:" {
+                in_ports = true;
+                ports_item_indent = None;
+            }
+            continue;
+        }
+
+        if in_ports && indent > pi && trimmed.starts_with("- ") {
+            if ports_item_indent.is_none() {
+                ports_item_indent = Some(indent);
+            }
+            if Some(indent) == ports_item_indent {
+                let port_str = trimmed
+                    .strip_prefix("- ")
+                    .unwrap_or("")
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'');
+                let substituted = substitute_compose_vars(port_str, env);
+                let port_str = substituted.split('/').next().unwrap_or(&substituted);
+                let parts: Vec<&str> = port_str.split(':').collect();
+                let parsed = match parts.len() {
+                    2 => parts[0]
+                        .parse::<u16>()
+                        .ok()
+                        .zip(parts[1].parse::<u16>().ok()),
+                    3 => parts[1]
+                        .parse::<u16>()
+                        .ok()
+                        .zip(parts[2].parse::<u16>().ok()),
+                    1 => parts[0].parse::<u16>().ok().map(|p| (p, p)),
+                    _ => None,
+                };
+                if let Some(p) = parsed {
+                    current_ports.push(p);
+                }
+            }
+            continue;
+        }
+    }
+
+    push_current(
+        &mut services,
+        &mut current_name,
+        &mut current_container,
+        &mut current_ports,
+    );
+    services
+}
+
 fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
     // Resolve `${VAR}` / `${VAR:-default}` like docker-compose does, using
     // the service's env_json as the source for VAR values. Without this,
@@ -827,59 +1004,31 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
     // would keep stale port_allocations.
     let env_map = load_env_map(state, service_id);
 
-    let mut ports = Vec::new();
-    let mut in_ports = false;
+    let services = parse_compose_services(yaml, &env_map);
 
-    for line in yaml.lines() {
-        let trimmed = line.trim();
-        if trimmed == "ports:" {
-            in_ports = true;
-            continue;
-        }
-        if in_ports {
-            if trimmed.starts_with("- ") {
-                let port_str = trimmed
-                    .strip_prefix("- ")
-                    .unwrap_or("")
-                    .trim()
-                    .trim_matches('"')
-                    .trim_matches('\'');
-                // Substitute compose vars BEFORE splitting (a `${VAR:-N}` token
-                // contains a `:` that would break the host:container split).
-                let substituted = substitute_compose_vars(port_str, &env_map);
-                // Remove protocol suffix (/tcp, /udp)
-                let port_str = substituted.split('/').next().unwrap_or(&substituted);
-                // Parse: "host:container" or "ip:host:container"
-                let parts: Vec<&str> = port_str.split(':').collect();
-                match parts.len() {
-                    2 => {
-                        if let (Ok(host), Ok(container)) =
-                            (parts[0].parse::<u16>(), parts[1].parse::<u16>())
-                        {
-                            ports.push((host, container));
-                        }
-                    }
-                    3 => {
-                        if let (Ok(host), Ok(container)) =
-                            (parts[1].parse::<u16>(), parts[2].parse::<u16>())
-                        {
-                            ports.push((host, container));
-                        }
-                    }
-                    1 => {
-                        if let Ok(p) = parts[0].parse::<u16>() {
-                            ports.push((p, p));
-                        }
-                    }
-                    _ => {}
-                }
-            } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
-                in_ports = false;
-            }
+    // Flatten while remembering which compose-service each port belongs to.
+    // Single-service composes preserve legacy port_name (`primary`, `port-1`)
+    // for backward-compat; multi-service composes use NULL/None compose_service
+    // tagging so the per-service domain wiring (Patch C) can resolve upstreams.
+    let multi_service = services.len() > 1;
+    let mut flat: Vec<(Option<String>, String, u16, u16)> = Vec::new();
+    for svc in &services {
+        for (i, (host_port, container_port)) in svc.ports.iter().enumerate() {
+            let port_name = if i == 0 {
+                "primary".to_string()
+            } else {
+                format!("port-{i}")
+            };
+            let compose_svc = if multi_service {
+                Some(svc.name.clone())
+            } else {
+                None
+            };
+            flat.push((compose_svc, port_name, *host_port, *container_port));
         }
     }
 
-    if ports.is_empty() {
+    if flat.is_empty() {
         return;
     }
 
@@ -893,12 +1042,7 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
             [service_id],
         );
 
-        for (i, (host_port, container_port)) in ports.iter().enumerate() {
-            let port_name = if i == 0 {
-                "primary".to_string()
-            } else {
-                format!("port-{}", i)
-            };
+        for (compose_svc, port_name, host_port, container_port) in &flat {
             let id = uuid::Uuid::new_v4().to_string();
 
             // Refuse to claim a public host port already taken by another service.
@@ -922,8 +1066,8 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
             };
 
             let _ = db.execute(
-                "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', ?6, ?7)",
+                "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', ?6, ?7, ?8)",
                 rusqlite::params![
                     id,
                     service_id,
@@ -932,19 +1076,26 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
                     *container_port as i64,
                     is_public,
                     public_port,
+                    compose_svc,
                 ],
             );
         }
 
-        // Update service port field with first port
-        if let Some((hp, _)) = ports.first() {
+        // Update services.port with the first host port (legacy single-port
+        // field; UI prefers port_allocations now, but other code paths still
+        // read this).
+        if let Some((_, _, host_port, _)) = flat.first() {
             let _ = db.execute(
                 "UPDATE services SET port = ?1 WHERE id = ?2",
-                rusqlite::params![*hp as i64, service_id],
+                rusqlite::params![*host_port as i64, service_id],
             );
         }
 
-        tracing::info!("Updated ports from compose for {service_id}: {:?}", ports);
+        let summary: Vec<(Option<&str>, u16, u16)> = flat
+            .iter()
+            .map(|(svc, _, h, c)| (svc.as_deref(), *h, *c))
+            .collect();
+        tracing::info!("Updated ports from compose for {service_id}: {summary:?}");
     }
 }
 

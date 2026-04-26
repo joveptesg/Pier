@@ -402,9 +402,9 @@ pub async fn sync_tcp_routes_for_service(
         }
     };
 
-    // Resolve upstream Docker DNS name. Compose services with explicit
-    // `container_name:` (e.g. `myhome-backend`) need the actual container
-    // name; auto-named services fall back to `pier-{slug}`.
+    // Resolve upstream Docker DNS name. Compose services with an explicit
+    // `container_name:` need that exact name; auto-named services fall back
+    // to `pier-{slug}`.
     let upstream_host = snap
         .container_name
         .as_deref()

@@ -2817,6 +2817,54 @@ pub async fn get_git_compose(
     Ok(Json(serde_json::json!({ "yaml": yaml })))
 }
 
+/// GET /api/v1/resources/{id}/compose-services — enumerate the compose
+/// services declared in this resource's docker-compose.yml. Used by the UI
+/// to render per-service "Domains for {service}" inputs when a stack hosts
+/// multiple containers.
+///
+/// Reads from the live git file (so the UI reflects what's actually
+/// deployable now, not what was deployed last). Falls back to the saved
+/// compose_content for non-git resources.
+pub async fn get_compose_services(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    // Try git first; if no git is configured, use the stored compose_content.
+    let yaml = match crate::deploy::fetch_compose_from_git(&state, &id).await {
+        Ok(y) => y,
+        Err(_) => {
+            let stored: Option<String> = {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.query_row(
+                    "SELECT compose_content FROM services WHERE id = ?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten()
+            };
+            stored.unwrap_or_default()
+        }
+    };
+
+    let env = std::collections::HashMap::new();
+    let services = crate::deploy::parse_compose_services(&yaml, &env);
+    let items: Vec<serde_json::Value> = services
+        .into_iter()
+        .map(|s| {
+            serde_json::json!({
+                "name": s.name,
+                "container_name": if s.container_name.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(s.container_name) },
+                "ports": s.ports.iter().map(|(h, c)| serde_json::json!({ "host": h, "container": c })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(Json(items))
+}
+
 /// POST /api/v1/resources/{id}/reload-compose — re-read the compose file from
 /// git, refresh `port_allocations`, and reconcile Traefik TCP routes. Does
 /// NOT rebuild the container — only the port topology + proxy config are

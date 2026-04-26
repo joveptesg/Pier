@@ -579,10 +579,11 @@ NODE_ENV=production"></textarea>
 
     <!-- Domains Tab -->
     <div x-show="tab === 'domains'" class="space-y-4">
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <!-- Single-service (legacy / dockerfile / template) layout -->
+        <div x-show="composeServices.length <= 1" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Domains</h3>
-                <button @click="showAddDomain = true"
+                <button @click="newDomainComposeService = ''; showAddDomain = true"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">
                     Add Domain
                 </button>
@@ -605,6 +606,68 @@ NODE_ENV=production"></textarea>
                     </div>
                 </template>
             </div>
+        </div>
+
+        <!-- Multi-service (docker-compose with N services) layout -->
+        <div x-show="composeServices.length > 1" class="space-y-3">
+            <p class="text-xs text-gray-500">This stack defines <span x-text="composeServices.length"></span> services. Each can have its own domain(s); routing goes to the matching container.</p>
+            <template x-for="cs in composeServices" :key="cs.name">
+                <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <div>
+                            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Domains for <span class="font-mono text-blue-600 dark:text-blue-400" x-text="cs.name"></span></h3>
+                            <p class="text-xs text-gray-400 mt-0.5">
+                                Container: <span class="font-mono" x-text="cs.container_name || ('pier-' + cs.name)"></span>
+                                <template x-if="cs.ports && cs.ports.length > 0">
+                                    <span> · port <span class="font-mono" x-text="cs.ports[0].container"></span></span>
+                                </template>
+                            </p>
+                        </div>
+                        <button @click="newDomainComposeService = cs.name; showAddDomain = true"
+                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">
+                            Add Domain
+                        </button>
+                    </div>
+                    <template x-if="domainsForService(cs.name).length === 0">
+                        <p class="text-sm text-gray-400 text-center py-3">No domains for this service</p>
+                    </template>
+                    <div class="space-y-2">
+                        <template x-for="d in domainsForService(cs.name)" :key="d.id">
+                            <div class="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-800 pb-2 last:border-0 last:pb-0">
+                                <div class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                                    <a :href="'https://' + d.domain" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline" x-text="d.domain"></a>
+                                    <span x-show="d.is_generated" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">auto</span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
+                                          :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
+                                          x-text="d.ssl_status"></span>
+                                    <button @click="removeDomain(d.id)" class="text-xs text-red-500 hover:text-red-700">Delete</button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+            <!-- Orphaned domains (compose_service no longer in compose) -->
+            <template x-if="orphanedDomains.length > 0">
+                <div class="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/30 rounded-xl p-5">
+                    <h3 class="text-sm font-medium text-amber-700 dark:text-amber-400 mb-2">Orphaned domains</h3>
+                    <p class="text-xs text-amber-600 dark:text-amber-500 mb-3">These domains reference compose services that no longer exist in <span class="font-mono">docker-compose.yml</span>. Delete or fix the compose file.</p>
+                    <div class="space-y-2">
+                        <template x-for="d in orphanedDomains" :key="d.id">
+                            <div class="flex items-center justify-between text-sm">
+                                <div>
+                                    <a :href="'https://' + d.domain" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline" x-text="d.domain"></a>
+                                    <span class="text-xs text-amber-600 ml-2">→ <span class="font-mono" x-text="d.compose_service"></span></span>
+                                </div>
+                                <button @click="removeDomain(d.id)" class="text-xs text-red-500 hover:text-red-700">Delete</button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
         </div>
         <!-- Add Domain Modal moved to global level -->
     </div>
@@ -1120,7 +1183,9 @@ NODE_ENV=production"></textarea>
     <!-- Add Domain Modal (global — works from any tab) -->
     <div x-show="showAddDomain" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" @click.self="showAddDomain = false">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Domain</h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                Add Domain<template x-if="newDomainComposeService"><span class="text-sm font-normal text-gray-500"> for <span class="font-mono text-blue-600 dark:text-blue-400" x-text="newDomainComposeService"></span></span></template>
+            </h3>
             <div>
                 <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Domain</label>
                 <div class="flex gap-2">
@@ -1132,7 +1197,7 @@ NODE_ENV=production"></textarea>
                 <p class="text-xs text-gray-400 mt-1">Supports: domain, https://domain, https://domain/path</p>
             </div>
             <div class="flex justify-end gap-2 pt-2">
-                <button @click="showAddDomain = false" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
+                <button @click="showAddDomain = false; newDomainComposeService = ''" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
                 <button @click="addDomain()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Add</button>
             </div>
         </div>
@@ -1288,7 +1353,8 @@ function resourceDetail(id) {
         expandedBackupGroups: {},
         clusterInfo: null,
         scaleInfo: null, scaleApplying: false, availableServers: [],
-        domains: [], showAddDomain: false, newDomainName: '',
+        domains: [], showAddDomain: false, newDomainName: '', newDomainComposeService: '',
+        composeServices: [],
         containerLogs: '', deploymentLogs: [], logLines: 100,
         logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0, buildLogFollow: true,
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
@@ -1529,7 +1595,7 @@ function resourceDetail(id) {
         _bgInterval: null,
         activeDeployCount: 0,
         async init() {
-            await this.refresh(); this.loadEnv(); if(this.supportsBackup){this.loadSchedules();this.loadBackups();this.loadDatabases();} this.loadCluster(); this.loadScaleInfo(); this.loadDomains(); this.loadGitConfig();
+            await this.refresh(); this.loadEnv(); if(this.supportsBackup){this.loadSchedules();this.loadBackups();this.loadDatabases();} this.loadCluster(); this.loadScaleInfo(); this.loadDomains(); this.loadComposeServices(); this.loadGitConfig();
             this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
@@ -1954,11 +2020,21 @@ function resourceDetail(id) {
         },
         async addDomain() {
             if(!this.newDomainName.trim()){toast('Domain is required','error');return;}
-            try { await api('/api/v1/domains',{method:'POST',body:JSON.stringify({domain:this.newDomainName,service_id:this.id})});
-                toast('Domain added'); this.showAddDomain=false; this.newDomainName=''; await this.loadDomains();
+            const body = { domain: this.newDomainName, service_id: this.id };
+            if (this.newDomainComposeService) body.compose_service = this.newDomainComposeService;
+            try { await api('/api/v1/domains',{method:'POST',body:JSON.stringify(body)});
+                toast('Domain added'); this.showAddDomain=false; this.newDomainName=''; this.newDomainComposeService=''; await this.loadDomains();
             } catch(e){toast(e.message,'error');}
         },
         async removeDomain(domainId) { if(!confirm('Remove this domain?'))return; try{await api('/api/v1/domains/'+domainId,{method:'DELETE'}); toast('Domain removed'); await this.loadDomains();}catch(e){toast(e.message,'error');} },
+        async loadComposeServices() {
+            try { this.composeServices = await fetch('/api/v1/resources/'+this.id+'/compose-services').then(r=>r.ok?r.json():[]); } catch { this.composeServices = []; }
+        },
+        domainsForService(name) { return (this.domains || []).filter(d => d.compose_service === name); },
+        get orphanedDomains() {
+            const known = new Set((this.composeServices || []).map(s => s.name));
+            return (this.domains || []).filter(d => d.compose_service && !known.has(d.compose_service));
+        },
         async loadGitConfig() {
             try {
                 const cfg = await fetch('/api/v1/resources/'+this.id+'/git').then(r=>r.ok?r.json():null);

@@ -159,6 +159,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/reload-compose",
             post(resources::reload_compose),
         )
+        .route(
+            "/resources/{id}/compose-services",
+            get(resources::get_compose_services),
+        )
         // Deployments (CI/CD pipeline)
         .route("/resources/{id}/deploy", post(deployments::manual_deploy))
         .route("/resources/{id}/rollback", post(deployments::rollback))
