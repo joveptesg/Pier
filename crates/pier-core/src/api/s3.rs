@@ -17,6 +17,8 @@ pub struct CreateS3Request {
     pub bucket: String,
     pub access_key: String,
     pub secret_key: String,
+    #[serde(default)]
+    pub key_prefix: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -31,10 +33,18 @@ pub struct UpdateS3Request {
     pub access_key: String,
     #[serde(default)]
     pub secret_key: String,
+    #[serde(default)]
+    pub key_prefix: Option<String>,
 }
 
 fn default_s3_type() -> String {
     "s3".to_string()
+}
+
+/// Strip leading/trailing slashes and whitespace; the join in build_s3_key
+/// adds the separator itself, so the stored value never includes them.
+fn normalize_prefix(p: &str) -> String {
+    p.trim().trim_matches('/').to_string()
 }
 
 /// GET /api/v1/s3
@@ -44,7 +54,7 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let mut stmt = db.prepare(
-        "SELECT id, name, storage_type, endpoint, region, bucket, access_key, created_at
+        "SELECT id, name, storage_type, endpoint, region, bucket, access_key, key_prefix, created_at
          FROM s3_storages WHERE is_active = 1 ORDER BY created_at DESC",
     )?;
     let items: Vec<serde_json::Value> = stmt
@@ -57,7 +67,8 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
                 "region": row.get::<_, String>(4)?,
                 "bucket": row.get::<_, String>(5)?,
                 "access_key": row.get::<_, String>(6)?,
-                "created_at": row.get::<_, String>(7)?,
+                "key_prefix": row.get::<_, String>(7)?,
+                "created_at": row.get::<_, String>(8)?,
             }))
         })?
         .filter_map(|r| r.ok())
@@ -79,13 +90,18 @@ pub async fn create(
         ));
     }
     let id = uuid::Uuid::new_v4().to_string();
+    let key_prefix = body
+        .key_prefix
+        .as_deref()
+        .map(normalize_prefix)
+        .unwrap_or_else(|| "pier-backups".to_string());
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     db.execute(
-        "INSERT INTO s3_storages (id, name, storage_type, endpoint, region, bucket, access_key, secret_key)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO s3_storages (id, name, storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         rusqlite::params![
             id,
             body.name.trim(),
@@ -94,7 +110,8 @@ pub async fn create(
             body.region,
             body.bucket.trim(),
             body.access_key,
-            body.secret_key
+            body.secret_key,
+            key_prefix,
         ],
     )?;
     Ok(Json(serde_json::json!({"ok": true, "id": id})))
@@ -114,12 +131,13 @@ pub async fn update(
             "Name, endpoint, and bucket are required".into(),
         ));
     }
+    let key_prefix = body.key_prefix.as_deref().map(normalize_prefix);
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    let rows = if body.secret_key.is_empty() {
-        db.execute(
+    let rows = match (body.secret_key.is_empty(), key_prefix) {
+        (true, None) => db.execute(
             "UPDATE s3_storages
              SET name = ?1, storage_type = ?2, endpoint = ?3, region = ?4,
                  bucket = ?5, access_key = ?6
@@ -133,9 +151,24 @@ pub async fn update(
                 body.access_key,
                 id,
             ],
-        )?
-    } else {
-        db.execute(
+        )?,
+        (true, Some(prefix)) => db.execute(
+            "UPDATE s3_storages
+             SET name = ?1, storage_type = ?2, endpoint = ?3, region = ?4,
+                 bucket = ?5, access_key = ?6, key_prefix = ?7
+             WHERE id = ?8",
+            rusqlite::params![
+                body.name.trim(),
+                body.storage_type,
+                body.endpoint.trim(),
+                body.region,
+                body.bucket.trim(),
+                body.access_key,
+                prefix,
+                id,
+            ],
+        )?,
+        (false, None) => db.execute(
             "UPDATE s3_storages
              SET name = ?1, storage_type = ?2, endpoint = ?3, region = ?4,
                  bucket = ?5, access_key = ?6, secret_key = ?7
@@ -150,7 +183,24 @@ pub async fn update(
                 body.secret_key,
                 id,
             ],
-        )?
+        )?,
+        (false, Some(prefix)) => db.execute(
+            "UPDATE s3_storages
+             SET name = ?1, storage_type = ?2, endpoint = ?3, region = ?4,
+                 bucket = ?5, access_key = ?6, secret_key = ?7, key_prefix = ?8
+             WHERE id = ?9",
+            rusqlite::params![
+                body.name.trim(),
+                body.storage_type,
+                body.endpoint.trim(),
+                body.region,
+                body.bucket.trim(),
+                body.access_key,
+                body.secret_key,
+                prefix,
+                id,
+            ],
+        )?,
     };
     if rows == 0 {
         return Err(AppError::NotFound(format!("S3 storage {id} not found")));

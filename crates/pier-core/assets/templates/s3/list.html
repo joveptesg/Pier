@@ -97,6 +97,14 @@
                 <input x-model="form.bucket" type="text" placeholder="pier-backups"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Key prefix <span class="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input x-model="form.key_prefix" type="text" placeholder="pier-backups"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-500 mt-1">First folder inside the bucket — e.g. server name. Leave empty to write to the bucket root.</p>
+            </div>
             <div class="grid grid-cols-2 gap-3">
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Access Key</label>
@@ -125,7 +133,7 @@ function s3Data() {
         loading: true,
         showAdd: false,
         editingId: null,
-        form: { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '' },
+        form: { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '', key_prefix: 'pier-backups' },
         async init() {
             try {
                 this.storages = await fetch('/api/v1/s3').then(r => r.ok ? r.json() : []);
@@ -133,7 +141,7 @@ function s3Data() {
             this.loading = false;
         },
         resetForm() {
-            this.form = { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '' };
+            this.form = { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '', key_prefix: 'pier-backups' };
             this.editingId = null;
         },
         closeModal() {
@@ -150,6 +158,7 @@ function s3Data() {
                 bucket: s.bucket,
                 access_key: s.access_key,
                 secret_key: '',
+                key_prefix: s.key_prefix || '',
             };
             this.showAdd = true;
         },

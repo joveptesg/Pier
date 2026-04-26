@@ -567,6 +567,13 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_domains_compose_svc
         ON domains(service_id, compose_service);
     "#,
+    // Migration 33: Per-storage key prefix for backup S3 keys.
+    // Lets the operator pick the first folder under the bucket (server name,
+    // project label, anything). Default keeps the historical "pier-backups"
+    // prefix so existing storages keep writing to the same paths.
+    r#"
+    ALTER TABLE s3_storages ADD COLUMN key_prefix TEXT NOT NULL DEFAULT 'pier-backups';
+    "#,
 ];
 
 /// Run all pending database migrations.

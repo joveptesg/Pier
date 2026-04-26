@@ -125,13 +125,13 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
         serde_json::from_str(&decrypted_env).unwrap_or_default();
 
     // 2. Get S3 storage config
-    let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key FROM s3_storages WHERE id = ?1",
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix FROM s3_storages WHERE id = ?1",
             [&due.s3_storage_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
@@ -140,6 +140,7 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
             )),
         )?
     };
@@ -147,7 +148,13 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
     // 3. Create backup record
     let backup_id = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
-    let s3_key = build_s3_key(&name, &catalog_id, due.database_name.as_deref(), &timestamp);
+    let s3_key = build_s3_key(
+        &key_prefix,
+        &name,
+        &catalog_id,
+        due.database_name.as_deref(),
+        &timestamp,
+    );
 
     {
         let db = state
@@ -362,25 +369,31 @@ async fn delete_blob_by_storage_id(
 
 /// S3 key format (all backups are compressed; `.gz` suffix indicates the
 /// blob needs decompression before use — except for Mongo archives, which
-/// are consumed by mongorestore with its own `--gzip` flag):
-///   - per-DB mongo:  pier-backups/{service}/db_{dbname}_{timestamp}.archive.gz
-///   - per-DB SQL:    pier-backups/{service}/db_{dbname}_{timestamp}.sql.gz
-///   - cluster tar:   pier-backups/{service}/_cluster_{timestamp}.tar.gz
-///   - mongo full:    pier-backups/{service}/mongodb_{timestamp}.archive.gz
+/// are consumed by mongorestore with its own `--gzip` flag).
+///
+/// `key_prefix` is the per-storage user-configured first folder (already
+/// normalized — no leading/trailing slashes). Empty prefix writes to the
+/// bucket root.
+///   - per-DB mongo:  {prefix}/{service}/db_{dbname}_{timestamp}.archive.gz
+///   - per-DB SQL:    {prefix}/{service}/db_{dbname}_{timestamp}.sql.gz
+///   - cluster tar:   {prefix}/{service}/_cluster_{timestamp}.tar.gz
+///   - mongo full:    {prefix}/{service}/mongodb_{timestamp}.archive.gz
 pub fn build_s3_key(
+    key_prefix: &str,
     service_name: &str,
     catalog_id: &str,
     database_name: Option<&str>,
     timestamp: &str,
 ) -> String {
-    match database_name {
-        Some(db) if catalog_id == "mongodb" => {
-            format!("pier-backups/{service_name}/db_{db}_{timestamp}.archive.gz")
-        }
-        Some(db) => format!("pier-backups/{service_name}/db_{db}_{timestamp}.sql.gz"),
-        None if catalog_id == "mongodb" => {
-            format!("pier-backups/{service_name}/mongodb_{timestamp}.archive.gz")
-        }
-        None => format!("pier-backups/{service_name}/_cluster_{timestamp}.tar.gz"),
+    let filename = match (database_name, catalog_id) {
+        (Some(db), "mongodb") => format!("db_{db}_{timestamp}.archive.gz"),
+        (Some(db), _) => format!("db_{db}_{timestamp}.sql.gz"),
+        (None, "mongodb") => format!("mongodb_{timestamp}.archive.gz"),
+        (None, _) => format!("_cluster_{timestamp}.tar.gz"),
+    };
+    if key_prefix.is_empty() {
+        format!("{service_name}/{filename}")
+    } else {
+        format!("{key_prefix}/{service_name}/{filename}")
     }
 }

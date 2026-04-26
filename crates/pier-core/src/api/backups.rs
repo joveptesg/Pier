@@ -272,13 +272,13 @@ pub async fn trigger_backup(
     let env_vars: std::collections::HashMap<String, String> =
         serde_json::from_str(&decrypted_env).unwrap_or_default();
 
-    let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key FROM s3_storages WHERE id = ?1",
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix FROM s3_storages WHERE id = ?1",
             [&s3_storage_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
@@ -287,6 +287,7 @@ pub async fn trigger_backup(
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
             )),
         )?
     };
@@ -294,6 +295,7 @@ pub async fn trigger_backup(
     let backup_id = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let s3_key = build_s3_key(
+        &key_prefix,
         &name,
         &catalog_id_str,
         q.database_name.as_deref(),
