@@ -293,6 +293,14 @@ async fn main() -> Result<()> {
             // Ensure local server record exists + detect geolocation
             if let Some(ref ip) = public_ip {
                 if let Ok(db) = proxy_state.db.lock() {
+                    // Self-heal: fresh installs done after migration 31 was added
+                    // ended up with kind='agent' on the local row because the INSERT
+                    // below didn't set kind explicitly and the column's DEFAULT is 'agent'.
+                    let _ = db.execute(
+                        "UPDATE servers SET kind = 'local' WHERE is_local = 1 AND kind <> 'local'",
+                        [],
+                    );
+
                     // Deduplicate: keep only one local server
                     let local_count: i64 = db
                         .query_row(
@@ -322,8 +330,8 @@ async fn main() -> Result<()> {
                         let hostname =
                             sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string());
                         let _ = db.execute(
-                            "INSERT INTO servers (id, name, host, port, agent_token, status, is_local, os_info)
-                             VALUES ('local', ?1, ?2, 0, '', 'online', 1, ?3)",
+                            "INSERT INTO servers (id, name, host, port, agent_token, status, is_local, kind, os_info)
+                             VALUES ('local', ?1, ?2, 0, '', 'online', 1, 'local', ?3)",
                             rusqlite::params![
                                 hostname,
                                 ip,
