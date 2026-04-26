@@ -246,11 +246,27 @@
         <!-- Domains on Overview (full management) -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-3">
-                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Domains</h3>
-                <button @click="showAddDomain = true"
-                        class="px-2 py-1 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                    + Add Domain
-                </button>
+                <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Domains</h3>
+                    <span x-show="composeServices.length > 1" class="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded">multi-service</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button x-show="gitConfig.git_repo_url && gitConfig.build_strategy === 'docker-compose'"
+                            @click="reloadComposePorts()" :disabled="reloadingCompose"
+                            class="px-2 py-1 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                            title="Re-read docker-compose.yml from git and refresh port_allocations + Traefik routes (no rebuild)">
+                        <span x-show="!reloadingCompose">↻ Reload from git</span>
+                        <span x-show="reloadingCompose">Reloading...</span>
+                    </button>
+                    <button x-show="composeServices.length <= 1" @click="newDomainComposeService = ''; showAddDomain = true"
+                            class="px-2 py-1 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                        + Add Domain
+                    </button>
+                    <button x-show="composeServices.length > 1" @click="tab = 'domains'"
+                            class="px-2 py-1 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">
+                        Manage in Domains tab →
+                    </button>
+                </div>
             </div>
             <div x-show="domains.length === 0" class="text-xs text-gray-400 py-2">No domains configured</div>
             <div x-show="domains.length > 0" class="space-y-1.5">
@@ -260,6 +276,7 @@
                             <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
                             <a :href="'https://' + d.domain" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline text-xs font-mono" x-text="d.domain"></a>
                             <span x-show="d.is_generated" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">auto</span>
+                            <span x-show="d.compose_service" class="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded font-mono" x-text="'→ ' + d.compose_service"></span>
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="text-[10px] px-1.5 py-0.5 rounded-full"
