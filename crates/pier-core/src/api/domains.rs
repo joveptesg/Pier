@@ -245,15 +245,17 @@ pub async fn list_for_service(
 
 // ──────────────────────────── helpers ────────────────────────────
 
-/// Resolve the upstream URL for a service+compose_service pair. Used both at
-/// domain creation (validate the target exists) and config regeneration
-/// (write the actual Traefik service block).
+/// Resolve the upstream URL for a service+compose_service pair.
 ///
-/// - `None` compose_service: legacy behavior — uses `services.container_id`
-///   plus the first non-management port from `port_allocations`.
-/// - `Some(name)`: looks up that compose-service's `container_name:` and
-///   the port from `port_allocations` filtered by `compose_service`. If the
-///   compose file is unavailable, falls back to `pier-{name}` DNS.
+/// Source of truth = the docker-compose YAML stored on the service. Both the
+/// container hostname AND the container port are read straight from there:
+/// `port_allocations` is a UI cache and must not gate routing decisions
+/// (otherwise legacy rows with NULL `compose_service` block per-service
+/// resolution).
+///
+/// Fallback (template / dockerfile services with no compose at all):
+/// service's stored `container_id` + first non-management row in
+/// `port_allocations`.
 pub(crate) fn build_target_url(
     state: &AppState,
     service_id: &str,
@@ -272,76 +274,70 @@ pub(crate) fn build_target_url(
         .map_err(|_| AppError::NotFound(format!("Service {service_id} not found")))?
     };
 
-    if let Some(cs_name) = compose_service {
-        // Per-compose-service routing: pick the container name from the YAML
-        // (or pier-{slug} fallback) and the port tagged with this compose
-        // service name in port_allocations.
-        let container_name = compose_yaml
-            .as_deref()
-            .and_then(|y| {
-                let env = std::collections::HashMap::new();
-                crate::deploy::parse_compose_services(y, &env)
-                    .into_iter()
-                    .find(|s| s.name == cs_name)
-                    .and_then(|s| {
-                        if s.container_name.is_empty() {
-                            None
-                        } else {
-                            Some(s.container_name)
-                        }
-                    })
-            })
-            .unwrap_or_else(|| format!("pier-{}", cs_name.to_lowercase().replace(' ', "-")));
+    // Compose-based resolution. Works for any compose deploy, regardless of
+    // when port_allocations was last touched, because we read everything from
+    // the YAML itself.
+    if let Some(yaml) = compose_yaml.as_deref() {
+        let env = std::collections::HashMap::new();
+        let parsed = crate::deploy::parse_compose_services(yaml, &env);
+        if !parsed.is_empty() {
+            let chosen = match compose_service {
+                Some(name) => parsed.into_iter().find(|s| s.name == name).ok_or_else(|| {
+                    AppError::BadRequest(format!(
+                        "Compose service '{name}' not found in {svc_name}"
+                    ))
+                })?,
+                None => parsed
+                    .iter()
+                    .find(|s| !s.ports.is_empty())
+                    .cloned()
+                    .or_else(|| parsed.into_iter().next())
+                    .ok_or_else(|| {
+                        AppError::BadRequest(format!("No services in compose for {svc_name}"))
+                    })?,
+            };
 
-        let port: i32 = {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            db.query_row(
-                "SELECT container_port FROM port_allocations \
-                 WHERE service_id = ?1 AND compose_service = ?2 \
-                 ORDER BY port_name LIMIT 1",
-                rusqlite::params![service_id, cs_name],
-                |row| row.get(0),
-            )
-            .map_err(|_| {
+            let container_name = if !chosen.container_name.is_empty() {
+                chosen.container_name.clone()
+            } else {
+                format!("pier-{}", chosen.name.to_lowercase().replace(' ', "-"))
+            };
+            let (_, container_port) = *chosen.ports.first().ok_or_else(|| {
                 AppError::BadRequest(format!(
-                    "Compose service '{cs_name}' has no ports in {svc_name}"
+                    "Compose service '{}' has no ports declared in {svc_name}",
+                    chosen.name
                 ))
-            })?
-        };
-
-        Ok(format!("http://{container_name}:{port}"))
-    } else {
-        // Legacy path: first non-management port + service container_id (or
-        // pier-{slug} fallback).
-        let http_keywords = ["management", "metrics", "prometheus"];
-        let port = {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            let mut stmt = db.prepare(
-                "SELECT port_name, container_port FROM port_allocations WHERE service_id = ?1",
-            )?;
-            let rows: Vec<(String, i32)> = stmt
-                .query_map([service_id], |row| Ok((row.get(0)?, row.get(1)?)))?
-                .filter_map(|r| r.ok())
-                .collect();
-            rows.iter()
-                .find(|(n, _)| !http_keywords.iter().any(|k| n.to_lowercase().contains(k)))
-                .or(rows.first())
-                .map(|(_, p)| *p)
-        };
-        let port = port.ok_or_else(|| {
-            AppError::BadRequest(format!("Service {svc_name} has no port assigned"))
-        })?;
-        let container = container_id
-            .filter(|c| !c.is_empty())
-            .unwrap_or_else(|| format!("pier-{}", svc_name.to_lowercase().replace(' ', "-")));
-        Ok(format!("http://{container}:{port}"))
+            })?;
+            return Ok(format!("http://{container_name}:{container_port}"));
+        }
     }
+
+    // No compose available — template / dockerfile path: use the service's
+    // container_id and the first non-management port row.
+    let http_keywords = ["management", "metrics", "prometheus"];
+    let port = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt = db.prepare(
+            "SELECT port_name, container_port FROM port_allocations WHERE service_id = ?1",
+        )?;
+        let rows: Vec<(String, i32)> = stmt
+            .query_map([service_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows.iter()
+            .find(|(n, _)| !http_keywords.iter().any(|k| n.to_lowercase().contains(k)))
+            .or(rows.first())
+            .map(|(_, p)| *p)
+    };
+    let port = port
+        .ok_or_else(|| AppError::BadRequest(format!("Service {svc_name} has no port assigned")))?;
+    let container = container_id
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| format!("pier-{}", svc_name.to_lowercase().replace(' ', "-")));
+    Ok(format!("http://{container}:{port}"))
 }
 
 /// Rebuild the Traefik dynamic config for a service from the current set of
