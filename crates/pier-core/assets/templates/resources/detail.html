@@ -2011,10 +2011,10 @@ function resourceDetail(id) {
                     }
                 } catch { msg = body; isAnsi = true; }
 
-                const tsHtml = ts ? `<span class="text-gray-600 whitespace-nowrap mr-3" style="min-width:145px">${this.escapeHtml(ts)}</span>` : '';
+                const tsHtml = ts ? `<span class="text-gray-600 whitespace-nowrap mr-2" style="min-width:128px">${this.escapeHtml(ts)}</span>` : '';
                 const levelColors = { error: 'text-red-400', warn: 'text-yellow-400', info: 'text-gray-300', debug: 'text-gray-500' };
                 const lvlColor = levelColors[level] || 'text-gray-300';
-                const lvlBadge = level !== 'info' ? `<span class="whitespace-nowrap text-[10px] font-medium ${lvlColor} mr-2" style="min-width:40px">${level.toUpperCase()}</span>` : `<span class="mr-2" style="min-width:40px"></span>`;
+                const lvlBadge = level !== 'info' ? `<span class="whitespace-nowrap text-[10px] font-medium ${lvlColor} mr-2" style="min-width:40px">${level.toUpperCase()}</span>` : '';
                 const extraHtml = extra ? `<span class="text-gray-500 ml-2">${this.escapeHtml(extra)}</span>` : '';
                 const msgHtml = isAnsi ? window.ansiToHtml(msg) : this.escapeHtml(msg);
 
