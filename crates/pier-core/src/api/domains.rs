@@ -274,75 +274,98 @@ pub(crate) fn build_target_url(
         .map_err(|_| AppError::NotFound(format!("Service {service_id} not found")))?
     };
 
-    // Compose-based resolution. Works for any compose deploy, regardless of
-    // when port_allocations was last touched, because we read everything from
-    // the YAML itself.
-    if let Some(yaml) = compose_yaml.as_deref() {
-        // Use the service's stored env_json so `${VAR}` references in compose
-        // ports (e.g. `${PORT}:3401`) resolve the same way they do during
-        // deploy. Without this, ports parse as empty and domain wiring fails
-        // with "service '<name>' has no ports declared" even though the
-        // deploy itself successfully bound the port.
+    // Container hostname comes from the compose YAML's `container_name:` (which
+    // strip_compose_ports preserves) when available. Falls back to the
+    // detected services.container_id, then to a synthesized `pier-<name>`.
+    let compose_svc_record = compose_yaml.as_deref().and_then(|yaml| {
         let env = crate::deploy::load_env_map(state, service_id);
         let parsed = crate::deploy::parse_compose_services(yaml, &env);
-        if !parsed.is_empty() {
-            let chosen = match compose_service {
-                Some(name) => parsed.into_iter().find(|s| s.name == name).ok_or_else(|| {
-                    AppError::BadRequest(format!(
-                        "Compose service '{name}' not found in {svc_name}"
-                    ))
-                })?,
-                None => parsed
-                    .iter()
-                    .find(|s| !s.ports.is_empty())
-                    .cloned()
-                    .or_else(|| parsed.into_iter().next())
-                    .ok_or_else(|| {
-                        AppError::BadRequest(format!("No services in compose for {svc_name}"))
-                    })?,
-            };
-
-            let container_name = if !chosen.container_name.is_empty() {
-                chosen.container_name.clone()
-            } else {
-                format!("pier-{}", chosen.name.to_lowercase().replace(' ', "-"))
-            };
-            let (_, container_port) = *chosen.ports.first().ok_or_else(|| {
-                AppError::BadRequest(format!(
-                    "Compose service '{}' has no ports declared in {svc_name}",
-                    chosen.name
-                ))
-            })?;
-            return Ok(format!("http://{container_name}:{container_port}"));
+        match compose_service {
+            Some(name) => parsed.into_iter().find(|s| s.name == name),
+            None => parsed.into_iter().next(),
         }
-    }
+    });
 
-    // No compose available — template / dockerfile path: use the service's
-    // container_id and the first non-management port row.
+    let container_name = if let Some(svc) = compose_svc_record.as_ref() {
+        if svc.container_name.is_empty() {
+            format!("pier-{}", svc.name.to_lowercase().replace(' ', "-"))
+        } else {
+            svc.container_name.clone()
+        }
+    } else if let Some(name) = compose_service {
+        format!("pier-{}", name.to_lowercase().replace(' ', "-"))
+    } else {
+        container_id
+            .filter(|c| !c.is_empty())
+            .unwrap_or_else(|| format!("pier-{}", svc_name.to_lowercase().replace(' ', "-")))
+    };
+
+    // Port comes strictly from port_allocations — the same source of truth
+    // that deploy uses for Traefik TCP routing. The compose YAML stored on
+    // the service has its `ports:` blocks removed by strip_compose_ports
+    // before persisting, so it cannot be the port source for the domain flow.
+    //
+    // Matching priority:
+    //   1. Exact compose_service match.
+    //   2. If no exact match and compose_service was requested: rows where
+    //      compose_service IS NULL (legacy single-service composes store
+    //      compose_service as NULL even when a service-name was requested).
+    //   3. Otherwise (compose_service = None): all rows.
+    // Within candidates, prefer non-management/metrics/prometheus ports.
     let http_keywords = ["management", "metrics", "prometheus"];
-    let port = {
+    let port: Option<u16> = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let mut stmt = db.prepare(
-            "SELECT port_name, container_port FROM port_allocations WHERE service_id = ?1",
+            "SELECT port_name, container_port, compose_service \
+             FROM port_allocations WHERE service_id = ?1",
         )?;
-        let rows: Vec<(String, i32)> = stmt
-            .query_map([service_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        let rows: Vec<(String, u16, Option<String>)> = stmt
+            .query_map([service_id], |row| {
+                let port_name: String = row.get(0)?;
+                let container_port: i64 = row.get(1)?;
+                let cs: Option<String> = row.get(2)?;
+                Ok((port_name, container_port as u16, cs))
+            })?
             .filter_map(|r| r.ok())
             .collect();
-        rows.iter()
-            .find(|(n, _)| !http_keywords.iter().any(|k| n.to_lowercase().contains(k)))
-            .or(rows.first())
-            .map(|(_, p)| *p)
+
+        let candidates: Vec<&(String, u16, Option<String>)> = match compose_service {
+            Some(name) => {
+                let exact: Vec<_> = rows
+                    .iter()
+                    .filter(|(_, _, cs)| cs.as_deref() == Some(name))
+                    .collect();
+                if !exact.is_empty() {
+                    exact
+                } else {
+                    rows.iter().filter(|(_, _, cs)| cs.is_none()).collect()
+                }
+            }
+            None => rows.iter().collect(),
+        };
+
+        candidates
+            .iter()
+            .find(|(name, _, _)| {
+                !http_keywords
+                    .iter()
+                    .any(|k| name.to_lowercase().contains(k))
+            })
+            .or(candidates.first())
+            .map(|(_, p, _)| *p)
     };
-    let port = port
-        .ok_or_else(|| AppError::BadRequest(format!("Service {svc_name} has no port assigned")))?;
-    let container = container_id
-        .filter(|c| !c.is_empty())
-        .unwrap_or_else(|| format!("pier-{}", svc_name.to_lowercase().replace(' ', "-")));
-    Ok(format!("http://{container}:{port}"))
+
+    let port = port.ok_or_else(|| {
+        let label = compose_service.unwrap_or("(default)");
+        AppError::BadRequest(format!(
+            "Service {svc_name} has no port assigned for compose service '{label}'"
+        ))
+    })?;
+
+    Ok(format!("http://{container_name}:{port}"))
 }
 
 /// Rebuild the Traefik dynamic config for a service from the current set of
