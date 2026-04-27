@@ -2,46 +2,37 @@
      x-on:support-open.window="show()"
      x-show="open"
      x-cloak
-     class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-     x-transition.opacity>
-    <div class="absolute inset-0 bg-black/50" @click="dismiss()"></div>
-    <div class="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-6"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 scale-95"
-         x-transition:enter-end="opacity-100 scale-100">
+     x-transition:enter="transition ease-out duration-200"
+     x-transition:enter-start="opacity-0 translate-y-4"
+     x-transition:enter-end="opacity-100 translate-y-0"
+     x-transition:leave="transition ease-in duration-150"
+     x-transition:leave-start="opacity-100 translate-y-0"
+     x-transition:leave-end="opacity-0 translate-y-4"
+     class="fixed bottom-6 right-6 z-[9999] max-w-sm w-[calc(100%-3rem)]">
+    <div class="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl p-5">
         <button @click="dismiss()"
-                class="absolute top-3 right-3 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                class="absolute top-2.5 right-2.5 p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 aria-label="Close">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
 
-        <div class="flex items-center gap-3 mb-3">
-            <div class="w-10 h-10 rounded-xl bg-pink-50 dark:bg-pink-900/20 flex items-center justify-center">
-                <svg class="w-5 h-5 text-pink-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-            </div>
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Нравится Pier? Поддержите проект</h3>
-        </div>
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-2 pr-6">Love Pier? Support our work.</h3>
 
-        <div class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed space-y-2 mb-6">
-            <p>Мы уже работаем в плюс благодаря <span class="font-semibold text-pink-500">ВАМ</span>, но хотим делать больше классных фич.</p>
-            <p>Для этого нам нужна ваша финансовая поддержка.</p>
-        </div>
+        <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+            We need your help to keep building Pier. If it saves you time, please consider supporting the project financially.
+        </p>
 
-        <div class="flex justify-center mb-4">
+        <div class="flex items-center justify-between gap-3">
+            <button @click="dismiss()"
+                    class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
+                Maybe next time
+            </button>
             <a href="https://pier.team/sponsor"
                target="_blank"
                rel="noopener"
-               class="inline-flex items-center gap-2 px-5 py-2.5 bg-pier-600 hover:bg-pier-700 text-white text-sm font-medium rounded-xl shadow-sm transition-colors">
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                Поддержать проект
+               class="inline-flex items-center px-3.5 py-1.5 bg-pier-600 hover:bg-pier-700 text-white text-xs font-medium rounded-lg transition-colors">
+                Support project
             </a>
-        </div>
-
-        <div class="flex justify-end">
-            <button @click="dismiss()"
-                    class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
-                Maybe next time
-            </button>
         </div>
     </div>
 </div>
