@@ -151,7 +151,7 @@ pub async fn deploy(
         Some(auth_map)
     };
 
-    let output = docker::compose::deploy_stack(&name, &yaml, &state.config, auth).await?;
+    let output = docker::deploy_service_stack(&state, &id, &name, &yaml, auth).await?;
 
     // Update status
     let db = state

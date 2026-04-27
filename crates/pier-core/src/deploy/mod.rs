@@ -1239,8 +1239,41 @@ fn strip_compose_version(yaml: &str) -> String {
         .join("\n")
 }
 
+/// Decrypt and format a stored `services.env_json` value as the body of a
+/// `.env` file (plaintext `KEY=VALUE` lines, one per line, no trailing
+/// newline). Pure function — split out so the encryption/serialization logic
+/// is unit-testable without an `AppState`.
+pub(crate) fn env_json_to_env_content(stored_env_json: Option<&str>) -> String {
+    let decrypted = crate::crypto::decrypt_env_json(stored_env_json);
+    match serde_json::from_str::<serde_json::Value>(&decrypted) {
+        Ok(serde_json::Value::Object(map)) => {
+            let mut lines = Vec::new();
+            for (k, v) in &map {
+                let val = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                lines.push(format!("{k}={val}"));
+            }
+            lines.join("\n")
+        }
+        _ => String::new(),
+    }
+}
+
 /// Write an .env file to the stack directory from the service's env_json.
-async fn write_env_file(state: &AppState, service_id: &str, stack_name: &str) {
+///
+/// Decrypts `services.env_json` (handles both encrypted `ENC:...` and legacy
+/// plaintext) and materializes plaintext `KEY=VALUE` lines to
+/// `{stack_dir}/.env`. Compose reads this file only on `compose up`; running
+/// containers keep the env baked in at create time, so we don't need to
+/// regenerate on Docker daemon restart.
+///
+/// Writes are atomic (`.env.tmp` + `rename`) so concurrent redeploys of the
+/// same service can never observe a partial file. Permissions are set on the
+/// temp file before rename to avoid a window with default umask on the final
+/// path.
+pub(crate) async fn write_env_file(state: &AppState, service_id: &str, stack_name: &str) {
     let env_json: Option<String> = state
         .db
         .lock()
@@ -1255,33 +1288,35 @@ async fn write_env_file(state: &AppState, service_id: &str, stack_name: &str) {
         })
         .flatten();
 
-    let decrypted = crate::crypto::decrypt_env_json(env_json.as_deref());
-    let env_content = match serde_json::from_str::<serde_json::Value>(&decrypted) {
-        Ok(serde_json::Value::Object(map)) => {
-            let mut lines = Vec::new();
-            for (k, v) in &map {
-                let val = match v {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                lines.push(format!("{k}={val}"));
-            }
-            lines.join("\n")
-        }
-        _ => String::new(),
-    };
+    if env_json.as_deref().is_some_and(|s| s.starts_with("ENC:"))
+        && crate::crypto::decrypt_env_json(env_json.as_deref()) == "{}"
+    {
+        tracing::warn!(
+            "env_json decrypt returned empty for service {service_id}; \
+             check PIER_SECRET — container will start with no env"
+        );
+    }
+    let env_content = env_json_to_env_content(env_json.as_deref());
 
     let stack_dir = state.config.data_dir.join("stacks").join(stack_name);
     let env_path = stack_dir.join(".env");
+    let tmp_path = stack_dir.join(".env.tmp");
     let _ = tokio::fs::create_dir_all(&stack_dir).await;
-    if let Err(e) = tokio::fs::write(&env_path, &env_content).await {
-        tracing::warn!("Failed to write .env for {stack_name}: {e}");
+
+    if let Err(e) = tokio::fs::write(&tmp_path, &env_content).await {
+        tracing::warn!("Failed to write .env.tmp for {stack_name}: {e}");
+        return;
     }
-    // SEC-006: restrict .env file permissions
+    // SEC-006: restrict permissions on the tmp file BEFORE rename — otherwise
+    // there's a brief window where the final .env exists with the default umask.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&env_path, std::fs::Permissions::from_mode(0o600));
+        let _ = std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600));
+    }
+    if let Err(e) = tokio::fs::rename(&tmp_path, &env_path).await {
+        tracing::warn!("Failed to rename .env.tmp -> .env for {stack_name}: {e}");
+        let _ = tokio::fs::remove_file(&tmp_path).await;
     }
 }
 
@@ -1442,4 +1477,41 @@ struct ServiceInfo {
     build_strategy: Option<String>,
     compose_content: Option<String>,
     current_image: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::env_json_to_env_content;
+    use crate::crypto::encrypt_env_json;
+
+    #[test]
+    fn plaintext_json_renders_as_env_lines() {
+        let json = r#"{"S3_RU_ENDPOINT":"https://s3.example.com","KEY":"VAL"}"#;
+        let out = env_json_to_env_content(Some(json));
+        assert!(out.contains("S3_RU_ENDPOINT=https://s3.example.com"));
+        assert!(out.contains("KEY=VAL"));
+        assert!(!out.contains("ENC:"));
+    }
+
+    #[test]
+    fn encrypted_json_round_trips_to_env_lines() {
+        let json = r#"{"S3_RU_ENDPOINT":"https://s3.example.com","KEY":"VAL"}"#;
+        let encrypted = encrypt_env_json(json);
+        let out = env_json_to_env_content(Some(&encrypted));
+        assert!(out.contains("S3_RU_ENDPOINT=https://s3.example.com"));
+        assert!(out.contains("KEY=VAL"));
+    }
+
+    #[test]
+    fn null_or_empty_yields_empty_content() {
+        assert!(env_json_to_env_content(None).is_empty());
+        assert!(env_json_to_env_content(Some("")).is_empty());
+        assert!(env_json_to_env_content(Some("null")).is_empty());
+    }
+
+    #[test]
+    fn corrupted_ciphertext_yields_empty_not_panic() {
+        let out = env_json_to_env_content(Some("ENC:notbase64:alsonotbase64"));
+        assert!(out.is_empty());
+    }
 }

@@ -425,7 +425,8 @@ pub async fn create(
 
         // Deploy cluster stack
         let deploy_result =
-            docker::compose::deploy_stack(&stack_name, &cluster_yaml, &state.config, None).await;
+            docker::deploy_service_stack(&state, &service_id, &stack_name, &cluster_yaml, None)
+                .await;
 
         let status = if deploy_result.is_ok() {
             "running"
@@ -506,7 +507,7 @@ pub async fn create(
 
     // Deploy (the only await point)
     let deploy_result =
-        docker::compose::deploy_stack(&stack_name, &yaml, &state.config, deploy_auth).await;
+        docker::deploy_service_stack(&state, &service_id, &stack_name, &yaml, deploy_auth).await;
 
     // Update status based on result
     let status = if deploy_result.is_ok() {
@@ -592,7 +593,8 @@ async fn create_compose(
         Ok(())
     })?;
 
-    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config, None).await;
+    let deploy_result =
+        docker::deploy_service_stack(state, &service_id, stack_name, &yaml, None).await;
 
     let status = if deploy_result.is_ok() {
         "running"
@@ -710,7 +712,8 @@ async fn create_dockerfile(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Write Dockerfile: {e}")))?;
 
     // Deploy
-    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config, None).await;
+    let deploy_result =
+        docker::deploy_service_stack(state, &service_id, stack_name, &yaml, None).await;
 
     let status = if deploy_result.is_ok() {
         "running"
@@ -979,7 +982,8 @@ async fn create_git_deploy(
     );
 
     // Deploy
-    let deploy_result = docker::compose::deploy_stack(stack_name, &yaml, &state.config, None).await;
+    let deploy_result =
+        docker::deploy_service_stack(state, &service_id, stack_name, &yaml, None).await;
 
     let status = if deploy_result.is_ok() {
         "running"
@@ -1480,7 +1484,7 @@ pub async fn start(
     let yaml = yaml.ok_or_else(|| AppError::BadRequest("No compose content found".into()))?;
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
-    let result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config, None).await;
+    let result = docker::deploy_service_stack(&state, &id, &stack_name, &yaml, None).await;
 
     let status = if result.is_ok() { "running" } else { "failed" };
     let db = state
@@ -1529,7 +1533,7 @@ pub async fn restart(
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
     let _ = docker::compose::down_stack(&stack_name, &state.config).await;
-    let result = docker::compose::deploy_stack(&stack_name, &yaml, &state.config, None).await;
+    let result = docker::deploy_service_stack(&state, &id, &stack_name, &yaml, None).await;
 
     let status = if result.is_ok() { "running" } else { "failed" };
     let db = state
@@ -1645,10 +1649,9 @@ pub async fn redeploy(
 
     // Redeploy (with optional --no-cache for force deploy)
     let result = if no_cache {
-        docker::compose::deploy_stack_no_cache(&stack_name, &yaml, &state.config, redeploy_auth)
-            .await
+        docker::deploy_service_stack_no_cache(&state, &id, &stack_name, &yaml, redeploy_auth).await
     } else {
-        docker::compose::deploy_stack(&stack_name, &yaml, &state.config, redeploy_auth).await
+        docker::deploy_service_stack(&state, &id, &stack_name, &yaml, redeploy_auth).await
     };
 
     let status = if result.is_ok() { "running" } else { "failed" };
@@ -1814,7 +1817,7 @@ pub async fn scale(
     // Redeploy with new compose
     let _ = docker::compose::down_stack(&stack_name, &state.config).await;
     let deploy_result =
-        docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config, None).await;
+        docker::deploy_service_stack(&state, &id, &stack_name, &new_yaml, None).await;
 
     let status = if deploy_result.is_ok() {
         "running"
@@ -2296,7 +2299,7 @@ pub async fn load_balance(
         if is_local {
             let _ = crate::docker::compose::down_stack(&stack_name, &state.config).await;
             if let Err(e) =
-                crate::docker::compose::deploy_stack(&stack_name, &yaml, &state.config, None).await
+                crate::docker::deploy_service_stack(&state, &id, &stack_name, &yaml, None).await
             {
                 deploy_errors.push(format!("{}: {e}", slot.server_id));
             }
@@ -2945,7 +2948,7 @@ pub async fn set_network(
         let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
         let _ = docker::compose::down_stack(&stack_name, &state.config).await;
         let result =
-            docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config, None).await;
+            docker::deploy_service_stack(&state, &id, &stack_name, &new_yaml, None).await;
 
         let status = if result.is_ok() { "running" } else { "failed" };
         {
@@ -3182,7 +3185,7 @@ pub async fn rename(
     }
 
     // 5. Deploy with new name
-    match docker::compose::deploy_stack(&new_stack, &yaml, &state.config, None).await {
+    match docker::deploy_service_stack(&state, &id, &new_stack, &yaml, None).await {
         Ok(out) => tracing::info!("Stack {new_stack} deployed: {out}"),
         Err(e) => {
             tracing::error!("Failed to deploy renamed stack {new_stack}: {e}");

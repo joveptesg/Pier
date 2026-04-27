@@ -178,7 +178,7 @@ pub async fn update_env(
 
             // Redeploy
             let result =
-                docker::compose::deploy_stack(&stack_name, &new_yaml, &state.config, None).await;
+                docker::deploy_service_stack(&state, &id, &stack_name, &new_yaml, None).await;
             let status = if result.is_ok() { "running" } else { "failed" };
             {
                 let db = state

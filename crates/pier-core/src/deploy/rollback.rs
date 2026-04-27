@@ -83,7 +83,7 @@ pub async fn rollback_service(state: Arc<AppState>, service_id: String) -> Resul
     let _ = docker::compose::down_stack(&stack_name, &state.config).await;
     let mut log = String::new();
 
-    match docker::compose::deploy_stack(&stack_name, &yaml, &state.config, None).await {
+    match docker::deploy_service_stack(&state, &service_id, &stack_name, &yaml, None).await {
         Ok(output) => {
             log.push_str(&format!("Rollback deploy: {output}\n"));
 
