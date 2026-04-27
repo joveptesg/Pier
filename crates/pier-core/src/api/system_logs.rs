@@ -128,7 +128,7 @@ pub async fn snapshot(
         &lines_str,
         "--no-pager",
         "-o",
-        "short-iso",
+        "cat",
     ];
     if let Some(p) = q.priority.as_deref() {
         let pri = priority_flag(p)
@@ -182,7 +182,7 @@ pub async fn stream_ws(
 
 async fn stream_journal(unit: &'static str, mut socket: WebSocket) {
     let mut child = match Command::new("journalctl")
-        .args(["-fu", unit, "--no-pager", "-n", "0", "-o", "short-iso"])
+        .args(["-fu", unit, "--no-pager", "-n", "0", "-o", "cat"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
