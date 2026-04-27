@@ -1001,6 +1001,13 @@ NODE_ENV=production"></textarea>
                         <input type="number" x-model.number="logLines" min="10" max="10000" @change="loadContainerLogs()"
                                class="w-16 px-1.5 py-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-700 dark:text-gray-300 text-center">
                     </div>
+                    <!-- Font size -->
+                    <div class="flex items-center gap-1">
+                        <label class="text-[10px] text-gray-500">Font:</label>
+                        <input type="number" x-model.number="logFontSize" min="9" max="20" step="1"
+                               @change="localStorage.setItem('pierLogFontSize', logFontSize)"
+                               class="w-12 px-1.5 py-1 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-700 dark:text-gray-300 text-center">
+                    </div>
                     <!-- Search -->
                     <div class="relative">
                         <input type="text" x-model="logSearch" placeholder="Find in logs"
@@ -1037,7 +1044,8 @@ NODE_ENV=production"></textarea>
             <!-- Log content -->
             <div x-ref="logContainer" :class="logFullscreen ? 'flex-1 overflow-auto' : 'max-h-[600px] overflow-auto'" class="bg-gray-950 rounded-lg p-3">
                 <div x-show="!containerLogs && !logStreaming" class="text-xs text-gray-500 text-center py-8">No logs available</div>
-                <div x-show="containerLogs || logStreaming" class="text-xs font-mono leading-relaxed"
+                <div x-show="containerLogs || logStreaming" class="font-mono leading-relaxed"
+                     :style="'font-size:' + logFontSize + 'px'"
                      x-html="logSearch ? highlightLogSearch(containerLogs || '') : formatContainerLog(containerLogs || '')"></div>
             </div>
             <!-- Search match count -->
@@ -1372,7 +1380,7 @@ function resourceDetail(id) {
         scaleInfo: null, scaleApplying: false, availableServers: [],
         domains: [], showAddDomain: false, newDomainName: '', newDomainComposeService: '',
         composeServices: [],
-        containerLogs: '', deploymentLogs: [], logLines: 100,
+        containerLogs: '', deploymentLogs: [], logLines: 100, logFontSize: parseInt(localStorage.getItem('pierLogFontSize') || '12'),
         logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0, buildLogFollow: true,
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
