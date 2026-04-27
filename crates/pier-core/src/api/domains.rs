@@ -278,7 +278,12 @@ pub(crate) fn build_target_url(
     // when port_allocations was last touched, because we read everything from
     // the YAML itself.
     if let Some(yaml) = compose_yaml.as_deref() {
-        let env = std::collections::HashMap::new();
+        // Use the service's stored env_json so `${VAR}` references in compose
+        // ports (e.g. `${PORT}:3401`) resolve the same way they do during
+        // deploy. Without this, ports parse as empty and domain wiring fails
+        // with "service '<name>' has no ports declared" even though the
+        // deploy itself successfully bound the port.
+        let env = crate::deploy::load_env_map(state, service_id);
         let parsed = crate::deploy::parse_compose_services(yaml, &env);
         if !parsed.is_empty() {
             let chosen = match compose_service {

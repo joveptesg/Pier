@@ -2853,7 +2853,10 @@ pub async fn get_compose_services(
         }
     };
 
-    let env = std::collections::HashMap::new();
+    // Resolve `${VAR}` in compose ports using the service's stored env_json,
+    // matching deploy-time substitution. Otherwise the UI shows ports as
+    // missing for services declared as `${PORT}:3401` etc.
+    let env = crate::deploy::load_env_map(&state, &id);
     let services = crate::deploy::parse_compose_services(&yaml, &env);
     let items: Vec<serde_json::Value> = services
         .into_iter()

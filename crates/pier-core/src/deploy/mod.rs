@@ -1169,7 +1169,10 @@ fn strip_compose_ports(yaml: &str) -> String {
 /// Load a service's env vars from `services.env_json` into a flat map for
 /// docker-compose-style `${VAR}` substitution. Returns an empty map on any
 /// error (caller treats unset vars as empty).
-fn load_env_map(state: &AppState, service_id: &str) -> std::collections::HashMap<String, String> {
+pub(crate) fn load_env_map(
+    state: &AppState,
+    service_id: &str,
+) -> std::collections::HashMap<String, String> {
     let env_json: Option<String> = state
         .db
         .lock()
