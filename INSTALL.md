@@ -134,17 +134,21 @@ source ~/.cargo/env
 rustc --version   # должно быть >= 1.93
 ```
 
-## 5. Сборка Pier
+## 5. Сборка и установка Pier
 
 ```bash
 git clone https://github.com/joveptesg/pier.git /tmp/pier
 cd /tmp/pier
-cargo build --release
+sudo bash scripts/build-from-source.sh
 ```
 
-> Сборка занимает ~5-10 минут.
+Скрипт сам определит RAM, при необходимости создаст swap (постоянный, через `/etc/fstab`) и подберёт профиль сборки и `--jobs`. На сервере с ≥ 6 ГБ работает в полном режиме (`profile = release`), на 1–2 ГБ — в `release-lowmem` с `jobs = 1` и swap до 4 ГБ суммарно. По окончании автоматически вызывает `install.sh`.
+
+Флаги: `--no-swap`, `--profile NAME`, `--jobs N`, `--no-install`, `--port PORT`, `-y` (без подтверждения swap).
+
+> Сборка занимает ~5–15 минут в зависимости от мощности сервера.
 >
-> Если не нужен исходник — можно пропустить шаги 4-5 и взять готовый бинарь:
+> Если не нужен исходник — можно пропустить шаги 4–5 и взять готовый бинарь:
 > ```bash
 > mkdir -p /tmp/pier && cd /tmp/pier
 > curl -fsSL -o pier https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64
@@ -152,16 +156,10 @@ cargo build --release
 > sha256sum -c <(awk -v f=pier '{print $1"  "f}' pier.sha256)
 > chmod +x pier
 > curl -fsSL -o install.sh https://raw.githubusercontent.com/joveptesg/pier/main/scripts/install.sh
+> sudo bash install.sh --binary /tmp/pier/pier
 > ```
-> И на §6 запускать `sudo bash install.sh --binary /tmp/pier/pier`.
 
-## 6. Установка
-
-```bash
-sudo bash scripts/install.sh --binary target/release/pier
-```
-
-## 7. Проверка
+## 6. Проверка
 
 ```bash
 systemctl status pier
@@ -169,7 +167,7 @@ curl localhost:8443/health
 journalctl -u pier -f
 ```
 
-## 8. Первый вход
+## 7. Первый вход
 
 Открыть в браузере:
 
@@ -181,7 +179,7 @@ http://SERVER_IP:8443/setup
 
 ---
 
-## 9. Docker Hub / приватные registry
+## 8. Docker Hub / приватные registry
 
 Чтобы Pier мог тянуть образы из Docker Hub без rate-limit (или из приватных registry), есть два пути:
 
@@ -233,8 +231,7 @@ Settings → Registries → **«+ Add Docker Hub»** → username + PAT → Save
 ```bash
 cd /tmp/pier
 git pull
-cargo build --release
-sudo bash scripts/install.sh --binary target/release/pier
+sudo bash scripts/build-from-source.sh
 ```
 
 ---
