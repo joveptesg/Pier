@@ -1623,6 +1623,7 @@ function resourceDetail(id) {
                 const oldCount = this.ciDeployments.length;
                 await this.refresh();
                 await this.loadDeployments();
+                this.loadDomains();
                 // Count active (building) deployments
                 this.activeDeployCount = this.ciDeployments.filter(d => d.status === 'building' || d.status === 'pending').length;
                 // Auto-open new deployment if one appeared
@@ -1941,8 +1942,9 @@ function resourceDetail(id) {
             URL.revokeObjectURL(url);
         },
         highlightLogSearch(text) {
-            if (!this.logSearch || !text) { this.logSearchCount = 0; return this.escapeHtml(text); }
-            const escaped = this.escapeHtml(text);
+            const stripped = window.stripAnsi(text || '');
+            if (!this.logSearch || !stripped) { this.logSearchCount = 0; return this.escapeHtml(stripped); }
+            const escaped = this.escapeHtml(stripped);
             const query = this.logSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const regex = new RegExp('(' + query + ')', 'gi');
             const matches = escaped.match(regex);
@@ -1968,7 +1970,7 @@ function resourceDetail(id) {
                 }
 
                 // Try JSON parse (Pino/Fastify structured logs)
-                let msg = '', level = 'info', extra = '';
+                let msg = '', level = 'info', extra = '', isAnsi = false;
                 try {
                     if (body.startsWith('{')) {
                         const j = JSON.parse(body);
@@ -1987,24 +1989,25 @@ function resourceDetail(id) {
                             ts = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') + ':' + String(d.getSeconds()).padStart(2,'0');
                         }
                     } else {
-                        msg = body;
+                        msg = body; isAnsi = true;
                     }
-                } catch { msg = body; }
+                } catch { msg = body; isAnsi = true; }
 
                 const tsHtml = ts ? `<span class="text-gray-600 whitespace-nowrap mr-3" style="min-width:145px">${this.escapeHtml(ts)}</span>` : '';
                 const levelColors = { error: 'text-red-400', warn: 'text-yellow-400', info: 'text-gray-300', debug: 'text-gray-500' };
                 const lvlColor = levelColors[level] || 'text-gray-300';
                 const lvlBadge = level !== 'info' ? `<span class="whitespace-nowrap text-[10px] font-medium ${lvlColor} mr-2" style="min-width:40px">${level.toUpperCase()}</span>` : `<span class="mr-2" style="min-width:40px"></span>`;
                 const extraHtml = extra ? `<span class="text-gray-500 ml-2">${this.escapeHtml(extra)}</span>` : '';
+                const msgHtml = isAnsi ? window.ansiToHtml(msg) : this.escapeHtml(msg);
 
-                return `<div class="flex items-start hover:bg-gray-900/50 py-px">${num}${tsHtml}${lvlBadge}<span class="${lvlColor} flex-1 break-all">${this.escapeHtml(msg)}</span>${extraHtml}</div>`;
+                return `<div class="flex items-start hover:bg-gray-900/50 py-px">${num}${tsHtml}${lvlBadge}<span class="${lvlColor} flex-1 break-all">${msgHtml}</span>${extraHtml}</div>`;
             }).join('');
         },
         formatBuildLog(text) {
             if (!text) return '<span class="text-gray-600">No log output</span>';
             const lines = text.split('\n');
             return lines.map((raw, i) => {
-                const line = this.escapeHtml(raw);
+                const line = window.ansiToHtml(raw);
                 const num = `<span class="inline-block w-8 text-right mr-3 text-gray-700 select-none">${i + 1}</span>`;
                 // Stage headers
                 if (/^(Cloning|Building|Deploying|Deploy:|Clone:|Build)/i.test(raw)) {

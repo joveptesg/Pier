@@ -66,7 +66,7 @@
         <div class="h-96 overflow-auto p-4 font-mono text-xs leading-5 text-gray-300 bg-gray-950"
              x-ref="logContainer">
             <template x-for="(line, i) in logLines" :key="i">
-                <div class="whitespace-pre-wrap" x-text="line"></div>
+                <div class="whitespace-pre-wrap" x-html="window.ansiToHtml(line)"></div>
             </template>
             <div x-show="logLines.length === 0" class="text-gray-600 text-center py-4">No logs available</div>
         </div>
