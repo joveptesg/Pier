@@ -23,6 +23,7 @@ pub mod s3;
 pub mod servers;
 pub mod sources;
 pub mod system;
+pub mod system_logs;
 pub mod webhooks;
 
 use axum::extract::State;
@@ -288,6 +289,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/system/timezone",
             get(system::get_timezone).put(system::set_timezone),
         )
+        // System logs (journalctl) — pier / pier-agent units only
+        .route("/system/logs", get(system_logs::snapshot))
+        .route("/system/logs/units", get(system_logs::units_list))
+        .route("/system/logs/ws", get(system_logs::stream_ws))
         // Alerts (Phase 11.5) — advanced/custom rules
         .route("/alerts", get(alerts::list).post(alerts::create))
         .route("/alerts/events", get(alerts::events_feed))

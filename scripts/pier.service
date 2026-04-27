@@ -7,6 +7,7 @@ Requires=docker.service
 Type=simple
 User=pier
 Group=docker
+SupplementaryGroups=systemd-journal adm
 WorkingDirectory=/opt/pier
 EnvironmentFile=/opt/pier/.env
 ExecStart=/opt/pier/bin/pier

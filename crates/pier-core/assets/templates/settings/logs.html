@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}System Logs{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6" x-data="systemLogs()" x-init="init()">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">System Logs</h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Live <code class="px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-xs">journalctl</code> output for the Pier services on this host.
+            </p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button @click="copyBuffer()"
+                    class="px-3 py-1.5 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                <span x-text="copied ? 'Copied' : 'Copy'"></span>
+            </button>
+            <button @click="downloadBuffer()"
+                    class="px-3 py-1.5 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Download
+            </button>
+        </div>
+    </div>
+
+    <!-- No units installed -->
+    {% if units|length == 0 %}
+    <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-5">
+        <p class="text-sm text-yellow-800 dark:text-yellow-300">
+            No allow-listed systemd units are installed on this host
+            (<code class="px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-xs">pier</code>,
+            <code class="px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-xs">pier-agent</code>).
+            Logs are only available when Pier runs as a systemd service.
+        </p>
+    </div>
+    {% else %}
+
+    <!-- Controls -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-4">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <!-- Unit -->
+            <div>
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Unit</label>
+                <select x-model="unit" @change="reload()"
+                        class="w-full text-sm rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                    {% for u in units %}
+                    <option value="{{ u }}">{{ u }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <!-- Since -->
+            <div>
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Period</label>
+                <select x-model="since" @change="reload()"
+                        class="w-full text-sm rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                    <option value="5min">Last 5 minutes</option>
+                    <option value="15min">Last 15 minutes</option>
+                    <option value="1h">Last 1 hour</option>
+                    <option value="6h">Last 6 hours</option>
+                    <option value="24h">Last 24 hours</option>
+                    <option value="7d">Last 7 days</option>
+                    <option value="all">All</option>
+                </select>
+            </div>
+            <!-- Lines -->
+            <div>
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Lines</label>
+                <select x-model.number="lines" @change="reload()"
+                        class="w-full text-sm rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                    <option value="30">30</option>
+                    <option value="100">100</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                    <option value="5000">5000</option>
+                </select>
+            </div>
+            <!-- Priority -->
+            <div>
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Priority</label>
+                <select x-model="priority" @change="reload()"
+                        class="w-full text-sm rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                    <option value="">All</option>
+                    <option value="err">Errors</option>
+                    <option value="warning">Warning+</option>
+                    <option value="info">Info+</option>
+                    <option value="debug">Debug+</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-800/50">
+            <div class="flex items-center gap-2">
+                <button @click="reload()" :disabled="loading"
+                        class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white transition-colors flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" :class="loading && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <span x-text="loading ? 'Loading…' : 'Refresh'"></span>
+                </button>
+                <button @click="toggleLive()"
+                        class="px-3 py-1.5 text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                        :class="live ? 'bg-green-600/20 text-green-700 dark:text-green-400 ring-1 ring-green-500/30' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="live ? 'bg-green-500 animate-pulse' : 'bg-gray-400'"></span>
+                    <span x-text="live ? 'Live' : 'Paused'"></span>
+                </button>
+                <button @click="clear()"
+                        class="px-3 py-1.5 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    Clear
+                </button>
+            </div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">
+                <span x-text="logLines.length"></span> lines
+                <span x-show="error" class="ml-3 text-red-500" x-text="error"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log viewer -->
+    <div class="bg-gray-950 border border-gray-800 rounded-xl overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800 bg-gray-900/50">
+            <code class="text-xs text-gray-400" x-text="commandPreview()"></code>
+            <span class="text-[10px] uppercase tracking-wider"
+                  :class="live ? 'text-green-400' : 'text-gray-500'"
+                  x-text="live ? '● streaming' : 'snapshot'"></span>
+        </div>
+        <div class="h-[60vh] overflow-auto p-4 font-mono text-xs leading-5 text-gray-300"
+             x-ref="logContainer">
+            <template x-for="(line, i) in logLines" :key="i">
+                <div class="whitespace-pre-wrap" x-html="window.ansiToHtml(line)"></div>
+            </template>
+            <div x-show="logLines.length === 0 && !loading" class="text-gray-600 text-center py-8">No log lines for the selected filter.</div>
+            <div x-show="loading && logLines.length === 0" class="text-gray-500 text-center py-8">Loading…</div>
+        </div>
+    </div>
+
+    {% endif %}
+</div>
+
+<script>
+function systemLogs() {
+    return {
+        unit: '{{ default_unit }}',
+        since: '5min',
+        lines: 100,
+        priority: '',
+        logLines: [],
+        live: false,
+        loading: false,
+        copied: false,
+        error: '',
+        ws: null,
+        async init() {
+            await this.reload();
+            // Auto-start live tail once initial snapshot is loaded.
+            this.startLive();
+        },
+        commandPreview() {
+            const parts = ['journalctl', '-u', this.unit, '--since', '"' + this.sinceLabel() + '"', '-n', this.lines, '--no-pager'];
+            if (this.priority) { parts.push('-p', this.priority); }
+            return parts.join(' ');
+        },
+        sinceLabel() {
+            const map = { '5min': '5 min ago', '15min': '15 min ago', '1h': '1 hour ago', '6h': '6 hours ago', '24h': '1 day ago', '7d': '7 days ago', 'all': 'all' };
+            return map[this.since] || this.since;
+        },
+        async reload() {
+            this.stopLive();
+            this.loading = true;
+            this.error = '';
+            try {
+                const params = new URLSearchParams({ unit: this.unit, since: this.since, lines: this.lines });
+                if (this.priority) params.set('priority', this.priority);
+                const r = await fetch('/api/v1/system/logs?' + params.toString());
+                if (!r.ok) {
+                    const body = await r.json().catch(() => ({}));
+                    throw new Error(body.error || ('HTTP ' + r.status));
+                }
+                const data = await r.json();
+                this.logLines = data.lines || [];
+                this.scrollToBottom();
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.loading = false;
+                if (this.live) this.startLive();
+            }
+        },
+        toggleLive() {
+            if (this.live) this.stopLive();
+            else this.startLive();
+        },
+        startLive() {
+            this.stopLive();
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = proto + '//' + location.host + '/api/v1/system/logs/ws?unit=' + encodeURIComponent(this.unit);
+            try {
+                this.ws = new WebSocket(url);
+            } catch (e) {
+                this.error = 'WebSocket connect failed: ' + e.message;
+                return;
+            }
+            this.live = true;
+            this.ws.onmessage = (e) => {
+                if (!this.live) return;
+                this.logLines.push(e.data);
+                if (this.logLines.length > 10000) this.logLines = this.logLines.slice(-5000);
+                this.scrollToBottom();
+            };
+            this.ws.onclose = () => {
+                if (this.live) {
+                    // Auto-reconnect after a brief pause.
+                    setTimeout(() => { if (this.live) this.startLive(); }, 3000);
+                }
+            };
+            this.ws.onerror = () => { /* onclose will fire */ };
+        },
+        stopLive() {
+            this.live = false;
+            if (this.ws) {
+                try { this.ws.close(); } catch (e) { /* ignore */ }
+                this.ws = null;
+            }
+        },
+        scrollToBottom() {
+            this.$nextTick(() => {
+                const el = this.$refs.logContainer;
+                if (el) el.scrollTop = el.scrollHeight;
+            });
+        },
+        clear() { this.logLines = []; },
+        copyBuffer() {
+            const text = this.logLines.join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+                this.copied = true;
+                setTimeout(() => { this.copied = false; }, 1500);
+            });
+        },
+        downloadBuffer() {
+            const text = this.logLines.join('\n');
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = this.unit + '-' + ts + '.log';
+            a.click();
+            URL.revokeObjectURL(url);
+        },
+    };
+}
+</script>
+{% endblock %}

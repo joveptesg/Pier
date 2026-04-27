@@ -191,6 +191,46 @@ pub async fn external_access_page(
     )
 }
 
+/// GET /logs — system logs (journalctl) viewer.
+pub async fn system_logs(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    // Build the list of installed allow-listed units so the UI can hide
+    // selectors for units that aren't installed on this host.
+    let mut units: Vec<&'static str> = Vec::new();
+    for unit in crate::api::system_logs::ALLOWED_UNITS {
+        let installed = tokio::process::Command::new("systemctl")
+            .args([
+                "list-unit-files",
+                &format!("{unit}.service"),
+                "--no-legend",
+                "--no-pager",
+            ])
+            .output()
+            .await
+            .ok()
+            .map(|out| {
+                out.status.success() && !String::from_utf8_lossy(&out.stdout).trim().is_empty()
+            })
+            .unwrap_or(false);
+        if installed {
+            units.push(*unit);
+        }
+    }
+
+    render(
+        &state,
+        "settings/logs.html",
+        minijinja::context! {
+            user => user.username,
+            page => "logs",
+            units => units,
+            default_unit => units.first().copied().unwrap_or("pier"),
+        },
+    )
+}
+
 /// GET /updates
 pub async fn updates_page(
     State(state): State<SharedState>,

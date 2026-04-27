@@ -240,6 +240,7 @@ Requires=docker.service
 Type=simple
 User=${PIER_USER}
 Group=docker
+SupplementaryGroups=systemd-journal adm
 WorkingDirectory=${PIER_DIR}
 EnvironmentFile=${PIER_ENV}
 ExecStart=${PIER_BIN}
