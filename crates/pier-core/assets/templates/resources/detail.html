@@ -1956,8 +1956,26 @@ function resourceDetail(id) {
         },
         formatContainerLog(text) {
             if (!text) return '';
-            const lines = text.split('\n');
-            return lines.map((raw, i) => {
+            // Stitch pino-pretty multi-line records into one line.
+            // pino-pretty emits header (`[HH:MM:SS] LEVEL ...`) followed by
+            // continuation lines (reqId, req: {…}, res: {…}, responseTime).
+            // Docker tags every line with its own timestamp, so each record
+            // would otherwise occupy 5–10 visual rows.
+            const dockerTsRe = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)\s+(.*)/s;
+            const bodyOf = raw => { const m = raw.match(dockerTsRe); return m ? m[2] : raw; };
+            const isPretty = body => /^\[\d{2}:\d{2}:\d{2}\]/.test(body);
+            const stitched = [];
+            for (const raw of text.split('\n')) {
+                if (!raw.trim()) continue;
+                const body = bodyOf(raw);
+                const prev = stitched[stitched.length - 1];
+                if (prev && isPretty(bodyOf(prev)) && !isPretty(body) && !body.startsWith('{')) {
+                    stitched[stitched.length - 1] = prev + ' ' + body;
+                    continue;
+                }
+                stitched.push(raw);
+            }
+            return stitched.map((raw, i) => {
                 if (!raw.trim()) return '';
                 const num = `<span class="text-right mr-3 text-gray-700 select-none whitespace-nowrap" style="min-width:32px">${i + 1}</span>`;
 
