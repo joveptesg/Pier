@@ -299,14 +299,6 @@ pub async fn run_pipeline(
                             &format!("docker compose -p {} up -d --build 2>&1", stack_name),
                         ])
                         .current_dir(&stack_dir)
-                        .env(
-                            "HOME",
-                            state
-                                .config
-                                .data_dir
-                                .parent()
-                                .unwrap_or(&state.config.data_dir),
-                        )
                         .stdout(std::process::Stdio::piped())
                         .stderr(std::process::Stdio::null());
                     if let Some(dir) = &auth_dir {
