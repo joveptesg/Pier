@@ -1201,8 +1201,10 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
     let mut stmt = db.prepare(
-        "SELECT id, project_id, name, service_type, status, port, image, catalog_id, category, created_at, git_repo_url
-         FROM services WHERE catalog_id IS NOT NULL ORDER BY created_at DESC",
+        "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image,
+                s.catalog_id, s.category, s.created_at, s.git_repo_url,
+                (SELECT domain FROM domains WHERE service_id = s.id ORDER BY created_at LIMIT 1) AS primary_domain
+         FROM services s WHERE s.catalog_id IS NOT NULL ORDER BY s.created_at DESC",
     )?;
 
     let resources: Vec<serde_json::Value> = stmt
@@ -1219,6 +1221,7 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
                 "category": row.get::<_, Option<String>>(8)?,
                 "created_at": row.get::<_, String>(9)?,
                 "git_repo_url": row.get::<_, Option<String>>(10)?,
+                "primary_domain": row.get::<_, Option<String>>(11)?,
             }))
         })?
         .filter_map(|r| r.ok())
