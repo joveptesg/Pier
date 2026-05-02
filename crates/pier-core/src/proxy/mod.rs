@@ -26,6 +26,33 @@ pub fn traefik_image(version: &str) -> String {
     format!("traefik:{version}")
 }
 
+/// Resolve the ACME contact email for Let's Encrypt registration.
+///
+/// Order: explicit `proxy.acme_email` setting → first admin user's email →
+/// hardcoded fallback. Always read fresh — never cache. The admin-email
+/// fallback matters on fresh installs where Traefik auto-starts before the
+/// operator has run `/setup`; reading dynamically lets a later setup propagate
+/// without restarting Pier.
+pub fn read_acme_email(db: &rusqlite::Connection) -> String {
+    db.query_row(
+        "SELECT value FROM settings WHERE key = 'proxy.acme_email'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+    .filter(|v| !v.is_empty())
+    .unwrap_or_else(|| {
+        db.query_row(
+            "SELECT email FROM users WHERE role = 'admin' LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "admin@pier.local".to_string())
+    })
+}
+
 /// Deploy and start the Traefik reverse proxy container.
 pub async fn deploy_traefik(
     docker: &Docker,
@@ -366,13 +393,7 @@ pub async fn sync_tcp_routes_for_service(
             .filter_map(|r| r.ok())
             .collect();
 
-        let acme_email = db
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'proxy.acme_email'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap_or_else(|_| "admin@pier.local".to_string());
+        let acme_email = read_acme_email(&db);
         let dashboard = db
             .query_row(
                 "SELECT value FROM settings WHERE key = 'proxy.dashboard'",

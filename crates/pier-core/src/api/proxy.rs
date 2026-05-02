@@ -22,22 +22,7 @@ pub async fn enable(State(state): State<SharedState>) -> AppResult<impl IntoResp
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let email = db
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'proxy.acme_email'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .ok()
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| {
-                db.query_row(
-                    "SELECT email FROM users WHERE role = 'admin' LIMIT 1",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .unwrap_or_else(|_| "admin@pier.local".to_string())
-            });
+        let email = crate::proxy::read_acme_email(&db);
         let dash = db
             .query_row(
                 "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
@@ -329,13 +314,7 @@ pub async fn update(State(state): State<SharedState>) -> AppResult<impl IntoResp
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let email = db
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'proxy.acme_email'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap_or_else(|_| "admin@pier.local".to_string());
+        let email = crate::proxy::read_acme_email(&db);
         let dash = db
             .query_row(
                 "SELECT value FROM settings WHERE key = 'proxy.dashboard'",

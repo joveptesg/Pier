@@ -154,24 +154,10 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Read proxy settings before conn moves into Mutex
-    let proxy_acme_email = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = 'proxy.acme_email'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .ok()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| {
-            // Fallback: use the first admin user's email
-            conn.query_row(
-                "SELECT email FROM users WHERE role = 'admin' LIMIT 1",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap_or_else(|_| "admin@pier.local".to_string())
-        });
+    // Read proxy settings before conn moves into Mutex.
+    // `proxy.acme_email` is intentionally NOT read here — we resolve it inside
+    // the auto-start task via `proxy::read_acme_email`, so a `/setup` that runs
+    // after Pier already started still propagates without a Pier restart.
     let proxy_dashboard = conn
         .query_row(
             "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
@@ -363,11 +349,21 @@ async fn main() -> Result<()> {
                 }
             }
 
+            // Resolve ACME email at auto-start time (not at process start) so a
+            // `/setup` that completes after Pier boots still gives Let's Encrypt
+            // a valid contact instead of the hardcoded `admin@pier.local`.
+            let acme_email = proxy_state
+                .db
+                .lock()
+                .ok()
+                .map(|db| proxy::read_acme_email(&db))
+                .unwrap_or_else(|| "admin@pier.local".to_string());
+
             // Deploy Traefik
             match proxy::deploy_traefik(
                 &proxy_state.docker,
                 &proxy_data_dir,
-                &proxy_acme_email,
+                &acme_email,
                 proxy_dashboard,
                 &proxy_traefik_version,
             )

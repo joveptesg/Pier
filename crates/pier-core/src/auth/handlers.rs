@@ -52,6 +52,14 @@ pub async fn setup(
         rusqlite::params![id, body.username.trim(), body.email.trim(), hash],
     )?;
 
+    // Seed `proxy.acme_email` from the admin's email so Let's Encrypt has a
+    // valid contact on first deploy and the UI shows it pre-filled. Skip if
+    // the operator already set it explicitly (`INSERT OR IGNORE`).
+    db.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES ('proxy.acme_email', ?1)",
+        [body.email.trim()],
+    )?;
+
     tracing::info!("Admin user '{}' created", body.username.trim());
     Ok(Json(
         serde_json::json!({"ok": true, "message": "Admin user created"}),
