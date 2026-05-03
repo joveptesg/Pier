@@ -266,6 +266,10 @@ pub async fn run_pipeline(
                     let yaml = inject_pier_networks(&state, &service_id, &yaml);
                     // Remove host port bindings (Traefik handles public access via Docker network)
                     let yaml = strip_compose_ports(&yaml);
+                    // Auto-wire `.env` (which Pier writes from the UI's env_json) into
+                    // every service so UI-defined vars reach the container by default.
+                    // `environment:` in the user's compose still wins for explicit overrides.
+                    let yaml = inject_env_file_into_services(&yaml);
 
                     // Move repo contents to stack dir so build context works from persistent location
                     let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
@@ -1158,6 +1162,119 @@ fn strip_compose_ports(yaml: &str) -> String {
     result.join("\n")
 }
 
+/// Inject `env_file: - .env` into every service block of a docker-compose
+/// YAML that does not already declare `env_file:`. Compose merges `env_file`
+/// values *under* anything in `environment:`, so this gives users a
+/// "Environment Variables in the Pier UI flow into the container by default,
+/// `environment:` in compose still wins for explicit overrides" experience.
+///
+/// Services that already specify their own `env_file:` (in any form — string,
+/// list, single-line) are left untouched: an explicit user choice in the
+/// compose file always takes priority over Pier's auto-injection.
+///
+/// The function preserves the file's existing indentation style (2-space vs
+/// 4-space) by inferring per-service property indent from the first indented
+/// line inside each service block, falling back to `service_indent + 2`.
+fn inject_env_file_into_services(yaml: &str) -> String {
+    let mut lines: Vec<String> = yaml.lines().map(|l| l.to_string()).collect();
+
+    // Locate the top-level `services:` key.
+    let services_idx = match lines
+        .iter()
+        .position(|l| l.trim() == "services:" && !l.starts_with(' ') && !l.starts_with('\t'))
+    {
+        Some(i) => i,
+        None => return yaml.to_string(),
+    };
+
+    // Determine the indent shared by every direct child of `services:`.
+    let service_indent = lines
+        .iter()
+        .skip(services_idx + 1)
+        .find_map(|line| {
+            if line.trim().is_empty() {
+                return None;
+            }
+            let indent = line.len() - line.trim_start().len();
+            if indent == 0 {
+                return Some(0); // sentinel: another top-level key, no services
+            }
+            Some(indent)
+        })
+        .unwrap_or(0);
+    if service_indent == 0 {
+        return yaml.to_string();
+    }
+
+    // Collect (start, end) ranges for each service block. `end` is exclusive.
+    let mut service_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut current_start: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate().skip(services_idx + 1) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if indent == 0 {
+            // New top-level key — services: section ends here.
+            if let Some(start) = current_start.take() {
+                service_ranges.push((start, i));
+            }
+            break;
+        }
+        if indent == service_indent && trimmed.ends_with(':') {
+            // Close the previous service before opening a new one.
+            if let Some(start) = current_start.take() {
+                service_ranges.push((start, i));
+            }
+            current_start = Some(i);
+        }
+    }
+    if let Some(start) = current_start.take() {
+        service_ranges.push((start, lines.len()));
+    }
+
+    // Process in reverse so earlier indices stay valid as we insert lines.
+    for (start, end) in service_ranges.into_iter().rev() {
+        // Infer this service's property indent from the first indented body line.
+        let prop_indent = lines[start + 1..end]
+            .iter()
+            .find_map(|line| {
+                if line.trim().is_empty() {
+                    return None;
+                }
+                let indent = line.len() - line.trim_start().len();
+                if indent > service_indent {
+                    Some(indent)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(service_indent + 2);
+
+        // If the user already set env_file: at this service's prop level, skip.
+        let has_env_file = lines[start + 1..end].iter().any(|l| {
+            let indent = l.len() - l.trim_start().len();
+            indent == prop_indent && l.trim_start().starts_with("env_file:")
+        });
+        if has_env_file {
+            continue;
+        }
+
+        // Insert just before any trailing blank lines that separate services.
+        let mut insert_at = end;
+        while insert_at > start + 1 && lines[insert_at - 1].trim().is_empty() {
+            insert_at -= 1;
+        }
+
+        let pad = " ".repeat(prop_indent);
+        lines.insert(insert_at, format!("{pad}env_file:"));
+        lines.insert(insert_at + 1, format!("{pad}  - .env"));
+    }
+
+    lines.join("\n")
+}
+
 /// Load a service's env vars from `services.env_json` into a flat map for
 /// docker-compose-style `${VAR}` substitution. Returns an empty map on any
 /// error (caller treats unset vars as empty).
@@ -1476,8 +1593,75 @@ struct ServiceInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::env_json_to_env_content;
+    use super::{env_json_to_env_content, inject_env_file_into_services};
     use crate::crypto::encrypt_env_json;
+
+    #[test]
+    fn inject_env_file_adds_to_service_without_it() {
+        let yaml = "services:\n  backend:\n    image: foo:bar\n";
+        let out = inject_env_file_into_services(yaml);
+        assert!(out.contains("env_file:"));
+        assert!(out.contains("- .env"));
+        assert!(out.contains("image: foo:bar"));
+    }
+
+    #[test]
+    fn inject_env_file_skips_service_with_existing_env_file() {
+        let yaml = "services:\n  backend:\n    image: foo:bar\n    env_file:\n      - custom.env\n";
+        let out = inject_env_file_into_services(yaml);
+        assert!(out.contains("custom.env"));
+        // Only one env_file: line should remain — the user's.
+        assert_eq!(out.matches("env_file:").count(), 1);
+        assert!(!out.contains("- .env"));
+    }
+
+    #[test]
+    fn inject_env_file_handles_multi_service_compose() {
+        let yaml = "services:\n  backend:\n    image: foo:bar\n  worker:\n    image: baz:qux\n";
+        let out = inject_env_file_into_services(yaml);
+        assert_eq!(out.matches("env_file:").count(), 2);
+        assert_eq!(out.matches("- .env").count(), 2);
+    }
+
+    #[test]
+    fn inject_env_file_preserves_environment_section() {
+        let yaml = "services:\n  backend:\n    image: foo:bar\n    environment:\n      - NODE_ENV=production\n      - DB_HOST=${DB_HOST}\n";
+        let out = inject_env_file_into_services(yaml);
+        assert!(out.contains("environment:"));
+        assert!(out.contains("NODE_ENV=production"));
+        assert!(out.contains("DB_HOST=${DB_HOST}"));
+        assert!(out.contains("env_file:"));
+        assert!(out.contains("- .env"));
+    }
+
+    #[test]
+    fn inject_env_file_handles_4_space_indent() {
+        let yaml = "services:\n    backend:\n        image: foo:bar\n";
+        let out = inject_env_file_into_services(yaml);
+        // env_file should be at the same prop indent (8 spaces) as image:.
+        assert!(out.contains("        env_file:"));
+        assert!(out.contains("        - .env"));
+    }
+
+    #[test]
+    fn inject_env_file_does_not_leak_into_top_level_networks() {
+        let yaml = "services:\n  backend:\n    image: foo:bar\nnetworks:\n  pier-net:\n    external: true\n";
+        let out = inject_env_file_into_services(yaml);
+        // env_file inserted *inside* backend, not under networks:
+        let env_file_pos = out.find("env_file:").expect("env_file should be present");
+        let networks_pos = out
+            .find("\nnetworks:")
+            .expect("networks: should be present");
+        assert!(env_file_pos < networks_pos);
+        assert_eq!(out.matches("env_file:").count(), 1);
+    }
+
+    #[test]
+    fn inject_env_file_noop_without_services_block() {
+        let yaml = "version: '3'\nnetworks:\n  pier-net:\n    external: true\n";
+        let out = inject_env_file_into_services(yaml);
+        assert!(!out.contains("env_file:"));
+    }
 
     #[test]
     fn plaintext_json_renders_as_env_lines() {

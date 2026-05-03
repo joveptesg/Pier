@@ -2953,8 +2953,7 @@ pub async fn set_network(
 
         let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
         let _ = docker::compose::down_stack(&stack_name, &state.config).await;
-        let result =
-            docker::deploy_service_stack(&state, &id, &stack_name, &new_yaml, None).await;
+        let result = docker::deploy_service_stack(&state, &id, &stack_name, &new_yaml, None).await;
 
         let status = if result.is_ok() { "running" } else { "failed" };
         {
