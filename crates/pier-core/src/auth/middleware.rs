@@ -1,14 +1,29 @@
 use axum::extract::{Request, State};
-use axum::http::header::COOKIE;
+use axum::http::header::{AUTHORIZATION, COOKIE};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 
+use crate::auth::api_token;
 use crate::error::AppError;
 use crate::state::SharedState;
 
 /// Header used by a remote Pier core to authenticate its cross-core API calls.
 /// Must match a row in the `peer_grants` table with `is_active = 1`.
 pub const PEER_TOKEN_HEADER: &str = "X-Pier-Peer-Token";
+
+/// Extract the bearer value from an `Authorization: Bearer …` header.
+fn parse_bearer(header: &str) -> Option<&str> {
+    let trimmed = header.trim();
+    let stripped = trimmed
+        .strip_prefix("Bearer ")
+        .or_else(|| trimmed.strip_prefix("bearer "))?;
+    let value = stripped.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
 
 /// User info extracted from a valid session, stored in request extensions.
 #[derive(Clone, Debug)]
@@ -32,7 +47,11 @@ pub async fn require_auth(
     mut req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let is_api = req.uri().path().starts_with("/api/");
+    let path = req.uri().path();
+    // `/registry/...` is the embedded npm-compatible registry. Treat it as
+    // API for auth purposes — 401s, not redirects to /login — because npm
+    // clients can't follow HTML redirects.
+    let is_api = path.starts_with("/api/") || path.starts_with("/registry/");
 
     // 1. Check for peer-core token first — only accepted on API routes.
     //    This lets another pier-core act as an admin on this instance.
@@ -81,7 +100,42 @@ pub async fn require_auth(
         return Err(AppError::Unauthorized);
     }
 
-    // 2. Fall back to session cookie.
+    // 2. Check for an `Authorization: Bearer <api-token>` header.
+    //    Used by npm CLI, CI runners, and other clients that can't carry a
+    //    session cookie. Tokens are validated against `api_tokens` (sha256 hash).
+    let bearer_opt = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_bearer)
+        .map(|s| s.to_string());
+    if let Some(plaintext) = bearer_opt {
+        let lookup_result = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+            api_token::lookup(&db, &plaintext)
+        };
+        match lookup_result {
+            Ok(Some(user)) => {
+                req.extensions_mut().insert(user);
+                return Ok(next.run(req).await);
+            }
+            Ok(None) => {
+                // Bearer header was present but didn't match a live token —
+                // don't fall through to session auth, that's a token-bearing
+                // client (npm/CI) and they expect a 401.
+                return Err(AppError::Unauthorized);
+            }
+            Err(e) => {
+                tracing::error!("api_token lookup failed: {e}");
+                return Err(AppError::Unauthorized);
+            }
+        }
+    }
+
+    // 3. Fall back to session cookie.
     let session_id = req
         .headers()
         .get(COOKIE)

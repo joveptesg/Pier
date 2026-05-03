@@ -12,6 +12,7 @@ mod docker;
 mod error;
 mod git;
 mod proxy;
+mod registry;
 mod s3;
 mod state;
 mod timezone;
@@ -486,6 +487,10 @@ async fn main() -> Result<()> {
 
     let app = ui::ui_router(state.clone())
         .merge(api::api_router(state.clone()))
+        // Embedded npm-compatible registry. Lives outside `/api/v1/` because
+        // npm clients expect `<registry-url>/{package}` to be the canonical
+        // packument path — they don't accept extra prefixes.
+        .nest("/registry/npm", api::npm::router(state.clone()))
         .with_state(state);
 
     // Start server

@@ -279,6 +279,73 @@ pub async fn registries_page(
     )
 }
 
+/// GET /packages — list private npm packages held by the embedded registry.
+pub async fn packages_list(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    let packages = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        crate::registry::db::list_packages(&db, true)?
+    };
+    render(
+        &state,
+        "packages/list.html",
+        minijinja::context! {
+            user => user.username,
+            page => "packages",
+            packages => packages,
+        },
+    )
+}
+
+/// GET /packages/{name} — detail page for a single npm package.
+/// `{name}` is path-encoded for scoped packages (`@scope%2Fname`).
+pub async fn package_detail(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(name): Path<String>,
+) -> PageResult {
+    let (summary, versions) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let summaries = crate::registry::db::list_packages(&db, false)?;
+        let summary = summaries.into_iter().find(|p| p.name == name);
+        let versions = crate::registry::db::list_versions(&db, &name)?;
+        (summary, versions)
+    };
+    let Some(summary) = summary else {
+        return Err(AppError::NotFound(format!("package {name}")));
+    };
+    render(
+        &state,
+        "packages/detail.html",
+        minijinja::context! {
+            user => user.username,
+            page => "packages",
+            package => summary,
+            versions => versions,
+        },
+    )
+}
+
+/// GET /settings/tokens — manage Bearer API tokens (npm/CI integrations).
+pub async fn tokens_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "settings/tokens.html",
+        minijinja::context! { user => user.username, page => "tokens" },
+    )
+}
+
 /// GET /domains
 pub async fn domains_page(
     State(state): State<SharedState>,

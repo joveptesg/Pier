@@ -142,6 +142,13 @@
                     <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
                     <span x-show="sidebarOpen" x-cloak>Registries</span>
                 </a>
+                <a href="/packages"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if page == 'packages' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}"
+                   :class="!sidebarOpen && 'justify-center !px-0 !gap-0'" :title="!sidebarOpen && 'Packages'">
+                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zm0 0v9m0 0l8-4.5M12 12l-8-4.5"/></svg>
+                    <span x-show="sidebarOpen" x-cloak>Packages</span>
+                </a>
 
                 <div class="pt-3 pb-1" x-show="sidebarOpen" x-cloak>
                     <p class="px-3 text-[10px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-widest">Networking</p>

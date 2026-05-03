@@ -14,6 +14,7 @@ pub mod events;
 pub mod grants;
 pub mod images;
 pub mod networks;
+pub mod npm;
 pub mod projects;
 pub mod promote;
 pub mod proxy;
@@ -24,6 +25,7 @@ pub mod servers;
 pub mod sources;
 pub mod system;
 pub mod system_logs;
+pub mod tokens;
 pub mod webhooks;
 
 use axum::extract::State;
@@ -71,6 +73,12 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             post(account::revoke_other_sessions),
         )
         .route("/account/sessions/{id}", delete(account::revoke_session))
+        // Bearer API tokens (used by npm registry, CI, CLI integrations)
+        .route(
+            "/account/tokens",
+            get(tokens::list).post(tokens::create),
+        )
+        .route("/account/tokens/{id}", delete(tokens::revoke))
         // Containers
         .route("/containers", get(containers::list))
         .route(

@@ -574,6 +574,60 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE s3_storages ADD COLUMN key_prefix TEXT NOT NULL DEFAULT 'pier-backups';
     "#,
+    // Migration 34: Embedded npm registry — packages, versions, and Bearer API tokens.
+    //
+    // npm_packages: one row per package (private or proxy-cached). dist_tags_json
+    // is the canonical map (`{"latest":"1.2.3"}`). is_proxy=1 means this row
+    // mirrors a public upstream and gets refreshed via upstream_fetched_at TTL.
+    //
+    // npm_versions: one row per (package, version). manifest_json holds the full
+    // version manifest as published; tarball_sha512 is the integrity hash.
+    // s3_uploaded flips to 1 once the cold-tier upload to S3 succeeds.
+    //
+    // api_tokens: Bearer tokens (sha256-hashed at rest, like GitHub PATs).
+    // The plaintext token is shown to the user once at creation and never again.
+    // `prefix` lets the UI show "pier_npm_a1b2…" without revealing the secret.
+    r#"
+    CREATE TABLE IF NOT EXISTS npm_packages (
+        name                  TEXT PRIMARY KEY NOT NULL,
+        description           TEXT NOT NULL DEFAULT '',
+        dist_tags_json        TEXT NOT NULL DEFAULT '{}',
+        is_proxy              INTEGER NOT NULL DEFAULT 0,
+        upstream_etag         TEXT,
+        upstream_fetched_at   INTEGER,
+        created_at            INTEGER NOT NULL,
+        updated_at            INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_npm_packages_is_proxy ON npm_packages(is_proxy);
+
+    CREATE TABLE IF NOT EXISTS npm_versions (
+        package_name    TEXT NOT NULL,
+        version         TEXT NOT NULL,
+        manifest_json   TEXT NOT NULL,
+        tarball_size    INTEGER NOT NULL,
+        tarball_sha512  TEXT NOT NULL,
+        s3_uploaded     INTEGER NOT NULL DEFAULT 0,
+        published_by    TEXT,
+        published_at    INTEGER NOT NULL,
+        PRIMARY KEY (package_name, version),
+        FOREIGN KEY (package_name) REFERENCES npm_packages(name) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_npm_versions_package ON npm_versions(package_name);
+    CREATE INDEX IF NOT EXISTS idx_npm_versions_s3 ON npm_versions(s3_uploaded);
+
+    CREATE TABLE IF NOT EXISTS api_tokens (
+        id            TEXT PRIMARY KEY NOT NULL,
+        user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name          TEXT NOT NULL,
+        token_hash    TEXT NOT NULL UNIQUE,
+        prefix        TEXT NOT NULL,
+        last_used_at  INTEGER,
+        created_at    INTEGER NOT NULL,
+        revoked_at    INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+    "#,
 ];
 
 /// Run all pending database migrations.

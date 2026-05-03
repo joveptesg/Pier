@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ package.name }} — Packages{% endblock %}
+
+{% block content %}
+<div class="p-6 space-y-6">
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <a href="/packages" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">← All packages</a>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white font-mono mt-1">{{ package.name }}</h2>
+            {% if package.description %}<p class="text-sm text-gray-500 mt-1">{{ package.description }}</p>{% endif %}
+        </div>
+        <div class="text-right text-xs text-gray-500 space-y-0.5">
+            <p>Latest: {% if package.latest_version %}<span class="font-mono text-gray-700 dark:text-gray-300">{{ package.latest_version }}</span>{% else %}—{% endif %}</p>
+            <p>{{ package.version_count }} version{% if package.version_count != 1 %}s{% endif %}</p>
+            <p>{{ package.total_size }} bytes total</p>
+        </div>
+    </div>
+
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+        <table class="min-w-full text-sm">
+            <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
+                <tr>
+                    <th class="px-4 py-3 text-left font-medium">Version</th>
+                    <th class="px-4 py-3 text-left font-medium">Size</th>
+                    <th class="px-4 py-3 text-left font-medium">Integrity</th>
+                    <th class="px-4 py-3 text-left font-medium">Published</th>
+                    <th class="px-4 py-3 text-left font-medium">Cold-tier</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                {% for v in versions %}
+                <tr>
+                    <td class="px-4 py-3 font-mono text-gray-900 dark:text-white">{{ v.version }}</td>
+                    <td class="px-4 py-3 text-gray-500">{{ v.size }} bytes</td>
+                    <td class="px-4 py-3 text-xs font-mono text-gray-500 truncate max-w-xs" title="{{ v.sha512 }}">{{ v.sha512[0:24] }}…</td>
+                    <td class="px-4 py-3 text-xs text-gray-500">{{ v.published_at }}</td>
+                    <td class="px-4 py-3">
+                        {% if v.s3_uploaded %}
+                        <span class="text-[11px] px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-700 dark:text-green-400">Uploaded</span>
+                        {% else %}
+                        <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500">FS only</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
