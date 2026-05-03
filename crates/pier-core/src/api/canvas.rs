@@ -143,7 +143,12 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
         })
         .collect();
 
-    // Inspect each container once: collect env vars and host aliases.
+    // Build runtime entry for EVERY service. Slug-based hosts are always present
+    // so a service can be matched as a TARGET even when Pier hasn't recorded its
+    // container_id (common for shared infra like postgresql/redis/rabbitmq, where
+    // services.container_id is NULL but the container is named pier-<slug>).
+    // If container_id is set, we additionally inspect to collect env_list (needed
+    // when the service is a SOURCE) and extra hostnames/aliases.
     let mut runtime: std::collections::HashMap<String, Runtime> = std::collections::HashMap::new();
     for r in &resources {
         let source_id = r.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -154,59 +159,63 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
             .unwrap_or("")
             .to_lowercase()
             .replace(' ', "-");
-        if source_id.is_empty() || cn.is_empty() {
+        if source_id.is_empty() {
             continue;
         }
 
-        let info = match state.docker.inspect_container(cn, None).await {
-            Ok(i) => i,
-            Err(e) => {
-                tracing::warn!(
-                    "canvas: inspect_container failed for service {} (container {}): {}",
-                    source_id,
-                    cn,
-                    e
-                );
-                continue;
-            }
-        };
-        let env_list = info
-            .config
-            .as_ref()
-            .and_then(|c| c.env.clone())
-            .unwrap_or_default();
-
+        let mut env_list: Vec<String> = Vec::new();
         let mut hosts: Vec<String> = Vec::new();
-        if let Some(name) = info.name.as_ref() {
-            let n = name.trim_start_matches('/').to_lowercase();
-            if !n.is_empty() {
-                hosts.push(n);
-            }
-        }
-        if let Some(cfg) = info.config.as_ref() {
-            if let Some(h) = cfg.hostname.as_ref() {
-                if !h.is_empty() {
-                    hosts.push(h.to_lowercase());
-                }
-            }
-        }
-        if let Some(ns) = info.network_settings.as_ref() {
-            if let Some(nets) = ns.networks.as_ref() {
-                for net in nets.values() {
-                    if let Some(aliases) = net.aliases.as_ref() {
-                        for a in aliases {
-                            if !a.is_empty() {
-                                hosts.push(a.to_lowercase());
-                            }
-                        }
-                    }
-                }
-            }
-        }
         if !slug.is_empty() {
             hosts.push(slug.clone());
             hosts.push(format!("pier-{slug}"));
         }
+
+        if !cn.is_empty() {
+            match state.docker.inspect_container(cn, None).await {
+                Ok(info) => {
+                    env_list = info
+                        .config
+                        .as_ref()
+                        .and_then(|c| c.env.clone())
+                        .unwrap_or_default();
+                    if let Some(name) = info.name.as_ref() {
+                        let n = name.trim_start_matches('/').to_lowercase();
+                        if !n.is_empty() {
+                            hosts.push(n);
+                        }
+                    }
+                    if let Some(cfg) = info.config.as_ref() {
+                        if let Some(h) = cfg.hostname.as_ref() {
+                            if !h.is_empty() {
+                                hosts.push(h.to_lowercase());
+                            }
+                        }
+                    }
+                    if let Some(ns) = info.network_settings.as_ref() {
+                        if let Some(nets) = ns.networks.as_ref() {
+                            for net in nets.values() {
+                                if let Some(aliases) = net.aliases.as_ref() {
+                                    for a in aliases {
+                                        if !a.is_empty() {
+                                            hosts.push(a.to_lowercase());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "canvas: inspect_container failed for service {} (container {}): {} — falling back to slug-based hosts",
+                        source_id,
+                        cn,
+                        e
+                    );
+                }
+            }
+        }
+
         hosts.sort();
         hosts.dedup();
 
