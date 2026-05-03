@@ -160,7 +160,15 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
 
         let info = match state.docker.inspect_container(cn, None).await {
             Ok(i) => i,
-            Err(_) => continue,
+            Err(e) => {
+                tracing::warn!(
+                    "canvas: inspect_container failed for service {} (container {}): {}",
+                    source_id,
+                    cn,
+                    e
+                );
+                continue;
+            }
         };
         let env_list = info
             .config
@@ -205,8 +213,28 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
         runtime.insert(source_id.to_string(), Runtime { env_list, hosts });
     }
 
+    // Pre-compute which targets are known DB/cache/queue services. For these we
+    // accept bare hostname matches even when the source's env key is non-standard
+    // (e.g. `DATABASE=postgresql`, `RABBIT=rabbitmq`). For non-DB targets we keep
+    // the strict rule (URL context or host-typed key) to avoid false edges from
+    // values like `DB_NAME=evroplast`.
+    let target_is_known: std::collections::HashMap<String, bool> = meta
+        .iter()
+        .map(|(id, m)| {
+            (
+                id.clone(),
+                infer_label_from_target(
+                    m.image.as_deref(),
+                    m.catalog_id.as_deref(),
+                    m.category.as_deref(),
+                ) != "HTTP",
+            )
+        })
+        .collect();
+
     // Build edges: source mentions target hostname either in URL/host:port context,
-    // or as a bare hostname value in a host-typed env var (POSTGRES_HOST, REDIS_URL, ...).
+    // or as a bare hostname value in a host-typed env var (POSTGRES_HOST, REDIS_URL, ...),
+    // or — if the target is a known DB/cache/queue — as a bare hostname in any env var.
     for (source_id, src) in &runtime {
         let mut found: std::collections::HashSet<String> = std::collections::HashSet::new();
         for entry in &src.env_list {
@@ -221,9 +249,11 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
                 if tid == source_id || found.contains(tid) {
                     continue;
                 }
+                let known_db = target_is_known.get(tid).copied().unwrap_or(false);
                 let hit = trt.hosts.iter().any(|h| {
                     value_references_host_in_url(&val_lower, h)
                         || (host_typed_key && value_starts_with_host(&val_lower, h))
+                        || (known_db && value_starts_with_host(&val_lower, h))
                 });
                 if hit {
                     found.insert(tid.clone());
@@ -554,5 +584,45 @@ mod tests {
         assert!(!value_starts_with_host("postgresqltest", "postgresql"));
         assert!(!value_starts_with_host("postgresql-replica", "postgresql"));
         assert!(!value_starts_with_host("evroplast", "postgresql"));
+    }
+
+    /// `DATABASE=postgresql` against a postgres-image target — the relaxed
+    /// "known DB target" branch should accept it.
+    #[test]
+    fn relaxed_match_bare_var_known_db_target() {
+        let target_known = infer_label_from_target(Some("postgres:latest"), None, None) != "HTTP";
+        assert!(target_known);
+        assert!(value_starts_with_host("postgresql", "postgresql"));
+    }
+
+    /// `RABBIT=rabbitmq` against a rabbitmq-catalog target — relaxed branch matches.
+    #[test]
+    fn relaxed_match_bare_var_rabbitmq_catalog() {
+        let target_known = infer_label_from_target(None, Some("rabbitmq"), None) != "HTTP";
+        assert!(target_known);
+        assert!(value_starts_with_host("rabbitmq", "rabbitmq"));
+    }
+
+    /// Safety check: `DB_NAME=evroplast` against a non-DB target (nginx) must NOT match —
+    /// neither URL context, nor host-typed key, nor known-DB relaxation applies.
+    #[test]
+    fn no_match_bare_var_non_db_target() {
+        let target_known = infer_label_from_target(Some("nginx:1.27"), None, None) != "HTTP";
+        assert!(!target_known);
+        assert!(!is_host_like_key("db_name"));
+        assert!(!value_references_host_in_url("evroplast", "evroplast"));
+    }
+
+    /// Safety check: bare hostname-like value against a non-DB app target with a
+    /// non-host-typed key must NOT match (no URL, no host key, target isn't a DB).
+    #[test]
+    fn no_match_bare_app_target_non_host_key() {
+        let target_known = infer_label_from_target(Some("nginx:1.27"), None, None) != "HTTP";
+        assert!(!target_known);
+        assert!(!is_host_like_key("whatever"));
+        assert!(!value_references_host_in_url(
+            "evroplast-backend",
+            "evroplast-backend"
+        ));
     }
 }
