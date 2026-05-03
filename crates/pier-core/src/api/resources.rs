@@ -1209,6 +1209,14 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
 
     let resources: Vec<serde_json::Value> = stmt
         .query_map([], |row| {
+            let catalog_id: Option<String> = row.get(7)?;
+            let icon: Option<String> = catalog_id.as_deref().and_then(|cid| {
+                state
+                    .catalog
+                    .iter()
+                    .find(|i| i.meta.id == cid)
+                    .and_then(|i| i.meta.icon.clone())
+            });
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "project_id": row.get::<_, Option<String>>(1)?,
@@ -1217,11 +1225,12 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
                 "status": row.get::<_, String>(4)?,
                 "port": row.get::<_, Option<i64>>(5)?,
                 "image": row.get::<_, Option<String>>(6)?,
-                "catalog_id": row.get::<_, Option<String>>(7)?,
+                "catalog_id": catalog_id,
                 "category": row.get::<_, Option<String>>(8)?,
                 "created_at": row.get::<_, String>(9)?,
                 "git_repo_url": row.get::<_, Option<String>>(10)?,
                 "primary_domain": row.get::<_, Option<String>>(11)?,
+                "icon": icon,
             }))
         })?
         .filter_map(|r| r.ok())

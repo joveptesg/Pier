@@ -103,80 +103,139 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
     }; // DB lock dropped here
 
     // SEC-002: detect dependencies server-side via Docker inspect (don't expose env vars to frontend)
+    //
+    // Detection rules:
+    //  - For each running container collect its env vars and DNS-reachable hostnames
+    //    (container name, configured hostname, network aliases, plus Pier slug fallbacks).
+    //  - An edge `source → target` is created only if a value of some env var on the source
+    //    references a target hostname in URL/host:port context (see
+    //    `value_references_host_in_url`). Plain substring matches like `DB_NAME=evroplast`
+    //    do NOT create an edge — they used to produce false dep arrows.
+    //  - The edge label is derived from the *target* service (image / catalog_id / category),
+    //    not from the env var key on the source.
     let mut dep_edges: Vec<serde_json::Value> = Vec::new();
-    let mut seen_edges = std::collections::HashSet::new();
 
-    // Build name→id lookup
-    let name_to_id: std::collections::HashMap<String, String> = resources
+    struct Runtime {
+        env_list: Vec<String>,
+        hosts: Vec<String>,
+    }
+    struct Meta {
+        image: Option<String>,
+        catalog_id: Option<String>,
+        category: Option<String>,
+    }
+
+    let meta: std::collections::HashMap<String, Meta> = resources
         .iter()
         .filter_map(|r| {
             let id = r.get("id")?.as_str()?.to_string();
-            let name = r.get("name")?.as_str()?.to_lowercase().replace(' ', "-");
-            Some((name, id))
+            Some((
+                id,
+                Meta {
+                    image: r.get("image").and_then(|v| v.as_str()).map(String::from),
+                    catalog_id: r
+                        .get("catalog_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    category: r.get("category").and_then(|v| v.as_str()).map(String::from),
+                },
+            ))
         })
         .collect();
 
+    // Inspect each container once: collect env vars and host aliases.
+    let mut runtime: std::collections::HashMap<String, Runtime> = std::collections::HashMap::new();
     for r in &resources {
-        let cn = r.get("container_id").and_then(|v| v.as_str()).unwrap_or("");
         let source_id = r.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        if cn.is_empty() || source_id.is_empty() {
+        let cn = r.get("container_id").and_then(|v| v.as_str()).unwrap_or("");
+        let slug = r
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase()
+            .replace(' ', "-");
+        if source_id.is_empty() || cn.is_empty() {
             continue;
         }
 
-        // Get env vars from running container
-        let env_list = match state.docker.inspect_container(cn, None).await {
-            Ok(info) => info.config.and_then(|c| c.env).unwrap_or_default(),
+        let info = match state.docker.inspect_container(cn, None).await {
+            Ok(i) => i,
             Err(_) => continue,
         };
+        let env_list = info
+            .config
+            .as_ref()
+            .and_then(|c| c.env.clone())
+            .unwrap_or_default();
 
-        // Collect which keys reference which targets (deduplicate per target)
-        let mut target_keys: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
-        for entry in &env_list {
-            if let Some((key, val)) = entry.split_once('=') {
-                let val_lower = val.to_lowercase();
-                for (tname, tid) in &name_to_id {
-                    if tid == source_id {
-                        continue;
-                    }
-                    let cn_pattern = format!("pier-{tname}");
-                    if val_lower.contains(&cn_pattern) || val_lower.contains(tname) {
-                        target_keys
-                            .entry(tid.clone())
-                            .or_default()
-                            .push(key.to_string());
+        let mut hosts: Vec<String> = Vec::new();
+        if let Some(name) = info.name.as_ref() {
+            let n = name.trim_start_matches('/').to_lowercase();
+            if !n.is_empty() {
+                hosts.push(n);
+            }
+        }
+        if let Some(cfg) = info.config.as_ref() {
+            if let Some(h) = cfg.hostname.as_ref() {
+                if !h.is_empty() {
+                    hosts.push(h.to_lowercase());
+                }
+            }
+        }
+        if let Some(ns) = info.network_settings.as_ref() {
+            if let Some(nets) = ns.networks.as_ref() {
+                for net in nets.values() {
+                    if let Some(aliases) = net.aliases.as_ref() {
+                        for a in aliases {
+                            if !a.is_empty() {
+                                hosts.push(a.to_lowercase());
+                            }
+                        }
                     }
                 }
             }
         }
+        if !slug.is_empty() {
+            hosts.push(slug.clone());
+            hosts.push(format!("pier-{slug}"));
+        }
+        hosts.sort();
+        hosts.dedup();
 
-        // Create one edge per (source→target) with friendly label
-        for (tid, keys) in target_keys {
-            let edge_key = format!("{source_id}->{tid}");
-            if seen_edges.contains(&edge_key) {
-                continue;
-            }
-            seen_edges.insert(edge_key);
+        runtime.insert(source_id.to_string(), Runtime { env_list, hosts });
+    }
 
-            let keys_lower: Vec<String> = keys.iter().map(|k| k.to_lowercase()).collect();
-            let label = if keys_lower
-                .iter()
-                .any(|k| k.contains("postgres") || k.contains("database") || k.contains("db_host"))
-            {
-                "PostgreSQL"
-            } else if keys_lower.iter().any(|k| k.contains("redis")) {
-                "Redis"
-            } else if keys_lower
-                .iter()
-                .any(|k| k.contains("rabbit") || k.contains("amqp"))
-            {
-                "RabbitMQ"
-            } else if keys_lower.iter().any(|k| k.contains("mongo")) {
-                "MongoDB"
-            } else {
-                &keys[0]
+    // Build edges: source mentions target hostname in URL/host:port context.
+    for (source_id, src) in &runtime {
+        let mut found: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for entry in &src.env_list {
+            let val = match entry.split_once('=') {
+                Some((_, v)) => v,
+                None => continue,
             };
-
+            let val_lower = val.to_lowercase();
+            for (tid, trt) in &runtime {
+                if tid == source_id || found.contains(tid) {
+                    continue;
+                }
+                if trt
+                    .hosts
+                    .iter()
+                    .any(|h| value_references_host_in_url(&val_lower, h))
+                {
+                    found.insert(tid.clone());
+                }
+            }
+        }
+        for tid in found {
+            let label = match meta.get(&tid) {
+                Some(m) => infer_label_from_target(
+                    m.image.as_deref(),
+                    m.catalog_id.as_deref(),
+                    m.category.as_deref(),
+                ),
+                None => "HTTP",
+            };
             dep_edges.push(serde_json::json!({
                 "from": source_id,
                 "to": tid,
@@ -247,4 +306,188 @@ pub struct PositionUpdate {
     pub service_id: String,
     pub x: f64,
     pub y: f64,
+}
+
+/// Pick a friendly dep-arrow label based on the *target* service.
+/// Order: catalog_id (exact) → image (substring) → category → "HTTP".
+fn infer_label_from_target(
+    image: Option<&str>,
+    catalog_id: Option<&str>,
+    category: Option<&str>,
+) -> &'static str {
+    let cat_id = catalog_id.unwrap_or("").to_lowercase();
+    match cat_id.as_str() {
+        "postgresql" | "postgres" => return "PostgreSQL",
+        "redis" => return "Redis",
+        "mongodb" | "mongo" => return "MongoDB",
+        "rabbitmq" => return "RabbitMQ",
+        "mysql" => return "MySQL",
+        "mariadb" => return "MariaDB",
+        "clickhouse" => return "ClickHouse",
+        "elasticsearch" => return "Elasticsearch",
+        _ => {}
+    }
+    let img = image.unwrap_or("").to_lowercase();
+    if img.contains("postgres") {
+        return "PostgreSQL";
+    }
+    if img.contains("redis") {
+        return "Redis";
+    }
+    if img.contains("mongo") {
+        return "MongoDB";
+    }
+    if img.contains("rabbitmq") || img.contains("amqp") {
+        return "RabbitMQ";
+    }
+    if img.contains("mariadb") {
+        return "MariaDB";
+    }
+    if img.contains("mysql") {
+        return "MySQL";
+    }
+    if img.contains("clickhouse") {
+        return "ClickHouse";
+    }
+    if img.contains("elastic") {
+        return "Elasticsearch";
+    }
+    match category.unwrap_or("").to_lowercase().as_str() {
+        "database" => "Database",
+        "cache" => "Cache",
+        "queue" | "broker" => "Queue",
+        _ => "HTTP",
+    }
+}
+
+/// Returns true iff `host` appears in `val_lower` as the host part of a URL or
+/// in host:port form. Plain bare-string equality (e.g. `DB_NAME=evroplast`) does
+/// NOT count — that used to produce false dep arrows.
+///
+/// Match requires:
+/// - hostname-style word boundaries on both sides (non-alnum/`-`/`_`/`.`),
+/// - AND one of these adjacency contexts:
+///   - preceded by `@`            (URL with userinfo)
+///   - preceded by `://`          (URL without userinfo)
+///   - followed by `:` then digit (host:port form like `redis:6379`)
+fn value_references_host_in_url(val_lower: &str, host: &str) -> bool {
+    if host.is_empty() || val_lower.len() < host.len() {
+        return false;
+    }
+    let bytes = val_lower.as_bytes();
+    let h = host.as_bytes();
+    let mut i = 0;
+    while i + h.len() <= bytes.len() {
+        if &bytes[i..i + h.len()] == h {
+            let left_ok = i == 0 || !is_hostchar(bytes[i - 1]);
+            let after = i + h.len();
+            let right_ok = after == bytes.len() || !is_hostchar(bytes[after]);
+            if left_ok && right_ok {
+                let after_at = i > 0 && bytes[i - 1] == b'@';
+                let after_scheme = i >= 3 && &bytes[i - 3..i] == b"://";
+                let before_port = after + 1 < bytes.len()
+                    && bytes[after] == b':'
+                    && bytes[after + 1].is_ascii_digit();
+                if after_at || after_scheme || before_port {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+fn is_hostchar(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn label_from_postgres_image() {
+        assert_eq!(
+            infer_label_from_target(Some("postgres:latest"), None, None),
+            "PostgreSQL"
+        );
+    }
+
+    #[test]
+    fn label_from_redis_catalog_id() {
+        assert_eq!(infer_label_from_target(None, Some("redis"), None), "Redis");
+    }
+
+    #[test]
+    fn label_unknown_app_falls_back_to_http() {
+        assert_eq!(
+            infer_label_from_target(Some("nginx:1.27"), None, None),
+            "HTTP"
+        );
+        assert_eq!(infer_label_from_target(None, None, None), "HTTP");
+    }
+
+    #[test]
+    fn label_from_database_category() {
+        assert_eq!(
+            infer_label_from_target(None, None, Some("database")),
+            "Database"
+        );
+    }
+
+    #[test]
+    fn label_catalog_wins_over_image() {
+        assert_eq!(
+            infer_label_from_target(Some("nginx:1.27"), Some("postgresql"), None),
+            "PostgreSQL"
+        );
+    }
+
+    #[test]
+    fn host_match_after_at_in_url() {
+        assert!(value_references_host_in_url(
+            "postgres://u:p@pier-postgresql:5432/db",
+            "pier-postgresql"
+        ));
+    }
+
+    #[test]
+    fn host_match_after_scheme() {
+        assert!(value_references_host_in_url(
+            "redis://pier-redis:6379",
+            "pier-redis"
+        ));
+    }
+
+    #[test]
+    fn host_match_host_port_form() {
+        assert!(value_references_host_in_url(
+            "amqp://rabbit:5672/",
+            "rabbit"
+        ));
+    }
+
+    #[test]
+    fn host_no_match_path_segment() {
+        // db name "evroplast" sits in the URL path — must NOT match.
+        assert!(!value_references_host_in_url(
+            "postgres://u:p@pier-postgresql:5432/evroplast",
+            "evroplast"
+        ));
+    }
+
+    #[test]
+    fn host_no_match_bare_value() {
+        // DB_NAME=evroplast — value equals service name but no URL context.
+        assert!(!value_references_host_in_url("evroplast", "evroplast"));
+    }
+
+    #[test]
+    fn host_no_match_inside_longer_token() {
+        assert!(!value_references_host_in_url(
+            "http://evroplast-web:80",
+            "evroplast"
+        ));
+    }
 }
