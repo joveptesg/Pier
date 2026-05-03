@@ -109,12 +109,21 @@ pub async fn get(
     // Get services for this project
     let mut stmt = db.prepare(
         "SELECT s.id, s.name, s.service_type, s.status, s.port, s.image, \
+                s.catalog_id, s.category, \
                 (SELECT domain FROM domains WHERE service_id = s.id ORDER BY created_at LIMIT 1) AS primary_domain \
          FROM services s WHERE s.project_id = ?1",
     )?;
 
     let services: Vec<serde_json::Value> = stmt
         .query_map([&id], |row| {
+            let catalog_id: Option<String> = row.get(6)?;
+            let icon: Option<String> = catalog_id.as_deref().and_then(|cid| {
+                state
+                    .catalog
+                    .iter()
+                    .find(|i| i.meta.id == cid)
+                    .and_then(|i| i.meta.icon.clone())
+            });
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "name": row.get::<_, String>(1)?,
@@ -122,7 +131,10 @@ pub async fn get(
                 "status": row.get::<_, String>(3)?,
                 "port": row.get::<_, Option<i64>>(4)?,
                 "image": row.get::<_, Option<String>>(5)?,
-                "primary_domain": row.get::<_, Option<String>>(6)?,
+                "catalog_id": catalog_id,
+                "category": row.get::<_, Option<String>>(7)?,
+                "icon": icon,
+                "primary_domain": row.get::<_, Option<String>>(8)?,
             }))
         })?
         .filter_map(|r| r.ok())

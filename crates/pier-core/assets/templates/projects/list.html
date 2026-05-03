@@ -91,20 +91,22 @@
                                 <p class="text-xs text-gray-500 truncate" x-text="formatCatalogName(r.catalog_id) + ' · ' + (r.category || r.service_type)"></p>
                             </div>
                         </div>
-                        <div class="flex items-center gap-4 text-xs mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-                            <span class="inline-flex items-center gap-1">
-                                <span class="w-1.5 h-1.5 rounded-full" :class="r.status === 'running' ? 'bg-green-500' : r.status === 'failed' ? 'bg-red-500' : 'bg-yellow-400'"></span>
-                                <span class="text-gray-500" x-text="r.status"></span>
-                            </span>
-                            <span x-show="r.primary_domain"
-                                  class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400"
-                                  :title="r.primary_domain">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                          d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2 2 2 0 012 2v1.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                </svg>
-                                <span>public</span>
-                            </span>
+                        <div class="flex items-center justify-between text-xs mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                            <div class="flex items-center gap-4">
+                                <span class="inline-flex items-center gap-1">
+                                    <span class="w-1.5 h-1.5 rounded-full" :class="r.status === 'running' ? 'bg-green-500' : r.status === 'failed' ? 'bg-red-500' : 'bg-yellow-400'"></span>
+                                    <span class="text-gray-500" x-text="r.status"></span>
+                                </span>
+                                <span x-show="r.primary_domain"
+                                      class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400"
+                                      :title="r.primary_domain">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2 2 2 0 012 2v1.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    <span>public</span>
+                                </span>
+                            </div>
                             <span x-show="r.port" class="text-gray-400" x-text="':' + r.port"></span>
                         </div>
                     </a>
