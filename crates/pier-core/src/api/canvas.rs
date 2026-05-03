@@ -205,24 +205,27 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
         runtime.insert(source_id.to_string(), Runtime { env_list, hosts });
     }
 
-    // Build edges: source mentions target hostname in URL/host:port context.
+    // Build edges: source mentions target hostname either in URL/host:port context,
+    // or as a bare hostname value in a host-typed env var (POSTGRES_HOST, REDIS_URL, ...).
     for (source_id, src) in &runtime {
         let mut found: std::collections::HashSet<String> = std::collections::HashSet::new();
         for entry in &src.env_list {
-            let val = match entry.split_once('=') {
-                Some((_, v)) => v,
+            let (key, val) = match entry.split_once('=') {
+                Some(kv) => kv,
                 None => continue,
             };
             let val_lower = val.to_lowercase();
+            let key_lower = key.to_lowercase();
+            let host_typed_key = is_host_like_key(&key_lower);
             for (tid, trt) in &runtime {
                 if tid == source_id || found.contains(tid) {
                     continue;
                 }
-                if trt
-                    .hosts
-                    .iter()
-                    .any(|h| value_references_host_in_url(&val_lower, h))
-                {
+                let hit = trt.hosts.iter().any(|h| {
+                    value_references_host_in_url(&val_lower, h)
+                        || (host_typed_key && value_starts_with_host(&val_lower, h))
+                });
+                if hit {
                     found.insert(tid.clone());
                 }
             }
@@ -402,6 +405,44 @@ fn is_hostchar(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.'
 }
 
+/// True if the env var key signals "this value is a host/URL/connection target",
+/// e.g. `POSTGRES_HOST`, `REDIS_URL`, `RABBITMQ_URI`, `DATABASE_DSN`. Used as a
+/// gate for accepting bare hostname values (which would otherwise create false
+/// edges from values like `DB_NAME=evroplast`).
+fn is_host_like_key(key_lower: &str) -> bool {
+    const SUFFIXES: &[&str] = &[
+        "_host",
+        "_hostname",
+        "_server",
+        "_addr",
+        "_address",
+        "_endpoint",
+        "_url",
+        "_uri",
+        "_dsn",
+        "_link",
+        "_connection",
+    ];
+    if SUFFIXES.iter().any(|s| key_lower.ends_with(s)) {
+        return true;
+    }
+    matches!(
+        key_lower,
+        "host" | "hostname" | "server" | "url" | "uri" | "dsn" | "endpoint"
+    )
+}
+
+/// True if `val_lower` begins with `host` followed by a hostname boundary
+/// (end-of-string or non-alnum/`-`/`_`/`.`). Catches `postgresql`, `postgresql:5432`,
+/// `pier-redis/0`, but not `postgresqltest` or `postgresql-replica`.
+fn value_starts_with_host(val_lower: &str, host: &str) -> bool {
+    if host.is_empty() || !val_lower.starts_with(host) {
+        return false;
+    }
+    let after = host.len();
+    after == val_lower.len() || !is_hostchar(val_lower.as_bytes()[after])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,5 +530,29 @@ mod tests {
             "http://evroplast-web:80",
             "evroplast"
         ));
+    }
+
+    #[test]
+    fn host_like_keys() {
+        assert!(is_host_like_key("postgres_host"));
+        assert!(is_host_like_key("redis_url"));
+        assert!(is_host_like_key("rabbitmq_uri"));
+        assert!(is_host_like_key("database_dsn"));
+        assert!(is_host_like_key("api_endpoint"));
+        assert!(is_host_like_key("host"));
+        assert!(is_host_like_key("url"));
+        assert!(!is_host_like_key("db_name"));
+        assert!(!is_host_like_key("postgres_password"));
+        assert!(!is_host_like_key("postgres_user"));
+    }
+
+    #[test]
+    fn value_starts_with_host_bare() {
+        assert!(value_starts_with_host("postgresql", "postgresql"));
+        assert!(value_starts_with_host("postgresql:5432", "postgresql"));
+        assert!(value_starts_with_host("pier-redis/0", "pier-redis"));
+        assert!(!value_starts_with_host("postgresqltest", "postgresql"));
+        assert!(!value_starts_with_host("postgresql-replica", "postgresql"));
+        assert!(!value_starts_with_host("evroplast", "postgresql"));
     }
 }
