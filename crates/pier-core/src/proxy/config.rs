@@ -624,6 +624,19 @@ pub fn remove_platform_domain_config(data_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Check whether the platform domain dynamic config exists on disk and embeds
+/// `expected_domain`. Used by the UI to surface "configured & loaded" state.
+pub fn platform_domain_router_present(data_dir: &Path, expected_domain: &str) -> bool {
+    let path = data_dir
+        .join("traefik")
+        .join("dynamic")
+        .join("_pier-platform.yml");
+    let Ok(contents) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    contents.contains(&format!("Host(`{expected_domain}`)"))
+}
+
 /// Normalize a user-entered domain: strip scheme, userinfo, path, port, trailing dot, lowercase.
 /// Returns empty string if nothing usable remains.
 ///

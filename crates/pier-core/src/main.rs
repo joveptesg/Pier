@@ -378,15 +378,33 @@ async fn main() -> Result<()> {
                             [],
                         );
                     }
-                    // Write platform domain config if set
-                    if !proxy_platform_domain.is_empty() {
+                    // Write platform domain config if set. Normalize the stored
+                    // value on startup — older installs may have full URLs (with
+                    // scheme/path) saved before normalization landed, which
+                    // produced an invalid Traefik Host() rule.
+                    let normalized = proxy::config::normalize_domain(&proxy_platform_domain);
+                    if !normalized.is_empty() {
+                        if normalized != proxy_platform_domain {
+                            if let Ok(db) = proxy_state.db.lock() {
+                                let _ = db.execute(
+                                    "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.platform_domain', ?1)",
+                                    [&normalized],
+                                );
+                            }
+                            tracing::info!(
+                                "Platform domain normalized on startup: {proxy_platform_domain} -> {normalized}"
+                            );
+                        }
                         let target = format!("http://host.docker.internal:{proxy_port}");
-                        if let Err(e) = proxy::config::write_platform_domain_config(
+                        match proxy::config::write_platform_domain_config(
                             &proxy_data_dir,
-                            &proxy_platform_domain,
+                            &normalized,
                             &target,
                         ) {
-                            tracing::warn!("Failed to write platform domain config: {e}");
+                            Ok(()) => tracing::info!(
+                                "Platform domain bound: {normalized} -> {target} (Traefik dynamic config written)"
+                            ),
+                            Err(e) => tracing::warn!("Failed to write platform domain config: {e}"),
                         }
                     }
                 }

@@ -148,12 +148,22 @@ pub async fn status(State(state): State<SharedState>) -> AppResult<impl IntoResp
         )
         .unwrap_or(0);
 
+    // The platform domain router is "active" when its dynamic config file
+    // exists AND embeds the currently configured (normalized) host. This is
+    // what Traefik actually loads — useful as a quick UI sanity check.
+    let platform_domain_active = !platform_domain.is_empty()
+        && crate::proxy::config::platform_domain_router_present(
+            &state.config.data_dir,
+            &platform_domain,
+        );
+
     Ok(Json(serde_json::json!({
         "enabled": enabled,
         "traefik": traefik,
         "acme_email": acme_email,
         "wildcard_domain": wildcard_domain,
         "platform_domain": platform_domain,
+        "platform_domain_active": platform_domain_active,
         "server_ip": server_ip,
         "domain_count": domain_count,
         "active_certs": active_certs,
@@ -199,6 +209,7 @@ pub async fn update_settings(
         drop(db); // release lock before file I/O
         if domain.is_empty() {
             let _ = crate::proxy::config::remove_platform_domain_config(&state.config.data_dir);
+            tracing::info!("Platform domain cleared (Traefik dynamic config removed)");
         } else {
             let target = format!("http://host.docker.internal:{}", state.config.port);
             crate::proxy::config::write_platform_domain_config(
@@ -207,6 +218,9 @@ pub async fn update_settings(
                 &target,
             )
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Platform domain config: {e}")))?;
+            tracing::info!(
+                "Platform domain bound: {domain} -> {target} (Traefik dynamic config written)"
+            );
         }
     }
 
