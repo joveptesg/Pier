@@ -157,7 +157,10 @@ pub async fn list_databases(
         })
         .filter(|d| {
             let name = d["name"].as_str().unwrap_or("");
-            !name.is_empty() && name != "template0" && name != "template1"
+            !name.is_empty()
+                && name != "template0"
+                && name != "template1"
+                && name != "template_postgis"
         })
         .collect();
 
@@ -206,6 +209,11 @@ pub async fn create_database(
 
     match catalog.as_str() {
         "postgresql" | "postgis" => {
+            let use_postgis_template = catalog == "postgis" && body.with_postgis;
+            if use_postgis_template {
+                ensure_postgis_template(&state.docker, &container).await?;
+            }
+
             // Each command must run separately — CREATE DATABASE cannot run inside a transaction
             let create_user = format!("CREATE USER {username} WITH PASSWORD '{password}'");
             exec_in_container(
@@ -215,7 +223,13 @@ pub async fn create_database(
             )
             .await?;
 
-            let create_db = format!("CREATE DATABASE {db_name} OWNER {username}");
+            let create_db = if use_postgis_template {
+                format!(
+                    "CREATE DATABASE {db_name} OWNER {username} TEMPLATE template_postgis"
+                )
+            } else {
+                format!("CREATE DATABASE {db_name} OWNER {username}")
+            };
             exec_in_container(
                 &state.docker,
                 &container,
@@ -326,7 +340,13 @@ pub async fn delete_database(
 
     if matches!(
         dbname.as_str(),
-        "postgres" | "mysql" | "information_schema" | "admin" | "local" | "config"
+        "postgres"
+            | "mysql"
+            | "information_schema"
+            | "admin"
+            | "local"
+            | "config"
+            | "template_postgis"
     ) {
         return Err(AppError::BadRequest(
             "Cannot delete system databases".into(),
@@ -653,9 +673,85 @@ async fn exec_in_container(
     Ok(result)
 }
 
+/// Lazily ensure the `template_postgis` template database exists on a PostGIS
+/// instance. Idempotent: no-op if already present and marked as a template.
+/// Tolerates the "already exists" race when two parallel "create with PostGIS"
+/// requests land at the same time.
+async fn ensure_postgis_template(
+    docker: &bollard::Docker,
+    container: &str,
+) -> Result<(), AppError> {
+    let exists = exec_in_container(
+        docker,
+        container,
+        &[
+            "psql",
+            "-U",
+            "postgres",
+            "-tAc",
+            "SELECT 1 FROM pg_database WHERE datname='template_postgis'",
+        ],
+    )
+    .await?;
+
+    if exists.trim() != "1" {
+        let create = exec_in_container(
+            docker,
+            container,
+            &["psql", "-U", "postgres", "-c", "CREATE DATABASE template_postgis"],
+        )
+        .await;
+        // Tolerate the parallel-creation race: if the database already exists
+        // by the time we got here, that's fine — we'll just enable the
+        // extension and flip the template flag below.
+        if let Err(e) = create {
+            let msg = format!("{e:?}");
+            if !msg.contains("already exists") {
+                return Err(e);
+            }
+        }
+
+        exec_in_container(
+            docker,
+            container,
+            &[
+                "psql",
+                "-U",
+                "postgres",
+                "-d",
+                "template_postgis",
+                "-c",
+                "CREATE EXTENSION IF NOT EXISTS postgis",
+            ],
+        )
+        .await?;
+    }
+
+    // Idempotent: marks the DB as a template so it can be used as TEMPLATE
+    // source even when other connections exist on the instance.
+    exec_in_container(
+        docker,
+        container,
+        &[
+            "psql",
+            "-U",
+            "postgres",
+            "-c",
+            "UPDATE pg_database SET datistemplate = true WHERE datname='template_postgis'",
+        ],
+    )
+    .await?;
+
+    Ok(())
+}
+
 #[derive(Deserialize)]
 pub struct CreateDatabaseRequest {
     pub database: String,
     pub username: String,
     pub password: String,
+    /// PostGIS-only: clone from `template_postgis` so the new DB has the
+    /// PostGIS extension preloaded. Ignored for non-postgis catalogs.
+    #[serde(default)]
+    pub with_postgis: bool,
 }

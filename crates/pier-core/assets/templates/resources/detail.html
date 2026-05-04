@@ -501,6 +501,14 @@
                                 class="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-xs text-gray-600 dark:text-gray-300">Generate</button>
                     </div>
                 </div>
+                <div x-show="catalogId === 'postgis'" class="flex items-start gap-2 pt-1">
+                    <input type="checkbox" id="withPostgis" x-model="newDb.withPostgis"
+                           class="mt-0.5 rounded border-gray-300 dark:border-gray-700">
+                    <label for="withPostgis" class="text-sm text-gray-700 dark:text-gray-300 select-none cursor-pointer">
+                        Enable PostGIS extensions
+                        <span class="block text-xs text-gray-500 dark:text-gray-400">Database is cloned from <code class="font-mono">template_postgis</code> with the <code class="font-mono">postgis</code> extension preloaded.</span>
+                    </label>
+                </div>
                 <div class="flex justify-end gap-2 pt-2">
                     <button @click="showCreateDb = false" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">Cancel</button>
                     <button @click="createDb()" :disabled="dbCreating"
@@ -1396,7 +1404,7 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
-        newDb: { database: '', username: '', password: '' },
+        newDb: { database: '', username: '', password: '', withPostgis: false },
         get portIsPublic() { return (this.resource.ports?.[0]?.is_public || false) || (this.domains && this.domains.length > 0); },
         get portTcpPublished() { return this.resource.ports?.[0]?.is_public || false; },
         get logicalPorts() {
@@ -1580,10 +1588,16 @@ function resourceDetail(id) {
             if (!this.newDb.database || !this.newDb.username || !this.newDb.password) { toast('All fields required', 'error'); return; }
             this.dbCreating = true;
             try {
-                await api('/api/v1/resources/'+this.id+'/databases', { method: 'POST', body: JSON.stringify(this.newDb) });
+                const payload = {
+                    database: this.newDb.database,
+                    username: this.newDb.username,
+                    password: this.newDb.password,
+                    with_postgis: this.catalogId === 'postgis' && !!this.newDb.withPostgis,
+                };
+                await api('/api/v1/resources/'+this.id+'/databases', { method: 'POST', body: JSON.stringify(payload) });
                 toast('Database ' + this.newDb.database + ' created');
                 this.showCreateDb = false;
-                this.newDb = { database: '', username: '', password: '' };
+                this.newDb = { database: '', username: '', password: '', withPostgis: false };
                 await this.loadDatabases();
             } catch(e) { toast(e.message, 'error'); }
             this.dbCreating = false;
