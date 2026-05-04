@@ -209,10 +209,18 @@ pub async fn create_database(
 
     match catalog.as_str() {
         "postgresql" | "postgis" => {
-            let use_postgis_template = catalog == "postgis" && body.with_postgis;
-            if use_postgis_template {
-                ensure_postgis_template(&state.docker, &container).await?;
-            }
+            // Validate requested PostGIS extensions before touching the DB.
+            // Silently drop unknown names (the UI shouldn't ever send any),
+            // and ignore the field entirely on plain `postgresql`.
+            let extensions: Vec<String> = if catalog == "postgis" {
+                body.extensions
+                    .iter()
+                    .filter(|e| POSTGIS_EXTENSIONS.iter().any(|allowed| allowed == e))
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
             // Each command must run separately — CREATE DATABASE cannot run inside a transaction
             let create_user = format!("CREATE USER {username} WITH PASSWORD '{password}'");
@@ -223,13 +231,7 @@ pub async fn create_database(
             )
             .await?;
 
-            let create_db = if use_postgis_template {
-                format!(
-                    "CREATE DATABASE {db_name} OWNER {username} TEMPLATE template_postgis"
-                )
-            } else {
-                format!("CREATE DATABASE {db_name} OWNER {username}")
-            };
+            let create_db = format!("CREATE DATABASE {db_name} OWNER {username}");
             exec_in_container(
                 &state.docker,
                 &container,
@@ -244,6 +246,16 @@ pub async fn create_database(
                 &["psql", "-U", "postgres", "-c", &grant],
             )
             .await?;
+
+            if !extensions.is_empty() {
+                install_postgis_extensions(
+                    &state.docker,
+                    &container,
+                    db_name,
+                    &extensions,
+                )
+                .await?;
+            }
         }
         "mysql" | "mariadb" => {
             let sql = format!(
@@ -673,75 +685,28 @@ async fn exec_in_container(
     Ok(result)
 }
 
-/// Lazily ensure the `template_postgis` template database exists on a PostGIS
-/// instance. Idempotent: no-op if already present and marked as a template.
-/// Tolerates the "already exists" race when two parallel "create with PostGIS"
-/// requests land at the same time.
-async fn ensure_postgis_template(
+/// Install the requested PostGIS extensions into the freshly-created database.
+/// `requested` is filtered through `POSTGIS_EXTENSIONS` to reject anything
+/// that isn't on the allowlist; ordering follows `POSTGIS_EXTENSIONS` so deps
+/// land first. `CASCADE` lets PostgreSQL pull in transitive deps if needed.
+async fn install_postgis_extensions(
     docker: &bollard::Docker,
     container: &str,
+    db_name: &str,
+    requested: &[String],
 ) -> Result<(), AppError> {
-    let exists = exec_in_container(
-        docker,
-        container,
-        &[
-            "psql",
-            "-U",
-            "postgres",
-            "-tAc",
-            "SELECT 1 FROM pg_database WHERE datname='template_postgis'",
-        ],
-    )
-    .await?;
-
-    if exists.trim() != "1" {
-        let create = exec_in_container(
-            docker,
-            container,
-            &["psql", "-U", "postgres", "-c", "CREATE DATABASE template_postgis"],
-        )
-        .await;
-        // Tolerate the parallel-creation race: if the database already exists
-        // by the time we got here, that's fine — we'll just enable the
-        // extension and flip the template flag below.
-        if let Err(e) = create {
-            let msg = format!("{e:?}");
-            if !msg.contains("already exists") {
-                return Err(e);
-            }
+    for ext in POSTGIS_EXTENSIONS {
+        if !requested.iter().any(|r| r == ext) {
+            continue;
         }
-
+        let sql = format!("CREATE EXTENSION IF NOT EXISTS {ext} CASCADE");
         exec_in_container(
             docker,
             container,
-            &[
-                "psql",
-                "-U",
-                "postgres",
-                "-d",
-                "template_postgis",
-                "-c",
-                "CREATE EXTENSION IF NOT EXISTS postgis",
-            ],
+            &["psql", "-U", "postgres", "-d", db_name, "-c", &sql],
         )
         .await?;
     }
-
-    // Idempotent: marks the DB as a template so it can be used as TEMPLATE
-    // source even when other connections exist on the instance.
-    exec_in_container(
-        docker,
-        container,
-        &[
-            "psql",
-            "-U",
-            "postgres",
-            "-c",
-            "UPDATE pg_database SET datistemplate = true WHERE datname='template_postgis'",
-        ],
-    )
-    .await?;
-
     Ok(())
 }
 
@@ -750,8 +715,21 @@ pub struct CreateDatabaseRequest {
     pub database: String,
     pub username: String,
     pub password: String,
-    /// PostGIS-only: clone from `template_postgis` so the new DB has the
-    /// PostGIS extension preloaded. Ignored for non-postgis catalogs.
+    /// PostGIS-only: list of PostGIS extensions to install in the new DB.
+    /// Each name is validated against `POSTGIS_EXTENSIONS`. Ignored for
+    /// non-postgis catalogs.
     #[serde(default)]
-    pub with_postgis: bool,
+    pub extensions: Vec<String>,
 }
+
+/// Whitelist of PostGIS extensions installable through the UI. Order is
+/// significant: dependencies first so `CREATE EXTENSION ... CASCADE` always
+/// has its prerequisites in place.
+const POSTGIS_EXTENSIONS: &[&str] = &[
+    "postgis",
+    "postgis_topology",
+    "postgis_raster",
+    "fuzzystrmatch",
+    "pgrouting",
+    "postgis_tiger_geocoder",
+];

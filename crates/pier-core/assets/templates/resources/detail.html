@@ -501,13 +501,18 @@
                                 class="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-xs text-gray-600 dark:text-gray-300">Generate</button>
                     </div>
                 </div>
-                <div x-show="catalogId === 'postgis'" class="flex items-start gap-2 pt-1">
-                    <input type="checkbox" id="withPostgis" x-model="newDb.withPostgis"
-                           class="mt-0.5 rounded border-gray-300 dark:border-gray-700">
-                    <label for="withPostgis" class="text-sm text-gray-700 dark:text-gray-300 select-none cursor-pointer">
-                        Enable PostGIS extensions
-                        <span class="block text-xs text-gray-500 dark:text-gray-400">Database is cloned from <code class="font-mono">template_postgis</code> with the <code class="font-mono">postgis</code> extension preloaded.</span>
-                    </label>
+                <div x-show="catalogId === 'postgis'" class="pt-1 space-y-1.5">
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400">PostGIS extensions</label>
+                    <template x-for="ext in postgisExtensions" :key="ext.id">
+                        <label class="flex items-start gap-2 cursor-pointer">
+                            <input type="checkbox" :value="ext.id" x-model="newDb.extensions"
+                                   class="mt-0.5 rounded border-gray-300 dark:border-gray-700">
+                            <span class="text-sm text-gray-700 dark:text-gray-300 select-none">
+                                <code class="font-mono" x-text="ext.label"></code>
+                                <span class="block text-xs text-gray-500 dark:text-gray-400" x-text="ext.hint"></span>
+                            </span>
+                        </label>
+                    </template>
                 </div>
                 <div class="flex justify-end gap-2 pt-2">
                     <button @click="showCreateDb = false" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">Cancel</button>
@@ -1404,7 +1409,15 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
-        newDb: { database: '', username: '', password: '', withPostgis: false },
+        newDb: { database: '', username: '', password: '', extensions: ['postgis', 'postgis_topology', 'fuzzystrmatch'] },
+        postgisExtensions: [
+            { id: 'postgis',                 label: 'postgis',                 hint: 'Core: geometries, ST_* functions (required for the rest)' },
+            { id: 'postgis_topology',        label: 'postgis_topology',        hint: 'Topology schemas and topology-aware geometry types' },
+            { id: 'postgis_raster',          label: 'postgis_raster',          hint: 'Raster data type and analysis functions' },
+            { id: 'fuzzystrmatch',           label: 'fuzzystrmatch',           hint: 'soundex, levenshtein — fuzzy string matching' },
+            { id: 'pgrouting',               label: 'pgrouting',               hint: 'Graph routing on PostGIS geometries (separate package; install in image first)' },
+            { id: 'postgis_tiger_geocoder',  label: 'postgis_tiger_geocoder',  hint: 'US-only: address geocoder based on US Census TIGER data' },
+        ],
         get portIsPublic() { return (this.resource.ports?.[0]?.is_public || false) || (this.domains && this.domains.length > 0); },
         get portTcpPublished() { return this.resource.ports?.[0]?.is_public || false; },
         get logicalPorts() {
@@ -1592,12 +1605,12 @@ function resourceDetail(id) {
                     database: this.newDb.database,
                     username: this.newDb.username,
                     password: this.newDb.password,
-                    with_postgis: this.catalogId === 'postgis' && !!this.newDb.withPostgis,
+                    extensions: this.catalogId === 'postgis' ? (this.newDb.extensions || []) : [],
                 };
                 await api('/api/v1/resources/'+this.id+'/databases', { method: 'POST', body: JSON.stringify(payload) });
                 toast('Database ' + this.newDb.database + ' created');
                 this.showCreateDb = false;
-                this.newDb = { database: '', username: '', password: '', withPostgis: false };
+                this.newDb = { database: '', username: '', password: '', extensions: ['postgis', 'postgis_topology', 'fuzzystrmatch'] };
                 await this.loadDatabases();
             } catch(e) { toast(e.message, 'error'); }
             this.dbCreating = false;
