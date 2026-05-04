@@ -9,11 +9,25 @@ use tokio::process::Command;
 
 use super::executor::{supports_per_db_backup, DbCredential};
 
-/// Whether the blob at this S3 key was stored with a gzip wrapper.
-/// Written by `build_s3_key`; read here to decide if restore needs a
-/// decompression step first.
+/// Whether the blob at this S3 key was stored with a Rust-side gzip wrapper.
+/// Read here to decide if restore needs an explicit decompression step first.
+///
+/// Note: `pg_dump -Fc` blobs (`.dump`) carry their own zlib compression
+/// inside the custom format, but `pg_restore` handles that transparently —
+/// they do NOT need to be gunzipped first, and this returns `false` for them.
 pub fn is_gzipped(s3_key: &str) -> bool {
     s3_key.ends_with(".gz")
+}
+
+/// Whether the blob at this S3 key is a PostgreSQL custom-format dump
+/// (`pg_dump -Fc` output, written with a `.dump` suffix). These need to be
+/// restored via `pg_restore`, not piped into `psql`.
+///
+/// Legacy PostgreSQL backups still use the `.sql.gz` suffix and remain
+/// restorable through the plain-SQL path; this function returns `false` for
+/// them, so the legacy `psql`-pipe code still kicks in.
+pub fn is_pg_custom_format(s3_key: &str) -> bool {
+    s3_key.ends_with(".dump")
 }
 
 /// Gunzip a byte slice. Returned bytes are whatever was wrapped — plain SQL
@@ -25,23 +39,31 @@ pub fn gunzip_bytes(input: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Extract a single per-database SQL file from a cluster-wide tar archive.
-/// Returns the raw SQL bytes if found. Archives are produced by
-/// `execute_cluster_backup` with entry names `<db_name>.sql`.
-pub fn extract_db_from_tar(tar_bytes: &[u8], db_name: &str) -> Result<Vec<u8>> {
+/// Extract a single per-database dump from a cluster-wide tar archive.
+/// Returns `(is_pg_custom, bytes)`:
+///  - `is_pg_custom = true` when the entry was named `<db>.dump` (PostgreSQL
+///    custom format, restored via `pg_restore`),
+///  - `is_pg_custom = false` when the entry was named `<db>.sql` (plain SQL,
+///    used by MySQL/MariaDB and by legacy pre-migration PostgreSQL backups,
+///    restored by piping into the engine CLI).
+///
+/// Archives are produced by `execute_cluster_backup`. Both entry-name
+/// conventions are accepted so old `.sql`-only cluster tars keep working.
+pub fn extract_db_from_tar(tar_bytes: &[u8], db_name: &str) -> Result<(bool, Vec<u8>)> {
     let mut archive = tar::Archive::new(Cursor::new(tar_bytes));
-    let target = format!("{db_name}.sql");
+    let target_dump = format!("{db_name}.dump");
+    let target_sql = format!("{db_name}.sql");
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.to_string_lossy().to_string();
-        if path == target {
+        if path == target_dump || path == target_sql {
             let mut buf = Vec::new();
             entry.read_to_end(&mut buf)?;
-            return Ok(buf);
+            return Ok((path == target_dump, buf));
         }
     }
     anyhow::bail!(
-        "database '{db_name}' not found in cluster backup; archive entries do not match '{db_name}.sql'"
+        "database '{db_name}' not found in cluster backup; archive entries do not match '{db_name}.dump' or '{db_name}.sql'"
     )
 }
 
@@ -65,14 +87,19 @@ pub fn is_cluster_archive(s3_key: &str) -> bool {
 ///   `database_credentials` so we know its owner)
 /// - `owner`: credential row for `target_db`, used as the recreated DB's owner
 ///   (Postgres) or re-granted user (MySQL)
-/// - `sql_bytes`: the plain SQL dump to pipe in
+/// - `is_pg_custom`: `true` when the dump bytes are PostgreSQL custom format
+///   (`pg_dump -Fc`), restored via `pg_restore`. `false` for plain SQL
+///   (legacy PostgreSQL `.sql.gz`, all MySQL/MariaDB), restored via
+///   `psql`/`mysql` stdin pipe. Ignored for MySQL/MariaDB (always plain SQL).
+/// - `dump_bytes`: the dump payload (plain SQL or pg-custom binary)
 pub async fn execute_restore(
     container_name: &str,
     catalog_id: &str,
     env_vars: &HashMap<String, String>,
     target_db: &str,
     owner: &DbCredential,
-    sql_bytes: Vec<u8>,
+    is_pg_custom: bool,
+    dump_bytes: Vec<u8>,
 ) -> Result<()> {
     if !supports_per_db_backup(catalog_id) {
         anyhow::bail!("per-DB restore not supported for {catalog_id}");
@@ -80,7 +107,12 @@ pub async fn execute_restore(
 
     match catalog_id {
         "postgresql" | "postgis" => {
-            restore_postgres(container_name, env_vars, target_db, owner, sql_bytes).await
+            if is_pg_custom {
+                restore_postgres_custom(container_name, env_vars, target_db, owner, dump_bytes)
+                    .await
+            } else {
+                restore_postgres(container_name, env_vars, target_db, owner, dump_bytes).await
+            }
         }
         "mysql" | "mariadb" => {
             restore_mysql(
@@ -89,7 +121,7 @@ pub async fn execute_restore(
                 env_vars,
                 target_db,
                 owner,
-                sql_bytes,
+                dump_bytes,
             )
             .await
         }
@@ -139,12 +171,14 @@ pub async fn execute_mongo_restore(
     pipe_to_docker(&args, archive_bytes).await
 }
 
-async fn restore_postgres(
+/// Terminate active sessions on the target DB and drop+recreate it as the
+/// given owner. Shared by both Postgres restore paths (plain SQL via psql and
+/// custom format via pg_restore).
+async fn drop_and_recreate_pg_db(
     container_name: &str,
     env_vars: &HashMap<String, String>,
     target_db: &str,
     owner: &DbCredential,
-    sql_bytes: Vec<u8>,
 ) -> Result<()> {
     let root_user = env_vars
         .get("POSTGRES_USER")
@@ -155,7 +189,6 @@ async fn restore_postgres(
         .cloned()
         .unwrap_or_default();
 
-    // 1. Terminate active sessions on the target DB, then drop and recreate.
     // pg_terminate_backend ignores our own session (the psql we're running in).
     let recreate_sql = format!(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
@@ -172,9 +205,19 @@ async fn restore_postgres(
         None,
         recreate_sql.into_bytes(),
     )
-    .await?;
+    .await
+}
 
-    // 2. Stream the dump into the freshly-created DB as the owner.
+/// Restore from a plain-SQL dump (legacy `.sql.gz` PostgreSQL backups). Drops
+/// and recreates the target DB, then streams the SQL into `psql` as the owner.
+async fn restore_postgres(
+    container_name: &str,
+    env_vars: &HashMap<String, String>,
+    target_db: &str,
+    owner: &DbCredential,
+    sql_bytes: Vec<u8>,
+) -> Result<()> {
+    drop_and_recreate_pg_db(container_name, env_vars, target_db, owner).await?;
     run_psql(
         container_name,
         &owner.username,
@@ -183,8 +226,43 @@ async fn restore_postgres(
         sql_bytes,
     )
     .await?;
-
     Ok(())
+}
+
+/// Restore from a `pg_dump -Fc` custom-format dump. Drops and recreates the
+/// target DB, then streams the binary dump into `pg_restore` as the owner.
+///
+/// Streaming via stdin precludes parallel restore (`pg_restore -j` requires
+/// random-access on an on-disk file), but custom format still wins over plain
+/// SQL: data loads via binary COPY, indexes and FK are built only after data
+/// is in, and selective restore / better error reporting come for free.
+/// `--no-owner --no-privileges` keep the restore independent of the source
+/// cluster's roles — the target DB's owner is set by `drop_and_recreate_pg_db`.
+async fn restore_postgres_custom(
+    container_name: &str,
+    env_vars: &HashMap<String, String>,
+    target_db: &str,
+    owner: &DbCredential,
+    dump_bytes: Vec<u8>,
+) -> Result<()> {
+    drop_and_recreate_pg_db(container_name, env_vars, target_db, owner).await?;
+
+    let args = vec![
+        "exec".to_string(),
+        "-i".to_string(),
+        container_name.to_string(),
+        "env".to_string(),
+        format!("PGPASSWORD={}", owner.password),
+        "pg_restore".to_string(),
+        "-U".to_string(),
+        owner.username.clone(),
+        "-d".to_string(),
+        target_db.to_string(),
+        "--no-owner".to_string(),
+        "--no-privileges".to_string(),
+        "--exit-on-error".to_string(),
+    ];
+    pipe_to_docker(&args, dump_bytes).await
 }
 
 async fn run_psql(
@@ -312,4 +390,63 @@ fn escape_mysql_ident(s: &str) -> String {
 /// Escape a MySQL string literal (single-quoted).
 fn escape_mysql_str(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_tar(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::<u8>::new());
+        for (name, body) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, name, *body).unwrap();
+        }
+        builder.into_inner().unwrap()
+    }
+
+    #[test]
+    fn pg_custom_format_detected_by_suffix() {
+        assert!(is_pg_custom_format("svc/db_app_20260504.dump"));
+        assert!(!is_pg_custom_format("svc/db_app_20260504.sql.gz"));
+        assert!(!is_pg_custom_format("svc/_cluster_20260504.tar.gz"));
+        assert!(!is_pg_custom_format("svc/db_app_20260504.archive.gz"));
+    }
+
+    #[test]
+    fn extract_db_from_tar_finds_dump_entry() {
+        let tar = build_tar(&[("appdb.dump", b"PGDMPbinary"), ("other.sql", b"-- other")]);
+        let (is_pg_custom, bytes) = extract_db_from_tar(&tar, "appdb").unwrap();
+        assert!(is_pg_custom, "appdb.dump should map to is_pg_custom=true");
+        assert_eq!(bytes, b"PGDMPbinary");
+    }
+
+    #[test]
+    fn extract_db_from_tar_finds_legacy_sql_entry() {
+        let tar = build_tar(&[("legacy.sql", b"-- legacy SQL")]);
+        let (is_pg_custom, bytes) = extract_db_from_tar(&tar, "legacy").unwrap();
+        assert!(
+            !is_pg_custom,
+            "legacy.sql should map to is_pg_custom=false (plain SQL path)"
+        );
+        assert_eq!(bytes, b"-- legacy SQL");
+    }
+
+    #[test]
+    fn extract_db_from_tar_errors_when_missing() {
+        let tar = build_tar(&[("a.sql", b"data")]);
+        let err = extract_db_from_tar(&tar, "missing").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("missing"), "error should name the DB: {msg}");
+    }
+
+    #[test]
+    fn is_gzipped_unaffected_by_dump_suffix() {
+        assert!(is_gzipped("svc/x.sql.gz"));
+        assert!(is_gzipped("svc/x.tar.gz"));
+        assert!(!is_gzipped("svc/x.dump"));
+    }
 }

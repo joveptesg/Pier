@@ -598,19 +598,28 @@ pub async fn restore_backup(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("restore failed: {e}")))?;
     } else {
         // SQL path. Order: gunzip (if needed) → tar-extract (if cluster) →
-        // stream into psql/mysql. Legacy `.sql` / `.tar` blobs without the
-        // `.gz` suffix bypass the gunzip step so old backups still work.
+        // stream into psql / pg_restore / mysql. Legacy `.sql` / `.tar` blobs
+        // without the `.gz` suffix bypass the gunzip step so old backups
+        // still work. PostgreSQL `.dump` blobs (custom format) are NOT
+        // gzipped at the outer level — they carry their own internal zlib
+        // that pg_restore handles transparently.
         let unpacked = if gzipped {
             crate::backup::restore::gunzip_bytes(&blob)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("gunzip: {e}")))?
         } else {
             blob
         };
-        let sql_bytes = if crate::backup::restore::is_cluster_archive(&s3_key) {
+        // Cluster tars carry per-DB entries that may be either `.dump`
+        // (custom format) or `.sql` (legacy / MySQL). Per-DB blobs are
+        // identified by the s3_key suffix.
+        let (is_pg_custom, dump_bytes) = if crate::backup::restore::is_cluster_archive(&s3_key) {
             crate::backup::restore::extract_db_from_tar(&unpacked, &body.target_database_name)
                 .map_err(|e| AppError::BadRequest(e.to_string()))?
         } else {
-            unpacked
+            (
+                crate::backup::restore::is_pg_custom_format(&s3_key),
+                unpacked,
+            )
         };
         crate::backup::restore::execute_restore(
             &container_name,
@@ -618,7 +627,8 @@ pub async fn restore_backup(
             &env_vars,
             &body.target_database_name,
             &owner,
-            sql_bytes,
+            is_pg_custom,
+            dump_bytes,
         )
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("restore failed: {e}")))?;

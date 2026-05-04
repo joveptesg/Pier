@@ -367,17 +367,23 @@ async fn delete_blob_by_storage_id(
     .await
 }
 
-/// S3 key format (all backups are compressed; `.gz` suffix indicates the
-/// blob needs decompression before use — except for Mongo archives, which
-/// are consumed by mongorestore with its own `--gzip` flag).
+/// S3 key format. The file extension encodes the wire format so that restore
+/// can pick the correct path without consulting any DB metadata column:
+///
+/// - `.dump` — `pg_dump -Fc` custom format (binary, self-compressed), restored with `pg_restore`.
+/// - `.sql.gz` — plain SQL gzipped in Rust (MySQL/MariaDB), restored by piping into the engine CLI. Legacy PostgreSQL backups (pre custom-format migration) also use this suffix and remain restorable.
+/// - `.archive.gz` — `mongodump --archive --gzip` output, consumed by `mongorestore --gzip`.
+/// - `.tar.gz` — cluster-wide bundle; entries are `<db>.dump` for Postgres or `<db>.sql` for MySQL/MariaDB.
 ///
 /// `key_prefix` is the per-storage user-configured first folder (already
 /// normalized — no leading/trailing slashes). Empty prefix writes to the
 /// bucket root.
-///   - per-DB mongo:  {prefix}/{service}/db_{dbname}_{timestamp}.archive.gz
-///   - per-DB SQL:    {prefix}/{service}/db_{dbname}_{timestamp}.sql.gz
-///   - cluster tar:   {prefix}/{service}/_cluster_{timestamp}.tar.gz
-///   - mongo full:    {prefix}/{service}/mongodb_{timestamp}.archive.gz
+///
+/// - per-DB mongo: `{prefix}/{service}/db_{dbname}_{timestamp}.archive.gz`
+/// - per-DB postgres: `{prefix}/{service}/db_{dbname}_{timestamp}.dump`
+/// - per-DB MySQL: `{prefix}/{service}/db_{dbname}_{timestamp}.sql.gz`
+/// - cluster tar: `{prefix}/{service}/_cluster_{timestamp}.tar.gz`
+/// - mongo full: `{prefix}/{service}/mongodb_{timestamp}.archive.gz`
 pub fn build_s3_key(
     key_prefix: &str,
     service_name: &str,
@@ -387,6 +393,7 @@ pub fn build_s3_key(
 ) -> String {
     let filename = match (database_name, catalog_id) {
         (Some(db), "mongodb") => format!("db_{db}_{timestamp}.archive.gz"),
+        (Some(db), "postgresql" | "postgis") => format!("db_{db}_{timestamp}.dump"),
         (Some(db), _) => format!("db_{db}_{timestamp}.sql.gz"),
         (None, "mongodb") => format!("mongodb_{timestamp}.archive.gz"),
         (None, _) => format!("_cluster_{timestamp}.tar.gz"),
@@ -395,5 +402,46 @@ pub fn build_s3_key(
         format!("{service_name}/{filename}")
     } else {
         format!("{key_prefix}/{service_name}/{filename}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_s3_key;
+
+    #[test]
+    fn postgres_per_db_uses_dump_extension() {
+        let key = build_s3_key(
+            "backups",
+            "pg-prod",
+            "postgresql",
+            Some("appdb"),
+            "20260504",
+        );
+        assert_eq!(key, "backups/pg-prod/db_appdb_20260504.dump");
+    }
+
+    #[test]
+    fn postgis_per_db_uses_dump_extension() {
+        let key = build_s3_key("", "gis", "postgis", Some("places"), "20260504");
+        assert_eq!(key, "gis/db_places_20260504.dump");
+    }
+
+    #[test]
+    fn mysql_per_db_keeps_sql_gz() {
+        let key = build_s3_key("", "mysql-prod", "mysql", Some("appdb"), "20260504");
+        assert_eq!(key, "mysql-prod/db_appdb_20260504.sql.gz");
+    }
+
+    #[test]
+    fn cluster_backup_is_tar_gz() {
+        let key = build_s3_key("", "pg-prod", "postgresql", None, "20260504");
+        assert_eq!(key, "pg-prod/_cluster_20260504.tar.gz");
+    }
+
+    #[test]
+    fn mongo_per_db_unchanged() {
+        let key = build_s3_key("", "mongo", "mongodb", Some("users"), "20260504");
+        assert_eq!(key, "mongo/db_users_20260504.archive.gz");
     }
 }
