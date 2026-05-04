@@ -188,13 +188,14 @@ pub fn load_catalog() -> Vec<CatalogItem> {
         };
         let db_popularity = |id: &str| match id {
             "postgresql" => 0,
-            "mysql" => 1,
-            "redis" => 2,
-            "mongodb" => 3,
-            "mariadb" => 4,
-            "clickhouse" => 5,
-            "cassandra" => 6,
-            "scylladb" => 7,
+            "postgis" => 1,
+            "mysql" => 2,
+            "redis" => 3,
+            "mongodb" => 4,
+            "mariadb" => 5,
+            "clickhouse" => 6,
+            "cassandra" => 7,
+            "scylladb" => 8,
             _ => 99,
         };
         cat_order(&a.meta.category)
