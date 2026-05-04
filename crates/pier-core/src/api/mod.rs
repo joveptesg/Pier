@@ -75,10 +75,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         .route("/account/sessions/{id}", delete(account::revoke_session))
         // Bearer API tokens (used by npm registry, CI, CLI integrations)
-        .route(
-            "/account/tokens",
-            get(tokens::list).post(tokens::create),
-        )
+        .route("/account/tokens", get(tokens::list).post(tokens::create))
         .route("/account/tokens/{id}", delete(tokens::revoke))
         // Embedded npm registry settings (which S3 storage to mirror to)
         .route(

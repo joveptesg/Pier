@@ -64,7 +64,9 @@ pub async fn update(
 
     if let Some(id) = normalized {
         let exists: bool = db
-            .query_row("SELECT 1 FROM s3_storages WHERE id = ?1", [id], |_| Ok(true))
+            .query_row("SELECT 1 FROM s3_storages WHERE id = ?1", [id], |_| {
+                Ok(true)
+            })
             .unwrap_or(false);
         if !exists {
             return Err(crate::error::AppError::BadRequest(format!(

@@ -663,8 +663,14 @@ mod normalize_domain_tests {
         assert_eq!(normalize_domain(""), "");
         assert_eq!(normalize_domain("   "), "");
         assert_eq!(normalize_domain("pier.example.com"), "pier.example.com");
-        assert_eq!(normalize_domain("https://pier.example.com"), "pier.example.com");
-        assert_eq!(normalize_domain("https://pier.example.com/"), "pier.example.com");
+        assert_eq!(
+            normalize_domain("https://pier.example.com"),
+            "pier.example.com"
+        );
+        assert_eq!(
+            normalize_domain("https://pier.example.com/"),
+            "pier.example.com"
+        );
         assert_eq!(
             normalize_domain("http://user:pass@pier.example.com:8080/path?q=1#x"),
             "pier.example.com"

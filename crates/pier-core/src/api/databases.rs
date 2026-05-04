@@ -248,13 +248,7 @@ pub async fn create_database(
             .await?;
 
             if !extensions.is_empty() {
-                install_postgis_extensions(
-                    &state.docker,
-                    &container,
-                    db_name,
-                    &extensions,
-                )
-                .await?;
+                install_postgis_extensions(&state.docker, &container, db_name, &extensions).await?;
             }
         }
         "mysql" | "mariadb" => {

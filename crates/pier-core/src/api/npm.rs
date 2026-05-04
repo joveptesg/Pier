@@ -42,10 +42,7 @@ pub fn router(state: SharedState) -> Router<SharedState> {
     let protected = Router::new()
         .route("/-/whoami", get(whoami))
         // Scoped variants come first so axum tries the more specific match.
-        .route(
-            "/@{scope}/{name}/-/{tarball}",
-            get(get_tarball_scoped),
-        )
+        .route("/@{scope}/{name}/-/{tarball}", get(get_tarball_scoped))
         .route("/@{scope}/{name}/{version}", get(get_version_scoped))
         .route(
             "/@{scope}/{name}",
@@ -101,12 +98,7 @@ async fn login(
                 "SELECT id, password FROM users
                  WHERE (username = ?1 OR email = ?1) AND is_active = 1",
                 [username],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
             .map_err(|_| AppError::Unauthorized)?;
 
@@ -303,8 +295,8 @@ async fn handle_publish(
     body: &[u8],
 ) -> Result<axum::response::Response, AppError> {
     validate_package_name(package)?;
-    let body_json: serde_json::Value =
-        serde_json::from_slice(body).map_err(|e| AppError::BadRequest(format!("invalid json: {e}")))?;
+    let body_json: serde_json::Value = serde_json::from_slice(body)
+        .map_err(|e| AppError::BadRequest(format!("invalid json: {e}")))?;
 
     // Pull the single (version → manifest) entry.
     let versions_obj = body_json
@@ -410,8 +402,7 @@ async fn handle_publish(
                 .insert("dist".into(), serde_json::Value::Object(m));
         }
     }
-    let manifest_json =
-        serde_json::to_string(&manifest_owned).map_err(anyhow::Error::from)?;
+    let manifest_json = serde_json::to_string(&manifest_owned).map_err(anyhow::Error::from)?;
 
     // Merge new dist-tags into existing ones (defaulting to `latest`).
     let new_tags = body_json
@@ -516,7 +507,9 @@ fn validate_package_name(name: &str) -> Result<(), AppError> {
             return Err(AppError::BadRequest("invalid scoped package name".into()));
         }
     } else if name.contains('/') {
-        return Err(AppError::BadRequest("unscoped package cannot contain /".into()));
+        return Err(AppError::BadRequest(
+            "unscoped package cannot contain /".into(),
+        ));
     }
     Ok(())
 }

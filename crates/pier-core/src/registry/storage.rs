@@ -110,11 +110,7 @@ pub async fn write_tarball(
 
 /// Read a tarball, falling back to the cold tier if the hot tier is empty
 /// (e.g. fresh VPS reinstall).
-pub async fn read_tarball(
-    state: &SharedState,
-    package: &str,
-    filename: &str,
-) -> Result<Vec<u8>> {
+pub async fn read_tarball(state: &SharedState, package: &str, filename: &str) -> Result<Vec<u8>> {
     let path = tarball_path(state, package, filename);
     match fs::read(&path).await {
         Ok(bytes) => Ok(bytes),
@@ -138,11 +134,7 @@ pub async fn read_tarball(
 /// Drop a tarball from the hot tier. Cold-tier blobs are left in place
 /// (cleanup is a separate operator-driven concern).
 #[allow(dead_code)]
-pub async fn delete_tarball(
-    state: &SharedState,
-    package: &str,
-    filename: &str,
-) -> Result<()> {
+pub async fn delete_tarball(state: &SharedState, package: &str, filename: &str) -> Result<()> {
     let path = tarball_path(state, package, filename);
     match fs::remove_file(&path).await {
         Ok(()) => Ok(()),
@@ -229,21 +221,27 @@ async fn upload_to_cold(
         // Bunny uses an HTTP PUT to the storage zone — see s3::bunny module.
         s3::bunny::upload_file(&tier.bucket, &tier.access_key, &tier.endpoint, &key, body).await
     } else {
-        let client = s3::build_client(&tier.endpoint, &tier.region, &tier.access_key, &tier.secret_key)?;
+        let client = s3::build_client(
+            &tier.endpoint,
+            &tier.region,
+            &tier.access_key,
+            &tier.secret_key,
+        )?;
         s3::upload_file(&client, &tier.bucket, &key, body).await
     }
 }
 
-async fn download_from_cold(
-    tier: &ColdTier,
-    package: &str,
-    filename: &str,
-) -> Result<Vec<u8>> {
+async fn download_from_cold(tier: &ColdTier, package: &str, filename: &str) -> Result<Vec<u8>> {
     let key = registry::s3_key(&tier.key_prefix, package, filename);
     if tier.storage_type == "bunny" {
         s3::bunny::download_file(&tier.bucket, &tier.access_key, &tier.endpoint, &key).await
     } else {
-        let client = s3::build_client(&tier.endpoint, &tier.region, &tier.access_key, &tier.secret_key)?;
+        let client = s3::build_client(
+            &tier.endpoint,
+            &tier.region,
+            &tier.access_key,
+            &tier.secret_key,
+        )?;
         let resp = client
             .get_object()
             .bucket(&tier.bucket)
@@ -269,8 +267,13 @@ pub async fn gc_orphans(state: &SharedState) -> Result<()> {
         if !pkg_dir.is_dir() {
             continue;
         }
-        let package_name = pkg_dir.file_name().and_then(|s| s.to_str()).map(String::from);
-        let Some(package_name) = package_name else { continue };
+        let package_name = pkg_dir
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(String::from);
+        let Some(package_name) = package_name else {
+            continue;
+        };
         gc_package_dir(state, &pkg_dir, &package_name).await.ok();
     }
     Ok(())

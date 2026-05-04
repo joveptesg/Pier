@@ -334,7 +334,6 @@ pub async fn package_detail(
     )
 }
 
-
 /// GET /domains
 pub async fn domains_page(
     State(state): State<SharedState>,
