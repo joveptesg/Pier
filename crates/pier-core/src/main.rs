@@ -485,6 +485,17 @@ async fn main() -> Result<()> {
     // Peer-core heartbeat: refresh status for every registered federated core.
     api::servers::spawn_heartbeat_task(state.clone());
 
+    // Drop orphan registry tarballs from a publish that crashed between
+    // FS write and DB insert. Best-effort; never fails startup.
+    {
+        let s = state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = registry::storage::gc_orphans(&s).await {
+                tracing::warn!("registry: orphan gc skipped: {e:#}");
+            }
+        });
+    }
+
     let app = ui::ui_router(state.clone())
         .merge(api::api_router(state.clone()))
         // Embedded npm-compatible registry. Lives outside `/api/v1/` because

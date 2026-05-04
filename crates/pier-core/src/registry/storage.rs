@@ -151,21 +151,35 @@ pub async fn delete_tarball(
     }
 }
 
-/// Pull the first configured S3 storage row, decrypt creds, and decide whether
-/// we have a usable cold tier. Returns `None` if the operator hasn't configured
-/// any S3 storage yet — registry still works, just without S3 mirroring.
+/// Pull the configured S3 storage row, decrypt creds, and decide whether
+/// we have a usable cold tier. Returns `None` if the operator hasn't picked
+/// a registry storage in /packages → "Configure S3" — registry still works,
+/// just without S3 mirroring.
 async fn load_cold_tier(state: &SharedState) -> Result<Option<ColdTier>> {
     let row = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow!("DB lock poisoned: {e}"))?;
+
+        let storage_id: Option<String> = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'registry.s3_storage_id'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .filter(|s| !s.is_empty());
+
+        let Some(id) = storage_id else {
+            return Ok(None);
+        };
+
         db.query_row(
             "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix
              FROM s3_storages
-             ORDER BY id ASC
-             LIMIT 1",
-            [],
+             WHERE id = ?1",
+            [&id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -244,7 +258,6 @@ async fn download_from_cold(
 /// On startup, drop any orphan tarballs on the hot tier that don't have a
 /// matching `npm_versions` row — these are left over from a publish that
 /// crashed between the FS write and the DB insert.
-#[allow(dead_code)]
 pub async fn gc_orphans(state: &SharedState) -> Result<()> {
     let root = registry::fs_root(&state.config);
     if !root.exists() {

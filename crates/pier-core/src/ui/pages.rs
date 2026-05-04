@@ -334,17 +334,6 @@ pub async fn package_detail(
     )
 }
 
-/// GET /settings/tokens — manage Bearer API tokens (npm/CI integrations).
-pub async fn tokens_page(
-    State(state): State<SharedState>,
-    axum::Extension(user): axum::Extension<AuthUser>,
-) -> PageResult {
-    render(
-        &state,
-        "settings/tokens.html",
-        minijinja::context! { user => user.username, page => "tokens" },
-    )
-}
 
 /// GET /domains
 pub async fn domains_page(

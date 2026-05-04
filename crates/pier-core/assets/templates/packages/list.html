@@ -2,60 +2,281 @@
 {% block title %}Packages{% endblock %}
 
 {% block content %}
-<div class="p-6 space-y-6">
-    <div class="flex items-start justify-between gap-4">
-        <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">npm Packages</h2>
-            <p class="text-sm text-gray-500 mt-0.5">Private packages published to this Pier instance via <code class="text-xs font-mono">npm publish</code>.</p>
-        </div>
-        <a href="/settings/tokens"
-           class="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">
-            Manage tokens
-        </a>
+<div x-data="packagesPage()" x-init="init()" class="p-6 space-y-6">
+    <!-- Header -->
+    <div>
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">npm Packages</h2>
+        <p class="text-sm text-gray-500 mt-0.5">Embedded npm-compatible registry served at <code class="text-xs font-mono">/registry/npm/</code>.</p>
     </div>
 
-    <div class="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl p-4">
-        <p class="text-sm font-medium text-blue-900 dark:text-blue-200 mb-1">Configure your client</p>
-        <p class="text-xs text-blue-800 dark:text-blue-300 mb-2">In your project's <code class="font-mono">.npmrc</code>:</p>
+    <!-- Tabs -->
+    <div class="flex gap-6 border-b border-gray-200 dark:border-gray-800">
+        <template x-for="t in tabs" :key="t.id">
+            <button @click="tab = t.id"
+                    class="relative -mb-px px-1 py-3 text-sm font-medium whitespace-nowrap transition-colors"
+                    :class="tab === t.id
+                        ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500'
+                        : 'text-gray-500 dark:text-gray-400 border-b-2 border-transparent hover:text-gray-900 dark:hover:text-gray-200'">
+                <span x-text="t.label"></span>
+            </button>
+        </template>
+    </div>
+
+    <!-- ── Tab: Packages ────────────────────────────────────── -->
+    <div x-show="tab === 'packages'" x-cloak class="space-y-6">
+        <div class="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl p-4">
+            <p class="text-sm font-medium text-blue-900 dark:text-blue-200 mb-1">Configure your client</p>
+            <p class="text-xs text-blue-800 dark:text-blue-300 mb-2">In your project's <code class="font-mono">.npmrc</code>:</p>
 <pre class="text-xs font-mono bg-white dark:bg-gray-900 border border-blue-100 dark:border-blue-500/20 rounded-lg p-3 text-gray-800 dark:text-gray-200 overflow-x-auto">registry=https://YOUR-PIER-HOST/registry/npm/
 //YOUR-PIER-HOST/registry/npm/:_authToken=pier_npm_xxx</pre>
+        </div>
+
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+            <table class="min-w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
+                    <tr>
+                        <th class="px-4 py-3 text-left font-medium">Package</th>
+                        <th class="px-4 py-3 text-left font-medium">Latest</th>
+                        <th class="px-4 py-3 text-left font-medium">Versions</th>
+                        <th class="px-4 py-3 text-left font-medium">Total size</th>
+                        <th class="px-4 py-3 text-left font-medium">Updated</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                    {% for p in packages %}
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                        <td class="px-4 py-3">
+                            <a href="/packages/{{ p.name }}" class="font-mono text-blue-600 dark:text-blue-400 hover:underline">{{ p.name }}</a>
+                            {% if p.description %}<p class="text-xs text-gray-500 mt-0.5">{{ p.description }}</p>{% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-gray-700 dark:text-gray-300">
+                            {% if p.latest_version %}<span class="font-mono">{{ p.latest_version }}</span>{% else %}—{% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-gray-500">{{ p.version_count }}</td>
+                        <td class="px-4 py-3 text-gray-500">{{ p.total_size }} bytes</td>
+                        <td class="px-4 py-3 text-xs text-gray-500">{{ p.updated_at }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not packages %}
+                    <tr>
+                        <td colspan="5" class="px-4 py-12 text-center text-sm text-gray-500">
+                            No packages yet. Run <code class="font-mono text-gray-700 dark:text-gray-300">npm publish</code> against this registry to see them here.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
     </div>
 
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
-        <table class="min-w-full text-sm">
-            <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
-                <tr>
-                    <th class="px-4 py-3 text-left font-medium">Package</th>
-                    <th class="px-4 py-3 text-left font-medium">Latest</th>
-                    <th class="px-4 py-3 text-left font-medium">Versions</th>
-                    <th class="px-4 py-3 text-left font-medium">Total size</th>
-                    <th class="px-4 py-3 text-left font-medium">Updated</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
-                {% for p in packages %}
-                <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
-                    <td class="px-4 py-3">
-                        <a href="/packages/{{ p.name }}" class="font-mono text-blue-600 dark:text-blue-400 hover:underline">{{ p.name }}</a>
-                        {% if p.description %}<p class="text-xs text-gray-500 mt-0.5">{{ p.description }}</p>{% endif %}
-                    </td>
-                    <td class="px-4 py-3 text-gray-700 dark:text-gray-300">
-                        {% if p.latest_version %}<span class="font-mono">{{ p.latest_version }}</span>{% else %}—{% endif %}
-                    </td>
-                    <td class="px-4 py-3 text-gray-500">{{ p.version_count }}</td>
-                    <td class="px-4 py-3 text-gray-500">{{ p.total_size }} bytes</td>
-                    <td class="px-4 py-3 text-xs text-gray-500">{{ p.updated_at }}</td>
-                </tr>
-                {% endfor %}
-                {% if not packages %}
-                <tr>
-                    <td colspan="5" class="px-4 py-12 text-center text-sm text-gray-500">
-                        No packages yet. Run <code class="font-mono text-gray-700 dark:text-gray-300">npm publish</code> against this registry to see them here.
-                    </td>
-                </tr>
-                {% endif %}
-            </tbody>
-        </table>
+    <!-- ── Tab: Tokens ──────────────────────────────────────── -->
+    <div x-show="tab === 'tokens'" x-cloak class="space-y-6">
+        <div class="flex items-center justify-between">
+            <p class="text-sm text-gray-500">Bearer tokens for the npm registry, CI runners, and external integrations.</p>
+            <button @click="creating = true; newName = ''"
+                    class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors">
+                + New token
+            </button>
+        </div>
+
+        <div x-show="issued" x-cloak class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4 space-y-2">
+            <p class="text-sm font-medium text-amber-900 dark:text-amber-200">Copy this token now — it won't be shown again.</p>
+            <div class="flex items-center gap-2">
+                <input type="text" readonly x-model="issued"
+                       class="flex-1 text-xs font-mono bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                <button @click="navigator.clipboard.writeText(issued); copied = true; setTimeout(() => copied = false, 1500)"
+                        class="px-3 py-2 text-xs font-medium bg-amber-500 hover:bg-amber-600 text-white rounded-lg">
+                    <span x-text="copied ? 'Copied' : 'Copy'"></span>
+                </button>
+                <button @click="issued = ''" class="text-xs text-amber-700 hover:text-amber-900 dark:hover:text-amber-300">Dismiss</button>
+            </div>
+        </div>
+
+        <div x-show="creating" x-cloak class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Create a token</p>
+            <div class="flex items-center gap-2">
+                <input type="text" x-model="newName" placeholder="e.g. CI publish token" maxlength="100"
+                       @keydown.enter="createToken()"
+                       class="flex-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
+                <button @click="createToken()" :disabled="!newName.trim() || saving"
+                        class="px-3 py-2 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50">
+                    <span x-text="saving ? 'Creating…' : 'Create'"></span>
+                </button>
+                <button @click="creating = false" class="px-3 py-2 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Cancel</button>
+            </div>
+            <p x-show="tokenError" x-cloak class="text-xs text-red-500 mt-2" x-text="tokenError"></p>
+        </div>
+
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+            <table class="min-w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
+                    <tr>
+                        <th class="px-4 py-3 text-left font-medium">Name</th>
+                        <th class="px-4 py-3 text-left font-medium">Prefix</th>
+                        <th class="px-4 py-3 text-left font-medium">Created</th>
+                        <th class="px-4 py-3 text-left font-medium">Last used</th>
+                        <th class="px-4 py-3 text-right font-medium">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                    <template x-for="t in tokens" :key="t.id">
+                        <tr>
+                            <td class="px-4 py-3 text-gray-900 dark:text-white" x-text="t.name"></td>
+                            <td class="px-4 py-3 text-xs font-mono text-gray-500" x-text="t.prefix + '…'"></td>
+                            <td class="px-4 py-3 text-xs text-gray-500" x-text="formatDate(t.created_at)"></td>
+                            <td class="px-4 py-3 text-xs text-gray-500" x-text="t.last_used_at ? formatDate(t.last_used_at) : 'Never'"></td>
+                            <td class="px-4 py-3 text-right">
+                                <button @click="revokeToken(t)"
+                                        class="px-2 py-1 text-[11px] font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20 rounded">
+                                    Revoke
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="!tokens.length" x-cloak>
+                        <td colspan="5" class="px-4 py-12 text-center text-sm text-gray-500">
+                            No tokens yet. Click <strong>+ New token</strong> above to create one.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Tab: S3 Configure ───────────────────────────────── -->
+    <div x-show="tab === 's3'" x-cloak class="space-y-6">
+        <div>
+            <p class="text-sm text-gray-500 mb-1">Cold-tier storage for tarballs.</p>
+            <p class="text-xs text-gray-500">Pick an S3-compatible storage to mirror published tarballs to. Tarballs are still served from the local FS at low latency — S3 is the durability backstop and lets you re-hydrate after a VPS reinstall. Leave unset to disable mirroring.</p>
+        </div>
+
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Mirror tarballs to</p>
+            <div class="flex items-center gap-2">
+                <select x-model="s3SelectedId" :disabled="s3Saving"
+                        class="flex-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white disabled:opacity-50">
+                    <option value="">— Disabled (no mirroring) —</option>
+                    <template x-for="s in s3Options" :key="s.id">
+                        <option :value="s.id" x-text="s.label"></option>
+                    </template>
+                </select>
+                <button @click="saveS3()" :disabled="s3Saving"
+                        class="px-3 py-2 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50">
+                    <span x-text="s3Saving ? 'Saving…' : 'Save'"></span>
+                </button>
+            </div>
+            <p x-show="s3Status" x-cloak class="text-xs mt-2"
+               :class="s3Error ? 'text-red-500' : 'text-green-500'" x-text="s3Status"></p>
+            <p x-show="!s3Options.length" x-cloak class="text-xs text-gray-500 mt-3">
+                No S3 storages defined yet. Create one under <a href="/s3" class="text-blue-500 hover:underline">S3 Storages</a> first.
+            </p>
+        </div>
     </div>
 </div>
+
+<script>
+function packagesPage() {
+    return {
+        tab: 'packages',
+        tabs: [
+            { id: 'packages', label: 'Packages' },
+            { id: 'tokens', label: 'Manage tokens' },
+            { id: 's3', label: 'S3 configure' },
+        ],
+
+        // tokens
+        tokens: [],
+        creating: false,
+        newName: '',
+        saving: false,
+        tokenError: '',
+        issued: '',
+        copied: false,
+
+        // s3
+        s3Options: [],
+        s3SelectedId: '',
+        s3Saving: false,
+        s3Status: '',
+        s3Error: false,
+
+        async init() {
+            const hash = (location.hash || '').replace('#', '');
+            if (['packages', 'tokens', 's3'].includes(hash)) this.tab = hash;
+            await Promise.all([this.loadTokens(), this.loadS3()]);
+        },
+
+        async loadTokens() {
+            const r = await fetch('/api/v1/account/tokens');
+            if (r.ok) this.tokens = await r.json();
+        },
+        async createToken() {
+            this.saving = true; this.tokenError = '';
+            try {
+                const r = await fetch('/api/v1/account/tokens', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: this.newName.trim() }),
+                });
+                if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'failed to create token');
+                const data = await r.json();
+                this.issued = data.token;
+                this.creating = false;
+                this.newName = '';
+                await this.loadTokens();
+            } catch (e) {
+                this.tokenError = e.message;
+            } finally {
+                this.saving = false;
+            }
+        },
+        async revokeToken(t) {
+            if (!confirm(`Revoke token "${t.name}"? Clients using it will fail to authenticate.`)) return;
+            const r = await fetch(`/api/v1/account/tokens/${t.id}`, { method: 'DELETE' });
+            if (r.ok) await this.loadTokens();
+        },
+
+        async loadS3() {
+            const [optionsR, settingsR] = await Promise.all([
+                fetch('/api/v1/s3'),
+                fetch('/api/v1/registry/settings'),
+            ]);
+            if (optionsR.ok) {
+                const items = await optionsR.json();
+                this.s3Options = items.map(s => ({
+                    id: s.id,
+                    label: `${s.name || s.bucket}  ·  ${s.bucket} (${s.endpoint})`,
+                }));
+            }
+            if (settingsR.ok) {
+                const data = await settingsR.json();
+                this.s3SelectedId = data.s3_storage_id || '';
+            }
+        },
+        async saveS3() {
+            this.s3Saving = true; this.s3Status = ''; this.s3Error = false;
+            try {
+                const r = await fetch('/api/v1/registry/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ s3_storage_id: this.s3SelectedId || null }),
+                });
+                if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'failed to save');
+                this.s3Status = 'Saved';
+                setTimeout(() => this.s3Status = '', 2000);
+            } catch (e) {
+                this.s3Status = e.message;
+                this.s3Error = true;
+            } finally {
+                this.s3Saving = false;
+            }
+        },
+
+        formatDate(ts) {
+            if (!ts) return '';
+            return new Date(ts * 1000).toLocaleString();
+        },
+    };
+}
+</script>
 {% endblock %}

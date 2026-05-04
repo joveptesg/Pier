@@ -19,6 +19,7 @@ pub mod projects;
 pub mod promote;
 pub mod proxy;
 pub mod registries;
+pub mod registry_settings;
 pub mod resources;
 pub mod s3;
 pub mod servers;
@@ -79,6 +80,11 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             get(tokens::list).post(tokens::create),
         )
         .route("/account/tokens/{id}", delete(tokens::revoke))
+        // Embedded npm registry settings (which S3 storage to mirror to)
+        .route(
+            "/registry/settings",
+            get(registry_settings::get).put(registry_settings::update),
+        )
         // Containers
         .route("/containers", get(containers::list))
         .route(
