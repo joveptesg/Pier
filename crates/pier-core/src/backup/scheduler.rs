@@ -83,7 +83,7 @@ pub fn load_db_credentials(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let mut stmt = db.prepare(
-        "SELECT db_name, username FROM database_credentials WHERE service_id = ?1
+        "SELECT db_name, username, password FROM database_credentials WHERE service_id = ?1
          ORDER BY db_name",
     )?;
     let rows: Vec<DbCredential> = stmt
@@ -91,6 +91,7 @@ pub fn load_db_credentials(
             Ok(DbCredential {
                 db_name: row.get::<_, String>(0)?,
                 username: row.get::<_, String>(1)?,
+                password: row.get::<_, String>(2)?,
             })
         })?
         .filter_map(|r| r.ok())

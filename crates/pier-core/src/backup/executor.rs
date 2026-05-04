@@ -6,15 +6,22 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use tokio::process::Command;
 
-/// Identity of one logical database inside a DB instance.
-/// Populated from the `database_credentials` table. The per-DB password is
-/// intentionally NOT included: backups and restores both run under the
-/// cluster superuser (POSTGRES_USER / MYSQL root), so per-DB credentials are
-/// only relevant for ownership, not for authentication.
+/// Identity of one logical database inside a DB instance, sourced from the
+/// `database_credentials` SQLite table.
+///
+/// The password is the current Pier-managed password for this DB owner. It is
+/// NOT used for authenticating the backup/restore session itself (that always
+/// runs as the cluster superuser via POSTGRES_USER), but it IS used during
+/// restore to ensure the owner role exists in the target cluster — restore
+/// may target a fresh cluster on another VPS, where the role doesn't yet
+/// exist. Storing the password in `database_credentials` (plaintext, in
+/// Pier's SQLite) is the source of truth: bringing the cluster back in sync
+/// with that source of truth is exactly what restore needs to do.
 #[derive(Debug, Clone)]
 pub struct DbCredential {
     pub db_name: String,
     pub username: String,
+    pub password: String,
 }
 
 /// Wire format produced by a per-database dump for a given engine. Drives
@@ -303,6 +310,7 @@ mod tests {
         let cred = DbCredential {
             db_name: "appdb".into(),
             username: "owner".into(),
+            password: "ignored_in_dump_path".into(),
         };
         let args = per_db_dump_args("postgresql", &env, Some(&cred), "appdb")
             .expect("postgresql per-DB args");

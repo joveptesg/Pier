@@ -171,27 +171,32 @@ pub async fn execute_mongo_restore(
     pipe_to_docker(&args, archive_bytes).await
 }
 
-/// Terminate active sessions on the target DB and drop+recreate it as the
-/// given owner. Shared by both Postgres restore paths (plain SQL via psql and
-/// custom format via pg_restore).
+/// Terminate active sessions on the target DB, ensure the owner role exists
+/// with the password Pier currently has on file, and drop+recreate the DB
+/// under that owner. Shared by both Postgres restore paths (plain SQL via
+/// psql and custom format via pg_restore).
+///
+/// Why role-sync: restore may target a fresh PostgreSQL cluster on another
+/// VPS where the per-DB owner role has never been created. We use the
+/// password from `database_credentials` (Pier's SQLite, the source of truth)
+/// as a CREATE ROLE / ALTER ROLE — so on cross-cluster restore the role
+/// appears, and on same-cluster restore the password is re-synced to whatever
+/// is currently in Pier's UI (preventing drift from manual `\password` edits
+/// inside the cluster).
 async fn drop_and_recreate_pg_db(
     container_name: &str,
     env_vars: &HashMap<String, String>,
     target_db: &str,
     owner: &DbCredential,
 ) -> Result<()> {
-    let root_user = env_vars
-        .get("POSTGRES_USER")
-        .cloned()
-        .unwrap_or_else(|| "postgres".into());
-    let root_pass = env_vars
-        .get("POSTGRES_PASSWORD")
-        .cloned()
-        .unwrap_or_default();
+    let (root_user, root_pass) = pg_root_creds(env_vars);
+
+    let role_sync = build_role_sync_sql(&owner.username, &owner.password)?;
 
     // pg_terminate_backend ignores our own session (the psql we're running in).
     let recreate_sql = format!(
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+        "{role_sync}\n\
+         SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
            WHERE datname = '{db}' AND pid <> pg_backend_pid();\n\
          DROP DATABASE IF EXISTS \"{db}\";\n\
          CREATE DATABASE \"{db}\" OWNER \"{owner}\";\n",
@@ -206,6 +211,52 @@ async fn drop_and_recreate_pg_db(
         recreate_sql.into_bytes(),
     )
     .await
+}
+
+/// Tag used to dollar-quote the body of the role-sync DO block. Picked to be
+/// extremely unlikely to appear in a user-chosen password, but we still bail
+/// defensively if it does (see `build_role_sync_sql`).
+const ROLE_SYNC_DOLLAR_TAG: &str = "pier_role_sync";
+
+/// Build the DO block that creates the owner role if missing or resets its
+/// password if it already exists. Both branches set LOGIN privilege.
+///
+/// The password is interpolated as a SQL string literal (single quotes
+/// doubled). The whole DO body is wrapped in a `$pier_role_sync$` dollar-quote
+/// tag so PL/pgSQL doesn't have to interpret the inner string literals.
+/// We refuse passwords that contain the dollar tag itself — that would
+/// terminate the dollar-quote prematurely. In practice this never matches
+/// real passwords; the check is purely a defense-in-depth.
+fn build_role_sync_sql(username: &str, password: &str) -> Result<String> {
+    let dollar_tag = format!("${ROLE_SYNC_DOLLAR_TAG}$");
+    if password.contains(&dollar_tag) {
+        anyhow::bail!(
+            "owner password contains the reserved sequence '{dollar_tag}' — \
+             refusing to build role-sync SQL. Change the password in the \
+             Databases UI before restoring."
+        );
+    }
+    let user_ident = escape_pg_ident(username);
+    let user_lit = escape_pg_str_lit(username);
+    let pass_lit = escape_pg_str_lit(password);
+    Ok(format!(
+        "DO {tag}\n\
+         BEGIN\n\
+         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{user_lit}') THEN\n\
+             CREATE ROLE \"{user_ident}\" WITH LOGIN PASSWORD '{pass_lit}';\n\
+         ELSE\n\
+             ALTER ROLE \"{user_ident}\" WITH LOGIN PASSWORD '{pass_lit}';\n\
+         END IF;\n\
+         END\n\
+         {tag};",
+        tag = dollar_tag,
+    ))
+}
+
+/// Escape a Postgres SQL string literal: double any embedded single quotes.
+/// Caller still wraps the result in single quotes.
+fn escape_pg_str_lit(s: &str) -> String {
+    s.replace('\'', "''")
 }
 
 /// Restore from a plain-SQL dump (legacy `.sql.gz` PostgreSQL backups). Drops
@@ -473,5 +524,52 @@ mod tests {
         assert!(is_gzipped("svc/x.sql.gz"));
         assert!(is_gzipped("svc/x.tar.gz"));
         assert!(!is_gzipped("svc/x.dump"));
+    }
+
+    #[test]
+    fn role_sync_sql_creates_or_alters_role() {
+        let sql = build_role_sync_sql("appuser", "s3cret").unwrap();
+        // Both branches must be emitted — this is what makes restore work
+        // both on a fresh cluster (CREATE ROLE branch) and on the same
+        // cluster (ALTER ROLE branch — re-sync the password).
+        assert!(sql.contains("CREATE ROLE \"appuser\" WITH LOGIN PASSWORD 's3cret'"));
+        assert!(sql.contains("ALTER ROLE \"appuser\" WITH LOGIN PASSWORD 's3cret'"));
+        assert!(sql.contains("SELECT 1 FROM pg_roles WHERE rolname = 'appuser'"));
+        // Dollar-quoted DO body so inner string literals don't need escaping
+        // beyond the single-quote double.
+        assert!(sql.starts_with("DO $pier_role_sync$"));
+        assert!(sql.trim_end().ends_with("$pier_role_sync$;"));
+    }
+
+    #[test]
+    fn role_sync_sql_escapes_single_quote_in_password() {
+        let sql = build_role_sync_sql("u", "pa'ss").unwrap();
+        // Single quote in password must be doubled to be a valid SQL string
+        // literal — otherwise psql breaks out of the string and parses the
+        // tail as SQL.
+        assert!(sql.contains("PASSWORD 'pa''ss'"));
+        assert!(!sql.contains("PASSWORD 'pa'ss'"));
+    }
+
+    #[test]
+    fn role_sync_sql_escapes_double_quote_in_username() {
+        let sql = build_role_sync_sql("we\"ird", "p").unwrap();
+        // Double quote inside an identifier must be doubled.
+        assert!(sql.contains("CREATE ROLE \"we\"\"ird\""));
+        assert!(sql.contains("ALTER ROLE \"we\"\"ird\""));
+        // Username inside a string literal does NOT get its double-quotes
+        // doubled — only single quotes need escaping there.
+        assert!(sql.contains("rolname = 'we\"ird'"));
+    }
+
+    #[test]
+    fn role_sync_sql_rejects_password_containing_dollar_tag() {
+        // Defense-in-depth: a password containing the dollar tag would
+        // terminate the dollar-quote prematurely. We refuse to build the SQL.
+        let err = build_role_sync_sql("u", "abc$pier_role_sync$xyz").unwrap_err();
+        assert!(
+            err.to_string().contains("$pier_role_sync$"),
+            "error should mention the reserved sequence: {err}"
+        );
     }
 }
