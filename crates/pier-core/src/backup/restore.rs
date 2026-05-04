@@ -79,7 +79,7 @@ pub async fn execute_restore(
     }
 
     match catalog_id {
-        "postgresql" => {
+        "postgresql" | "postgis" => {
             restore_postgres(container_name, env_vars, target_db, owner, sql_bytes).await
         }
         "mysql" | "mariadb" => {

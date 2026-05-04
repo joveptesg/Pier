@@ -55,7 +55,7 @@ pub async fn list_databases(
     let catalog = catalog_id.unwrap_or_default();
 
     let output = match catalog.as_str() {
-        "postgresql" => {
+        "postgresql" | "postgis" => {
             exec_in_container(
                 &state.docker,
                 &container,
@@ -205,7 +205,7 @@ pub async fn create_database(
     let catalog = catalog_id.unwrap_or_default();
 
     match catalog.as_str() {
-        "postgresql" => {
+        "postgresql" | "postgis" => {
             // Each command must run separately — CREATE DATABASE cannot run inside a transaction
             let create_user = format!("CREATE USER {username} WITH PASSWORD '{password}'");
             exec_in_container(
@@ -337,7 +337,7 @@ pub async fn delete_database(
     let catalog = catalog_id.unwrap_or_default();
 
     match catalog.as_str() {
-        "postgresql" => {
+        "postgresql" | "postgis" => {
             // Get owner before dropping
             let owner_output = exec_in_container(
                 &state.docker,
@@ -508,7 +508,7 @@ pub async fn change_password(
     // If no stored username, get it from the database engine
     let username = if username.is_empty() {
         match catalog.as_str() {
-            "postgresql" => {
+            "postgresql" | "postgis" => {
                 let output = exec_in_container(&state.docker, &container, &[
                     "psql", "-U", "postgres", "-t", "-A", "-c",
                     &format!("SELECT r.rolname FROM pg_database d JOIN pg_roles r ON d.datdba = r.oid WHERE d.datname = '{dbname}'"),
@@ -528,7 +528,7 @@ pub async fn change_password(
     }
 
     match catalog.as_str() {
-        "postgresql" => {
+        "postgresql" | "postgis" => {
             let sql = format!("ALTER USER {username} WITH PASSWORD '{password}'");
             exec_in_container(
                 &state.docker,

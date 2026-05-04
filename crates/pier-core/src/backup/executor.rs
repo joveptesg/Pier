@@ -26,7 +26,7 @@ fn per_db_dump_args(
     db_name: &str,
 ) -> Option<Vec<String>> {
     match catalog_id {
-        "postgresql" => {
+        "postgresql" | "postgis" => {
             let (user, pass) = match cred {
                 Some(c) => (c.username.clone(), c.password.clone()),
                 None => (
@@ -112,12 +112,18 @@ fn mongo_dump_args(env_vars: &HashMap<String, String>) -> Vec<String> {
 /// Returns true if the catalog supports the backup feature at all.
 /// Mirrors the frontend `supportsBackup` gate.
 pub fn supports_backup(catalog_id: &str) -> bool {
-    matches!(catalog_id, "postgresql" | "mysql" | "mariadb" | "mongodb")
+    matches!(
+        catalog_id,
+        "postgresql" | "postgis" | "mysql" | "mariadb" | "mongodb"
+    )
 }
 
 /// Returns true if the catalog supports per-database backup and restore.
 pub fn supports_per_db_backup(catalog_id: &str) -> bool {
-    matches!(catalog_id, "postgresql" | "mysql" | "mariadb" | "mongodb")
+    matches!(
+        catalog_id,
+        "postgresql" | "postgis" | "mysql" | "mariadb" | "mongodb"
+    )
 }
 
 async fn docker_exec(container: &str, argv: &[String]) -> Result<Vec<u8>> {
