@@ -624,6 +624,42 @@ pub fn remove_platform_domain_config(data_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Normalize a user-entered domain: strip scheme, userinfo, path, port, trailing dot, lowercase.
+/// Returns empty string if nothing usable remains.
+///
+/// Traefik `Host()` matchers require a bare hostname; pasting a full URL like
+/// `https://pier.example.com/` produces an invalid rule that silently fails to match.
+pub fn normalize_domain(input: &str) -> String {
+    let s = input.trim();
+    if s.is_empty() {
+        return String::new();
+    }
+    let s = s.split_once("://").map(|(_, rest)| rest).unwrap_or(s);
+    let s = s.split(['/', '?', '#']).next().unwrap_or(s);
+    let s = s.rsplit_once('@').map(|(_, rest)| rest).unwrap_or(s);
+    let s = s.split_once(':').map(|(host, _)| host).unwrap_or(s);
+    s.trim_end_matches('.').to_ascii_lowercase()
+}
+
+#[cfg(test)]
+mod normalize_domain_tests {
+    use super::normalize_domain;
+
+    #[test]
+    fn strips_scheme_path_port_and_lowercases() {
+        assert_eq!(normalize_domain(""), "");
+        assert_eq!(normalize_domain("   "), "");
+        assert_eq!(normalize_domain("pier.example.com"), "pier.example.com");
+        assert_eq!(normalize_domain("https://pier.example.com"), "pier.example.com");
+        assert_eq!(normalize_domain("https://pier.example.com/"), "pier.example.com");
+        assert_eq!(
+            normalize_domain("http://user:pass@pier.example.com:8080/path?q=1#x"),
+            "pier.example.com"
+        );
+        assert_eq!(normalize_domain("PIER.EXAMPLE.COM."), "pier.example.com");
+    }
+}
+
 /// Write a Traefik TCP dynamic config for exposing a service port publicly.
 /// Each upstream is a raw `host:port` string (can be a Docker DNS name
 /// for local replicas or `ip:port` for remote replicas). Traefik's TCP

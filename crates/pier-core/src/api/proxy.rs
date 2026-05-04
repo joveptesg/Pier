@@ -191,12 +191,12 @@ pub async fn update_settings(
 
     // Handle platform domain
     if let Some(domain) = &body.platform_domain {
+        let domain = crate::proxy::config::normalize_domain(domain);
         db.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.platform_domain', ?1)",
-            [domain],
+            [&domain],
         )?;
         drop(db); // release lock before file I/O
-        let domain = domain.trim().to_string();
         if domain.is_empty() {
             let _ = crate::proxy::config::remove_platform_domain_config(&state.config.data_dir);
         } else {
