@@ -1415,7 +1415,6 @@ function resourceDetail(id) {
             { id: 'postgis_topology',        label: 'postgis_topology',        hint: 'Topology schemas and topology-aware geometry types' },
             { id: 'postgis_raster',          label: 'postgis_raster',          hint: 'Raster data type and analysis functions' },
             { id: 'fuzzystrmatch',           label: 'fuzzystrmatch',           hint: 'soundex, levenshtein — fuzzy string matching' },
-            { id: 'pgrouting',               label: 'pgrouting',               hint: 'Graph routing on PostGIS geometries (separate package; install in image first)' },
             { id: 'postgis_tiger_geocoder',  label: 'postgis_tiger_geocoder',  hint: 'US-only: address geocoder based on US Census TIGER data' },
         ],
         get portIsPublic() { return (this.resource.ports?.[0]?.is_public || false) || (this.domains && this.domains.length > 0); },

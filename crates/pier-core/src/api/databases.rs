@@ -730,6 +730,5 @@ const POSTGIS_EXTENSIONS: &[&str] = &[
     "postgis_topology",
     "postgis_raster",
     "fuzzystrmatch",
-    "pgrouting",
     "postgis_tiger_geocoder",
 ];
