@@ -6,13 +6,15 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use tokio::process::Command;
 
-/// Credentials for one logical database inside a DB instance.
-/// Populated from the `database_credentials` table.
+/// Identity of one logical database inside a DB instance.
+/// Populated from the `database_credentials` table. The per-DB password is
+/// intentionally NOT included: backups and restores both run under the
+/// cluster superuser (POSTGRES_USER / MYSQL root), so per-DB credentials are
+/// only relevant for ownership, not for authentication.
 #[derive(Debug, Clone)]
 pub struct DbCredential {
     pub db_name: String,
     pub username: String,
-    pub password: String,
 }
 
 /// Wire format produced by a per-database dump for a given engine. Drives
@@ -58,25 +60,31 @@ fn per_db_dump_args(
 ) -> Option<Vec<String>> {
     match catalog_id {
         "postgresql" | "postgis" => {
-            let (user, pass) = match cred {
-                Some(c) => (c.username.clone(), c.password.clone()),
-                None => (
-                    env_vars
-                        .get("POSTGRES_USER")
-                        .cloned()
-                        .unwrap_or_else(|| "postgres".into()),
-                    env_vars
-                        .get("POSTGRES_PASSWORD")
-                        .cloned()
-                        .unwrap_or_default(),
-                ),
-            };
+            // Always dump as the cluster superuser (POSTGRES_USER, default
+            // `postgres`). Per-DB owner credentials cannot read PostGIS
+            // reference schemas (`tiger`, `tiger_data`, `topology`) which
+            // are owned by `postgres` — `pg_dump` then aborts with
+            // "permission denied for schema tiger" and the whole backup
+            // fails. Superuser bypasses all per-schema ACLs and produces a
+            // clean dump regardless of catalog (postgresql / postgis) and
+            // regardless of which extensions the user has installed.
+            // The `cred` argument is intentionally ignored here.
+            let _ = cred;
+            let user = env_vars
+                .get("POSTGRES_USER")
+                .cloned()
+                .unwrap_or_else(|| "postgres".into());
+            let pass = env_vars
+                .get("POSTGRES_PASSWORD")
+                .cloned()
+                .unwrap_or_default();
             // -Fc: custom format. Restored with pg_restore, supports
             //   selective restore and (with on-disk file) parallel jobs.
             // -Z 6: explicit zlib level for reproducibility across pg_dump
             //   versions (default is also 6, but pinning makes intent clear).
             // --no-owner: dump does not emit ALTER OWNER statements; we
-            //   restore as the owner credential, so ownership is inherent.
+            //   restore into a freshly-created DB whose ownership is set by
+            //   `drop_and_recreate_pg_db`, so embedded ownership is noise.
             Some(vec![
                 "env".into(),
                 format!("PGPASSWORD={pass}"),
@@ -285,20 +293,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pg_args_request_custom_format() {
-        let env = HashMap::new();
+    fn pg_args_request_custom_format_under_superuser() {
+        // POSTGRES_USER/PASSWORD set: dump must run as that user, NOT as the
+        // per-DB owner credential, so PostGIS reference schemas (`tiger`,
+        // `topology`) — owned by `postgres` — are dumpable.
+        let mut env = HashMap::new();
+        env.insert("POSTGRES_USER".into(), "rootpg".into());
+        env.insert("POSTGRES_PASSWORD".into(), "rootpw".into());
         let cred = DbCredential {
             db_name: "appdb".into(),
             username: "owner".into(),
-            password: "secret".into(),
         };
         let args = per_db_dump_args("postgresql", &env, Some(&cred), "appdb")
             .expect("postgresql per-DB args");
         assert!(args.iter().any(|a| a == "-Fc"), "expected -Fc in {args:?}");
         assert!(args.iter().any(|a| a == "--no-owner"));
         assert!(args.iter().any(|a| a == "pg_dump"));
-        // PGPASSWORD must be passed via env, never on the pg_dump cmd line.
-        assert!(args.iter().any(|a| a.starts_with("PGPASSWORD=")));
+        // -U must be the superuser, NOT the per-DB owner.
+        let u_idx = args.iter().position(|a| a == "-U").unwrap();
+        assert_eq!(
+            args[u_idx + 1],
+            "rootpg",
+            "must dump as POSTGRES_USER, not owner"
+        );
+        // PGPASSWORD must be passed via env (the superuser's), never on cmd line.
+        assert!(args.iter().any(|a| a == "PGPASSWORD=rootpw"));
+    }
+
+    #[test]
+    fn postgis_uses_same_superuser_path() {
+        // PostGIS catalog goes through the same code path as plain Postgres
+        // and dumps as the superuser — that's the whole point of the fix
+        // (per-DB owner can't read tiger/topology schemas).
+        let mut env = HashMap::new();
+        env.insert("POSTGRES_PASSWORD".into(), "x".into());
+        let args = per_db_dump_args("postgis", &env, None, "gis").unwrap();
+        let u_idx = args.iter().position(|a| a == "-U").unwrap();
+        assert_eq!(
+            args[u_idx + 1],
+            "postgres",
+            "default user when POSTGRES_USER unset"
+        );
     }
 
     #[test]

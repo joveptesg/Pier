@@ -218,10 +218,14 @@ async fn restore_postgres(
     sql_bytes: Vec<u8>,
 ) -> Result<()> {
     drop_and_recreate_pg_db(container_name, env_vars, target_db, owner).await?;
+    // Stream the SQL as the cluster superuser — symmetric with how it was
+    // dumped (always under POSTGRES_USER) and bypasses any per-schema ACL
+    // surprises (PostGIS `tiger`/`topology` objects owned by `postgres`).
+    let (root_user, root_pass) = pg_root_creds(env_vars);
     run_psql(
         container_name,
-        &owner.username,
-        &owner.password,
+        &root_user,
+        &root_pass,
         Some(target_db),
         sql_bytes,
     )
@@ -230,14 +234,20 @@ async fn restore_postgres(
 }
 
 /// Restore from a `pg_dump -Fc` custom-format dump. Drops and recreates the
-/// target DB, then streams the binary dump into `pg_restore` as the owner.
+/// target DB, then streams the binary dump into `pg_restore` as the cluster
+/// superuser.
+///
+/// Why superuser: dumps are produced under `POSTGRES_USER` (so the dump can
+/// include PostGIS reference schemas owned by `postgres`); restoring under
+/// the per-DB owner would re-trigger the same permission errors when
+/// `pg_restore` tries to recreate those objects. `--no-owner --no-privileges`
+/// strip ownership/grants from the dump so the result is owned by the
+/// `drop_and_recreate_pg_db`-set owner, not by `postgres`.
 ///
 /// Streaming via stdin precludes parallel restore (`pg_restore -j` requires
 /// random-access on an on-disk file), but custom format still wins over plain
 /// SQL: data loads via binary COPY, indexes and FK are built only after data
 /// is in, and selective restore / better error reporting come for free.
-/// `--no-owner --no-privileges` keep the restore independent of the source
-/// cluster's roles — the target DB's owner is set by `drop_and_recreate_pg_db`.
 async fn restore_postgres_custom(
     container_name: &str,
     env_vars: &HashMap<String, String>,
@@ -247,15 +257,16 @@ async fn restore_postgres_custom(
 ) -> Result<()> {
     drop_and_recreate_pg_db(container_name, env_vars, target_db, owner).await?;
 
+    let (root_user, root_pass) = pg_root_creds(env_vars);
     let args = vec![
         "exec".to_string(),
         "-i".to_string(),
         container_name.to_string(),
         "env".to_string(),
-        format!("PGPASSWORD={}", owner.password),
+        format!("PGPASSWORD={root_pass}"),
         "pg_restore".to_string(),
         "-U".to_string(),
-        owner.username.clone(),
+        root_user,
         "-d".to_string(),
         target_db.to_string(),
         "--no-owner".to_string(),
@@ -263,6 +274,20 @@ async fn restore_postgres_custom(
         "--exit-on-error".to_string(),
     ];
     pipe_to_docker(&args, dump_bytes).await
+}
+
+/// Resolve the cluster superuser credentials from the service env. Default
+/// user is `postgres` (matches the bitnami/postgres image default).
+fn pg_root_creds(env_vars: &HashMap<String, String>) -> (String, String) {
+    let user = env_vars
+        .get("POSTGRES_USER")
+        .cloned()
+        .unwrap_or_else(|| "postgres".into());
+    let pass = env_vars
+        .get("POSTGRES_PASSWORD")
+        .cloned()
+        .unwrap_or_default();
+    (user, pass)
 }
 
 async fn run_psql(
