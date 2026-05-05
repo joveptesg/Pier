@@ -2055,14 +2055,14 @@ function resourceDetail(id) {
             // would otherwise occupy 5–10 visual rows.
             const dockerTsRe = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)\s+(.*)/s;
             const bodyOf = raw => { const m = raw.match(dockerTsRe); return m ? m[2] : raw; };
-            const isPretty = body => /^\[\d{2}:\d{2}:\d{2}\]/.test(body);
+            const isPretty = body => /^\[\d{2}:\d{2}:\d{2}(?:\.\d+)?\]/.test(body);
             const stitched = [];
             for (const raw of text.split('\n')) {
                 if (!raw.trim()) continue;
                 const body = bodyOf(raw);
                 const prev = stitched[stitched.length - 1];
                 if (prev && isPretty(bodyOf(prev)) && !isPretty(body) && !body.startsWith('{')) {
-                    stitched[stitched.length - 1] = prev + ' ' + body;
+                    stitched[stitched.length - 1] = prev + '\n' + body;
                     continue;
                 }
                 stitched.push(raw);
@@ -2110,7 +2110,7 @@ function resourceDetail(id) {
                 const extraHtml = extra ? `<span class="text-gray-500 ml-2">${this.escapeHtml(extra)}</span>` : '';
                 const msgHtml = isAnsi ? window.ansiToHtml(msg) : this.escapeHtml(msg);
 
-                return `<div class="flex items-start hover:bg-gray-900/50 py-px">${num}${tsHtml}${lvlBadge}<span class="${lvlColor} flex-1 break-all">${msgHtml}</span>${extraHtml}</div>`;
+                return `<div class="flex items-start hover:bg-gray-900/50 py-px">${num}${tsHtml}${lvlBadge}<span class="${lvlColor} flex-1 break-all whitespace-pre-wrap">${msgHtml}</span>${extraHtml}</div>`;
             }).join('');
         },
         formatBuildLog(text) {
