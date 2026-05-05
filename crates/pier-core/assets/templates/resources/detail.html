@@ -456,6 +456,11 @@
                                 <td class="py-2 px-2 text-right">
                                     <div class="flex items-center justify-end gap-1">
                                         <button x-show="d.name !== 'postgres' && d.name !== 'mysql'"
+                                                @click="restoreDb = {db: d.name, owner: d.owner}; restoreFile = null; showRestoreDb = true"
+                                                class="text-gray-400 hover:text-green-500 p-1" title="Restore from file">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                                        </button>
+                                        <button x-show="d.name !== 'postgres' && d.name !== 'mysql'"
                                                 @click="changeDbPassword = {db: d.name, owner: d.owner, password: ''}; showChangeDbPwd = true"
                                                 class="text-gray-400 hover:text-blue-500 p-1" title="Change password">
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
@@ -544,6 +549,32 @@
                     <button @click="changeDbPwd()" :disabled="dbChangingPwd"
                             class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg">
                         <span x-text="dbChangingPwd ? 'Changing...' : 'Change Password'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Restore Database Modal -->
+        <div x-show="showRestoreDb" x-cloak
+             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+             @click.self="if (!dbRestoring) showRestoreDb = false">
+            <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4 border border-gray-200 dark:border-gray-800">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Restore Database</h3>
+                <p class="text-sm text-gray-500">Database: <strong x-text="restoreDb.db" class="text-gray-900 dark:text-white"></strong> / Owner: <strong x-text="restoreDb.owner" class="text-gray-900 dark:text-white"></strong></p>
+                <div class="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-2 leading-relaxed">
+                    ⚠ The database <code class="font-mono" x-text="restoreDb.db"></code> will be <strong>dropped and recreated</strong>. All current data will be lost.
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Backup file</label>
+                    <input type="file" @change="restoreFile = $event.target.files[0]"
+                           accept=".dump,.sql,.sql.gz,.tar,.tar.gz,.archive"
+                           class="block w-full text-sm text-gray-700 dark:text-gray-300 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-gray-200 dark:file:bg-gray-700 file:text-gray-700 dark:file:text-gray-200 hover:file:bg-gray-300 dark:hover:file:bg-gray-600">
+                    <p class="text-[11px] text-gray-500 mt-1">Accepted: .dump (Postgres custom), .sql.gz, .tar.gz cluster, .archive.gz (Mongo). Max 5 GB.</p>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button @click="showRestoreDb = false" :disabled="dbRestoring" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 disabled:opacity-50">Cancel</button>
+                    <button @click="doRestoreUpload()" :disabled="!restoreFile || dbRestoring"
+                            class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg">
+                        <span x-text="dbRestoring ? 'Restoring…' : 'Restore'"></span>
                     </button>
                 </div>
             </div>
@@ -1409,6 +1440,9 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
+        showRestoreDb: false, dbRestoring: false,
+        restoreDb: { db: '', owner: '' },
+        restoreFile: null,
         newDb: { database: '', username: '', password: '', extensions: ['postgis', 'postgis_topology', 'fuzzystrmatch'] },
         postgisExtensions: [
             { id: 'postgis',                 label: 'postgis',                 hint: 'Core: geometries, ST_* functions (required for the rest)' },
@@ -1635,6 +1669,29 @@ function resourceDetail(id) {
                 await this.loadDatabases();
             } catch(e) { toast(e.message, 'error'); }
             this.dbChangingPwd = false;
+        },
+        async doRestoreUpload() {
+            if (!this.restoreFile) { toast('Choose a backup file first', 'error'); return; }
+            this.dbRestoring = true;
+            try {
+                const fd = new FormData();
+                fd.append('file', this.restoreFile);
+                const resp = await fetch(
+                    '/api/v1/resources/' + this.id + '/databases/' + encodeURIComponent(this.restoreDb.db) + '/restore-upload',
+                    { method: 'POST', body: fd }
+                );
+                if (!resp.ok) {
+                    const msg = await resp.text();
+                    throw new Error(msg || ('HTTP ' + resp.status));
+                }
+                toast('Database restored');
+                this.showRestoreDb = false;
+                this.restoreFile = null;
+                await this.loadDatabases();
+            } catch(e) {
+                toast('Restore failed: ' + (e.message || e), 'error');
+            }
+            this.dbRestoring = false;
         },
         buildDbConnStr(dbName, owner) {
             const p = this.resource.ports?.[0]; if (!p) return '';

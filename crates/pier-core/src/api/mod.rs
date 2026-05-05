@@ -29,7 +29,7 @@ pub mod system_logs;
 pub mod tokens;
 pub mod webhooks;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::routing::{any, delete, get, patch, post, put};
 use axum::Router;
 
@@ -199,6 +199,14 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/resources/{id}/databases/{dbname}/password",
             put(databases::change_password),
+        )
+        // Restore a per-DB backup directly from a user-uploaded file.
+        // Body limit raised to 5 GB to accommodate full Postgres dumps;
+        // applied per-route so other endpoints keep their default 2 MB cap.
+        .route(
+            "/resources/{id}/databases/{dbname}/restore-upload",
+            post(backups::restore_database_from_upload)
+                .layer(DefaultBodyLimit::max(5 * 1024 * 1024 * 1024)),
         )
         // Environment Variables
         .route(
