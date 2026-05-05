@@ -555,7 +555,6 @@ pub async fn restore_backup(
         is_gzipped: crate::backup::restore::is_gzipped(&s3_key),
         is_cluster_archive: crate::backup::restore::is_cluster_archive(&s3_key),
         is_pg_custom: crate::backup::restore::is_pg_custom_format(&s3_key),
-        is_mongo_archive: catalog_id == "mongodb",
     };
 
     apply_restore(
@@ -673,7 +672,10 @@ pub async fn restore_database_from_upload(
 
 /// Wire format of the dump payload, derived either from an S3 key suffix
 /// (`restore_backup`) or from an uploaded filename (`restore_database_from_upload`).
-/// Drives the restore dispatcher in `apply_restore`.
+/// Drives the restore dispatcher in `apply_restore`. Mongo vs SQL is decided
+/// from `catalog_id` (Mongo archives only ever come from a Mongo catalog —
+/// `detect_format` enforces that), so there is no `is_mongo_archive` field
+/// here.
 #[derive(Debug, Clone, Copy)]
 struct UploadFormat {
     /// Outer gzip wrapper present (`.gz` suffix). Decompressed in Rust before
@@ -685,9 +687,6 @@ struct UploadFormat {
     /// PostgreSQL custom format (`.dump`, `pg_dump -Fc`) — restored via
     /// `pg_restore`. False for plain SQL (legacy `.sql.gz`, MySQL).
     is_pg_custom: bool,
-    /// MongoDB `mongodump` archive — restored via `mongorestore` (different
-    /// code path, no tar/gunzip pre-processing in Rust).
-    is_mongo_archive: bool,
 }
 
 fn fetch_service_info(
@@ -769,7 +768,6 @@ fn detect_format(filename: &str, catalog_id: &str) -> AppResult<UploadFormat> {
         is_gzipped,
         is_cluster_archive,
         is_pg_custom,
-        is_mongo_archive,
     })
 }
 
@@ -1039,7 +1037,6 @@ mod tests {
         assert!(f.is_pg_custom);
         assert!(!f.is_gzipped);
         assert!(!f.is_cluster_archive);
-        assert!(!f.is_mongo_archive);
     }
 
     #[test]
@@ -1066,9 +1063,12 @@ mod tests {
 
     #[test]
     fn detect_mongo_archive_gzipped() {
+        // Mongo path is selected by catalog_id in apply_restore, not by a
+        // dedicated UploadFormat flag; we only verify gzip detection here.
         let f = detect_format("users_20260504.archive.gz", "mongodb").unwrap();
-        assert!(f.is_mongo_archive);
         assert!(f.is_gzipped);
+        assert!(!f.is_pg_custom);
+        assert!(!f.is_cluster_archive);
     }
 
     #[test]
