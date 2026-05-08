@@ -114,7 +114,7 @@
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Scale</button>
         <button @click="tab = 'git'; loadGitConfig()" :class="tab === 'git' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Git</button>
-        <button @click="tab = 'deployments'; loadDeployments(); loadDeploymentLogs()" :class="tab === 'deployments' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+        <button @click="tab = 'deployments'; selectedDeploy = null; loadDeployments(); loadDeploymentLogs()" :class="tab === 'deployments' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Deployments</button>
         <button @click="tab = 'logs'; loadContainerLogs()" :class="tab === 'logs' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Logs</button>
@@ -935,6 +935,11 @@ NODE_ENV=production"></textarea>
         <div x-show="ciDeployments.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center gap-2">
+                    <button x-show="selectedDeploy" @click="selectedDeploy = null"
+                            title="Back to deployments"
+                            class="p-1 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    </button>
                     <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">CI/CD Deployments</h3>
                     <span class="text-xs text-gray-400" x-text="'(' + ciDeployments.length + ')'"></span>
                 </div>
@@ -972,10 +977,6 @@ NODE_ENV=production"></textarea>
             </div>
             <!-- Deployment Detail View -->
             <div x-show="selectedDeploy" class="space-y-4">
-                <button @click="selectedDeploy = null" class="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 mb-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                    Back to deployments
-                </button>
                 <div class="flex items-center gap-3 mb-3">
                     <span class="text-xs font-medium px-2 py-0.5 rounded-full"
                           :class="selectedDeploy?.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : selectedDeploy?.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : selectedDeploy?.status === 'cancelled' ? 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400' : 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400'"
