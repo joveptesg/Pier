@@ -238,8 +238,16 @@ pub async fn get(
 
 /// GET /api/v1/sources/github/manifest — generate manifest + redirect info
 pub async fn github_manifest(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
-    // Get platform domain for callback URL
-    let platform_url = {
+    // Resolve the public-facing base URL for the App's webhook + callback,
+    // along with the right `insecure_ssl` flag for the webhook spec.
+    //
+    //   - `platform_domain` set → Traefik terminates a valid Let's Encrypt
+    //     cert in front of us, so verification stays on.
+    //   - Otherwise → we expose the panel directly on its public IP. Scheme
+    //     follows `tls_mode`: SelfSigned listens HTTPS (and GitHub won't trust
+    //     a self-signed cert by default, so set insecure_ssl=1 for this hook
+    //     only); Off listens plain HTTP, no TLS involved.
+    let (platform_url, insecure_ssl) = {
         let db = state
             .db
             .lock()
@@ -260,9 +268,16 @@ pub async fn github_manifest(State(state): State<SharedState>) -> AppResult<impl
             .unwrap_or_default();
 
         if !domain.is_empty() {
-            format!("https://{domain}")
+            (format!("https://{domain}"), "0")
         } else if !ip.is_empty() {
-            format!("http://{ip}:{}", state.config.port)
+            match state.config.tls_mode {
+                crate::config::TlsMode::SelfSigned => {
+                    (format!("https://{ip}:{}", state.config.port), "1")
+                }
+                crate::config::TlsMode::Off => {
+                    (format!("http://{ip}:{}", state.config.port), "0")
+                }
+            }
         } else {
             return Err(AppError::BadRequest(
                 "Configure a platform domain in Proxy settings first for GitHub App OAuth flow"
@@ -272,7 +287,8 @@ pub async fn github_manifest(State(state): State<SharedState>) -> AppResult<impl
     };
 
     let app_name = format!("pier-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    let manifest = crate::git::github_app::generate_manifest(&platform_url, &app_name);
+    let manifest =
+        crate::git::github_app::generate_manifest(&platform_url, &app_name, insecure_ssl);
 
     Ok(Json(serde_json::json!({
         "manifest": manifest,

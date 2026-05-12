@@ -233,13 +233,20 @@ pub async fn exchange_manifest_code(code: &str) -> Result<ManifestExchangeResult
 }
 
 /// Generate GitHub App manifest JSON for the manifest creation flow.
-pub fn generate_manifest(pier_url: &str, app_name: &str) -> serde_json::Value {
+///
+/// `insecure_ssl` is the string `"0"` or `"1"` per GitHub's webhook config
+/// spec. We set `"1"` only when the panel is running with a self-signed cert
+/// reachable directly by GitHub — otherwise webhook deliveries fail with
+/// `x509: certificate signed by unknown authority`. Behind a Traefik+ACME
+/// platform domain it must stay `"0"` so verification covers the LE cert.
+pub fn generate_manifest(pier_url: &str, app_name: &str, insecure_ssl: &str) -> serde_json::Value {
     serde_json::json!({
         "name": app_name,
         "url": pier_url,
         "hook_attributes": {
             "url": format!("{pier_url}/api/v1/webhooks/github"),
-            "active": true
+            "active": true,
+            "insecure_ssl": insecure_ssl
         },
         "redirect_url": format!("{pier_url}/api/v1/sources/github/callback"),
         "callback_urls": [format!("{pier_url}/api/v1/sources/github/callback")],
