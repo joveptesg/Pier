@@ -47,6 +47,15 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    // Install a single rustls crypto provider for the whole process. Both
+    // `axum-server[tls-rustls]` (aws-lc-rs) and `reqwest[rustls-tls]` (ring)
+    // are pulled in, so rustls cannot auto-pick a default and panics on first
+    // use that goes through `ClientConfig::builder()` without an explicit
+    // provider. We pick aws-lc-rs because the panel listener requires it.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("install aws-lc-rs as rustls default crypto provider");
+
     tracing::info!("Pier v{}", env!("CARGO_PKG_VERSION"));
 
     // Crypto self-check: loads + caches PIER_SECRET and verifies encrypt/decrypt
