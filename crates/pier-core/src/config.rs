@@ -1,5 +1,14 @@
 use std::path::PathBuf;
 
+/// TLS termination mode for the admin panel listener.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TlsMode {
+    /// Auto-generated self-signed certificate, persisted under `tls_cert_dir`.
+    SelfSigned,
+    /// Plain HTTP. Only safe behind a TLS-terminating reverse proxy.
+    Off,
+}
+
 /// Application configuration loaded from environment variables.
 #[derive(Debug, Clone)]
 pub struct PierConfig {
@@ -23,6 +32,12 @@ pub struct PierConfig {
     pub port_range_start: u16,
     /// Port range end for auto-allocation (default: 65000)
     pub port_range_end: u16,
+    /// TLS termination mode for the panel listener.
+    pub tls_mode: TlsMode,
+    /// Directory holding the panel cert/key (`cert.pem`, `key.pem`).
+    pub tls_cert_dir: PathBuf,
+    /// Optional panel hostname, embedded as SAN in the self-signed cert.
+    pub panel_domain: Option<String>,
 }
 
 impl PierConfig {
@@ -35,6 +50,24 @@ impl PierConfig {
                 let dir: &PathBuf = &data_dir;
                 dir.join("pier.db")
             });
+
+        let tls_mode = match env_or("PIER_TLS_MODE", "self_signed")
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "off" | "none" | "disabled" => TlsMode::Off,
+            _ => TlsMode::SelfSigned,
+        };
+        let tls_cert_dir = std::env::var("PIER_TLS_CERT_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                let dir: &PathBuf = &data_dir;
+                dir.join("tls")
+            });
+        let panel_domain = std::env::var("PIER_PANEL_DOMAIN")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
 
         Self {
             host: env_or("PIER_HOST", "0.0.0.0"),
@@ -51,6 +84,9 @@ impl PierConfig {
             port_range_end: env_or("PIER_PORT_RANGE_END", "65000")
                 .parse()
                 .unwrap_or(65000),
+            tls_mode,
+            tls_cert_dir,
+            panel_domain,
         }
     }
 

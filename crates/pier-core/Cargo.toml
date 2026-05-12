@@ -15,8 +15,10 @@ tokio = { workspace = true }
 
 # HTTP / API
 axum = { workspace = true }
+axum-server = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
+tower_governor = { workspace = true }
 
 # Docker
 bollard = { workspace = true }
@@ -49,6 +51,12 @@ bcrypt = { workspace = true }
 rand = { workspace = true }
 base64 = { workspace = true }
 aes-gcm = { workspace = true }
+zxcvbn = { workspace = true }
+
+# TLS (admin panel)
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+rcgen = { workspace = true }
 
 # Streaming
 futures-util = { workspace = true }

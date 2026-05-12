@@ -12,7 +12,6 @@ pub fn ui_router(state: SharedState) -> Router<SharedState> {
     let public = Router::new()
         .route("/login", get(pages::login_page))
         .route("/setup", get(pages::setup_page))
-        .route("/logout", get(pages::logout))
         .route("/static/{*path}", get(pages::static_file));
 
     let protected = Router::new()

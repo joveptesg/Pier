@@ -54,18 +54,6 @@ pub async fn setup_page(State(state): State<SharedState>) -> PageResult {
     render(&state, "setup.html", minijinja::context! {})
 }
 
-/// GET /logout
-pub async fn logout(State(state): State<SharedState>) -> impl IntoResponse {
-    let cookie = format!(
-        "{}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
-        state.config.session_cookie,
-    );
-    (
-        [(axum::http::header::SET_COOKIE, cookie)],
-        Redirect::to("/login"),
-    )
-}
-
 // ── Protected Pages ─────────────────────────────────────────
 
 /// GET /

@@ -16,6 +16,7 @@ mod registry;
 mod s3;
 mod state;
 mod timezone;
+mod tls;
 mod ui;
 
 use std::sync::{Arc, Mutex};
@@ -523,11 +524,31 @@ async fn main() -> Result<()> {
         .with_state(state);
 
     // Start server
-    let addr = config.listen_addr();
-    tracing::info!("Listening on http://{addr}");
+    let addr_str = config.listen_addr();
+    let sock_addr: std::net::SocketAddr = addr_str
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid listen address {addr_str}: {e}"))?;
 
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    match config.tls_mode {
+        config::TlsMode::SelfSigned => {
+            let tls = tls::load_or_generate_cert(&config).await?;
+            tracing::info!("Listening on https://{addr_str} (self-signed TLS)");
+            axum_server::bind_rustls(sock_addr, tls)
+                .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+                .await?;
+        }
+        config::TlsMode::Off => {
+            tracing::warn!(
+                "TLS DISABLED — listening on http://{addr_str}. Use only behind a TLS-terminating proxy."
+            );
+            let listener = tokio::net::TcpListener::bind(&addr_str).await?;
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await?;
+        }
+    }
 
     Ok(())
 }

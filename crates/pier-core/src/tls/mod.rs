@@ -1,0 +1,102 @@
+//! Panel TLS termination.
+//!
+//! The admin panel listens on `:8443` and previously served plain HTTP — meaning
+//! the admin password and session cookie traveled in cleartext. This module wires
+//! up rustls with an auto-generated self-signed certificate so the listener is
+//! always encrypted, even on a fresh VPS where the operator has not yet pointed
+//! a domain at the host. ACME / Let's Encrypt is handled in a follow-up (see
+//! plan: Phase B).
+
+use std::fs;
+use std::net::{IpAddr, UdpSocket};
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use axum_server::tls_rustls::RustlsConfig;
+use rcgen::{generate_simple_self_signed, CertifiedKey};
+
+use crate::config::PierConfig;
+
+const CERT_FILE: &str = "cert.pem";
+const KEY_FILE: &str = "key.pem";
+
+/// Load the panel TLS cert/key, generating a self-signed pair on first run.
+pub async fn load_or_generate_cert(cfg: &PierConfig) -> Result<RustlsConfig> {
+    let cert_path = cfg.tls_cert_dir.join(CERT_FILE);
+    let key_path = cfg.tls_cert_dir.join(KEY_FILE);
+
+    if !cert_path.exists() || !key_path.exists() {
+        fs::create_dir_all(&cfg.tls_cert_dir)
+            .with_context(|| format!("create TLS cert dir {}", cfg.tls_cert_dir.display()))?;
+        generate_self_signed(cfg, &cert_path, &key_path)
+            .context("generate self-signed panel cert")?;
+        tracing::info!(
+            "Generated self-signed panel TLS cert at {}",
+            cert_path.display()
+        );
+    }
+
+    RustlsConfig::from_pem_file(&cert_path, &key_path)
+        .await
+        .with_context(|| {
+            format!(
+                "load panel TLS material from {} / {}",
+                cert_path.display(),
+                key_path.display()
+            )
+        })
+}
+
+fn generate_self_signed(cfg: &PierConfig, cert_path: &Path, key_path: &Path) -> Result<()> {
+    let mut sans: Vec<String> = vec!["localhost".to_string(), "127.0.0.1".to_string()];
+    if let Some(domain) = &cfg.panel_domain {
+        if !sans.iter().any(|s| s == domain) {
+            sans.push(domain.clone());
+        }
+    }
+    // Try to learn the host's primary outbound IP so the cert SAN matches when
+    // the operator opens the panel by raw IP. Best-effort: a host with no
+    // default route just won't get an extra SAN — the panel still works on
+    // localhost / explicit panel_domain.
+    if let Some(ip) = primary_outbound_ip() {
+        let s = ip.to_string();
+        if !sans.iter().any(|x| x == &s) {
+            sans.push(s);
+        }
+    }
+
+    let CertifiedKey { cert, signing_key } = generate_simple_self_signed(sans)?;
+    write_secret(key_path, signing_key.serialize_pem().as_bytes())?;
+    fs::write(cert_path, cert.pem()).with_context(|| format!("write {}", cert_path.display()))?;
+    Ok(())
+}
+
+/// Connecting a UDP socket to a public IP doesn't send any packets; it just
+/// forces the kernel to pick the source IP of the default route. That IP is
+/// what an external client (or Let's Encrypt) will see, so it's the right
+/// thing to put in the cert SAN.
+fn primary_outbound_ip() -> Option<IpAddr> {
+    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("1.1.1.1:80").ok()?;
+    sock.local_addr().ok().map(|a| a.ip())
+}
+
+#[cfg(unix)]
+fn write_secret(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("open {} for write", path.display()))?;
+    std::io::Write::write_all(&mut f, bytes)
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_secret(path: &Path, bytes: &[u8]) -> Result<()> {
+    fs::write(path, bytes).with_context(|| format!("write {}", path.display()))
+}

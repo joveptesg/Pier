@@ -29,9 +29,13 @@ pub mod system_logs;
 pub mod tokens;
 pub mod webhooks;
 
+use std::sync::Arc;
+
 use axum::extract::{DefaultBodyLimit, State};
 use axum::routing::{any, delete, get, patch, post, put};
 use axum::Router;
+use tower_governor::governor::GovernorConfigBuilder;
+use tower_governor::GovernorLayer;
 
 use crate::auth::middleware::require_auth;
 use crate::state::SharedState;
@@ -47,10 +51,38 @@ async fn health(State(state): State<SharedState>) -> axum::Json<serde_json::Valu
 }
 
 /// Build the API router at /api/v1/*.
+///
+/// `tower_governor` rate-limits the unauthenticated auth endpoints by peer IP.
+/// `per_second(n)` means "replenish one token every n seconds", so a 5-burst
+/// with `per_second(12)` allows a 5-attempt burst and then throttles to roughly
+/// one attempt per 12 seconds. Setup is more permissive on rate but a single
+/// successful call locks the endpoint via the atomic insert in
+/// [`auth::setup`].
 pub fn api_router(state: SharedState) -> Router<SharedState> {
+    let login_governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(12)
+            .burst_size(5)
+            .finish()
+            .expect("login governor config"),
+    );
+    let setup_governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(6)
+            .burst_size(10)
+            .finish()
+            .expect("setup governor config"),
+    );
+
     let public = Router::new()
-        .route("/auth/login", post(auth::login))
-        .route("/auth/setup", post(auth::setup))
+        .route(
+            "/auth/login",
+            post(auth::login).layer(GovernorLayer::new(login_governor)),
+        )
+        .route(
+            "/auth/setup",
+            post(auth::setup).layer(GovernorLayer::new(setup_governor)),
+        )
         // Health check
         .route("/health", get(health))
         // Agent heartbeat (token-based auth, not session)

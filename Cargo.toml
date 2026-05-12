@@ -18,8 +18,10 @@ tokio = { version = "1.50", features = ["full"] }
 
 # HTTP / API
 axum = { version = "0.8.8", features = ["ws", "multipart"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 tower = "0.5.3"
 tower-http = { version = "0.6.8", features = ["cors", "fs", "trace", "compression-gzip"] }
+tower_governor = "0.8"
 
 # Docker
 bollard = "0.20.1"
@@ -52,6 +54,12 @@ bcrypt = "0.19"
 rand = "0.10"
 base64 = "0.22"
 aes-gcm = "0.10"
+zxcvbn = "3.1"
+
+# TLS (admin panel)
+rustls = "0.23"
+rustls-pemfile = "2.2"
+rcgen = "0.14"
 
 # Streaming
 futures-util = "0.3"

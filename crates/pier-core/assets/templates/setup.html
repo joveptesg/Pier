@@ -2,40 +2,7 @@
 {% block title %}Setup{% endblock %}
 
 {% block content %}
-<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6" x-data="{
-    username: '', email: '', password: '', showPw: false,
-    error: '', loading: false,
-    async submit() {
-        if (this.password.length < 8) {
-            this.error = 'Password must be at least 8 characters';
-            return;
-        }
-        this.loading = true; this.error = '';
-        try {
-            await api('/api/v1/auth/setup', {
-                method: 'POST',
-                body: JSON.stringify({
-                    username: this.username,
-                    email: this.email,
-                    password: this.password
-                })
-            });
-            // Auto-login after setup
-            await api('/api/v1/auth/login', {
-                method: 'POST',
-                body: JSON.stringify({
-                    username: this.username,
-                    password: this.password
-                })
-            });
-            window.location.href = '/';
-        } catch (e) {
-            this.error = e.message || 'Setup failed';
-        } finally {
-            this.loading = false;
-        }
-    }
-}">
+<div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6" x-data="setupForm()">
     <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Create Admin Account</h2>
     <p class="text-sm text-gray-500 mb-6">First-time setup. Create the administrator account.</p>
 
@@ -59,26 +26,54 @@
                    placeholder="admin@example.com">
         </div>
         <div>
-            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">Password</label>
+            <div class="flex items-center justify-between mb-1.5">
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400">Password</label>
+                <button type="button" @click="generate()"
+                        class="text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                    Generate strong password
+                </button>
+            </div>
             <div class="relative">
                 <input x-model="password" :type="showPw ? 'text' : 'password'" required
+                       autocomplete="new-password" spellcheck="false"
                        class="w-full px-3 py-2 pr-10 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
-                              text-gray-900 dark:text-gray-100
+                              text-gray-900 dark:text-gray-100 font-mono
                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                               placeholder-gray-400 dark:placeholder-gray-500 text-sm"
-                       placeholder="Min. 8 characters">
-                <button type="button" @click="showPw = !showPw"
+                       placeholder="Min. 12 characters, mixed">
+                <button type="button" @click="showPw = !showPw" tabindex="-1"
                         class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
                     <svg x-show="!showPw" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                     <svg x-show="showPw" x-cloak class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
                 </button>
             </div>
+            <div x-show="password.length > 0" x-cloak class="mt-2">
+                <div class="h-1.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full transition-all duration-200"
+                         :class="strengthBarColor"
+                         :style="{ width: ((strength + 1) * 20) + '%' }"></div>
+                </div>
+                <p class="mt-1 text-xs" :class="strengthTextColor" x-text="strengthLabel"></p>
+            </div>
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">Confirm password</label>
+            <input x-model="confirm" :type="showPw ? 'text' : 'password'" required
+                   autocomplete="new-password" spellcheck="false"
+                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                          text-gray-900 dark:text-gray-100 font-mono
+                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                          placeholder-gray-400 dark:placeholder-gray-500 text-sm"
+                   placeholder="Re-enter password">
+            <p x-show="confirm.length > 0 && confirm !== password" x-cloak
+               class="mt-1 text-xs text-red-600 dark:text-red-400">Passwords do not match</p>
         </div>
 
+        <div x-show="notice" x-cloak class="text-sm text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-lg px-3 py-2" x-text="notice"></div>
         <div x-show="error" x-cloak class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-lg px-3 py-2" x-text="error"></div>
 
-        <button type="submit" :disabled="loading"
-                class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50
+        <button type="submit" :disabled="loading || !canSubmit"
+                class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
                        rounded-lg text-sm font-medium text-white transition-colors">
             <span x-show="!loading">Create Admin Account</span>
             <span x-show="loading" x-cloak>Creating...</span>
@@ -95,6 +90,150 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Request failed');
         return data;
+    }
+
+    /*
+     * Cryptographic password generator.
+     *
+     * Pulls 32 bytes of entropy per character index from `crypto.getRandomValues`
+     * (CSPRNG) and uses rejection sampling to map each draw onto the printable
+     * ASCII charset (length 94) without the modulo bias that `% charset.length`
+     * would introduce. Guarantees a minimum of two characters from each class
+     * (upper, lower, digit, special) by reserving 8 of the 32 slots and then
+     * Fisher-Yates shuffling the result so the reserved slots aren't positional.
+     */
+    function generateStrongPassword() {
+        const LEN = 32;
+        const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const lower = 'abcdefghijklmnopqrstuvwxyz';
+        const digit = '0123456789';
+        const special = '!@#$%^&*()-_=+[]{};:,.<>?/~';
+        const all = upper + lower + digit + special; // 94 chars
+
+        const pickFrom = (charset) => {
+            // 32-bit rejection sampling. Anything in the "tail" beyond the
+            // largest multiple of charset.length gets discarded so all indices
+            // are equiprobable.
+            const max = Math.floor(0x100000000 / charset.length) * charset.length;
+            const buf = new Uint32Array(1);
+            while (true) {
+                crypto.getRandomValues(buf);
+                if (buf[0] < max) {
+                    return charset[buf[0] % charset.length];
+                }
+            }
+        };
+
+        const chars = [];
+        for (let i = 0; i < 2; i++) chars.push(pickFrom(upper));
+        for (let i = 0; i < 2; i++) chars.push(pickFrom(lower));
+        for (let i = 0; i < 2; i++) chars.push(pickFrom(digit));
+        for (let i = 0; i < 2; i++) chars.push(pickFrom(special));
+        while (chars.length < LEN) chars.push(pickFrom(all));
+
+        // Fisher-Yates shuffle using CSPRNG-backed unbiased index selection.
+        for (let i = chars.length - 1; i > 0; i--) {
+            const max = Math.floor(0x100000000 / (i + 1)) * (i + 1);
+            const buf = new Uint32Array(1);
+            let j;
+            while (true) {
+                crypto.getRandomValues(buf);
+                if (buf[0] < max) { j = buf[0] % (i + 1); break; }
+            }
+            [chars[i], chars[j]] = [chars[j], chars[i]];
+        }
+        return chars.join('');
+    }
+
+    function setupForm() {
+        return {
+            username: '', email: '', password: '', confirm: '',
+            showPw: false, loading: false, error: '', notice: '',
+
+            get strength() {
+                // 0..4 mirroring zxcvbn's bucket scale. Server-side zxcvbn is
+                // authoritative; this is purely UI feedback.
+                const p = this.password;
+                if (!p) return -1;
+                let s = 0;
+                if (p.length >= 8) s++;
+                if (p.length >= 12 && /[a-z]/.test(p) && /[A-Z]/.test(p)) s++;
+                if (/\d/.test(p)) s++;
+                if (/[^A-Za-z0-9]/.test(p)) s++;
+                if (p.length >= 20) s = Math.min(4, s + 1);
+                return Math.max(0, Math.min(4, s));
+            },
+            get strengthLabel() {
+                return ['Very weak', 'Weak', 'Fair', 'Good', 'Strong'][this.strength] || '';
+            },
+            get strengthBarColor() {
+                return [
+                    'bg-red-500', 'bg-orange-500', 'bg-yellow-500',
+                    'bg-emerald-500', 'bg-emerald-600',
+                ][this.strength] || '';
+            },
+            get strengthTextColor() {
+                return this.strength >= 3
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-gray-500 dark:text-gray-400';
+            },
+            get canSubmit() {
+                return this.username.trim().length > 0
+                    && this.email.trim().length > 0
+                    && this.password.length >= 12
+                    && this.strength >= 3
+                    && this.password === this.confirm;
+            },
+
+            async generate() {
+                const pw = generateStrongPassword();
+                this.password = pw;
+                this.confirm = pw;
+                this.showPw = true;
+                this.notice = '';
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(pw);
+                        this.notice = 'Password copied to clipboard. Save it now — it will not be shown again.';
+                    } else {
+                        this.notice = 'Password generated. Copy it from the field — it will not be shown again.';
+                    }
+                } catch (_) {
+                    this.notice = 'Password generated. Copy it from the field — it will not be shown again.';
+                }
+            },
+
+            async submit() {
+                this.error = '';
+                if (!this.canSubmit) {
+                    this.error = 'Please fix the highlighted fields before continuing.';
+                    return;
+                }
+                this.loading = true;
+                try {
+                    await api('/api/v1/auth/setup', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            username: this.username,
+                            email: this.email,
+                            password: this.password,
+                        }),
+                    });
+                    await api('/api/v1/auth/login', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            username: this.username,
+                            password: this.password,
+                        }),
+                    });
+                    window.location.href = '/';
+                } catch (e) {
+                    this.error = e.message || 'Setup failed';
+                } finally {
+                    this.loading = false;
+                }
+            },
+        };
     }
 </script>
 {% endblock %}

@@ -69,25 +69,32 @@ pub async fn change_password(
     axum::Extension(user): axum::Extension<AuthUser>,
     Json(body): Json<ChangePasswordRequest>,
 ) -> AppResult<impl IntoResponse> {
-    if body.new_password.len() < 8 {
-        return Err(AppError::BadRequest(
-            "Password must be at least 8 characters".into(),
-        ));
-    }
-
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-    let current_hash: String = db.query_row(
-        "SELECT password FROM users WHERE id = ?1",
+    let (username, email, current_hash): (String, String, String) = db.query_row(
+        "SELECT username, email, password FROM users WHERE id = ?1",
         [&user.id],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
+
+    // Same policy as the initial setup form — see `auth::password::
+    // validate_password_strength`. Feeding username/email as `user_inputs`
+    // lets zxcvbn penalise passwords derived from those fields.
+    password::validate_password_strength(&body.new_password, &[&username, &email])
+        .map_err(AppError::BadRequest)?;
 
     if !password::verify_password(&body.current_password, &current_hash)? {
         return Err(AppError::Unauthorized);
+    }
+
+    // Block "rotating" to the same password — defeats the point of a change.
+    if password::verify_password(&body.new_password, &current_hash)? {
+        return Err(AppError::BadRequest(
+            "New password must differ from current".into(),
+        ));
     }
 
     let new_hash = password::hash_password(&body.new_password)?;

@@ -3,6 +3,7 @@ use axum::http::header::SET_COOKIE;
 use axum::response::{IntoResponse, Json};
 use serde::Deserialize;
 
+use crate::config::TlsMode;
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
@@ -27,40 +28,46 @@ pub async fn setup(
     State(state): State<SharedState>,
     Json(body): Json<SetupRequest>,
 ) -> AppResult<impl IntoResponse> {
-    if body.username.trim().is_empty() || body.password.len() < 8 {
-        return Err(AppError::BadRequest(
-            "Username required, password must be at least 8 characters".into(),
-        ));
+    let username = body.username.trim();
+    let email = body.email.trim();
+
+    if username.is_empty() {
+        return Err(AppError::BadRequest("Username required".into()));
     }
+    password::validate_password_strength(&body.password, &[username, email])
+        .map_err(AppError::BadRequest)?;
 
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-    // Check no users exist
-    let count: u32 = db.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
-    if count > 0 {
-        return Err(AppError::Conflict("Setup already completed".into()));
-    }
-
     let id = uuid::Uuid::new_v4().to_string();
     let hash = password::hash_password(&body.password)?;
 
-    db.execute(
-        "INSERT INTO users (id, username, email, password, role) VALUES (?1, ?2, ?3, ?4, 'admin')",
-        rusqlite::params![id, body.username.trim(), body.email.trim(), hash],
+    // Atomic guard against the "race for first admin" on a fresh VPS: between
+    // a SELECT COUNT and an INSERT, two concurrent setup calls could both
+    // succeed. This single statement inserts only when the users table is
+    // still empty; SQLite serialises it under the database write lock.
+    let inserted = db.execute(
+        "INSERT INTO users (id, username, email, password, role)
+         SELECT ?1, ?2, ?3, ?4, 'admin'
+         WHERE NOT EXISTS (SELECT 1 FROM users)",
+        rusqlite::params![id, username, email, hash],
     )?;
+    if inserted == 0 {
+        return Err(AppError::Conflict("Setup already completed".into()));
+    }
 
     // Seed `proxy.acme_email` from the admin's email so Let's Encrypt has a
     // valid contact on first deploy and the UI shows it pre-filled. Skip if
     // the operator already set it explicitly (`INSERT OR IGNORE`).
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES ('proxy.acme_email', ?1)",
-        [body.email.trim()],
+        [email],
     )?;
 
-    tracing::info!("Admin user '{}' created", body.username.trim());
+    tracing::info!("Admin user '{}' created", username);
     Ok(Json(
         serde_json::json!({"ok": true, "message": "Admin user created"}),
     ))
@@ -103,13 +110,7 @@ pub async fn login(
         rusqlite::params![session_id, user_id, ttl],
     )?;
 
-    // Build Set-Cookie header
-    let cookie = format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
-        state.config.session_cookie,
-        session_id,
-        ttl * 3600,
-    );
+    let cookie = build_session_cookie(&state, &session_id, ttl * 3600);
 
     Ok((
         [(SET_COOKIE, cookie)],
@@ -120,15 +121,32 @@ pub async fn login(
 /// POST /api/v1/auth/logout — Destroy current session.
 pub async fn logout(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     // Clear cookie (session cleanup happens via middleware check)
-    let cookie = format!(
-        "{}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
-        state.config.session_cookie,
-    );
+    let cookie = build_session_cookie(&state, "", 0);
 
     Ok((
         [(SET_COOKIE, cookie)],
         Json(serde_json::json!({"ok": true})),
     ))
+}
+
+/// Build a `Set-Cookie` header for the session.
+///
+/// `Secure` is set whenever TLS termination is in-process. We deliberately do
+/// not set it when `tls_mode == Off` so that an operator who terminates TLS at
+/// a separate reverse proxy and runs Pier on plain HTTP locally still gets a
+/// working session cookie. `SameSite=Strict` is fine here because the only
+/// legitimate path to the panel is the operator typing the URL — there are no
+/// cross-origin flows we want to preserve.
+fn build_session_cookie(state: &SharedState, value: &str, max_age_secs: i64) -> String {
+    let secure = if state.config.tls_mode == TlsMode::Off {
+        ""
+    } else {
+        "Secure; "
+    };
+    format!(
+        "{}={}; Path=/; HttpOnly; {}SameSite=Strict; Max-Age={}",
+        state.config.session_cookie, value, secure, max_age_secs,
+    )
 }
 
 /// GET /api/v1/auth/session — Return current user info.
