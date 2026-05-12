@@ -211,11 +211,16 @@ pub async fn update_settings(
             let _ = crate::proxy::config::remove_platform_domain_config(&state.config.data_dir);
             tracing::info!("Platform domain cleared (Traefik dynamic config removed)");
         } else {
-            let target = format!("http://host.docker.internal:{}", state.config.port);
+            let (scheme, insecure) = match state.config.tls_mode {
+                crate::config::TlsMode::SelfSigned => ("https", true),
+                crate::config::TlsMode::Off => ("http", false),
+            };
+            let target = format!("{scheme}://host.docker.internal:{}", state.config.port);
             crate::proxy::config::write_platform_domain_config(
                 &state.config.data_dir,
                 &domain,
                 &target,
+                insecure,
             )
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Platform domain config: {e}")))?;
             tracing::info!(

@@ -586,14 +586,35 @@ pub fn regenerate_service_config_lb(
 }
 
 /// Write Traefik config for the Pier platform domain.
-pub fn write_platform_domain_config(data_dir: &Path, domain: &str, target_url: &str) -> Result<()> {
+///
+/// `upstream_insecure_tls` must be set when pier-core terminates TLS itself
+/// (e.g. `PIER_TLS_MODE=self_signed`): the upstream URL is `https://`, the
+/// cert is self-signed, and Traefik would otherwise reject it. The flag emits
+/// a `serversTransport` with `insecureSkipVerify: true` referenced by the
+/// loadBalancer. This only weakens the loopback Traefik→pier-core hop on the
+/// same host; the public-facing TLS is unaffected.
+pub fn write_platform_domain_config(
+    data_dir: &Path,
+    domain: &str,
+    target_url: &str,
+    upstream_insecure_tls: bool,
+) -> Result<()> {
     let dynamic_dir = data_dir.join("traefik").join("dynamic");
     std::fs::create_dir_all(&dynamic_dir)?;
+
+    let (transports_section, transport_ref) = if upstream_insecure_tls {
+        (
+            "  serversTransports:\n    pier-platform-insecure:\n      insecureSkipVerify: true\n",
+            "        serversTransport: pier-platform-insecure\n",
+        )
+    } else {
+        ("", "")
+    };
 
     let config = format!(
         r#"# Pier platform domain
 http:
-  routers:
+{transports_section}  routers:
     pier-platform:
       rule: "Host(`{domain}`)"
       entryPoints:
@@ -604,7 +625,7 @@ http:
   services:
     pier-platform:
       loadBalancer:
-        servers:
+{transport_ref}        servers:
           - url: "{target_url}"
 "#
     );
@@ -676,6 +697,66 @@ mod normalize_domain_tests {
             "pier.example.com"
         );
         assert_eq!(normalize_domain("PIER.EXAMPLE.COM."), "pier.example.com");
+    }
+}
+
+#[cfg(test)]
+mod platform_domain_config_tests {
+    use super::write_platform_domain_config;
+    use tempfile::TempDir;
+
+    fn read_written(tmp: &TempDir) -> String {
+        std::fs::read_to_string(
+            tmp.path()
+                .join("traefik")
+                .join("dynamic")
+                .join("_pier-platform.yml"),
+        )
+        .expect("config file written")
+    }
+
+    #[test]
+    fn https_upstream_emits_insecure_servers_transport() {
+        let tmp = TempDir::new().unwrap();
+        write_platform_domain_config(
+            tmp.path(),
+            "fm1.feminium.ru",
+            "https://host.docker.internal:8443",
+            true,
+        )
+        .unwrap();
+        let yaml = read_written(&tmp);
+        assert!(yaml.contains("serversTransports:"), "yaml = {yaml}");
+        assert!(yaml.contains("pier-platform-insecure:"), "yaml = {yaml}");
+        assert!(yaml.contains("insecureSkipVerify: true"), "yaml = {yaml}");
+        assert!(
+            yaml.contains("serversTransport: pier-platform-insecure"),
+            "yaml = {yaml}"
+        );
+        assert!(
+            yaml.contains("url: \"https://host.docker.internal:8443\""),
+            "yaml = {yaml}"
+        );
+        assert!(yaml.contains("Host(`fm1.feminium.ru`)"), "yaml = {yaml}");
+    }
+
+    #[test]
+    fn http_upstream_omits_servers_transport() {
+        let tmp = TempDir::new().unwrap();
+        write_platform_domain_config(
+            tmp.path(),
+            "fm1.feminium.ru",
+            "http://host.docker.internal:8443",
+            false,
+        )
+        .unwrap();
+        let yaml = read_written(&tmp);
+        assert!(!yaml.contains("serversTransport"), "yaml = {yaml}");
+        assert!(!yaml.contains("insecureSkipVerify"), "yaml = {yaml}");
+        assert!(
+            yaml.contains("url: \"http://host.docker.internal:8443\""),
+            "yaml = {yaml}"
+        );
     }
 }
 

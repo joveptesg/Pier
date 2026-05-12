@@ -268,6 +268,7 @@ async fn main() -> Result<()> {
         let proxy_state = state.clone();
         let proxy_data_dir = config.data_dir.clone();
         let proxy_port = config.port;
+        let proxy_tls_mode = config.tls_mode;
         tokio::spawn(async move {
             // Auto-detect and cache public IP + geolocation
             let public_ip = match proxy::config::detect_public_ip().await {
@@ -405,11 +406,16 @@ async fn main() -> Result<()> {
                                 "Platform domain normalized on startup: {proxy_platform_domain} -> {normalized}"
                             );
                         }
-                        let target = format!("http://host.docker.internal:{proxy_port}");
+                        let (scheme, insecure) = match proxy_tls_mode {
+                            config::TlsMode::SelfSigned => ("https", true),
+                            config::TlsMode::Off => ("http", false),
+                        };
+                        let target = format!("{scheme}://host.docker.internal:{proxy_port}");
                         match proxy::config::write_platform_domain_config(
                             &proxy_data_dir,
                             &normalized,
                             &target,
+                            insecure,
                         ) {
                             Ok(()) => tracing::info!(
                                 "Platform domain bound: {normalized} -> {target} (Traefik dynamic config written)"
