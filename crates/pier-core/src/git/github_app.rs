@@ -266,9 +266,15 @@ pub fn generate_manifest(pier_url: &str, app_name: &str) -> serde_json::Value {
 /// `PATCH https://api.github.com/app/hook/config` ([docs](https://docs.github.com/en/rest/apps/webhooks#update-a-webhook-configuration-for-an-app)).
 /// `insecure_ssl` must be the string `"0"` (verify, default) or `"1"` (skip).
 ///
+/// Retries on 404 with exponential backoff: a freshly-created App is not yet
+/// visible to the `/app/hook/config` endpoint for a few seconds (GitHub's
+/// internal eventual-consistency window). Up to 5 attempts with delays
+/// 0, 0.5s, 1s, 2s, 4s — ~7.5s worst case, which is acceptable since the
+/// browser is sitting on the redirect chain at this point. Non-404 errors
+/// return immediately; retrying e.g. a 401 just wastes time.
+///
 /// Best-effort: a failure here doesn't roll back the App; the operator can
-/// flip the same toggle manually on GitHub. We surface the error so the caller
-/// can log it.
+/// flip the same toggle manually on GitHub.
 pub async fn set_app_webhook_insecure_ssl(
     app_id: &str,
     private_key: &str,
@@ -276,23 +282,38 @@ pub async fn set_app_webhook_insecure_ssl(
 ) -> Result<()> {
     let jwt = create_jwt(app_id, private_key)?;
     let client = reqwest::Client::new();
-    let resp = client
-        .patch("https://api.github.com/app/hook/config")
-        .header("Authorization", format!("Bearer {jwt}"))
-        .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "Pier-PaaS")
-        .json(&serde_json::json!({ "insecure_ssl": insecure_ssl }))
-        .send()
-        .await
-        .map_err(|e| anyhow!("PATCH /app/hook/config request failed: {e}"))?;
-    let status = resp.status();
-    if !status.is_success() {
+    let body = serde_json::json!({ "insecure_ssl": insecure_ssl });
+
+    let mut delay_ms: u64 = 0;
+    for attempt in 1..=5 {
+        if delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
+        let resp = client
+            .patch("https://api.github.com/app/hook/config")
+            .header("Authorization", format!("Bearer {jwt}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "Pier-PaaS")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("PATCH /app/hook/config request failed: {e}"))?;
+        let status = resp.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        if status.as_u16() == 404 && attempt < 5 {
+            // Just-created App not yet propagated through GitHub's caches.
+            delay_ms = if delay_ms == 0 { 500 } else { delay_ms * 2 };
+            tracing::info!(
+                "set_app_webhook_insecure_ssl: GitHub 404 on attempt {attempt}, retrying in {delay_ms}ms"
+            );
+            continue;
+        }
         let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!(
-            "PATCH /app/hook/config returned {status}: {body}"
-        ));
+        return Err(anyhow!("PATCH /app/hook/config returned {status}: {body}"));
     }
-    Ok(())
+    unreachable!("retry loop exits via return on each branch")
 }
 
 #[derive(Debug)]
