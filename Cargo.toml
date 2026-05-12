@@ -112,6 +112,15 @@ chrono-tz = "0.10"
 # Email (SMTP)
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder", "hostname"] }
 
+# 2FA (TOTP) — generates and validates RFC 6238 codes for second-factor login.
+# `otpauth` feature enables the issuer/account-aware constructor and `get_url()`
+# helper we use to build authenticator-app URIs.
+totp-rs = { version = "5.7", features = ["otpauth"] }
+
+# QR code rendering (SVG, no image deps) — used to render the otpauth:// URL
+# during 2FA enrollment so the operator can scan with an authenticator app.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
 [profile.release]
 lto = true
 codegen-units = 1

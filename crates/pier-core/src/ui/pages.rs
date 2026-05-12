@@ -1,4 +1,6 @@
-use axum::extract::{Path, State};
+use std::collections::HashMap;
+
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 
@@ -39,19 +41,39 @@ pub async fn login_page(State(state): State<SharedState>) -> PageResult {
 }
 
 /// GET /setup
-pub async fn setup_page(State(state): State<SharedState>) -> PageResult {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    let count: u32 = db.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
-    drop(db);
+///
+/// Three states:
+///   1. A user already exists → 302 /login (priority: setup is over).
+///   2. Token store is required AND the query token doesn't match → 404
+///      (we deliberately don't reveal that a setup form lives here).
+///   3. Otherwise → render the form; the token (if any) is threaded into JS
+///      so the POST body picks it up automatically.
+pub async fn setup_page(
+    State(state): State<SharedState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> PageResult {
+    let count: u32 = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?
+    };
 
     if count > 0 {
         return Ok(Redirect::to("/login").into_response());
     }
 
-    render(&state, "setup.html", minijinja::context! {})
+    let supplied = q.get("token").map(|s| s.as_str()).unwrap_or("");
+    if state.setup_token.is_required() && !state.setup_token.matches(supplied) {
+        return Ok((StatusCode::NOT_FOUND, "Not Found").into_response());
+    }
+
+    render(
+        &state,
+        "setup.html",
+        minijinja::context! { setup_token => supplied },
+    )
 }
 
 // ── Protected Pages ─────────────────────────────────────────
@@ -164,6 +186,30 @@ pub async fn server_detail(
         &state,
         "servers/detail.html",
         minijinja::context! { user => user.username, page => "servers", server_id => id },
+    )
+}
+
+/// GET /account/security — TOTP enrollment + recovery code management.
+pub async fn security_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "account/security.html",
+        minijinja::context! { user => user.username, page => "settings" },
+    )
+}
+
+/// GET /audit — paginated, filterable view of auth events.
+pub async fn audit_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "audit/index.html",
+        minijinja::context! { user => user.username, page => "settings" },
     )
 }
 

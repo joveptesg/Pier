@@ -218,9 +218,45 @@ if command -v journalctl &>/dev/null; then
     fi
 fi
 
+# ── Generate /setup bootstrap token (only when no users yet) ────────────────
+# Until the first admin exists, `/setup` is reachable by anyone who can hit
+# the panel port. The token closes that public window: pier-core checks the
+# query string against this file and 404's anything else. The file is deleted
+# automatically once setup succeeds; a leftover after a successful setup is
+# harmless (pier-core ignores it when users > 0).
+
+SETUP_TOKEN_FILE="${PIER_DATA}/.setup_token"
+HAD_USERS=false
+if [[ -f "${PIER_DATA}/pier.db" ]]; then
+    # `sqlite3` is optional on fresh installs (we don't require it as a
+    # prerequisite); fall back to "assume fresh install" if missing.
+    if command -v sqlite3 &>/dev/null; then
+        USER_COUNT=$(sqlite3 "${PIER_DATA}/pier.db" "SELECT COUNT(*) FROM users" 2>/dev/null || echo 0)
+        if [[ "$USER_COUNT" -gt 0 ]]; then
+            HAD_USERS=true
+        fi
+    fi
+fi
+
+NEW_SETUP_TOKEN=""
+if [[ "$HAD_USERS" == false && ! -f "$SETUP_TOKEN_FILE" ]]; then
+    info "Generating /setup bootstrap token"
+    NEW_SETUP_TOKEN=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')
+    echo -n "$NEW_SETUP_TOKEN" > "$SETUP_TOKEN_FILE"
+    chmod 400 "$SETUP_TOKEN_FILE"
+elif [[ "$HAD_USERS" == false && -f "$SETUP_TOKEN_FILE" ]]; then
+    info "Reusing existing /setup bootstrap token"
+    NEW_SETUP_TOKEN=$(cat "$SETUP_TOKEN_FILE")
+fi
+
 # ── Set ownership ────────────────────────────────────────────────────────────
 
 chown -R "$PIER_USER":"$PIER_USER" "$PIER_DIR"
+
+# Re-tighten setup token after recursive chown (chown -R restores 644 default).
+if [[ -f "$SETUP_TOKEN_FILE" ]]; then
+    chmod 400 "$SETUP_TOKEN_FILE"
+fi
 
 # ── Install systemd unit ─────────────────────────────────────────────────────
 
@@ -294,7 +330,12 @@ if systemctl is-active --quiet pier; then
     echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "  Dashboard:  ${YELLOW}https://${PUBLIC_IP}:${PIER_PORT}${NC}"
-    echo -e "  Setup:      ${YELLOW}https://${PUBLIC_IP}:${PIER_PORT}/setup${NC}"
+    if [[ -n "$NEW_SETUP_TOKEN" ]]; then
+        echo -e "  Setup:      ${YELLOW}https://${PUBLIC_IP}:${PIER_PORT}/setup?token=${NEW_SETUP_TOKEN}${NC}"
+        echo -e "              ${GREEN}^ token is valid until the first admin is created${NC}"
+    else
+        echo -e "  Setup:      ${YELLOW}https://${PUBLIC_IP}:${PIER_PORT}/setup${NC}"
+    fi
     echo ""
     echo -e "  Logs:       journalctl -u pier -f"
     echo -e "  Status:     systemctl status pier"

@@ -206,6 +206,15 @@ async fn main() -> Result<()> {
     let event_bus = docker::events::DockerEventBus::spawn(docker.clone());
     tracing::info!("Docker events bus started");
 
+    // Load the one-shot /setup bootstrap token from disk (or fall back to
+    // unset-mode with a warning). install.sh writes this file with 0400 pier:pier;
+    // a missing file means we serve /setup unauthenticated until the first user
+    // is created, matching pre-token behaviour.
+    let setup_token_path = config.data_dir.join(".setup_token");
+    let setup_token = Arc::new(auth::setup_token::SetupTokenStore::load(setup_token_path));
+
+    let partial_tokens = Arc::new(auth::partial_token::PartialTokenStore::new());
+
     // Build shared state
     let state = Arc::new(AppState {
         db: Mutex::new(conn),
@@ -216,6 +225,8 @@ async fn main() -> Result<()> {
         catalog,
         started_at: std::time::Instant::now(),
         ssl_notify: Arc::new(tokio::sync::Notify::new()),
+        setup_token,
+        partial_tokens,
     });
 
     // One-shot recovery of env_json entries encrypted with historical random
@@ -512,6 +523,26 @@ async fn main() -> Result<()> {
                 if do_containers {
                     run("containers", &["container", "prune", "-f"]).await;
                 }
+            }
+        });
+    }
+
+    // Auth audit log retention: daily sweep of old `auth_events` rows. Two
+    // thresholds — `audit.retention_days` (default 90) and
+    // `audit.retention_days_sensitive` (default 365 for password/2FA/setup events).
+    {
+        let s = state.clone();
+        tokio::spawn(async move {
+            // First tick after 1 hour so we don't compete with startup work.
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            loop {
+                let (n, ns) = auth::audit::retention_sweep(&s);
+                if n + ns > 0 {
+                    tracing::info!(
+                        "audit retention: pruned {n} normal + {ns} sensitive auth_events rows"
+                    );
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(86400)).await;
             }
         });
     }

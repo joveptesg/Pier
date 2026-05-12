@@ -24,6 +24,8 @@ pub fn ui_router(state: SharedState) -> Router<SharedState> {
             "/settings/external-access",
             get(pages::external_access_page),
         )
+        .route("/account/security", get(pages::security_page))
+        .route("/audit", get(pages::audit_page))
         .route("/packages", get(pages::packages_list))
         .route("/packages/{*name}", get(pages::package_detail))
         .route("/logs", get(pages::system_logs))

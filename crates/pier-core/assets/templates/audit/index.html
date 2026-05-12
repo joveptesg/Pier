@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+
+{% block content %}
+<div x-data="auditPage()" x-init="load()" class="p-6 space-y-4">
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Audit Log</h2>
+            <p class="text-sm text-gray-500 mt-1">Authentication and session events for this server.</p>
+        </div>
+        <button @click="load()" :disabled="loading"
+                class="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg disabled:opacity-50">
+            Refresh
+        </button>
+    </div>
+
+    <!-- ── Filters ─────────────────────────────────────────── -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Event type</label>
+                <select x-model="filters.event_type" @change="load()"
+                        class="w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100">
+                    <option value="">All</option>
+                    <option value="login_success">login_success</option>
+                    <option value="login_failure">login_failure</option>
+                    <option value="login_totp_required">login_totp_required</option>
+                    <option value="login_totp_success">login_totp_success</option>
+                    <option value="login_totp_failure">login_totp_failure</option>
+                    <option value="logout">logout</option>
+                    <option value="password_change">password_change</option>
+                    <option value="two_fa_enabled">two_fa_enabled</option>
+                    <option value="two_fa_disabled">two_fa_disabled</option>
+                    <option value="session_revoked">session_revoked</option>
+                    <option value="session_revoked_all">session_revoked_all</option>
+                    <option value="setup">setup</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">IP prefix</label>
+                <input x-model="filters.ip" @keydown.enter="load()" placeholder="e.g. 192.168"
+                       class="w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 font-mono">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Since (UTC)</label>
+                <input x-model="filters.since" @change="load()" type="datetime-local"
+                       class="w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Until (UTC)</label>
+                <input x-model="filters.until" @change="load()" type="datetime-local"
+                       class="w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100">
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Table ───────────────────────────────────────────── -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase text-gray-500">
+                    <tr>
+                        <th class="px-4 py-2 text-left">When (UTC)</th>
+                        <th class="px-4 py-2 text-left">Event</th>
+                        <th class="px-4 py-2 text-left">User</th>
+                        <th class="px-4 py-2 text-left">IP</th>
+                        <th class="px-4 py-2 text-left">UA</th>
+                        <th class="px-4 py-2 text-left">Details</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                    <template x-for="e in events" :key="e.id">
+                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                            <td class="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-400" x-text="e.created_at"></td>
+                            <td class="px-4 py-2">
+                                <span class="inline-block px-1.5 py-0.5 text-[10px] font-medium rounded"
+                                      :class="badgeClass(e.event_type)" x-text="e.event_type"></span>
+                            </td>
+                            <td class="px-4 py-2 text-gray-700 dark:text-gray-300" x-text="e.username || e.user_id || '—'"></td>
+                            <td class="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-400" x-text="e.ip || '—'"></td>
+                            <td class="px-4 py-2 text-xs text-gray-500 max-w-xs truncate" :title="e.user_agent" x-text="e.user_agent || '—'"></td>
+                            <td class="px-4 py-2 text-xs text-gray-500 font-mono" x-text="e.details || ''"></td>
+                        </tr>
+                    </template>
+                    <tr x-show="!loading && events.length === 0" x-cloak>
+                        <td colspan="6" class="px-4 py-12 text-center text-sm text-gray-400">No events match these filters.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500">
+            <span>
+                <span x-text="offset + 1"></span>–<span x-text="Math.min(offset + events.length, total)"></span>
+                of <span x-text="total"></span>
+            </span>
+            <div class="flex gap-2">
+                <button @click="prevPage()" :disabled="offset === 0 || loading"
+                        class="px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-40">
+                    Prev
+                </button>
+                <button @click="nextPage()" :disabled="offset + events.length >= total || loading"
+                        class="px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-40">
+                    Next
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function auditPage() {
+    return {
+        filters: { event_type: '', ip: '', since: '', until: '' },
+        events: [],
+        total: 0,
+        limit: 50,
+        offset: 0,
+        loading: false,
+
+        badgeClass(t) {
+            if (t.endsWith('_failure')) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+            if (t === 'login_success' || t === 'login_totp_success') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300';
+            if (t === 'password_change' || t === 'two_fa_enabled' || t === 'two_fa_disabled' || t === 'setup') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+            return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+        },
+
+        async load() {
+            this.loading = true;
+            try {
+                const p = new URLSearchParams();
+                if (this.filters.event_type) p.set('event_type', this.filters.event_type);
+                if (this.filters.ip) p.set('ip', this.filters.ip);
+                if (this.filters.since) p.set('since', this.filters.since.replace('T', ' ') + ':00');
+                if (this.filters.until) p.set('until', this.filters.until.replace('T', ' ') + ':00');
+                p.set('limit', this.limit);
+                p.set('offset', this.offset);
+                const r = await fetch('/api/v1/audit/events?' + p.toString(), { credentials: 'same-origin' });
+                const data = await r.json();
+                this.events = data.events;
+                this.total = data.total;
+            } finally { this.loading = false; }
+        },
+
+        nextPage() { this.offset += this.limit; this.load(); },
+        prevPage() { this.offset = Math.max(0, this.offset - this.limit); this.load(); },
+    };
+}
+</script>
+{% endblock %}

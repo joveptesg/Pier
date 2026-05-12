@@ -5,6 +5,8 @@ use minijinja::Environment;
 use rusqlite::Connection;
 use tokio::sync::Notify;
 
+use crate::auth::partial_token::PartialTokenStore;
+use crate::auth::setup_token::SetupTokenStore;
 use crate::catalog::CatalogItem;
 use crate::config::PierConfig;
 use crate::docker::events::DockerEventBus;
@@ -38,6 +40,15 @@ pub struct AppState {
     /// `ssl_status` transitions from `provisioning` → `active` promptly,
     /// instead of waiting for the next polling tick.
     pub ssl_notify: Arc<Notify>,
+
+    /// One-shot bootstrap token guarding `/setup` on a fresh VPS. Loaded once
+    /// at startup from `${PIER_DATA_DIR}/.setup_token`; cleared after the first
+    /// admin is created.
+    pub setup_token: Arc<SetupTokenStore>,
+
+    /// Short-lived RAM-only tokens issued by the password step of login when
+    /// the user has 2FA enabled. The TOTP step consumes them.
+    pub partial_tokens: Arc<PartialTokenStore>,
 }
 
 /// Type alias for Arc-wrapped shared state.

@@ -628,6 +628,36 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
     "#,
+    // Migration 35: Per-user TOTP (2FA) state.
+    // totp_secret holds the AES-256-encrypted base32 secret ("ENC:…" via
+    // `crypto::encrypt`); NULL means 2FA disabled for that user.
+    // totp_recovery_codes is a JSON array of SHA-256 hex hashes — codes are
+    // displayed once at enrollment and never recoverable. totp_enabled_at is
+    // audit metadata (when the user finalised enrollment).
+    r#"
+    ALTER TABLE users ADD COLUMN totp_secret TEXT;
+    ALTER TABLE users ADD COLUMN totp_recovery_codes TEXT;
+    ALTER TABLE users ADD COLUMN totp_enabled_at TEXT;
+    "#,
+    // Migration 36: Auth audit log — `auth_events` records every credential /
+    // session action so operators can answer "who, when, from which IP" after
+    // an incident. Retention is enforced by a daily background task (see
+    // `auth::audit::retention_sweep`) with thresholds in `settings`
+    // (`audit.retention_days` / `audit.retention_days_sensitive`).
+    r#"
+    CREATE TABLE IF NOT EXISTS auth_events (
+        id          TEXT PRIMARY KEY NOT NULL,
+        user_id     TEXT,
+        event_type  TEXT NOT NULL,
+        ip          TEXT,
+        user_agent  TEXT,
+        details     TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_events_user_id ON auth_events(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_auth_events_type    ON auth_events(event_type, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_auth_events_ip      ON auth_events(ip, created_at DESC);
+    "#,
 ];
 
 /// Run all pending database migrations.

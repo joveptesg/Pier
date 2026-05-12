@@ -3,26 +3,65 @@
 
 {% block content %}
 <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6" x-data="{
+    step: 'password',
     username: '', password: '', showPw: false,
+    partialToken: '', code: '',
     error: '', loading: false,
-    async submit() {
+
+    async submitPassword() {
         this.loading = true; this.error = '';
         try {
-            await api('/api/v1/auth/login', {
+            const data = await api('/api/v1/auth/login', {
                 method: 'POST',
                 body: JSON.stringify({ username: this.username, password: this.password })
             });
-            window.location.href = '/';
+            if (data && data.requires_2fa) {
+                this.partialToken = data.partial_token;
+                this.step = 'totp';
+                // Auto-focus the code input on the next tick after Alpine renders it.
+                this.$nextTick(() => {
+                    const el = document.getElementById('totp-code');
+                    if (el) el.focus();
+                });
+            } else {
+                window.location.href = '/';
+            }
         } catch (e) {
             this.error = e.message || 'Login failed';
         } finally {
             this.loading = false;
         }
-    }
-}">
-    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Sign in</h2>
+    },
 
-    <form @submit.prevent="submit()" class="space-y-4">
+    async submitTotp() {
+        this.loading = true; this.error = '';
+        try {
+            await api('/api/v1/auth/login/2fa', {
+                method: 'POST',
+                body: JSON.stringify({ partial_token: this.partialToken, code: this.code })
+            });
+            window.location.href = '/';
+        } catch (e) {
+            this.error = e.message || 'Invalid code';
+        } finally {
+            this.loading = false;
+        }
+    },
+
+    backToPassword() {
+        this.step = 'password';
+        this.code = '';
+        this.partialToken = '';
+        this.error = '';
+    },
+}">
+    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+        <span x-show="step === 'password'">Sign in</span>
+        <span x-show="step === 'totp'" x-cloak>Two-factor authentication</span>
+    </h2>
+
+    <!-- ── Step 1: password ────────────────────────────────── -->
+    <form x-show="step === 'password'" @submit.prevent="submitPassword()" class="space-y-4">
         <div>
             <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">Username</label>
             <input x-model="username" type="text" required autofocus
@@ -56,6 +95,34 @@
                        rounded-lg text-sm font-medium text-white transition-colors">
             <span x-show="!loading">Sign in</span>
             <span x-show="loading" x-cloak>Signing in...</span>
+        </button>
+    </form>
+
+    <!-- ── Step 2: TOTP ────────────────────────────────────── -->
+    <form x-show="step === 'totp'" x-cloak @submit.prevent="submitTotp()" class="space-y-4">
+        <p class="text-sm text-gray-500">
+            Enter the 6-digit code from your authenticator app, or a recovery code.
+        </p>
+        <div>
+            <input id="totp-code" x-model="code" type="text"
+                   autocomplete="one-time-code" required
+                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                          text-gray-900 dark:text-gray-100 font-mono text-center text-lg tracking-widest
+                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                   placeholder="123456">
+        </div>
+
+        <div x-show="error" x-cloak class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-lg px-3 py-2" x-text="error"></div>
+
+        <button type="submit" :disabled="loading || !code"
+                class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50
+                       rounded-lg text-sm font-medium text-white transition-colors">
+            <span x-show="!loading">Verify</span>
+            <span x-show="loading" x-cloak>Verifying...</span>
+        </button>
+        <button type="button" @click="backToPassword()"
+                class="w-full text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
+            ← back
         </button>
     </form>
 </div>

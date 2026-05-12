@@ -146,9 +146,15 @@
     }
 
     function setupForm() {
+        // Bootstrap token is rendered server-side. The `?token=...` in the
+        // current URL is the canonical source; we fall back to the embedded
+        // value if the operator stripped the query string by mistake.
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token') || {{ setup_token|tojson }};
         return {
             username: '', email: '', password: '', confirm: '',
             showPw: false, loading: false, error: '', notice: '',
+            token,
 
             get strength() {
                 // 0..4 mirroring zxcvbn's bucket scale. Server-side zxcvbn is
@@ -217,6 +223,7 @@
                             username: this.username,
                             email: this.email,
                             password: this.password,
+                            token: this.token,
                         }),
                     });
                     await api('/api/v1/auth/login', {

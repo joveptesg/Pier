@@ -1,5 +1,6 @@
 pub mod account;
 pub mod alerts;
+pub mod audit;
 pub mod auth;
 pub mod backups;
 pub mod canvas;
@@ -66,6 +67,15 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             .finish()
             .expect("login governor config"),
     );
+    // Same throttle profile as /auth/login — without it a stolen partial token
+    // gives an attacker a ~5-minute window to brute-force a 6-digit TOTP code.
+    let login_2fa_governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(12)
+            .burst_size(5)
+            .finish()
+            .expect("login_2fa governor config"),
+    );
     let setup_governor = Arc::new(
         GovernorConfigBuilder::default()
             .per_second(6)
@@ -78,6 +88,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/auth/login",
             post(auth::login).layer(GovernorLayer::new(login_governor)),
+        )
+        .route(
+            "/auth/login/2fa",
+            post(auth::login_2fa).layer(GovernorLayer::new(login_2fa_governor)),
         )
         .route(
             "/auth/setup",
@@ -109,6 +123,13 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Bearer API tokens (used by npm registry, CI, CLI integrations)
         .route("/account/tokens", get(tokens::list).post(tokens::create))
         .route("/account/tokens/{id}", delete(tokens::revoke))
+        // 2FA (TOTP) enrollment / disable
+        .route("/account/2fa", get(account::two_fa_status))
+        .route("/account/2fa/setup", post(account::two_fa_setup))
+        .route("/account/2fa/verify", post(account::two_fa_verify))
+        .route("/account/2fa/disable", post(account::two_fa_disable))
+        // Audit log — paginated, filterable view of credential / session events
+        .route("/audit/events", get(audit::list_events))
         // Embedded npm registry settings (which S3 storage to mirror to)
         .route(
             "/registry/settings",

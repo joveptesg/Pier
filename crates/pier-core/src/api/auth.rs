@@ -1,1 +1,1 @@
-pub use crate::auth::handlers::{login, logout, session_check, setup};
+pub use crate::auth::handlers::{login, login_2fa, logout, session_check, setup};

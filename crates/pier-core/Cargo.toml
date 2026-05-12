@@ -109,3 +109,7 @@ indexmap = { version = "2.14.0", features = ["serde"] }
 
 # Email
 lettre = { workspace = true }
+
+# 2FA (TOTP)
+totp-rs = { workspace = true }
+qrcode = { workspace = true }
