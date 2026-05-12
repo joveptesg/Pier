@@ -287,14 +287,40 @@ pub async fn github_manifest(State(state): State<SharedState>) -> AppResult<impl
     };
 
     let app_name = format!("pier-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    let manifest =
-        crate::git::github_app::generate_manifest(&platform_url, &app_name, insecure_ssl);
+    let manifest = crate::git::github_app::generate_manifest(&platform_url, &app_name);
 
     Ok(Json(serde_json::json!({
         "manifest": manifest,
         "redirect_url": "https://github.com/settings/apps/new",
+        // Surfaced into the callback so we can apply the right insecure_ssl
+        // post-create (GitHub doesn't accept that field in the manifest).
+        "insecure_ssl": insecure_ssl,
         "pier_url": platform_url,
     })))
+}
+
+/// Re-derive the `insecure_ssl` flag for the App's webhook from the same
+/// inputs `github_manifest` used. Kept in one place so manifest generation
+/// and the post-create patch stay in sync.
+fn resolve_webhook_insecure_ssl(state: &SharedState) -> &'static str {
+    let db = match state.db.lock() {
+        Ok(g) => g,
+        Err(_) => return "0",
+    };
+    let domain: String = db
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'proxy.platform_domain'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
+    if !domain.is_empty() {
+        return "0";
+    }
+    match state.config.tls_mode {
+        crate::config::TlsMode::SelfSigned => "1",
+        crate::config::TlsMode::Off => "0",
+    }
 }
 
 /// GET /api/v1/sources/github/callback?code=CODE — GitHub App Manifest callback
@@ -329,6 +355,30 @@ pub async fn github_callback(
                     result.slug,
                     result.app_id
                 );
+            }
+
+            // If the panel is on self-signed TLS, GitHub would reject webhook
+            // deliveries with `x509: certificate signed by unknown authority`.
+            // Patch the App's webhook config right after creation so the very
+            // first push works without the operator touching GitHub settings.
+            let insecure_ssl = resolve_webhook_insecure_ssl(&state);
+            if insecure_ssl == "1" {
+                match crate::git::github_app::set_app_webhook_insecure_ssl(
+                    &result.app_id,
+                    &result.pem,
+                    insecure_ssl,
+                )
+                .await
+                {
+                    Ok(()) => tracing::info!(
+                        "GitHub App {} webhook insecure_ssl set to 1 (self-signed panel)",
+                        result.app_id
+                    ),
+                    Err(e) => tracing::warn!(
+                        "Could not patch webhook insecure_ssl for App {}: {e} — operator may need to disable SSL verification manually",
+                        result.app_id
+                    ),
+                }
             }
 
             // Redirect to GitHub App install page to select repositories

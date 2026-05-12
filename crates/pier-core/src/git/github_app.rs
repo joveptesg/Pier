@@ -234,19 +234,17 @@ pub async fn exchange_manifest_code(code: &str) -> Result<ManifestExchangeResult
 
 /// Generate GitHub App manifest JSON for the manifest creation flow.
 ///
-/// `insecure_ssl` is the string `"0"` or `"1"` per GitHub's webhook config
-/// spec. We set `"1"` only when the panel is running with a self-signed cert
-/// reachable directly by GitHub — otherwise webhook deliveries fail with
-/// `x509: certificate signed by unknown authority`. Behind a Traefik+ACME
-/// platform domain it must stay `"0"` so verification covers the LE cert.
-pub fn generate_manifest(pier_url: &str, app_name: &str, insecure_ssl: &str) -> serde_json::Value {
+/// GitHub's manifest schema only allows `url` and `active` inside
+/// `hook_attributes` — `insecure_ssl` cannot be set here (it's rejected with
+/// "is not a permitted key"). For self-signed-cert deployments we patch it
+/// via `set_app_webhook_insecure_ssl` immediately after App creation.
+pub fn generate_manifest(pier_url: &str, app_name: &str) -> serde_json::Value {
     serde_json::json!({
         "name": app_name,
         "url": pier_url,
         "hook_attributes": {
             "url": format!("{pier_url}/api/v1/webhooks/github"),
-            "active": true,
-            "insecure_ssl": insecure_ssl
+            "active": true
         },
         "redirect_url": format!("{pier_url}/api/v1/sources/github/callback"),
         "callback_urls": [format!("{pier_url}/api/v1/sources/github/callback")],
@@ -259,6 +257,42 @@ pub fn generate_manifest(pier_url: &str, app_name: &str, insecure_ssl: &str) -> 
         },
         "default_events": ["push"]
     })
+}
+
+/// Configure the App's webhook delivery to skip TLS cert verification.
+///
+/// Called once, right after a new App is created via the manifest flow, when
+/// the panel is reachable on a self-signed cert. Hits
+/// `PATCH https://api.github.com/app/hook/config` ([docs](https://docs.github.com/en/rest/apps/webhooks#update-a-webhook-configuration-for-an-app)).
+/// `insecure_ssl` must be the string `"0"` (verify, default) or `"1"` (skip).
+///
+/// Best-effort: a failure here doesn't roll back the App; the operator can
+/// flip the same toggle manually on GitHub. We surface the error so the caller
+/// can log it.
+pub async fn set_app_webhook_insecure_ssl(
+    app_id: &str,
+    private_key: &str,
+    insecure_ssl: &str,
+) -> Result<()> {
+    let jwt = create_jwt(app_id, private_key)?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .patch("https://api.github.com/app/hook/config")
+        .header("Authorization", format!("Bearer {jwt}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "Pier-PaaS")
+        .json(&serde_json::json!({ "insecure_ssl": insecure_ssl }))
+        .send()
+        .await
+        .map_err(|e| anyhow!("PATCH /app/hook/config request failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!(
+            "PATCH /app/hook/config returned {status}: {body}"
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
