@@ -61,6 +61,7 @@ rcgen = { workspace = true }
 # Streaming
 futures-util = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 
 # Axum extras
 axum-extra = { workspace = true }
@@ -113,3 +114,7 @@ lettre = { workspace = true }
 # 2FA (TOTP)
 totp-rs = { workspace = true }
 qrcode = { workspace = true }
+
+# Markdown rendering (npm package READMEs)
+pulldown-cmark = { workspace = true }
+ammonia = { workspace = true }

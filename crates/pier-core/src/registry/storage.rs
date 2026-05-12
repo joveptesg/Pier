@@ -108,12 +108,26 @@ pub async fn write_tarball(
     Ok(integrity)
 }
 
-/// Read a tarball, falling back to the cold tier if the hot tier is empty
-/// (e.g. fresh VPS reinstall).
-pub async fn read_tarball(state: &SharedState, package: &str, filename: &str) -> Result<Vec<u8>> {
+/// Open a tarball for streaming, falling back to the cold tier if the hot
+/// tier is empty (e.g. fresh VPS reinstall). Returns the open file handle plus
+/// its size — callers wrap the file in a `ReaderStream` and feed it to
+/// `Body::from_stream`, so the bytes never need to be materialised in RAM.
+///
+/// The S3 fallback path still buffers in memory (it's a rare miss after a VPS
+/// reinstall and the bytes have to land on the local FS to satisfy subsequent
+/// reads anyway). The hot path — which is the only one that runs under load —
+/// is fully streamed.
+pub async fn open_tarball_stream(
+    state: &SharedState,
+    package: &str,
+    filename: &str,
+) -> Result<(fs::File, u64)> {
     let path = tarball_path(state, package, filename);
-    match fs::read(&path).await {
-        Ok(bytes) => Ok(bytes),
+    match fs::File::open(&path).await {
+        Ok(file) => {
+            let size = file.metadata().await?.len();
+            Ok((file, size))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             tracing::info!("registry: hot-tier miss for {package}/{filename}, trying S3");
             let tier = load_cold_tier(state)
@@ -124,8 +138,12 @@ pub async fn read_tarball(state: &SharedState, package: &str, filename: &str) ->
             if let Some(parent) = path.parent() {
                 let _ = fs::create_dir_all(parent).await;
             }
-            let _ = fs::write(&path, &bytes).await;
-            Ok(bytes)
+            fs::write(&path, &bytes)
+                .await
+                .with_context(|| format!("write back hot-tier {}", path.display()))?;
+            let file = fs::File::open(&path).await?;
+            let size = file.metadata().await?.len();
+            Ok((file, size))
         }
         Err(e) => Err(e.into()),
     }
@@ -133,7 +151,6 @@ pub async fn read_tarball(state: &SharedState, package: &str, filename: &str) ->
 
 /// Drop a tarball from the hot tier. Cold-tier blobs are left in place
 /// (cleanup is a separate operator-driven concern).
-#[allow(dead_code)]
 pub async fn delete_tarball(state: &SharedState, package: &str, filename: &str) -> Result<()> {
     let path = tarball_path(state, package, filename);
     match fs::remove_file(&path).await {

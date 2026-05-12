@@ -46,7 +46,16 @@
                     {% for p in packages %}
                     <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
                         <td class="px-4 py-3">
-                            <a href="/packages/{{ p.name }}" class="font-mono text-blue-600 dark:text-blue-400 hover:underline">{{ p.name }}</a>
+                            <div class="flex items-center gap-2">
+                                <a href="/packages/{{ p.name }}" class="font-mono text-blue-600 dark:text-blue-400 hover:underline">{{ p.name }}</a>
+                                {% if p.unpublished %}
+                                <span class="text-[10px] px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400">Unpublished</span>
+                                {% elif p.deprecated_count > 0 %}
+                                <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400" title="{{ p.deprecated_count }} version{% if p.deprecated_count != 1 %}s{% endif %} deprecated">
+                                    Deprecated{% if p.deprecated_count > 1 %} ({{ p.deprecated_count }}){% endif %}
+                                </span>
+                                {% endif %}
+                            </div>
                             {% if p.description %}<p class="text-xs text-gray-500 mt-0.5">{{ p.description }}</p>{% endif %}
                         </td>
                         <td class="px-4 py-3 text-gray-700 dark:text-gray-300">

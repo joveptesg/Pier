@@ -64,6 +64,7 @@ rcgen = "0.14"
 # Streaming
 futures-util = "0.3"
 tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
 
 # Axum extras
 axum-extra = { version = "0.12", features = ["cookie"] }
@@ -120,6 +121,12 @@ totp-rs = { version = "5.7", features = ["otpauth"] }
 # QR code rendering (SVG, no image deps) — used to render the otpauth:// URL
 # during 2FA enrollment so the operator can scan with an authenticator app.
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+# Markdown → HTML for npm package README rendering in the UI.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+# HTML sanitiser — strips <script>/onerror etc from rendered READMEs so a
+# malicious publish can't XSS the panel.
+ammonia = "4"
 
 [profile.release]
 lto = true

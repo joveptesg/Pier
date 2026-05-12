@@ -2,8 +2,10 @@ use axum::extract::{Request, State};
 use axum::http::header::{AUTHORIZATION, COOKIE};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
+use base64::Engine;
 
 use crate::auth::api_token;
+use crate::auth::password;
 use crate::error::AppError;
 use crate::state::SharedState;
 
@@ -23,6 +25,25 @@ fn parse_bearer(header: &str) -> Option<&str> {
     } else {
         Some(value)
     }
+}
+
+/// Extract (user, pass) from an `Authorization: Basic base64(user:pass)` header.
+/// Used by yarn classic when it stores `_auth=<base64>` in `.npmrc` instead of
+/// `_authToken`. Returns None on any parse failure.
+fn parse_basic(header: &str) -> Option<(String, String)> {
+    let trimmed = header.trim();
+    let stripped = trimmed
+        .strip_prefix("Basic ")
+        .or_else(|| trimmed.strip_prefix("basic "))?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(stripped.trim())
+        .ok()?;
+    let decoded = String::from_utf8(decoded).ok()?;
+    let (user, pass) = decoded.split_once(':')?;
+    if user.is_empty() {
+        return None;
+    }
+    Some((user.to_string(), pass.to_string()))
 }
 
 /// User info extracted from a valid session, stored in request extensions.
@@ -135,6 +156,79 @@ pub async fn require_auth(
         }
     }
 
+    // 2b. `Authorization: Basic base64(user:pass)` — only honoured on the
+    //     embedded npm registry routes, where yarn classic still uses `_auth`
+    //     in `.npmrc`. We intentionally do NOT accept Basic on the rest of the
+    //     API: there's no use case beyond the npm CLI, and refusing it
+    //     elsewhere keeps the attack surface narrow.
+    let basic_opt = if path.starts_with("/registry/") {
+        req.headers()
+            .get(AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_basic)
+    } else {
+        None
+    };
+    if let Some((basic_user, basic_pass)) = basic_opt {
+        // bcrypt verify is CPU-heavy (~100ms on a small VPS) — run on the
+        // blocking pool so the async runtime stays free for other in-flight
+        // installs.
+        let state_cl = state.clone();
+        let lookup =
+            tokio::task::spawn_blocking(move || -> Result<Option<AuthUser>, anyhow::Error> {
+                let db = state_cl
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
+                let row: Option<(String, String, String, String)> = db
+                    .query_row(
+                        "SELECT id, username, password, role FROM users
+                         WHERE (username = ?1 OR email = ?1) AND is_active = 1",
+                        [&basic_user],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, String>(3)?,
+                            ))
+                        },
+                    )
+                    .ok();
+                let Some((id, username, hash, role)) = row else {
+                    return Ok(None);
+                };
+                if password::verify_password(&basic_pass, &hash)? {
+                    Ok(Some(AuthUser {
+                        id,
+                        username,
+                        role,
+                        session_id: String::new(),
+                    }))
+                } else {
+                    Ok(None)
+                }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("blocking task: {e}"))?;
+        match lookup {
+            Ok(Some(user)) => {
+                req.extensions_mut().insert(user);
+                return Ok(next.run(req).await);
+            }
+            Ok(None) => {
+                // Header present but credentials invalid — same policy as
+                // Bearer above: don't fall through, return 401 so the npm
+                // client can re-prompt.
+                return Err(AppError::Unauthorized);
+            }
+            Err(e) => {
+                tracing::error!("basic auth lookup failed: {e}");
+                return Err(AppError::Unauthorized);
+            }
+        }
+    }
+
     // 3. Fall back to session cookie.
     let session_id = req
         .headers()
@@ -153,7 +247,7 @@ pub async fn require_auth(
             return if is_api {
                 Err(AppError::Unauthorized)
             } else {
-                Ok(Redirect::to("/login").into_response())
+                Ok(Redirect::to(&login_redirect_target(&req)).into_response())
             };
         }
     };
@@ -190,7 +284,7 @@ pub async fn require_auth(
                 return if is_api {
                     Err(AppError::Unauthorized)
                 } else {
-                    Ok(Redirect::to("/login").into_response())
+                    Ok(Redirect::to(&login_redirect_target(&req)).into_response())
                 };
             }
         }
@@ -199,4 +293,121 @@ pub async fn require_auth(
     // Inject AuthUser into request extensions
     req.extensions_mut().insert(auth_user);
     Ok(next.run(req).await)
+}
+
+/// Build the redirect target for an unauthenticated UI request. Plain `/login`
+/// unless we can safely thread the original path through `?return_to=…`, in
+/// which case `login.html` will bounce the user back after login.
+///
+/// Safety: only encode internal paths (`/foo/bar`) to avoid an open-redirect
+/// gadget. Anything that doesn't start with `/`, or contains `\\` / `://`, is
+/// dropped on the floor.
+fn login_redirect_target(req: &Request) -> String {
+    let path_and_query = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("");
+    login_redirect_for_path(path_and_query)
+}
+
+fn login_redirect_for_path(path_and_query: &str) -> String {
+    // Reject anything that isn't an internal path. `//host/...` is a
+    // schema-relative URL — browsers expand it to a fully qualified URL on
+    // the current scheme, so treating it as "internal" would let an attacker
+    // redirect a victim off-domain after login.
+    if !path_and_query.starts_with('/')
+        || path_and_query.starts_with("//")
+        || path_and_query.contains("://")
+        || path_and_query.contains('\\')
+    {
+        return "/login".to_string();
+    }
+    // Don't loop back if we're already on /login.
+    if path_and_query == "/login" || path_and_query.starts_with("/login?") {
+        return "/login".to_string();
+    }
+    let encoded = urlencoding::encode(path_and_query);
+    format!("/login?return_to={encoded}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bearer_parsing() {
+        assert_eq!(parse_bearer("Bearer abc"), Some("abc"));
+        assert_eq!(parse_bearer("bearer XYZ"), Some("XYZ"));
+        assert_eq!(parse_bearer("  Bearer  abc  "), Some("abc"));
+        assert_eq!(parse_bearer("Basic xxx"), None);
+        assert_eq!(parse_bearer("Bearer "), None);
+        assert_eq!(parse_bearer(""), None);
+    }
+
+    #[test]
+    fn basic_parsing_decodes_credentials() {
+        let header = format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode("alice:hunter2")
+        );
+        assert_eq!(
+            parse_basic(&header),
+            Some(("alice".to_string(), "hunter2".to_string()))
+        );
+    }
+
+    #[test]
+    fn basic_parsing_accepts_empty_password() {
+        let header = format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode("alice:")
+        );
+        assert_eq!(
+            parse_basic(&header),
+            Some(("alice".to_string(), "".to_string()))
+        );
+    }
+
+    #[test]
+    fn basic_parsing_rejects_garbage() {
+        assert_eq!(parse_basic("Basic not-base64"), None);
+        assert_eq!(parse_basic("Basic"), None);
+        assert_eq!(parse_basic("Bearer abc"), None);
+        // Missing colon — not a credentials string.
+        let b64 = base64::engine::general_purpose::STANDARD.encode("nocolonhere");
+        assert_eq!(parse_basic(&format!("Basic {b64}")), None);
+        // Empty username.
+        let b64 = base64::engine::general_purpose::STANDARD.encode(":lonelypass");
+        assert_eq!(parse_basic(&format!("Basic {b64}")), None);
+    }
+
+    #[test]
+    fn login_redirect_encodes_safe_paths() {
+        assert_eq!(
+            login_redirect_for_path("/login/cli/abc123"),
+            "/login?return_to=%2Flogin%2Fcli%2Fabc123"
+        );
+        assert_eq!(
+            login_redirect_for_path("/packages?tab=tokens"),
+            "/login?return_to=%2Fpackages%3Ftab%3Dtokens"
+        );
+    }
+
+    #[test]
+    fn login_redirect_refuses_external_or_recursive() {
+        // Open-redirect attempt.
+        assert_eq!(
+            login_redirect_for_path("https://evil.example/path"),
+            "/login"
+        );
+        // Schema-relative URL (also an open-redirect risk).
+        assert_eq!(login_redirect_for_path("//evil.example/path"), "/login");
+        // Already on /login — don't loop.
+        assert_eq!(login_redirect_for_path("/login"), "/login");
+        assert_eq!(login_redirect_for_path("/login?foo=bar"), "/login");
+        // Empty / non-absolute.
+        assert_eq!(login_redirect_for_path(""), "/login");
+        assert_eq!(login_redirect_for_path("login"), "/login");
+    }
 }

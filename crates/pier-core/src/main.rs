@@ -561,6 +561,9 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Sweep expired `npm login --auth-type=web` sessions every 5 minutes.
+    api::npm_web_login::spawn_sweep_task(state.clone());
+
     let app = ui::ui_router(state.clone())
         .merge(api::api_router(state.clone()))
         // Embedded npm-compatible registry. Lives outside `/api/v1/` because

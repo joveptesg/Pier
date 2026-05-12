@@ -28,6 +28,8 @@ pub fn ui_router(state: SharedState) -> Router<SharedState> {
         .route("/audit", get(pages::audit_page))
         .route("/packages", get(pages::packages_list))
         .route("/packages/{*name}", get(pages::package_detail))
+        // `npm login --auth-type=web` confirmation page (Authorize CLI).
+        .route("/login/cli/{session_id}", get(pages::cli_login_page))
         .route("/logs", get(pages::system_logs))
         .route("/updates", get(pages::updates_page))
         .route("/notifications", get(pages::notifications_page))

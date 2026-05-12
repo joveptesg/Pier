@@ -16,10 +16,12 @@ pub mod grants;
 pub mod images;
 pub mod networks;
 pub mod npm;
+pub mod npm_web_login;
 pub mod projects;
 pub mod promote;
 pub mod proxy;
 pub mod registries;
+pub mod registry_admin;
 pub mod registry_settings;
 pub mod resources;
 pub mod s3;
@@ -123,6 +125,9 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Bearer API tokens (used by npm registry, CI, CLI integrations)
         .route("/account/tokens", get(tokens::list).post(tokens::create))
         .route("/account/tokens/{id}", delete(tokens::revoke))
+        // `npm login --auth-type=web` — panel side of the flow.
+        // CLI-side endpoints live under `/registry/npm/-/v1/...`.
+        .merge(npm_web_login::protected_router())
         // 2FA (TOTP) enrollment / disable
         .route("/account/2fa", get(account::two_fa_status))
         .route("/account/2fa/setup", post(account::two_fa_setup))
@@ -134,6 +139,25 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/registry/settings",
             get(registry_settings::get).put(registry_settings::update),
+        )
+        // Panel-side registry mutations (dist-tag / unpublish / deprecate).
+        // Mirror the npm-protocol endpoints but use the regular session-cookie
+        // auth so the package detail page can call them directly from the UI.
+        .route(
+            "/registry/packages/{package}/dist-tags/{tag}",
+            put(registry_admin::set_dist_tag).delete(registry_admin::remove_dist_tag),
+        )
+        .route(
+            "/registry/packages/{package}/versions/{version}/deprecate",
+            post(registry_admin::deprecate_version),
+        )
+        .route(
+            "/registry/packages/{package}/versions/{version}",
+            delete(registry_admin::delete_version),
+        )
+        .route(
+            "/registry/packages/{package}",
+            delete(registry_admin::delete_package),
         )
         // Containers
         .route("/containers", get(containers::list))

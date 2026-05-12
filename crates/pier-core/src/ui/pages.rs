@@ -343,19 +343,32 @@ pub async fn package_detail(
     axum::Extension(user): axum::Extension<AuthUser>,
     Path(name): Path<String>,
 ) -> PageResult {
-    let (summary, versions) = {
+    let (summary, versions, dist_tags, readme_md) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let summaries = crate::registry::db::list_packages(&db, false)?;
         let summary = summaries.into_iter().find(|p| p.name == name);
-        let versions = crate::registry::db::list_versions(&db, &name)?;
-        (summary, versions)
+        let versions = crate::registry::db::list_versions_with_deprecation(&db, &name)?;
+        let dist_tags = crate::registry::db::load_dist_tags(&db, &name)?.unwrap_or_default();
+        let readme_md = crate::registry::db::load_readme(&db, &name)?;
+        (summary, versions, dist_tags, readme_md)
     };
     let Some(summary) = summary else {
         return Err(AppError::NotFound(format!("package {name}")));
     };
+
+    // Render markdown to HTML inside the binary, then sanitise so a hostile
+    // publish can't slip `<script>` or `onerror` past us into the panel DOM.
+    let readme_html = readme_md.as_deref().map(|md| {
+        use pulldown_cmark::{html, Parser};
+        let parser = Parser::new(md);
+        let mut raw = String::new();
+        html::push_html(&mut raw, parser);
+        ammonia::clean(&raw)
+    });
+
     render(
         &state,
         "packages/detail.html",
@@ -364,6 +377,8 @@ pub async fn package_detail(
             page => "packages",
             package => summary,
             versions => versions,
+            dist_tags => dist_tags,
+            readme_html => readme_html,
         },
     )
 }
@@ -377,6 +392,83 @@ pub async fn domains_page(
         &state,
         "domains/list.html",
         minijinja::context! { user => user.username, page => "domains" },
+    )
+}
+
+/// GET /login/cli/{session_id} — confirmation page for `npm login --auth-type=web`.
+/// Reached when the CLI opens its `loginUrl` in a browser. Requires a logged-in
+/// panel session; the actual token is minted by
+/// `POST /api/v1/account/cli-login/{session_id}/authorize`.
+pub async fn cli_login_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(session_id): Path<String>,
+) -> PageResult {
+    use rusqlite::OptionalExtension;
+
+    // Pre-load session metadata so the template can show hostname / peer-IP /
+    // user-agent — lets the operator double-check they're authorising the
+    // right CLI before clicking the button.
+    struct SessionInfo {
+        hostname: String,
+        status: String,
+        peer_ip: Option<String>,
+        user_agent: Option<String>,
+        expires_at: i64,
+    }
+    let row: Option<SessionInfo> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT hostname, status, peer_ip, user_agent, expires_at
+             FROM npm_login_sessions WHERE session_id = ?1",
+            [&session_id],
+            |row| {
+                Ok(SessionInfo {
+                    hostname: row.get(0)?,
+                    status: row.get(1)?,
+                    peer_ip: row.get::<_, Option<String>>(2)?,
+                    user_agent: row.get::<_, Option<String>>(3)?,
+                    expires_at: row.get(4)?,
+                })
+            },
+        )
+        .optional()?
+    };
+
+    let Some(info) = row else {
+        return Err(AppError::NotFound(format!("login session {session_id}")));
+    };
+    let SessionInfo {
+        hostname,
+        status,
+        peer_ip,
+        user_agent,
+        expires_at,
+    } = info;
+
+    let now = chrono::Utc::now().timestamp();
+    let effective_status = if now > expires_at && status == "pending" {
+        "expired".to_string()
+    } else {
+        status
+    };
+
+    render(
+        &state,
+        "cli_login.html",
+        minijinja::context! {
+            user => user.username,
+            page => "cli_login",
+            session_id => session_id,
+            hostname => hostname,
+            status => effective_status,
+            peer_ip => peer_ip,
+            user_agent => user_agent,
+            expires_at => expires_at,
+        },
     )
 }
 

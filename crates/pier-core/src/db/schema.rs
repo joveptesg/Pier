@@ -658,6 +658,48 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_auth_events_type    ON auth_events(event_type, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_auth_events_ip      ON auth_events(ip, created_at DESC);
     "#,
+    // Migration 37: Tombstone column for unpublished npm packages.
+    //
+    // When `npm unpublish <pkg>` removes every version we keep the row around
+    // with `unpublished_at` set, so `GET /{pkg}` returns 404 (not the cached
+    // empty packument with stale dist-tags). The npm spec considers a 24h
+    // re-publish window after unpublish — we encode that policy here later if
+    // needed; today the row is permanent unless the operator deletes it.
+    r#"
+    ALTER TABLE npm_packages ADD COLUMN unpublished_at INTEGER;
+    CREATE INDEX IF NOT EXISTS idx_npm_packages_unpublished_at
+        ON npm_packages(unpublished_at)
+        WHERE unpublished_at IS NOT NULL;
+    "#,
+    // Migration 38: `npm login --auth-type=web` session store.
+    //
+    // The CLI POSTs /-/v1/login, gets a session id back, and opens the
+    // matching panel URL in a browser. The panel authorises the session (with
+    // 2FA), at which point we mint an api_token and link it via `token_id`.
+    // The CLI polls /-/v1/done/{id}, sees the token, and writes it to .npmrc.
+    //
+    // `status` is `pending` | `authorized` | `expired` so the polling endpoint
+    // can return the right thing per state.
+    //
+    // `token_plaintext_enc` is the freshly-minted token encrypted via
+    // `crate::crypto` so the CLI can fetch it on its next poll — `api_tokens`
+    // only ever holds the hash. We blank this column the moment the CLI
+    // consumes it (defence-in-depth: short-lived row, short-lived secret).
+    r#"
+    CREATE TABLE IF NOT EXISTS npm_login_sessions (
+        session_id           TEXT PRIMARY KEY NOT NULL,
+        hostname             TEXT NOT NULL DEFAULT '',
+        status               TEXT NOT NULL DEFAULT 'pending',
+        token_id             TEXT REFERENCES api_tokens(id) ON DELETE SET NULL,
+        token_plaintext_enc  TEXT,
+        peer_ip              TEXT,
+        user_agent           TEXT,
+        created_at           INTEGER NOT NULL,
+        expires_at           INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_npm_login_sessions_expires
+        ON npm_login_sessions(expires_at);
+    "#,
 ];
 
 /// Run all pending database migrations.

@@ -24,7 +24,7 @@
                     if (el) el.focus();
                 });
             } else {
-                window.location.href = '/';
+                window.location.href = afterLoginTarget();
             }
         } catch (e) {
             this.error = e.message || 'Login failed';
@@ -40,7 +40,7 @@
                 method: 'POST',
                 body: JSON.stringify({ partial_token: this.partialToken, code: this.code })
             });
-            window.location.href = '/';
+            window.location.href = afterLoginTarget();
         } catch (e) {
             this.error = e.message || 'Invalid code';
         } finally {
@@ -136,6 +136,24 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Request failed');
         return data;
+    }
+
+    // Honour `?return_to=…` from the URL so that a deep-link (e.g.
+    // `/login/cli/<id>`) bounces back to itself after the session cookie is
+    // set. Only same-origin relative paths are allowed — anything else falls
+    // back to the dashboard to avoid an open-redirect gadget.
+    function afterLoginTarget() {
+        try {
+            const raw = new URLSearchParams(window.location.search).get('return_to');
+            if (!raw) return '/';
+            const decoded = decodeURIComponent(raw);
+            if (!decoded.startsWith('/') || decoded.startsWith('//') || decoded.includes('://')) {
+                return '/';
+            }
+            return decoded;
+        } catch (_) {
+            return '/';
+        }
     }
 </script>
 {% endblock %}
