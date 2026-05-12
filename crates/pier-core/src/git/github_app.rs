@@ -266,12 +266,15 @@ pub fn generate_manifest(pier_url: &str, app_name: &str) -> serde_json::Value {
 /// `PATCH https://api.github.com/app/hook/config` ([docs](https://docs.github.com/en/rest/apps/webhooks#update-a-webhook-configuration-for-an-app)).
 /// `insecure_ssl` must be the string `"0"` (verify, default) or `"1"` (skip).
 ///
-/// Retries on 404 with exponential backoff: a freshly-created App is not yet
-/// visible to the `/app/hook/config` endpoint for a few seconds (GitHub's
-/// internal eventual-consistency window). Up to 5 attempts with delays
-/// 0, 0.5s, 1s, 2s, 4s — ~7.5s worst case, which is acceptable since the
-/// browser is sitting on the redirect chain at this point. Non-404 errors
-/// return immediately; retrying e.g. a 401 just wastes time.
+/// Retries on 401 / 404 with exponential backoff because both codes can mean
+/// "freshly-created App not yet propagated through GitHub's caches":
+///   - 404 `Integration not found` — App record not yet visible to this endpoint.
+///   - 401 `Integration must generate a public key` — App exists, but its
+///     public key hasn't propagated yet, so our JWT (signed with the freshly
+///     issued pem) can't be validated.
+///
+/// Both clear up within a few seconds. Up to 6 attempts with delays
+/// 0/0.5/1/2/4/8s — ~15.5s worst case. Other status codes return immediately.
 ///
 /// Best-effort: a failure here doesn't roll back the App; the operator can
 /// flip the same toggle manually on GitHub.
@@ -285,7 +288,7 @@ pub async fn set_app_webhook_insecure_ssl(
     let body = serde_json::json!({ "insecure_ssl": insecure_ssl });
 
     let mut delay_ms: u64 = 0;
-    for attempt in 1..=5 {
+    for attempt in 1..=6 {
         if delay_ms > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }
@@ -302,11 +305,11 @@ pub async fn set_app_webhook_insecure_ssl(
         if status.is_success() {
             return Ok(());
         }
-        if status.as_u16() == 404 && attempt < 5 {
-            // Just-created App not yet propagated through GitHub's caches.
+        let code = status.as_u16();
+        if (code == 404 || code == 401) && attempt < 6 {
             delay_ms = if delay_ms == 0 { 500 } else { delay_ms * 2 };
             tracing::info!(
-                "set_app_webhook_insecure_ssl: GitHub 404 on attempt {attempt}, retrying in {delay_ms}ms"
+                "set_app_webhook_insecure_ssl: GitHub {code} on attempt {attempt} (propagation race), retrying in {delay_ms}ms"
             );
             continue;
         }
