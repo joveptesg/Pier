@@ -492,3 +492,125 @@ pub async fn sync_tcp_routes_for_service(
     );
     Ok(())
 }
+
+/// One-shot startup reconciliation of Traefik TCP route files against the
+/// current database state. Idempotent and pure file I/O — does NOT deploy
+/// Traefik (caller is expected to deploy after).
+///
+/// Heals two classes of stale config inherited from older Pier versions:
+/// - Pre-bridge-mode files (`tcp-{sid}.yml` without port suffix) whose
+///   upstream was `address: ":{host_port}"` — broken once Traefik moved
+///   into the `pier-net` bridge network.
+/// - Orphan `tcp-{sid}-{port}.yml` files for services no longer marked
+///   public (or services that were deleted entirely), which surface as
+///   `EntryPoint doesn't exist` errors in Traefik logs.
+///
+/// Behavior:
+/// 1. Snapshots every public TCP port from `port_allocations` joined with
+///    `services` (for `container_id` / name fallback).
+/// 2. Removes every `tcp-*.yml` in `data/traefik/dynamic/` whose filename
+///    is not in the desired set `{tcp-{sid}-{port}.yml}`.
+/// 3. Writes a canonical per-port file via `write_tcp_route_lb` with
+///    upstream `{container_id | "pier-{slug}"}:{container_port}`.
+/// 4. Regenerates the static `traefik.yml` with the union of public ports
+///    so entryPoints stay in sync with reality.
+pub fn reconcile_tcp_routes_from_db(
+    state: &crate::state::AppState,
+    acme_email: &str,
+    dashboard: bool,
+) -> Result<()> {
+    use std::collections::HashSet;
+
+    // Snapshot (service_id, public_port, container_port, container_id, name)
+    // under one DB lock.
+    let public: Vec<(String, u16, u16, Option<String>, String)> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt = db.prepare(
+            "SELECT pa.service_id, pa.public_port, pa.container_port, \
+                    s.container_id, s.name \
+             FROM port_allocations pa \
+             JOIN services s ON s.id = pa.service_id \
+             WHERE pa.is_public = 1 AND pa.public_port IS NOT NULL",
+        )?;
+        let rows: Vec<(String, u16, u16, Option<String>, String)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)? as u16,
+                    row.get::<_, i64>(2)? as u16,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    };
+
+    let dynamic_dir = state.config.data_dir.join("traefik").join("dynamic");
+
+    // Desired filename set: tcp-{sid}-{port}.yml for every active public port.
+    let desired: HashSet<String> = public
+        .iter()
+        .map(|(sid, port, _, _, _)| format!("tcp-{sid}-{port}.yml"))
+        .collect();
+
+    // GC: drop any tcp-*.yml not in desired set. Catches legacy
+    // tcp-{sid}.yml (no port suffix) and orphans of removed services.
+    if let Ok(entries) = std::fs::read_dir(&dynamic_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy().to_string();
+            if name_str.starts_with("tcp-")
+                && name_str.ends_with(".yml")
+                && !desired.contains(&name_str)
+            {
+                match std::fs::remove_file(entry.path()) {
+                    Ok(()) => {
+                        tracing::info!("Removed stale TCP route file: {name_str}")
+                    }
+                    Err(e) => tracing::warn!("Failed to remove stale TCP file {name_str}: {e}"),
+                }
+            }
+        }
+    }
+
+    // Write canonical per-port files. Upstream host resolution mirrors
+    // `sync_tcp_routes_for_service` exactly so startup-heal and runtime
+    // paths can never diverge.
+    for (sid, public_port, container_port, container_id, service_name) in &public {
+        let upstream_host = container_id
+            .as_deref()
+            .filter(|c| !c.is_empty())
+            .map(String::from)
+            .unwrap_or_else(|| format!("pier-{}", service_name.to_lowercase().replace(' ', "-")));
+        let upstreams = vec![format!("{upstream_host}:{container_port}")];
+        if let Err(e) =
+            config::write_tcp_route_lb(&state.config.data_dir, sid, *public_port, &upstreams)
+        {
+            tracing::warn!("Failed to write TCP route for {sid}:{public_port}: {e}");
+        }
+    }
+
+    // Sync static traefik.yml entryPoints with current DB state.
+    let mut all_ports: Vec<u16> = {
+        let set: HashSet<u16> = public.iter().map(|(_, p, _, _, _)| *p).collect();
+        set.into_iter().collect()
+    };
+    all_ports.sort();
+    config::regenerate_static_config_with_tcp(
+        &state.config.data_dir,
+        acme_email,
+        dashboard,
+        &all_ports,
+    )?;
+
+    tracing::info!(
+        "Reconciled {} public TCP route(s) from DB on startup",
+        public.len()
+    );
+    Ok(())
+}

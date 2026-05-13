@@ -382,6 +382,17 @@ async fn main() -> Result<()> {
                 .map(|db| proxy::read_acme_email(&db))
                 .unwrap_or_else(|| "admin@pier.local".to_string());
 
+            // Heal Traefik dynamic + static config from DB before the first
+            // deploy. Rewrites legacy pre-bridge-mode TCP route files (broken
+            // `:host_port` upstreams) with canonical `container:port` form and
+            // prunes orphan tcp-*.yml files whose entryPoints no longer exist.
+            // Idempotent — safe on every startup.
+            if let Err(e) =
+                proxy::reconcile_tcp_routes_from_db(&proxy_state, &acme_email, proxy_dashboard)
+            {
+                tracing::warn!("Startup TCP route reconciliation failed: {e}");
+            }
+
             // Deploy Traefik
             match proxy::deploy_traefik(
                 &proxy_state.docker,
