@@ -210,8 +210,17 @@ async fn main() -> Result<()> {
     // unset-mode with a warning). install.sh writes this file with 0400 pier:pier;
     // a missing file means we serve /setup unauthenticated until the first user
     // is created, matching pre-token behaviour.
+    //
+    // Passing `users_exist` lets the store proactively delete a stale token
+    // file leftover from legacy installs where the admin was created before
+    // consume() was wired up — install.sh treats file presence as the
+    // canonical "no admin yet" signal, so cleanup here keeps the upgrade
+    // output truthful.
     let setup_token_path = config.data_dir.join(".setup_token");
-    let setup_token = Arc::new(auth::setup_token::SetupTokenStore::load(setup_token_path));
+    let setup_token = Arc::new(auth::setup_token::SetupTokenStore::load(
+        setup_token_path,
+        user_count > 0,
+    ));
 
     let partial_tokens = Arc::new(auth::partial_token::PartialTokenStore::new());
 

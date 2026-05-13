@@ -24,7 +24,32 @@ pub struct SetupTokenStore {
 impl SetupTokenStore {
     /// Read `path` into RAM. A missing or empty file leaves the store in
     /// "unset" mode (legacy behaviour — `/setup` open). Logged at INFO/WARN.
-    pub fn load(path: PathBuf) -> Self {
+    ///
+    /// `users_exist` lets the store proactively delete a stale token left
+    /// behind by a legacy install where the admin was created before
+    /// `consume()` was wired up. install.sh later treats the file's presence
+    /// as the canonical "admin not yet created" signal, so a stray token
+    /// would cause it to print the `/setup?token=…` URL on every upgrade
+    /// even when setup is long complete.
+    pub fn load(path: PathBuf, users_exist: bool) -> Self {
+        if users_exist {
+            match std::fs::remove_file(&path) {
+                Ok(()) => tracing::info!(
+                    "Removed stale setup token at {} (admin already exists)",
+                    path.display()
+                ),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => tracing::warn!(
+                    "Stale setup token unlink failed ({e}); please delete {} manually",
+                    path.display()
+                ),
+            }
+            return Self {
+                path,
+                token: Mutex::new(None),
+            };
+        }
+
         let token = std::fs::read_to_string(&path)
             .ok()
             .map(|s| s.trim().to_string())
@@ -100,7 +125,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join(".setup_token");
         std::fs::write(&p, "abc123\n").unwrap();
-        let store = SetupTokenStore::load(p);
+        let store = SetupTokenStore::load(p, false);
         assert!(store.is_required());
         assert!(store.matches("abc123"));
         assert!(!store.matches("abc124"));
@@ -110,7 +135,7 @@ mod tests {
     #[test]
     fn missing_file_is_unset_mode() {
         let dir = tempfile::tempdir().unwrap();
-        let store = SetupTokenStore::load(dir.path().join("absent"));
+        let store = SetupTokenStore::load(dir.path().join("absent"), false);
         assert!(!store.is_required());
         assert!(!store.matches("anything"));
     }
@@ -120,10 +145,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join(".setup_token");
         std::fs::write(&p, "tok").unwrap();
-        let store = SetupTokenStore::load(p.clone());
+        let store = SetupTokenStore::load(p.clone(), false);
         assert!(store.is_required());
         store.consume();
         assert!(!p.exists());
+        assert!(!store.is_required());
+    }
+
+    #[test]
+    fn stale_token_is_deleted_when_users_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".setup_token");
+        std::fs::write(&p, "legacy-token").unwrap();
+        let store = SetupTokenStore::load(p.clone(), true);
+        assert!(!p.exists(), "stale token file should be removed on load");
+        assert!(!store.is_required());
+        assert!(!store.matches("legacy-token"));
+    }
+
+    #[test]
+    fn users_exist_with_no_file_is_no_op() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("absent");
+        let store = SetupTokenStore::load(p, true);
         assert!(!store.is_required());
     }
 }

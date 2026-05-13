@@ -274,9 +274,7 @@ pub async fn github_manifest(State(state): State<SharedState>) -> AppResult<impl
                 crate::config::TlsMode::SelfSigned => {
                     (format!("https://{ip}:{}", state.config.port), "1")
                 }
-                crate::config::TlsMode::Off => {
-                    (format!("http://{ip}:{}", state.config.port), "0")
-                }
+                crate::config::TlsMode::Off => (format!("http://{ip}:{}", state.config.port), "0"),
             }
         } else {
             return Err(AppError::BadRequest(

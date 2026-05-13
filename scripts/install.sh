@@ -81,6 +81,10 @@ if ! command -v git &>/dev/null; then
     error "git is not installed. Install: apt install git / yum install git"
 fi
 
+if ! command -v curl &>/dev/null; then
+    error "curl is not installed. Install: apt install curl / yum install curl"
+fi
+
 info "All prerequisites OK: Docker $(docker --version | grep -oP '\d+\.\d+\.\d+'), Compose $(docker compose version --short), git $(git --version | grep -oP '\d+\.\d+\.\d+')"
 
 # ── Check if upgrading ───────────────────────────────────────────────────────
@@ -221,32 +225,21 @@ fi
 # ── Generate /setup bootstrap token (only when no users yet) ────────────────
 # Until the first admin exists, `/setup` is reachable by anyone who can hit
 # the panel port. The token closes that public window: pier-core checks the
-# query string against this file and 404's anything else. The file is deleted
-# automatically once setup succeeds; a leftover after a successful setup is
-# harmless (pier-core ignores it when users > 0).
+# query string against this file and 404's anything else. pier-core deletes
+# the file in two cases: (a) successful first-admin creation via consume(),
+# and (b) at startup when the users table is non-empty (stale leftover from
+# a legacy install). After pier has booted, the file's presence is therefore
+# the canonical "admin not yet created" signal — checked further down.
 
 SETUP_TOKEN_FILE="${PIER_DATA}/.setup_token"
-HAD_USERS=false
-if [[ -f "${PIER_DATA}/pier.db" ]]; then
-    # `sqlite3` is optional on fresh installs (we don't require it as a
-    # prerequisite); fall back to "assume fresh install" if missing.
-    if command -v sqlite3 &>/dev/null; then
-        USER_COUNT=$(sqlite3 "${PIER_DATA}/pier.db" "SELECT COUNT(*) FROM users" 2>/dev/null || echo 0)
-        if [[ "$USER_COUNT" -gt 0 ]]; then
-            HAD_USERS=true
-        fi
-    fi
-fi
 
-NEW_SETUP_TOKEN=""
-if [[ "$HAD_USERS" == false && ! -f "$SETUP_TOKEN_FILE" ]]; then
+# Truly fresh install ⇔ no DB on disk yet. Only then do we mint a new token
+# before starting pier; otherwise we leave any leftover token alone and let
+# pier-core's startup cleanup decide whether to keep or remove it.
+if [[ ! -f "${PIER_DATA}/pier.db" && ! -f "$SETUP_TOKEN_FILE" ]]; then
     info "Generating /setup bootstrap token"
-    NEW_SETUP_TOKEN=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')
-    echo -n "$NEW_SETUP_TOKEN" > "$SETUP_TOKEN_FILE"
+    head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=' > "$SETUP_TOKEN_FILE"
     chmod 400 "$SETUP_TOKEN_FILE"
-elif [[ "$HAD_USERS" == false && -f "$SETUP_TOKEN_FILE" ]]; then
-    info "Reusing existing /setup bootstrap token"
-    NEW_SETUP_TOKEN=$(cat "$SETUP_TOKEN_FILE")
 fi
 
 # ── Set ownership ────────────────────────────────────────────────────────────
@@ -317,36 +310,58 @@ else
 fi
 
 # ── Wait for startup ─────────────────────────────────────────────────────────
+# Poll the HTTPS port instead of relying on `systemctl is-active`, which
+# returns true the moment the process is spawned — before pier finishes
+# migrations, stale-token cleanup, and binding the listener. We need the
+# listener up so the `.setup_token` file state below is authoritative.
 
-sleep 2
-
-if systemctl is-active --quiet pier; then
-    # Detect public IP for display
-    PUBLIC_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
-
-    echo ""
-    echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}  Pier PaaS installed successfully!${NC}"
-    echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
-    echo ""
-    echo -e "  Dashboard:  ${YELLOW}https://${PUBLIC_IP}:${PIER_PORT}${NC}"
-    if [[ -n "$NEW_SETUP_TOKEN" ]]; then
-        echo -e "  Setup:      ${YELLOW}https://${PUBLIC_IP}:${PIER_PORT}/setup?token=${NEW_SETUP_TOKEN}${NC}"
-        echo -e "              ${GREEN}^ token is valid until the first admin is created${NC}"
-    else
-        echo -e "  Setup:      ${YELLOW}https://${PUBLIC_IP}:${PIER_PORT}/setup${NC}"
+PIER_READY=false
+for _ in $(seq 1 30); do
+    if curl -sk --max-time 1 -o /dev/null "https://127.0.0.1:${PIER_PORT}/"; then
+        PIER_READY=true
+        break
     fi
-    echo ""
-    echo -e "  Logs:       journalctl -u pier -f"
-    echo -e "  Status:     systemctl status pier"
-    echo -e "  Config:     ${PIER_ENV}"
-    echo -e "  Data:       ${PIER_DATA}"
-    echo ""
+    sleep 1
+done
+
+if [[ "$PIER_READY" != true ]]; then
+    if ! systemctl is-active --quiet pier; then
+        echo ""
+        error "Pier failed to start. Check logs: journalctl -u pier --no-pager -n 50"
+    fi
+    warn "Pier process is running but did not respond on :${PIER_PORT} within 30s — continuing anyway"
+fi
+
+# Detect public IP for display
+PUBLIC_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+
+# By now pier-core has either kept the token file (no admin yet) or removed
+# it (admin already exists — fresh-token-after-consume, legacy-cleanup, or
+# operator wiped users). The file is the source of truth.
+SETUP_TOKEN=""
+if [[ -f "$SETUP_TOKEN_FILE" ]]; then
+    SETUP_TOKEN=$(cat "$SETUP_TOKEN_FILE")
+fi
+
+echo ""
+echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}  Pier PaaS installed successfully!${NC}"
+echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
+echo ""
+echo -e "  Dashboard:  ${YELLOW}https://${PUBLIC_IP}:${PIER_PORT}${NC}"
+if [[ -n "$SETUP_TOKEN" ]]; then
+    echo -e "  Setup:      ${YELLOW}https://${PUBLIC_IP}:${PIER_PORT}/setup?token=${SETUP_TOKEN}${NC}"
+    echo -e "              ${GREEN}^ token is valid until the first admin is created${NC}"
+fi
+echo ""
+echo -e "  Logs:       journalctl -u pier -f"
+echo -e "  Status:     systemctl status pier"
+echo -e "  Config:     ${PIER_ENV}"
+echo -e "  Data:       ${PIER_DATA}"
+echo ""
+if [[ -n "$SETUP_TOKEN" ]]; then
     echo -e "  ${GREEN}Visit /setup to create your admin account.${NC}"
     echo -e "  ${YELLOW}Note:${NC} the panel uses a self-signed TLS cert on first run."
     echo -e "        Your browser will show a security warning — accept it to proceed."
-    echo ""
-else
-    echo ""
-    error "Pier failed to start. Check logs: journalctl -u pier --no-pager -n 50"
 fi
+echo ""
