@@ -1301,9 +1301,15 @@ NODE_ENV=production"></textarea>
                            class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500">
                     <span class="text-sm text-gray-700 dark:text-gray-300">Strip path prefix before forwarding</span>
                 </label>
-                <p class="text-xs text-gray-400 mt-1 ml-6">
-                    On (default): upstream sees the path with the prefix removed (e.g. <code class="text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800">/webhook/x</code> → <code class="text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800">/x</code>).<br>
-                    Off: upstream receives the original path. Use when the backend router itself is mounted at the prefix (Telegram-style webhook bots, sub-mounted APIs).
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-6 leading-relaxed">
+                    <strong class="text-gray-700 dark:text-gray-300">Checked (default):</strong>
+                    backend receives requests at <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800">/</code> — the
+                    <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800" x-text="(newDomainName.match(/^(?:https?:\/\/)?[^\/]+(\/.+)$/)||['',''])[1]"></code>
+                    prefix is stripped.<br>
+                    <strong class="text-gray-700 dark:text-gray-300">Unchecked:</strong>
+                    backend receives
+                    <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800" x-text="(newDomainName.match(/^(?:https?:\/\/)?[^\/]+(\/.+)$/)||['',''])[1]"></code>
+                    as-is. Use this when your backend's router itself listens on that path (Telegram-style webhook bots).
                 </p>
             </div>
             <div class="flex justify-end gap-2 pt-2">
