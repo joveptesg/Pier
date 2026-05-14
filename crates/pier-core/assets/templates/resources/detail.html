@@ -165,17 +165,17 @@
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Ports</h3>
                 <div x-show="logicalPorts.length > 0" class="space-y-2">
-                    <template x-for="(p, i) in logicalPorts" :key="p.container + '-' + (p.is_public ? 'pub' : 'priv')">
+                    <template x-for="(p, i) in logicalPorts" :key="(p.compose_service || '') + '-' + p.container + '-' + (p.is_public ? 'pub' : 'priv')">
                         <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-500" x-text="p.name"></span>
+                            <span class="text-gray-500" x-text="p.compose_service || p.name"></span>
                             <div class="flex items-center gap-2">
                                 <span class="text-xs px-1.5 py-0.5 rounded"
                                       :class="p.is_public ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'"
                                       x-text="p.is_public ? 'Public' : 'Local'"></span>
-                                <span x-show="i === 0 && domains.length > 0"
+                                <span x-show="domainsForPort(p, i).length > 0"
                                       class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
-                                      :title="domains.map(d => d.domain).join(', ')"
-                                      x-text="'+ ' + domains.length + ' domain' + (domains.length > 1 ? 's' : '')"></span>
+                                      :title="domainsForPort(p, i).map(d => d.domain).join(', ')"
+                                      x-text="'+ ' + domainsForPort(p, i).length + ' domain' + (domainsForPort(p, i).length > 1 ? 's' : '')"></span>
                                 <code x-show="p.is_public"
                                       class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
                                       x-text="(resource.public_ip || '0.0.0.0') + ':' + p.public_port + ' \u2192 :' + p.container"></code>
@@ -1602,11 +1602,12 @@ function resourceDetail(id) {
             const all = this.resource.ports || [];
             if (!all.length) return [];
             // Collapse per-replica allocations (port_name="replica_1", "replica_2", …)
-            // into one logical row per (container, is_public) pair. Host port is
-            // volatile across scale operations, so we hide it from this view.
+            // into one logical row per (compose_service, container, is_public) tuple.
+            // For multi-service stacks the same container port may exist for
+            // different compose services — keep them as separate rows.
             const seen = new Map();
             for (const p of all) {
-                const key = p.container + ':' + (p.is_public ? 'pub' : 'priv');
+                const key = (p.compose_service || '') + ':' + p.container + ':' + (p.is_public ? 'pub' : 'priv');
                 if (seen.has(key)) continue;
                 seen.set(key, {
                     name: (p.name && !/^replica_\d+$/.test(p.name)) ? p.name : 'http',
@@ -1614,9 +1615,15 @@ function resourceDetail(id) {
                     host: p.host,
                     is_public: p.is_public,
                     public_port: p.public_port,
+                    compose_service: p.compose_service || null,
                 });
             }
             return Array.from(seen.values());
+        },
+        domainsForPort(p, i) {
+            if (p && p.compose_service) return this.domainsForService(p.compose_service);
+            // Single-service stack: anchor all domains on the first port row.
+            return i === 0 ? (this.domains || []) : [];
         },
         get replicaCount() {
             return (this.scaleInfo?.replicas) || this.resource.replicas || 1;

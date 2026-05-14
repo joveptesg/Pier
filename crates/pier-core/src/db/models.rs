@@ -90,6 +90,7 @@ pub struct PortAllocation {
     pub is_public: bool,
     pub public_port: Option<i64>,
     pub created_at: String,
+    pub compose_service: Option<String>,
 }
 
 #[allow(dead_code)]

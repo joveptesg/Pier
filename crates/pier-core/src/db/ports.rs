@@ -80,6 +80,7 @@ pub fn allocate_ports(
             is_public: false,
             public_port: None,
             created_at: String::new(),
+            compose_service: None,
         });
     }
 
@@ -98,7 +99,7 @@ pub fn free_ports(conn: &Connection, service_id: &str) -> Result<()> {
 /// Get all port allocations for a service.
 pub fn get_ports(conn: &Connection, service_id: &str) -> Result<Vec<PortAllocation>> {
     let mut stmt = conn.prepare(
-        "SELECT id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, created_at
+        "SELECT id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, created_at, compose_service
          FROM port_allocations WHERE service_id = ?1",
     )?;
 
@@ -114,6 +115,7 @@ pub fn get_ports(conn: &Connection, service_id: &str) -> Result<Vec<PortAllocati
                 is_public: row.get::<_, i64>(6)? != 0,
                 public_port: row.get(7)?,
                 created_at: row.get(8)?,
+                compose_service: row.get(9)?,
             })
         })?
         .filter_map(|r| r.ok())

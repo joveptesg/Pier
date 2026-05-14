@@ -1294,6 +1294,7 @@ pub async fn get(
                 "protocol": pa.protocol,
                 "is_public": pa.is_public,
                 "public_port": pa.public_port,
+                "compose_service": pa.compose_service,
             })
         })
         .collect();
