@@ -26,6 +26,7 @@
                 <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Domain</label>
                 <input type="text" x-model="newDomain.domain" placeholder="app.example.com"
                        class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white">
+                <p class="text-xs text-gray-400 mt-1">Supports: domain, https://domain, https://domain/path</p>
             </div>
             <div>
                 <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Service</label>
@@ -36,6 +37,18 @@
                         <option :value="svc.id" x-text="svc.name"></option>
                     </template>
                 </select>
+            </div>
+            <div x-show="newDomain.domain.includes('/') && !/^https?:\/\/[^\/]+\/?$/.test(newDomain.domain.trim())" x-cloak
+                 class="pt-1 border-t border-gray-100 dark:border-gray-800">
+                <label class="flex items-start gap-2 cursor-pointer pt-3">
+                    <input type="checkbox" x-model="newDomain.strip_prefix"
+                           class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm text-gray-700 dark:text-gray-300">Strip path prefix before forwarding</span>
+                </label>
+                <p class="text-xs text-gray-400 mt-1 ml-6">
+                    On (default): upstream sees the path with the prefix removed (e.g. <code class="text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800">/webhook/x</code> → <code class="text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800">/x</code>).<br>
+                    Off: upstream receives the original path. Use for backends whose router is mounted at the prefix (Telegram-style webhook bots).
+                </p>
             </div>
             <div class="flex gap-2 justify-end pt-2">
                 <button @click="showAdd = false"
@@ -139,7 +152,7 @@ function domainsPage() {
         domains: [],
         services: [],
         showAdd: false,
-        newDomain: { domain: '', service_id: '' },
+        newDomain: { domain: '', service_id: '', strip_prefix: true },
         loading: true,
         busy: false,
         toast: '',
@@ -189,7 +202,7 @@ function domainsPage() {
                 if (data.ok) {
                     this.showToast('Domain added');
                     this.showAdd = false;
-                    this.newDomain = { domain: '', service_id: '' };
+                    this.newDomain = { domain: '', service_id: '', strip_prefix: true };
                     await this.load();
                 } else {
                     this.showToast(data.error || 'Failed to add domain', 'error');

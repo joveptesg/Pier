@@ -1294,8 +1294,20 @@ NODE_ENV=production"></textarea>
                 </div>
                 <p class="text-xs text-gray-400 mt-1">Supports: domain, https://domain, https://domain/path</p>
             </div>
+            <div x-show="newDomainName.includes('/') && !/^https?:\/\/[^\/]+\/?$/.test(newDomainName.trim())" x-cloak
+                 class="pt-1 border-t border-gray-100 dark:border-gray-800">
+                <label class="flex items-start gap-2 cursor-pointer pt-3">
+                    <input type="checkbox" x-model="newDomainStripPrefix"
+                           class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm text-gray-700 dark:text-gray-300">Strip path prefix before forwarding</span>
+                </label>
+                <p class="text-xs text-gray-400 mt-1 ml-6">
+                    On (default): upstream sees the path with the prefix removed (e.g. <code class="text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800">/webhook/x</code> → <code class="text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800">/x</code>).<br>
+                    Off: upstream receives the original path. Use when the backend router itself is mounted at the prefix (Telegram-style webhook bots, sub-mounted APIs).
+                </p>
+            </div>
             <div class="flex justify-end gap-2 pt-2">
-                <button @click="showAddDomain = false; newDomainComposeService = ''" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
+                <button @click="showAddDomain = false; newDomainComposeService = ''; newDomainStripPrefix = true" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
                 <button @click="addDomain()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Add</button>
             </div>
         </div>
@@ -1451,7 +1463,7 @@ function resourceDetail(id) {
         expandedBackupGroups: {},
         clusterInfo: null,
         scaleInfo: null, scaleApplying: false, availableServers: [],
-        domains: [], showAddDomain: false, newDomainName: '', newDomainComposeService: '',
+        domains: [], showAddDomain: false, newDomainName: '', newDomainComposeService: '', newDomainStripPrefix: true,
         composeServices: [],
         selectedComposeService: '',
         containerLogs: '', deploymentLogs: [], logLines: 100, logFontSize: parseInt(localStorage.getItem('pierLogFontSize') || '12'),
@@ -2197,10 +2209,10 @@ function resourceDetail(id) {
         },
         async addDomain() {
             if(!this.newDomainName.trim()){toast('Domain is required','error');return;}
-            const body = { domain: this.newDomainName, service_id: this.id };
+            const body = { domain: this.newDomainName, service_id: this.id, strip_prefix: this.newDomainStripPrefix };
             if (this.newDomainComposeService) body.compose_service = this.newDomainComposeService;
             try { await api('/api/v1/domains',{method:'POST',body:JSON.stringify(body)});
-                toast('Domain added'); this.showAddDomain=false; this.newDomainName=''; this.newDomainComposeService=''; await this.loadDomains();
+                toast('Domain added'); this.showAddDomain=false; this.newDomainName=''; this.newDomainComposeService=''; this.newDomainStripPrefix=true; await this.loadDomains();
             } catch(e){toast(e.message,'error');}
         },
         async removeDomain(domainId) { if(!confirm('Remove this domain?'))return; try{await api('/api/v1/domains/'+domainId,{method:'DELETE'}); toast('Domain removed'); await this.loadDomains();}catch(e){toast(e.message,'error');} },
