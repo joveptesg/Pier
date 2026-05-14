@@ -323,21 +323,6 @@
             </div>
         </div>
 
-        <!-- Security shortcuts: 2FA + Audit Log live on their own pages -->
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Security</h3>
-            <div class="space-y-2 text-sm">
-                <a href="/account/security" class="flex items-center justify-between py-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded px-2 -mx-2">
-                    <span class="text-gray-900 dark:text-white">Two-factor authentication</span>
-                    <span class="text-gray-400">→</span>
-                </a>
-                <a href="/audit" class="flex items-center justify-between py-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded px-2 -mx-2">
-                    <span class="text-gray-900 dark:text-white">Audit log</span>
-                    <span class="text-gray-400">→</span>
-                </a>
-            </div>
-        </div>
-
         <!-- Active sessions -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
             <div class="flex items-center justify-between px-5 py-4">
@@ -379,6 +364,47 @@
         </div>
     </div>
 
+    <!-- ── Tab: Security ─────────────────────────────────────── -->
+    <div x-show="tab === 'security'" x-cloak x-data="securityPanel()" x-init="load()" class="space-y-6">
+        <!-- 2FA + Audit Log shortcuts (own pages, not inlined) -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Account security</h3>
+            <div class="space-y-2 text-sm">
+                <a href="/account/security" class="flex items-center justify-between py-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded px-2 -mx-2">
+                    <span class="text-gray-900 dark:text-white">Two-factor authentication</span>
+                    <span class="text-gray-400">→</span>
+                </a>
+                <a href="/audit" class="flex items-center justify-between py-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded px-2 -mx-2">
+                    <span class="text-gray-900 dark:text-white">Audit log</span>
+                    <span class="text-gray-400">→</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Delete confirmation toggle -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Delete confirmation</h3>
+            <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                    <p class="text-sm text-gray-900 dark:text-white">Require account password</p>
+                    <p class="text-xs text-gray-500 mt-0.5">
+                        Prompt for your password when deleting projects, services, or databases.
+                        Applies to every admin on this instance.
+                    </p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                    <input type="checkbox" x-model="requirePwOnDelete" @change="save()" :disabled="saving" class="sr-only peer">
+                    <div class="w-10 h-5 bg-gray-200 dark:bg-gray-700 rounded-full peer
+                                peer-checked:bg-blue-600 peer-disabled:opacity-50
+                                after:content-[''] after:absolute after:top-[2px] after:left-[2px]
+                                after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all
+                                peer-checked:after:translate-x-5"></div>
+                </label>
+            </div>
+            <p x-show="status" x-cloak class="text-xs mt-2" :class="error ? 'text-red-500' : 'text-green-500'" x-text="status"></p>
+        </div>
+    </div>
+
     <!-- ── Tab: Danger ───────────────────────────────────────── -->
     <div x-show="tab === 'danger'" x-cloak
          class="bg-white dark:bg-gray-900 border border-red-200 dark:border-red-500/20 rounded-xl p-5">
@@ -404,6 +430,7 @@ function settingsPage() {
             { id: 'cleanup',         label: 'Cleanup' },
             { id: 'external-access', label: 'External Access' },
             { id: 'account',         label: 'Account' },
+            { id: 'security',        label: 'Security' },
             { id: 'danger',          label: 'Danger' },
         ],
         tab: 'general',
@@ -526,6 +553,43 @@ function cleanupApp() {
                 setTimeout(() => this.cleanMsg = '', 3000);
             } catch (e) { this.cleanMsg = 'Error: ' + e.message; }
             this.cleaning = false;
+        },
+    };
+}
+
+function securityPanel() {
+    return {
+        requirePwOnDelete: true,
+        saving: false,
+        status: '',
+        error: false,
+
+        async load() {
+            try {
+                const s = await api('/api/v1/security/settings');
+                this.requirePwOnDelete = !!s.require_password_on_delete;
+            } catch (e) {
+                // Best-effort load; the toggle stays at its default (true).
+            }
+        },
+        async save() {
+            this.saving = true;
+            this.status = '';
+            this.error = false;
+            try {
+                await api('/api/v1/security/settings', {
+                    method: 'PUT',
+                    body: JSON.stringify({ require_password_on_delete: this.requirePwOnDelete }),
+                });
+                this.status = 'Saved';
+                setTimeout(() => this.status = '', 1500);
+            } catch (e) {
+                this.error = true;
+                this.status = e.message || 'Save failed';
+                // Revert the visual toggle to the server-truth on failure.
+                await this.load();
+            }
+            this.saving = false;
         },
     };
 }

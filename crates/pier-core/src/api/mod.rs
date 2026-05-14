@@ -25,6 +25,7 @@ pub mod registry_admin;
 pub mod registry_settings;
 pub mod resources;
 pub mod s3;
+pub mod security;
 pub mod servers;
 pub mod sources;
 pub mod system;
@@ -135,6 +136,11 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/account/2fa/disable", post(account::two_fa_disable))
         // Audit log — paginated, filterable view of credential / session events
         .route("/audit/events", get(audit::list_events))
+        // Security settings (delete confirmation, etc.)
+        .route(
+            "/security/settings",
+            get(security::get_settings).put(security::update_settings),
+        )
         // Embedded npm registry settings (which S3 storage to mirror to)
         .route(
             "/registry/settings",

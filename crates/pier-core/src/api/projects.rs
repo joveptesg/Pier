@@ -3,8 +3,11 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
+use crate::auth::middleware::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
+
+use super::security::{self, DeleteRequest};
 
 #[derive(Deserialize)]
 pub struct CreateProjectRequest {
@@ -196,14 +199,43 @@ pub async fn update(
 }
 
 /// DELETE /api/v1/projects/:id
+///
+/// Refuses to delete projects that still own services — without this guard
+/// the FK `services.project_id ON DELETE SET NULL` would orphan running
+/// containers and keep their ports allocated. The UI surfaces the count so
+/// the user knows what to clean up first.
 pub async fn delete(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
+    Json(body): Json<DeleteRequest>,
 ) -> AppResult<impl IntoResponse> {
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    let exists: i64 = db.query_row(
+        "SELECT COUNT(*) FROM projects WHERE id = ?1",
+        [&id],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        return Err(AppError::NotFound(format!("Project {id} not found")));
+    }
+
+    let svc_count: i64 = db.query_row(
+        "SELECT COUNT(*) FROM services WHERE project_id = ?1",
+        [&id],
+        |row| row.get(0),
+    )?;
+    if svc_count > 0 {
+        return Err(AppError::Conflict(format!(
+            "Project has {svc_count} service(s). Delete them first."
+        )));
+    }
+
+    security::verify_delete_password(&db, &user.id, body.password.as_deref())?;
 
     let rows = db.execute("DELETE FROM projects WHERE id = ?1", [&id])?;
     if rows == 0 {

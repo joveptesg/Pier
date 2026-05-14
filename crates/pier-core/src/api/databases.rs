@@ -5,8 +5,12 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
+use crate::auth::middleware::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
+
+use super::resources::purge_backup_blobs;
+use super::security::{self, DeleteRequest};
 
 /// Fetch a service's decrypted env as a map. Needed for mongosh root auth.
 fn fetch_env_vars(state: &SharedState, service_id: &str) -> AppResult<HashMap<String, String>> {
@@ -327,10 +331,24 @@ pub async fn create_database(
 }
 
 /// DELETE /api/v1/resources/{id}/databases/{dbname} — drop database + user.
+///
+/// Optional `?delete_backups=true` removes S3 blobs scoped exactly to this
+/// `(service_id, database_name)` pair. Cluster-wide backups
+/// (`database_name IS NULL`) are intentionally left untouched: they hold
+/// dumps of all DBs in the service and dropping them on a single-DB delete
+/// would discard data belonging to siblings.
 pub async fn delete_database(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path((id, dbname)): Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    Json(body): Json<DeleteRequest>,
 ) -> AppResult<impl IntoResponse> {
+    let delete_backups = params
+        .get("delete_backups")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
     let (catalog_id, name) = {
         let db = state
             .db
@@ -357,6 +375,48 @@ pub async fn delete_database(
         return Err(AppError::BadRequest(
             "Cannot delete system databases".into(),
         ));
+    }
+
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        security::verify_delete_password(&db, &user.id, body.password.as_deref())?;
+    }
+
+    // Drop S3 blobs scoped to this DB only. We capture (storage_id, key)
+    // tuples and the matching backup row IDs up front because the DROP
+    // DATABASE call doesn't touch SQLite — we'll need to delete the rows
+    // explicitly after the blobs are gone.
+    let (backup_blobs, backup_row_ids): (Vec<(String, String)>, Vec<String>) = if delete_backups {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt = db.prepare(
+            "SELECT id, s3_storage_id, s3_key FROM backups
+             WHERE service_id = ?1 AND database_name = ?2",
+        )?;
+        let rows: Vec<(String, String, String)> = stmt
+            .query_map(rusqlite::params![id, dbname], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        let ids = rows.iter().map(|r| r.0.clone()).collect();
+        let blobs = rows.into_iter().map(|(_, s, k)| (s, k)).collect();
+        (blobs, ids)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
+    if delete_backups && !backup_blobs.is_empty() {
+        purge_backup_blobs(&state, &backup_blobs).await;
     }
 
     let container = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
@@ -465,7 +525,9 @@ pub async fn delete_database(
         }
     }
 
-    // Remove stored credentials
+    // Remove stored credentials, DB-scoped backup rows, and DB-scoped
+    // schedules. Cluster-wide schedules/backups (database_name IS NULL)
+    // intentionally untouched — see fn-doc.
     {
         let db = state
             .db
@@ -475,6 +537,22 @@ pub async fn delete_database(
             "DELETE FROM database_credentials WHERE service_id = ?1 AND db_name = ?2",
             rusqlite::params![id, dbname],
         );
+        let _ = db.execute(
+            "DELETE FROM backup_schedules WHERE service_id = ?1 AND database_name = ?2",
+            rusqlite::params![id, dbname],
+        );
+        if delete_backups && !backup_row_ids.is_empty() {
+            let placeholders: Vec<&str> = (0..backup_row_ids.len()).map(|_| "?").collect();
+            let sql = format!(
+                "DELETE FROM backups WHERE id IN ({})",
+                placeholders.join(",")
+            );
+            let params_vec: Vec<&dyn rusqlite::ToSql> = backup_row_ids
+                .iter()
+                .map(|s| s as &dyn rusqlite::ToSql)
+                .collect();
+            let _ = db.execute(&sql, params_vec.as_slice());
+        }
     }
 
     tracing::info!("Deleted database {dbname} from {container}");

@@ -466,7 +466,7 @@
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                                         </button>
                                         <button x-show="d.name !== 'postgres' && d.name !== 'mysql'"
-                                                @click="deleteDb(d.name)"
+                                                @click="openDeleteDbModal(d.name)"
                                                 class="text-gray-400 hover:text-red-500 p-1" title="Delete database">
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                         </button>
@@ -1270,7 +1270,7 @@ NODE_ENV=production"></textarea>
             <div class="border-t border-red-100 dark:border-red-900/30 pt-4">
                 <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Delete Resource</h4>
                 <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">This will stop your containers, delete all related data, etc. Beware! There is no coming back!</p>
-                <button @click="showDeleteModal = true; deleteConfirmName = ''; deleteVolumes = false"
+                <button @click="showDeleteModal = true; deleteConfirmName = ''; deleteVolumes = false; deleteBackups = false; deletePassword = ''"
                         class="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
                     Delete
                 </button>
@@ -1326,28 +1326,124 @@ NODE_ENV=production"></textarea>
          @click.self="showDeleteModal = false">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
             <h3 class="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">Delete Resource</h3>
-            <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">This will permanently stop and remove the container.</p>
-            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Type <strong class="text-gray-900 dark:text-white" x-text="resource.name"></strong> to confirm:</p>
-            <input x-model="deleteConfirmName" type="text"
+
+            <!-- Blocked path: user databases still exist on this DB service -->
+            <template x-if="userDbList.length > 0">
+                <div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                        This service hosts <strong x-text="userDbList.length"></strong>
+                        user database<span x-show="userDbList.length !== 1">s</span>.
+                        Delete each database before you can remove the service.
+                    </p>
+                    <div class="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-3 mb-4 max-h-40 overflow-y-auto">
+                        <ul class="text-sm font-mono text-gray-700 dark:text-gray-300 space-y-1">
+                            <template x-for="d in userDbList" :key="d.name">
+                                <li x-text="d.name"></li>
+                            </template>
+                        </ul>
+                    </div>
+                    <div class="flex justify-end">
+                        <button @click="showDeleteModal = false; tab = 'databases'"
+                                class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
+                            Open Databases tab
+                        </button>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Confirm path: no user databases -->
+            <template x-if="userDbList.length === 0">
+                <div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">This will permanently stop and remove the container.</p>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Type <strong class="text-gray-900 dark:text-white" x-text="resource.name"></strong> to confirm:</p>
+                    <input x-model="deleteConfirmName" type="text"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                                  text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-mono"
+                           :placeholder="resource.name">
+
+                    <div x-show="requirePwOnDelete" class="mt-3">
+                        <label class="block text-xs text-gray-500 mb-1">Account password</label>
+                        <input x-model="deletePassword" type="password"
+                               autocomplete="current-password"
+                               class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                                      text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                               placeholder="Enter your password">
+                    </div>
+
+                    <label class="flex items-center gap-2 mt-3 cursor-pointer">
+                        <input type="checkbox" x-model="deleteVolumes"
+                               class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
+                        <span class="text-sm text-gray-600 dark:text-gray-400">Also delete volumes (permanent data loss)</span>
+                    </label>
+                    <label x-show="supportsBackup" class="flex items-center gap-2 mt-2 cursor-pointer">
+                        <input type="checkbox" x-model="deleteBackups"
+                               class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
+                        <span class="text-sm text-gray-600 dark:text-gray-400">Also delete S3 backups (cannot be recovered)</span>
+                    </label>
+
+                    <div class="flex justify-end gap-2 mt-5">
+                        <button @click="showDeleteModal = false"
+                                class="px-4 py-2 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
+                            Cancel
+                        </button>
+                        <button @click="removeResource()"
+                                :disabled="!canDeleteResource || deleting"
+                                :class="canDeleteResource && !deleting ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'"
+                                class="px-4 py-2 text-sm font-medium rounded-lg transition-colors">
+                            <span x-text="deleting ? 'Deleting…' : 'Delete'"></span>
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Delete Database Modal -->
+    <div x-show="showDeleteDbModal" x-cloak
+         class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
+         style="top:0;left:0"
+         @click.self="showDeleteDbModal = false">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
+            <h3 class="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">Delete Database</h3>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                This will <strong>DROP DATABASE</strong> and remove its owner user from the container.
+            </p>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Type <strong class="text-gray-900 dark:text-white font-mono" x-text="deleteDbName"></strong> to confirm:
+            </p>
+            <input x-model="deleteDbConfirm" type="text"
                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                           text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-mono"
-                   :placeholder="resource.name"
-                   @keydown.enter="if(deleteConfirmName === resource.name){ showDeleteModal = false; removeResource(); }">
-            <label class="flex items-center gap-2 mt-3 cursor-pointer">
-                <input type="checkbox" x-model="deleteVolumes"
-                       class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
-                <span class="text-sm text-gray-600 dark:text-gray-400">Also delete volumes (permanent data loss)</span>
+                   :placeholder="deleteDbName">
+
+            <div x-show="requirePwOnDelete" class="mt-3">
+                <label class="block text-xs text-gray-500 mb-1">Account password</label>
+                <input x-model="deleteDbPassword" type="password"
+                       autocomplete="current-password"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
+                              text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                       placeholder="Enter your password">
+            </div>
+
+            <label class="flex items-start gap-2 mt-3 cursor-pointer">
+                <input type="checkbox" x-model="deleteDbBackups"
+                       class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
+                <span class="text-sm text-gray-600 dark:text-gray-400">
+                    Also delete S3 backups for this database
+                    <span class="block text-xs text-gray-400">Cluster-wide backups (covering all databases) are kept either way.</span>
+                </span>
             </label>
+
             <div class="flex justify-end gap-2 mt-5">
-                <button @click="showDeleteModal = false"
+                <button @click="showDeleteDbModal = false"
                         class="px-4 py-2 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
                     Cancel
                 </button>
-                <button @click="showDeleteModal = false; removeResource()"
-                        :disabled="deleteConfirmName !== resource.name"
-                        :class="deleteConfirmName === resource.name ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'"
+                <button @click="deleteDb()"
+                        :disabled="!canDeleteDb || deletingDb"
+                        :class="canDeleteDb && !deletingDb ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'"
                         class="px-4 py-2 text-sm font-medium rounded-lg transition-colors">
-                    Delete
+                    <span x-text="deletingDb ? 'Deleting…' : 'Delete'"></span>
                 </button>
             </div>
         </div>
@@ -1474,7 +1570,9 @@ function resourceDetail(id) {
         selectedComposeService: '',
         containerLogs: '', deploymentLogs: [], logLines: 100, logFontSize: parseInt(localStorage.getItem('pierLogFontSize') || '12'),
         logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0, buildLogFollow: true,
-        showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
+        showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, deleteBackups: false, deletePassword: '', deleting: false, requirePwOnDelete: true,
+        showDeleteDbModal: false, deleteDbName: '', deleteDbConfirm: '', deleteDbPassword: '', deleteDbBackups: false, deletingDb: false,
+        showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
         gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
         gitComposePreview: '', gitComposeLoading: false, reloadingCompose: false,
         gitSources: [], showWebhookSecret: false,
@@ -1695,13 +1793,41 @@ function resourceDetail(id) {
             } catch(e) { toast(e.message, 'error'); }
             this.dbCreating = false;
         },
-        async deleteDb(name) {
-            if (!confirm('Delete database "' + name + '" and its owner user?')) return;
+        async loadSecuritySettings() {
             try {
-                await api('/api/v1/resources/'+this.id+'/databases/' + name, { method: 'DELETE' });
+                const s = await api('/api/v1/security/settings');
+                this.requirePwOnDelete = !!s.require_password_on_delete;
+            } catch (e) {
+                // Fail closed: keep the password requirement on if the API is unreachable.
+                this.requirePwOnDelete = true;
+            }
+        },
+        openDeleteDbModal(name) {
+            this.deleteDbName = name;
+            this.deleteDbConfirm = '';
+            this.deleteDbPassword = '';
+            this.deleteDbBackups = false;
+            this.showDeleteDbModal = true;
+        },
+        get canDeleteDb() {
+            if (this.deleteDbConfirm !== this.deleteDbName) return false;
+            if (this.requirePwOnDelete && !this.deleteDbPassword) return false;
+            return true;
+        },
+        async deleteDb() {
+            if (!this.canDeleteDb || this.deletingDb) return;
+            this.deletingDb = true;
+            try {
+                const qs = this.deleteDbBackups ? '?delete_backups=true' : '';
+                await api('/api/v1/resources/' + this.id + '/databases/' + encodeURIComponent(this.deleteDbName) + qs, {
+                    method: 'DELETE',
+                    body: JSON.stringify({ password: this.deleteDbPassword || null }),
+                });
+                this.showDeleteDbModal = false;
                 toast('Database deleted');
                 await this.loadDatabases();
             } catch(e) { toast(e.message, 'error'); }
+            this.deletingDb = false;
         },
         async changeDbPwd() {
             if (!this.changeDbPassword.password) { toast('Password is required', 'error'); return; }
@@ -1751,7 +1877,7 @@ function resourceDetail(id) {
         _bgInterval: null,
         activeDeployCount: 0,
         async init() {
-            await this.refresh(); this.loadEnv(); if(this.supportsBackup){this.loadSchedules();this.loadBackups();this.loadDatabases();} this.loadCluster(); this.loadScaleInfo(); this.loadDomains(); this.loadComposeServices(); this.loadGitConfig();
+            await this.refresh(); this.loadEnv(); if(this.supportsBackup){this.loadSchedules();this.loadBackups();this.loadDatabases();} this.loadCluster(); this.loadScaleInfo(); this.loadDomains(); this.loadComposeServices(); this.loadGitConfig(); this.loadSecuritySettings();
             this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
@@ -2022,9 +2148,38 @@ function resourceDetail(id) {
         async restartResource() { try{await api('/api/v1/resources/'+this.id+'/restart',{method:'POST'});toast('Resource restarted');await this.refresh();}catch(e){toast(e.message,'error');} },
         async redeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy',{method:'POST'});toast('Redeploying...');this.tab='deployments';this.selectedDeploy=null;this.pollDeployStatus();}catch(e){toast(e.message,'error');} },
         async forceDeployResource() { try{await api('/api/v1/resources/'+this.id+'/redeploy?no_cache=true',{method:'POST'});toast('Force deploying...');this.tab='deployments';this.selectedDeploy=null;this.pollDeployStatus();}catch(e){toast(e.message,'error');} },
+        get userDbList() {
+            // System DBs the backend refuses to delete are never user data,
+            // so we treat them as absent — otherwise users could never
+            // delete an empty-of-user-data Postgres service.
+            const sys = new Set(['postgres','mysql','information_schema','admin','local','config','template_postgis','template0','template1','sys','performance_schema']);
+            return (this.dbList || []).filter(d => !sys.has(d.name));
+        },
+        get canDeleteResource() {
+            if (this.userDbList.length > 0) return false;
+            if (this.deleteConfirmName !== this.resource.name) return false;
+            if (this.requirePwOnDelete && !this.deletePassword) return false;
+            return true;
+        },
         async removeResource() {
-            const url = '/api/v1/resources/'+this.id + (this.deleteVolumes ? '?delete_volumes=true' : '');
-            try{await api(url,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');}
+            if (!this.canDeleteResource || this.deleting) return;
+            this.deleting = true;
+            const qs = new URLSearchParams();
+            if (this.deleteVolumes) qs.set('delete_volumes', 'true');
+            if (this.deleteBackups) qs.set('delete_backups', 'true');
+            const suffix = qs.toString() ? '?' + qs.toString() : '';
+            try {
+                await api('/api/v1/resources/' + this.id + suffix, {
+                    method: 'DELETE',
+                    body: JSON.stringify({ password: this.deletePassword || null }),
+                });
+                this.showDeleteModal = false;
+                toast('Resource deleted');
+                window.location.href = '/projects';
+            } catch(e) {
+                toast(e.message, 'error');
+            }
+            this.deleting = false;
         },
         async loadDomains() { try { this.domains=await fetch('/api/v1/resources/'+this.id+'/domains').then(r=>r.ok?r.json():[]); } catch{this.domains=[];} },
         resolveLogContainerName() {

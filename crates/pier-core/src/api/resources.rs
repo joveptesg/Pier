@@ -5,6 +5,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
+use crate::auth::middleware::AuthUser;
 use crate::catalog;
 use crate::catalog::cluster as cluster_gen;
 use crate::db::ports;
@@ -13,6 +14,7 @@ use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
 use super::domains;
+use super::security::{self, DeleteRequest};
 
 /// Pick the best port for HTTP proxy from a list of allocated ports.
 /// Prefers ports named "management", "http", "web", "ui"; falls back to first port.
@@ -1341,11 +1343,86 @@ pub async fn get(
     Ok(Json(result))
 }
 
+/// Best-effort deletion of S3 backup blobs for the given `(s3_storage_id, s3_key)`
+/// pairs. Loads each distinct storage's credentials once, then issues a
+/// `delete_blob` per key. Failures are logged but never propagated — orphan
+/// blobs are recoverable, a half-finished service delete is not.
+pub(crate) async fn purge_backup_blobs(state: &SharedState, blobs: &[(String, String)]) {
+    use std::collections::HashMap as StdMap;
+
+    let storage_ids: std::collections::HashSet<&str> =
+        blobs.iter().map(|(sid, _)| sid.as_str()).collect();
+    let mut storages: StdMap<String, (String, String, String, String, String, String)> =
+        StdMap::new();
+    {
+        let db = match state.db.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                tracing::warn!("S3 cleanup: DB lock poisoned: {e}");
+                return;
+            }
+        };
+        for sid in storage_ids {
+            let row = db.query_row(
+                "SELECT storage_type, endpoint, region, bucket, access_key, secret_key
+                 FROM s3_storages WHERE id = ?1",
+                [sid],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                    ))
+                },
+            );
+            match row {
+                Ok(t) => {
+                    storages.insert(sid.to_string(), t);
+                }
+                Err(e) => tracing::warn!("S3 cleanup: storage {sid} lookup failed: {e}"),
+            }
+        }
+    }
+
+    for (sid, key) in blobs {
+        let Some((storage_type, endpoint, region, bucket, access_key, secret_key)) =
+            storages.get(sid)
+        else {
+            continue;
+        };
+        if let Err(e) = crate::s3::delete_blob(
+            storage_type,
+            endpoint,
+            region,
+            bucket,
+            access_key,
+            secret_key,
+            key,
+        )
+        .await
+        {
+            tracing::warn!("S3 cleanup: delete {key} from storage {sid} failed: {e}");
+        }
+    }
+}
+
 /// DELETE /api/v1/resources/{id} — stop and remove a resource.
+///
+/// Refuses to proceed if the service still owns user-created databases
+/// (tracked in `database_credentials`); the user must drop those through the
+/// per-database endpoint first. Optional `?delete_backups=true` enumerates
+/// the service's S3-stored backups and removes the blobs before the
+/// `backups.service_id ON DELETE CASCADE` wipes the SQLite rows — otherwise
+/// the blob keys would be lost and the S3 objects would orphan.
 pub async fn remove(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    Json(body): Json<DeleteRequest>,
 ) -> AppResult<impl IntoResponse> {
     let name = {
         let db = state
@@ -1363,9 +1440,57 @@ pub async fn remove(
         .get("delete_volumes")
         .map(|v| v == "true")
         .unwrap_or(false);
+    let delete_backups = params
+        .get("delete_backups")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    // Block deletion while user databases live inside this service.
+    // Tracked via Pier UI — manually created DBs that bypassed the UI are
+    // not Pier's concern.
+    let backup_blobs: Vec<(String, String)> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+        let user_db_count: i64 = db.query_row(
+            "SELECT COUNT(*) FROM database_credentials WHERE service_id = ?1",
+            [&id],
+            |row| row.get(0),
+        )?;
+        if user_db_count > 0 {
+            return Err(AppError::Conflict(format!(
+                "Service has {user_db_count} database(s). Delete them first."
+            )));
+        }
+
+        security::verify_delete_password(&db, &user.id, body.password.as_deref())?;
+
+        if delete_backups {
+            let mut stmt =
+                db.prepare("SELECT s3_storage_id, s3_key FROM backups WHERE service_id = ?1")?;
+            let collected: Vec<(String, String)> = stmt
+                .query_map([&id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            collected
+        } else {
+            Vec::new()
+        }
+    };
+
+    if delete_backups && !backup_blobs.is_empty() {
+        // Best-effort: log failures and keep going. The SQL CASCADE below
+        // will still drop the rows; we'd rather end up with a few orphan
+        // blobs than half a deletion.
+        purge_backup_blobs(&state, &backup_blobs).await;
+    }
 
     tracing::info!(
-        "Deleting resource '{name}' (id={id}, stack={stack_name}, delete_volumes={delete_volumes})"
+        "Deleting resource '{name}' (id={id}, stack={stack_name}, delete_volumes={delete_volumes}, delete_backups={delete_backups})"
     );
 
     // Stop containers (with or without volumes)
