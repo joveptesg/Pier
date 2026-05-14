@@ -1032,8 +1032,35 @@ NODE_ENV=production"></textarea>
 
     <!-- Logs Tab -->
     <div x-show="tab === 'logs'" @keydown.escape.window="logFullscreen = false"
-         :class="logFullscreen ? 'fixed inset-0 z-[99999] bg-gray-950 flex flex-col' : 'space-y-4'">
-        <div :class="logFullscreen ? 'flex flex-col flex-1 p-2' : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5'">
+         :class="logFullscreen
+                  ? 'fixed inset-0 z-[99999] bg-gray-950 flex'
+                  : (composeServices.length > 1 ? 'flex items-start gap-4' : 'space-y-4')">
+        <!-- Services sidebar (multi-service compose only) -->
+        <div x-show="composeServices.length > 1"
+             :class="logFullscreen
+                      ? 'w-52 shrink-0 bg-gray-900 border-r border-gray-800 overflow-y-auto py-2'
+                      : 'w-52 shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-2 self-start'">
+            <div class="text-[10px] uppercase tracking-wider text-gray-500 px-2 py-1.5">Services</div>
+            <template x-for="cs in composeServices" :key="cs.name">
+                <button @click="onComposeServiceChange(cs.name)"
+                        :class="selectedComposeService === cs.name
+                            ? (logFullscreen ? 'bg-blue-600/10 border-l-2 border-blue-500' : 'bg-blue-50 dark:bg-blue-600/10 border-l-2 border-blue-500')
+                            : 'border-l-2 border-transparent hover:bg-gray-100 dark:hover:bg-gray-800/50'"
+                        class="w-full text-left px-2 py-1.5 rounded-r transition-colors block">
+                    <div :class="selectedComposeService === cs.name
+                            ? 'text-blue-600 dark:text-blue-400 font-medium'
+                            : (logFullscreen ? 'text-gray-300' : 'text-gray-700 dark:text-gray-300')"
+                         class="text-xs font-mono truncate" x-text="cs.name"></div>
+                    <div class="text-[10px] text-gray-400 font-mono truncate"
+                         x-text="cs.container_name || ('pier-' + cs.name)"></div>
+                </button>
+            </template>
+        </div>
+        <div :class="logFullscreen
+                      ? 'flex flex-col flex-1 p-2 min-w-0'
+                      : (composeServices.length > 1
+                          ? 'flex-1 min-w-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5'
+                          : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5')">
             <!-- Toolbar -->
             <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
                 <div class="flex items-center gap-2">
@@ -1426,6 +1453,7 @@ function resourceDetail(id) {
         scaleInfo: null, scaleApplying: false, availableServers: [],
         domains: [], showAddDomain: false, newDomainName: '', newDomainComposeService: '',
         composeServices: [],
+        selectedComposeService: '',
         containerLogs: '', deploymentLogs: [], logLines: 100, logFontSize: parseInt(localStorage.getItem('pierLogFontSize') || '12'),
         logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0, buildLogFollow: true,
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
@@ -1981,9 +2009,27 @@ function resourceDetail(id) {
             try{await api(url,{method:'DELETE'});toast('Resource deleted');window.location.href='/projects';}catch(e){toast(e.message,'error');}
         },
         async loadDomains() { try { this.domains=await fetch('/api/v1/resources/'+this.id+'/domains').then(r=>r.ok?r.json():[]); } catch{this.domains=[];} },
+        resolveLogContainerName() {
+            if (this.composeServices.length > 1 && this.selectedComposeService) {
+                const cs = this.composeServices.find(s => s.name === this.selectedComposeService);
+                if (cs) return cs.container_name || ('pier-' + cs.name);
+            }
+            return this.resource.container_name
+                || ('pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-'));
+        },
+        onComposeServiceChange(name) {
+            if (this.selectedComposeService === name) return;
+            const wasStreaming = this.logStreaming;
+            this.stopLogStream();
+            this.selectedComposeService = name;
+            this.containerLogs = '';
+            this.loadContainerLogs();
+            if (wasStreaming) this.startLogStream();
+        },
         async loadContainerLogs() {
             if (this.resource.status === 'created') { this.containerLogs = 'Service not deployed yet'; return; }
-            const containerName = this.resource.container_name || ('pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-'));
+            if (this.composeServices.length === 0) { await this.loadComposeServices(); }
+            const containerName = this.resolveLogContainerName();
             try {
                 const resp = await fetch('/api/v1/containers/'+encodeURIComponent(containerName)+'/logs?tail='+this.logLines+'&timestamps=true');
                 if (!resp.ok) {
@@ -2000,7 +2046,7 @@ function resourceDetail(id) {
             if (this.logStreaming) { this.stopLogStream(); } else { this.startLogStream(); }
         },
         startLogStream() {
-            const containerName = this.resource.container_name || ('pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-'));
+            const containerName = this.resolveLogContainerName();
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             const url = proto + '//' + location.host + '/api/v1/containers/' + encodeURIComponent(containerName) + '/logs/ws';
             try {
@@ -2160,6 +2206,9 @@ function resourceDetail(id) {
         async removeDomain(domainId) { if(!confirm('Remove this domain?'))return; try{await api('/api/v1/domains/'+domainId,{method:'DELETE'}); toast('Domain removed'); await this.loadDomains();}catch(e){toast(e.message,'error');} },
         async loadComposeServices() {
             try { this.composeServices = await fetch('/api/v1/resources/'+this.id+'/compose-services').then(r=>r.ok?r.json():[]); } catch { this.composeServices = []; }
+            if (this.composeServices.length > 1 && !this.selectedComposeService) {
+                this.selectedComposeService = this.composeServices[0].name;
+            }
         },
         domainsForService(name) { return (this.domains || []).filter(d => d.compose_service === name); },
         get orphanedDomains() {
