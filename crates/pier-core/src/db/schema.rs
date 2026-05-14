@@ -700,6 +700,20 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_npm_login_sessions_expires
         ON npm_login_sessions(expires_at);
     "#,
+    // Migration 39: Per-domain `strip_prefix` toggle (Coolify-style).
+    //
+    // When a domain is attached with a path (`example.com/api`) Pier emits a
+    // Traefik `stripPrefix` middleware so the upstream sees `/` instead of
+    // `/api`. That's the right default for proxied APIs, but breaks backends
+    // whose own router is registered at the same prefix (e.g. a bot listening
+    // on `POST /webhook`).
+    //
+    // strip_prefix = 1 (default) preserves current behavior; 0 keeps the
+    // prefix in the forwarded request. The flag is ignored for domains that
+    // have no path (nothing to strip).
+    r#"
+    ALTER TABLE domains ADD COLUMN strip_prefix INTEGER NOT NULL DEFAULT 1;
+    "#,
 ];
 
 /// Run all pending database migrations.

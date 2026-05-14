@@ -1545,15 +1545,17 @@ fn regenerate_domain_configs(state: &AppState, service_id: &str) {
     let target_url = format!("http://{}:{}", container_name, port);
 
     // Get all domains for this service
-    let domains: Vec<(String, bool)> = db
-        .prepare("SELECT domain FROM domains WHERE service_id = ?1")
+    let domains: Vec<(String, bool, bool)> = db
+        .prepare("SELECT domain, strip_prefix FROM domains WHERE service_id = ?1")
         .ok()
         .map(|mut stmt| {
-            stmt.query_map([service_id], |row| row.get::<_, String>(0))
-                .unwrap_or_else(|_| panic!())
-                .filter_map(|r| r.ok())
-                .map(|d| (d, true))
-                .collect()
+            stmt.query_map([service_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)? != 0))
+            })
+            .unwrap_or_else(|_| panic!())
+            .filter_map(|r| r.ok())
+            .map(|(d, sp)| (d, true, sp))
+            .collect()
         })
         .unwrap_or_default();
 
@@ -1573,7 +1575,7 @@ fn regenerate_domain_configs(state: &AppState, service_id: &str) {
             "Regenerated Traefik configs for {service_id}: {} → {target_url}",
             domains
                 .iter()
-                .map(|(d, _)| d.as_str())
+                .map(|(d, _, _)| d.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
         );

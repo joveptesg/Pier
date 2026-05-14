@@ -2408,16 +2408,19 @@ pub async fn load_balance(
         }
     }
 
-    let domains: Vec<(String, bool)> = {
+    let domains: Vec<(String, bool, bool)> = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let mut stmt = db.prepare("SELECT domain FROM domains WHERE service_id = ?1")?;
-        let list: Vec<(String, bool)> = stmt
-            .query_map([&id], |row| row.get::<_, String>(0))?
+        let mut stmt =
+            db.prepare("SELECT domain, strip_prefix FROM domains WHERE service_id = ?1")?;
+        let list: Vec<(String, bool, bool)> = stmt
+            .query_map([&id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)? != 0))
+            })?
             .filter_map(|r| r.ok())
-            .map(|d| (d, true))
+            .map(|(d, sp)| (d, true, sp))
             .collect();
         list
     };

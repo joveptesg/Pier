@@ -16,6 +16,17 @@ pub struct CreateDomainRequest {
     /// in the stack). `None` keeps the legacy single-target behavior.
     #[serde(default)]
     pub compose_service: Option<String>,
+    /// Forward the path prefix to the upstream when `false`. Default `true`
+    /// matches historical behavior: Pier emits a Traefik `stripPrefix`
+    /// middleware so e.g. `example.com/api/x` becomes `/x` at the backend.
+    /// Set `false` for backends whose own router expects the same prefix
+    /// (Telegram-style webhooks, sub-mounted APIs).
+    #[serde(default = "default_strip_prefix")]
+    pub strip_prefix: bool,
+}
+
+fn default_strip_prefix() -> bool {
+    true
 }
 
 /// GET /api/v1/domains
@@ -27,7 +38,7 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
     let mut stmt = db.prepare(
         "SELECT d.id, d.domain, d.service_id, d.ssl_status, d.ssl_expires_at,
                 d.ssl_provider, d.is_generated, d.created_at, d.compose_service,
-                s.name as service_name
+                d.strip_prefix, s.name as service_name
          FROM domains d
          LEFT JOIN services s ON d.service_id = s.id
          ORDER BY d.created_at DESC",
@@ -44,7 +55,8 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
                 "is_generated": row.get::<_, i32>(6)? != 0,
                 "created_at": row.get::<_, String>(7)?,
                 "compose_service": row.get::<_, Option<String>>(8)?,
-                "service_name": row.get::<_, Option<String>>(9)?,
+                "strip_prefix": row.get::<_, i32>(9)? != 0,
+                "service_name": row.get::<_, Option<String>>(10)?,
             }))
         })?
         .filter_map(|r| r.ok())
@@ -107,14 +119,15 @@ pub async fn create(
             format!("{domain}{path_prefix}")
         };
         db.execute(
-            "INSERT INTO domains (id, domain, service_id, ssl_provider, path_prefix, compose_service)
-             VALUES (?1, ?2, ?3, 'letsencrypt', ?4, ?5)",
+            "INSERT INTO domains (id, domain, service_id, ssl_provider, path_prefix, compose_service, strip_prefix)
+             VALUES (?1, ?2, ?3, 'letsencrypt', ?4, ?5, ?6)",
             rusqlite::params![
                 id,
                 domain_with_path,
                 body.service_id,
                 path_prefix,
                 body.compose_service,
+                body.strip_prefix as i64,
             ],
         )
         .map_err(|e| {
@@ -221,7 +234,7 @@ pub async fn list_for_service(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let mut stmt = db.prepare(
-        "SELECT id, domain, ssl_status, ssl_expires_at, ssl_provider, is_generated, created_at, compose_service
+        "SELECT id, domain, ssl_status, ssl_expires_at, ssl_provider, is_generated, created_at, compose_service, strip_prefix
          FROM domains WHERE service_id = ?1
          ORDER BY is_generated DESC, created_at ASC",
     )?;
@@ -236,6 +249,7 @@ pub async fn list_for_service(
                 "is_generated": row.get::<_, i32>(5)? != 0,
                 "created_at": row.get::<_, String>(6)?,
                 "compose_service": row.get::<_, Option<String>>(7)?,
+                "strip_prefix": row.get::<_, i32>(8)? != 0,
             }))
         })?
         .filter_map(|r| r.ok())
@@ -372,21 +386,22 @@ pub(crate) fn build_target_url(
 /// domains in the DB. Each row's `compose_service` (NULL or string) determines
 /// which upstream URL it gets routed to.
 pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppResult<()> {
-    let domain_rows: Vec<(String, String, Option<String>)> = {
+    let domain_rows: Vec<(String, String, Option<String>, bool)> = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let mut stmt = db.prepare(
-            "SELECT domain, COALESCE(path_prefix, ''), compose_service \
+            "SELECT domain, COALESCE(path_prefix, ''), compose_service, strip_prefix \
              FROM domains WHERE service_id = ?1",
         )?;
-        let rows: Vec<(String, String, Option<String>)> = stmt
+        let rows: Vec<(String, String, Option<String>, bool)> = stmt
             .query_map([service_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i32>(3)? != 0,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -405,7 +420,7 @@ pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppR
     let mut url_cache: std::collections::HashMap<Option<String>, String> =
         std::collections::HashMap::new();
     let mut targets: Vec<DomainTarget> = Vec::new();
-    for (domain, path_prefix, compose_svc) in &domain_rows {
+    for (domain, path_prefix, compose_svc, strip_prefix) in &domain_rows {
         let key = compose_svc.clone();
         let url = if let Some(u) = url_cache.get(&key) {
             u.clone()
@@ -423,6 +438,7 @@ pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppR
             use_tls: true,
             compose_service: compose_svc.clone(),
             target_url: url,
+            strip_prefix: *strip_prefix,
         });
     }
 

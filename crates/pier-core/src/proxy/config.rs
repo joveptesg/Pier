@@ -50,12 +50,15 @@ log:
 /// `domain`: the FQDN to route (e.g. "app.example.com")
 /// `target_url`: upstream URL (e.g. "http://127.0.0.1:10042")
 /// `use_tls`: whether to enable Let's Encrypt TLS
+/// `strip_prefix`: when `domain` carries a path prefix, drop it before
+///                 forwarding. `false` keeps the original path on the upstream.
 #[allow(dead_code)]
 pub fn generate_dynamic_config(
     service_id: &str,
     domain: &str,
     target_url: &str,
     use_tls: bool,
+    strip_prefix: bool,
 ) -> String {
     let tls_section = if use_tls {
         r#"      tls:
@@ -71,22 +74,28 @@ pub fn generate_dynamic_config(
     } else {
         (domain, None)
     };
-    let (rule, middleware_section, middleware_ref) = if let Some(path) = path_prefix {
-        let mw_name = format!("strip-pier-{service_id}");
-        (
-            format!("Host(`{hostname}`) && PathPrefix(`{path}`)"),
-            format!(
-                r#"  middlewares:
+    let (rule, middleware_section, middleware_ref) = match path_prefix {
+        Some(path) if strip_prefix => {
+            let mw_name = format!("strip-pier-{service_id}");
+            (
+                format!("Host(`{hostname}`) && PathPrefix(`{path}`)"),
+                format!(
+                    r#"  middlewares:
     {mw_name}:
       stripPrefix:
         prefixes:
           - "{path}"
 "#
-            ),
-            format!("\n      middlewares:\n        - {mw_name}"),
-        )
-    } else {
-        (format!("Host(`{hostname}`)"), String::new(), String::new())
+                ),
+                format!("\n      middlewares:\n        - {mw_name}"),
+            )
+        }
+        Some(path) => (
+            format!("Host(`{hostname}`) && PathPrefix(`{path}`)"),
+            String::new(),
+            String::new(),
+        ),
+        None => (format!("Host(`{hostname}`)"), String::new(), String::new()),
     };
 
     format!(
@@ -187,11 +196,12 @@ pub fn write_domain_config(
     domain: &str,
     target_url: &str,
     use_tls: bool,
+    strip_prefix: bool,
 ) -> Result<()> {
     let dynamic_dir = data_dir.join("traefik").join("dynamic");
     std::fs::create_dir_all(&dynamic_dir)?;
 
-    let config = generate_dynamic_config(service_id, domain, target_url, use_tls);
+    let config = generate_dynamic_config(service_id, domain, target_url, use_tls, strip_prefix);
     let file_name = format!("{service_id}.yml");
     std::fs::write(dynamic_dir.join(file_name), config)?;
 
@@ -270,15 +280,19 @@ impl Default for LbConfig {
 /// Generate Traefik dynamic config for a service with multiple domains and
 /// multiple upstreams (replicas). When `upstreams.len() == 1` and strategy is
 /// `RoundRobin`, the output matches legacy single-upstream YAML byte-for-byte.
+///
+/// Each domain row is `(domain_with_path, use_tls, strip_prefix)` — the
+/// `strip_prefix` boolean only matters when the domain carries a path; it
+/// controls whether the prefix is dropped on the upstream side.
 pub fn generate_dynamic_config_lb(
     service_id: &str,
-    domains: &[(String, bool)],
+    domains: &[(String, bool, bool)],
     upstreams: &[LbUpstream],
     lb: &LbConfig,
 ) -> String {
     let mut routers = String::new();
     let mut middlewares = String::new();
-    for (i, (domain_with_path, use_tls)) in domains.iter().enumerate() {
+    for (i, (domain_with_path, use_tls, strip_prefix)) in domains.iter().enumerate() {
         let router_name = if i == 0 {
             format!("pier-{service_id}")
         } else {
@@ -294,21 +308,26 @@ pub fn generate_dynamic_config_lb(
         } else {
             (domain_with_path.as_str(), None)
         };
-        let (rule, middleware_ref) = if let Some(path) = path_prefix {
-            let mw_name = format!("strip-{router_name}");
-            middlewares.push_str(&format!(
-                r#"    {mw_name}:
+        let (rule, middleware_ref) = match path_prefix {
+            Some(path) if *strip_prefix => {
+                let mw_name = format!("strip-{router_name}");
+                middlewares.push_str(&format!(
+                    r#"    {mw_name}:
       stripPrefix:
         prefixes:
           - "{path}"
 "#
-            ));
-            (
+                ));
+                (
+                    format!("Host(`{hostname}`) && PathPrefix(`{path}`)"),
+                    format!("\n      middlewares:\n        - {mw_name}"),
+                )
+            }
+            Some(path) => (
                 format!("Host(`{hostname}`) && PathPrefix(`{path}`)"),
-                format!("\n      middlewares:\n        - {mw_name}"),
-            )
-        } else {
-            (format!("Host(`{hostname}`)"), String::new())
+                String::new(),
+            ),
+            None => (format!("Host(`{hostname}`)"), String::new()),
         };
         routers.push_str(&format!(
             r#"    {router_name}:
@@ -367,7 +386,7 @@ http:
 #[allow(dead_code)]
 pub fn generate_dynamic_config_multi(
     service_id: &str,
-    domains: &[(String, bool)],
+    domains: &[(String, bool, bool)],
     target_url: &str,
 ) -> String {
     generate_dynamic_config_lb(
@@ -392,6 +411,10 @@ pub struct DomainTarget {
     pub compose_service: Option<String>,
     /// Full upstream URL, e.g. `http://api:3000`.
     pub target_url: String,
+    /// When the domain has a path prefix, drop the prefix before forwarding
+    /// (Traefik `stripPrefix` middleware). `false` keeps the original path so
+    /// backends whose routes are mounted at the same prefix keep working.
+    pub strip_prefix: bool,
 }
 
 /// Generate a Traefik dynamic config that supports multiple HTTP routers
@@ -452,17 +475,22 @@ fn generate_dynamic_config_multi_target(service_id: &str, targets: &[DomainTarge
             } else {
                 (t.domain.as_str(), None)
             };
-            let (rule, middleware_ref) = if let Some(path) = path_prefix {
-                let mw_name = format!("strip-{router_name}");
-                middlewares.push_str(&format!(
-                    "    {mw_name}:\n      stripPrefix:\n        prefixes:\n          - \"{path}\"\n"
-                ));
-                (
+            let (rule, middleware_ref) = match path_prefix {
+                Some(path) if t.strip_prefix => {
+                    let mw_name = format!("strip-{router_name}");
+                    middlewares.push_str(&format!(
+                        "    {mw_name}:\n      stripPrefix:\n        prefixes:\n          - \"{path}\"\n"
+                    ));
+                    (
+                        format!("Host(`{hostname}`) && PathPrefix(`{path}`)"),
+                        format!("\n      middlewares:\n        - {mw_name}"),
+                    )
+                }
+                Some(path) => (
                     format!("Host(`{hostname}`) && PathPrefix(`{path}`)"),
-                    format!("\n      middlewares:\n        - {mw_name}"),
-                )
-            } else {
-                (format!("Host(`{hostname}`)"), String::new())
+                    String::new(),
+                ),
+                None => (format!("Host(`{hostname}`)"), String::new()),
             };
             routers.push_str(&format!(
                 r#"    {router_name}:
@@ -538,10 +566,13 @@ pub fn regenerate_service_config_multi(
 
 /// Regenerate Traefik config for a service with ALL its domains.
 /// If no domains remain, removes the config file.
+///
+/// Each domain row is `(domain_with_path, use_tls, strip_prefix)`; see
+/// [`generate_dynamic_config_lb`] for `strip_prefix` semantics.
 pub fn regenerate_service_config(
     data_dir: &Path,
     service_id: &str,
-    domains: &[(String, bool)],
+    domains: &[(String, bool, bool)],
     target_url: &str,
 ) -> Result<()> {
     regenerate_service_config_lb(
@@ -560,7 +591,7 @@ pub fn regenerate_service_config(
 pub fn regenerate_service_config_lb(
     data_dir: &Path,
     service_id: &str,
-    domains: &[(String, bool)],
+    domains: &[(String, bool, bool)],
     upstreams: &[LbUpstream],
     lb: &LbConfig,
 ) -> Result<()> {
@@ -697,6 +728,114 @@ mod normalize_domain_tests {
             "pier.example.com"
         );
         assert_eq!(normalize_domain("PIER.EXAMPLE.COM."), "pier.example.com");
+    }
+}
+
+#[cfg(test)]
+mod strip_prefix_tests {
+    use super::{generate_dynamic_config, generate_dynamic_config_multi_target, DomainTarget};
+
+    #[test]
+    fn single_domain_with_path_and_strip_prefix_true_emits_middleware() {
+        let yaml = generate_dynamic_config(
+            "svc1",
+            "example.com/webhook",
+            "http://upstream:3000",
+            true,
+            true,
+        );
+        assert!(
+            yaml.contains("Host(`example.com`) && PathPrefix(`/webhook`)"),
+            "yaml = {yaml}"
+        );
+        assert!(yaml.contains("stripPrefix:"), "yaml = {yaml}");
+        assert!(yaml.contains("middlewares:"), "yaml = {yaml}");
+        assert!(
+            yaml.contains("- strip-pier-svc1"),
+            "router should reference its strip middleware: yaml = {yaml}"
+        );
+    }
+
+    #[test]
+    fn single_domain_with_path_and_strip_prefix_false_skips_middleware() {
+        let yaml = generate_dynamic_config(
+            "svc1",
+            "example.com/webhook",
+            "http://upstream:3000",
+            true,
+            false,
+        );
+        // Rule must still scope routing to the path so other apps on the same
+        // host don't accidentally receive these requests.
+        assert!(
+            yaml.contains("Host(`example.com`) && PathPrefix(`/webhook`)"),
+            "yaml = {yaml}"
+        );
+        assert!(
+            !yaml.contains("stripPrefix:"),
+            "strip_prefix=false must not emit stripPrefix: yaml = {yaml}"
+        );
+        assert!(
+            !yaml.contains("middlewares:"),
+            "strip_prefix=false must not emit middlewares section: yaml = {yaml}"
+        );
+    }
+
+    #[test]
+    fn domain_without_path_ignores_strip_prefix_flag() {
+        // No path means nothing to strip — both flag values must produce the
+        // same YAML (no rule path, no middleware).
+        let yes =
+            generate_dynamic_config("svc1", "example.com", "http://upstream:3000", true, true);
+        let no =
+            generate_dynamic_config("svc1", "example.com", "http://upstream:3000", true, false);
+        assert_eq!(yes, no, "no-path case must be flag-independent");
+        assert!(!yes.contains("stripPrefix"), "yaml = {yes}");
+        assert!(!yes.contains("PathPrefix"), "yaml = {yes}");
+    }
+
+    #[test]
+    fn multi_target_respects_per_domain_strip_prefix() {
+        // Two domains on the same compose-service: one strips, one keeps the
+        // prefix. The generated YAML must have a stripPrefix middleware for
+        // only the first one.
+        let targets = vec![
+            DomainTarget {
+                domain: "example.com/api".to_string(),
+                use_tls: true,
+                compose_service: None,
+                target_url: "http://api:3000".to_string(),
+                strip_prefix: true,
+            },
+            DomainTarget {
+                domain: "example.com/webhook".to_string(),
+                use_tls: true,
+                compose_service: None,
+                target_url: "http://api:3000".to_string(),
+                strip_prefix: false,
+            },
+        ];
+        let yaml = generate_dynamic_config_multi_target("svc1", &targets);
+        // Both rules present.
+        assert!(
+            yaml.contains("PathPrefix(`/api`)") && yaml.contains("PathPrefix(`/webhook`)"),
+            "yaml = {yaml}"
+        );
+        // Exactly one stripPrefix block (for the /api router).
+        let strip_count = yaml.matches("stripPrefix:").count();
+        assert_eq!(
+            strip_count, 1,
+            "expected one stripPrefix block, yaml = {yaml}"
+        );
+        // The /api prefix should be the one being stripped.
+        assert!(
+            yaml.contains("- \"/api\""),
+            "stripPrefix must list /api: yaml = {yaml}"
+        );
+        assert!(
+            !yaml.contains("- \"/webhook\""),
+            "/webhook must not appear in any stripPrefix list: yaml = {yaml}"
+        );
     }
 }
 
