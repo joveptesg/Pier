@@ -20,19 +20,41 @@
 
     <!-- Grid -->
     <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <template x-for="s in stacks" :key="s.id">
-            <div class="bg-gray-900 border border-gray-800/50 rounded-xl p-5 hover:border-gray-700/50 transition-colors">
-                <div class="flex items-center justify-between mb-3">
-                    <a :href="'/stacks/' + s.id" class="text-white font-medium hover:text-blue-400 transition-colors" x-text="s.name"></a>
-                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
+        <template x-for="s in stacks" :key="s._key">
+            <div class="bg-gray-900 border rounded-xl p-5 transition-colors"
+                 :class="s.source === 'peer'
+                          ? 'border-purple-900/40 hover:border-purple-700/60'
+                          : 'border-gray-800/50 hover:border-gray-700/50'">
+                <div class="flex items-center justify-between mb-3 gap-2">
+                    <div class="min-w-0 flex items-center gap-2 flex-1">
+                        <template x-if="s.source === 'local'">
+                            <a :href="'/stacks/' + s.id" class="text-white font-medium hover:text-blue-400 transition-colors truncate" x-text="s.name"></a>
+                        </template>
+                        <template x-if="s.source === 'peer'">
+                            <a :href="peerHref(s)"
+                               target="_blank" rel="noopener"
+                               class="text-white font-medium hover:text-purple-400 transition-colors truncate"
+                               :title="'Open on ' + s.peer_name"
+                               x-text="s.name"></a>
+                        </template>
+                        <span x-show="s.source === 'peer'"
+                              class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-900/30 text-purple-300"
+                              x-text="s.peer_name"></span>
+                    </div>
+                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium shrink-0"
                           :class="s.status === 'running' ? 'bg-green-500/10 text-green-400' : 'bg-gray-500/10 text-gray-400'">
                         <span class="w-1.5 h-1.5 rounded-full"
                               :class="s.status === 'running' ? 'bg-green-400' : 'bg-gray-500'"></span>
                         <span x-text="s.status"></span>
                     </span>
                 </div>
-                <p class="text-xs text-gray-500 mb-4" x-text="'Created: ' + s.created_at"></p>
-                <div class="flex items-center gap-2">
+                <p class="text-xs text-gray-500 mb-4">
+                    <span x-show="s.source === 'local'" x-text="'Created: ' + s.created_at"></span>
+                    <span x-show="s.source === 'peer'" x-text="'Synced: ' + formatAgo(s.fetched_at)"></span>
+                </p>
+                <!-- Mutation buttons only on local stacks. Peer stacks are
+                     read-only until write-federation (Etap 2). -->
+                <div class="flex items-center gap-2" x-show="s.source === 'local'">
                     <button @click="deploy(s.id)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
                         Deploy
@@ -45,6 +67,11 @@
                             class="px-3 py-1.5 text-xs rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors ml-auto">
                         Delete
                     </button>
+                </div>
+                <div class="flex items-center text-xs text-gray-500" x-show="s.source === 'peer'">
+                    <span>Managed on <span class="text-purple-300" x-text="s.peer_name"></span></span>
+                    <a x-show="s.peer_url" :href="peerHref(s)" target="_blank" rel="noopener"
+                       class="ml-auto text-purple-400 hover:text-purple-300">Open ↗</a>
                 </div>
             </div>
         </template>
@@ -66,9 +93,30 @@ function stacksData() {
         },
         async refresh() {
             try {
-                this.stacks = await fetch('/api/v1/stacks').then(r => r.json());
+                // /federation/stacks falls back to /stacks if the
+                // federation route is missing on this build — keeps
+                // the page useful pre-migration-43 too.
+                const rows = await fetch('/api/v1/federation/stacks')
+                    .then(r => r.ok ? r.json() : fetch('/api/v1/stacks').then(r2 => r2.json()));
+                this.stacks = (rows || []).map(s => Object.assign({}, s, {
+                    source: s.source || 'local',
+                    _key: s.source === 'peer' ? (s.peer_server_id + ':' + s.id) : ('local:' + s.id),
+                }));
             } catch (e) { /* silent */ }
             this.loading = false;
+        },
+        peerHref(s) {
+            const base = (s.peer_url || '').replace(/\/+$/, '');
+            if (base) return base + '/stacks/' + encodeURIComponent(s.id);
+            return '#';
+        },
+        formatAgo(unixSecs) {
+            if (!unixSecs) return 'never';
+            const diff = Math.max(0, Math.floor(Date.now() / 1000) - unixSecs);
+            if (diff < 60) return diff + 's ago';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            return Math.floor(diff / 86400) + 'd ago';
         },
         async deploy(id) {
             try {

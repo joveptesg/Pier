@@ -824,6 +824,57 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE servers ADD COLUMN token_rotated_at INTEGER;
     ALTER TABLE servers ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1;
     "#,
+    // Migration 43: Federation read-only cache.
+    //
+    // The primary core polls every peer-kind server on a 30-60s timer and
+    // upserts the snapshot of its projects/stacks here so the dashboard can
+    // render a merged "all nodes" view without doing N synchronous HTTP
+    // calls on every page load. Rows are write-mostly: the scheduler
+    // `DELETE … WHERE peer_server_id = ?` then re-INSERTs the full set
+    // on each successful poll, so the table is the *current* snapshot,
+    // not history. `fetched_at` is what the UI uses to flag stale data.
+    //
+    // We carry the *peer's own* project_id / stack_id as the secondary
+    // key, never our local UUIDs — those would collide and would imply
+    // we own the row. The (peer_server_id, project_id|stack_id) primary
+    // key is what lets the upserter avoid duplicates without a separate
+    // surrogate key.
+    r#"
+    CREATE TABLE IF NOT EXISTS federated_projects (
+        peer_server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        project_id      TEXT NOT NULL,
+        name            TEXT NOT NULL,
+        description     TEXT NOT NULL DEFAULT '',
+        services_count  INTEGER NOT NULL DEFAULT 0,
+        fetched_at      INTEGER NOT NULL,
+        PRIMARY KEY (peer_server_id, project_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_federated_projects_peer
+        ON federated_projects(peer_server_id);
+
+    CREATE TABLE IF NOT EXISTS federated_stacks (
+        peer_server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        stack_id        TEXT NOT NULL,
+        name            TEXT NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'unknown',
+        has_yaml        INTEGER NOT NULL DEFAULT 0,
+        fetched_at      INTEGER NOT NULL,
+        PRIMARY KEY (peer_server_id, stack_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_federated_stacks_peer
+        ON federated_stacks(peer_server_id);
+
+    -- Per-peer sync bookkeeping; one row per peer regardless of state.
+    -- last_error is null on success, NOT NULL after a failed pass.
+    CREATE TABLE IF NOT EXISTS federation_sync_state (
+        peer_server_id  TEXT PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+        last_synced_at  INTEGER,
+        last_attempt_at INTEGER,
+        last_status     TEXT NOT NULL DEFAULT 'pending',
+        last_error      TEXT,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0
+    );
+    "#,
 ];
 
 /// Run all pending database migrations.

@@ -10,6 +10,7 @@ mod db;
 mod deploy;
 mod docker;
 mod error;
+mod federation;
 mod git;
 mod network;
 mod proxy;
@@ -255,6 +256,14 @@ async fn main() -> Result<()> {
     // Start alerts scheduler (checks metrics every 30s)
     alerts::start_scheduler(state.clone());
     tracing::info!("Alerts scheduler started");
+
+    // Federation read-only sync — polls every peer-kind server's
+    // /api/v1/projects + /api/v1/stacks on a slow tick (~45s) so the
+    // primary dashboard can show an aggregated view without N
+    // synchronous HTTP calls per page load. Etap 1 of the federation
+    // plan; write federation lives in a later phase.
+    federation::sync::start_scheduler(state.clone());
+    tracing::info!("Federation sync scheduler started");
 
     // Cleanup invalid domains (with https:// prefix) and their Traefik configs
     {

@@ -12,6 +12,7 @@ pub mod deployments;
 pub mod domains;
 pub mod env;
 pub mod events;
+pub mod federation;
 pub mod grants;
 pub mod images;
 // Note: `networks` (plural) is the Docker-networks management API.
@@ -377,6 +378,15 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/{id}/promote", post(promote::trigger))
         // Federation handshake: remote peer-cores probe here with their grant token.
         .route("/peers/probe", get(grants::probe))
+        // Aggregated read-only view across local + peer-kind servers.
+        // The scheduler in `federation::sync` keeps the cache warm; the
+        // POST endpoint forces an immediate refresh for the "added a
+        // peer, show me now" UX. Write federation (deploy/restart on
+        // peer) is Etap 2 and ships separately.
+        .route("/federation/projects", get(federation::list_projects))
+        .route("/federation/stacks", get(federation::list_stacks))
+        .route("/federation/status", get(federation::status))
+        .route("/federation/sync", post(federation::refresh_now))
         // External access — tokens that authorize another pier-core to control this one.
         .route("/grants", get(grants::list).post(grants::create))
         .route("/grants/{id}", delete(grants::revoke))
