@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 /// `{"op":"apply","rollback_after_sec":60}` rather than
 /// `{"op":"apply","params":{"rollback_after_sec":60}}`. Flatter to
 /// produce by hand and easier to evolve when adding new ops.
+#[cfg_attr(not(unix), allow(dead_code))]
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Op {
@@ -49,6 +50,7 @@ pub enum Op {
     Uninstall,
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 #[derive(Deserialize)]
 pub struct Request {
     #[serde(default)]
@@ -78,6 +80,7 @@ pub struct Response<'a> {
 /// rejected. This is the line between "helper" and "remote code exec":
 /// without this check the helper would happily run any command an
 /// attacker could fit into a `PostUp =` directive.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn validate_wg_config(content: &str) -> Result<()> {
     const ALLOWED_INTERFACE: &[&str] =
         &["PrivateKey", "Address", "ListenPort", "DNS", "MTU", "Table"];

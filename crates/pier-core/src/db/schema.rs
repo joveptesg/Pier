@@ -754,6 +754,57 @@ const MIGRATIONS: &[&str] = &[
         ON servers(agent_token_hash)
         WHERE agent_token_hash IS NOT NULL;
     "#,
+    // Migration 41: WireGuard mesh tables.
+    //
+    // `wireguard_config` is a singleton (CHECK id = 1) holding the
+    // operator's choice of subnet, listen port, and keepalive. It exists
+    // even when mesh is disabled so the UI has somewhere to read the
+    // defaults from before Enable Mesh is pressed.
+    //
+    // `wireguard_peers` holds one row per participating server (including
+    // the local node — assigned_ip there describes core's own wg0
+    // address). Lifecycle:
+    //
+    //   * created with `status='pending'` and `public_key IS NULL` when
+    //     Enable Mesh first assigns the row an IP;
+    //   * core asks the node's pier-net-helper to generate a keypair,
+    //     receives the public_key, and persists it (status='keyed');
+    //   * core renders the final wg0.conf, asks the helper to apply it,
+    //     and on successful `wg syncconf` flips status to 'active';
+    //   * status='error' carries the helper's last error_message for
+    //     UI display.
+    //
+    // assigned_ip is UNIQUE — the IP allocator hands out the lowest free
+    // /32 inside `wireguard_config.subnet`, so adding/removing nodes
+    // doesn't reshuffle existing tunnels.
+    r#"
+    CREATE TABLE IF NOT EXISTS wireguard_config (
+        id                    INTEGER PRIMARY KEY CHECK (id = 1),
+        enabled               INTEGER NOT NULL DEFAULT 0,
+        subnet                TEXT    NOT NULL DEFAULT '10.42.0.0/24',
+        listen_port           INTEGER NOT NULL DEFAULT 51820,
+        persistent_keepalive  INTEGER NOT NULL DEFAULT 25,
+        updated_at            INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    INSERT OR IGNORE INTO wireguard_config (id, updated_at)
+        VALUES (1, strftime('%s','now'));
+
+    CREATE TABLE IF NOT EXISTS wireguard_peers (
+        server_id       TEXT PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+        assigned_ip     TEXT NOT NULL UNIQUE,
+        public_key      TEXT,
+        endpoint        TEXT NOT NULL,
+        last_handshake  INTEGER,
+        rx_bytes        INTEGER NOT NULL DEFAULT 0,
+        tx_bytes        INTEGER NOT NULL DEFAULT 0,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        error_message   TEXT,
+        deployed_at     INTEGER,
+        created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_wireguard_peers_status
+        ON wireguard_peers(status);
+    "#,
 ];
 
 /// Run all pending database migrations.

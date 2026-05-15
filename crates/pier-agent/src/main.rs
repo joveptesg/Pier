@@ -1,5 +1,5 @@
 use anyhow::Result;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -8,6 +8,9 @@ use bollard::Docker;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
+
+#[cfg(unix)]
+mod helper_client;
 
 // ---------------------------------------------------------------------------
 // State
@@ -264,6 +267,112 @@ async fn exec_cmd(
         )
             .into_response(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Mesh proxy — POST /api/v1/agent/mesh/{op}, GET /api/v1/agent/mesh/preflight
+//
+// The agent itself never speaks WireGuard. Core sends an op (`apply`,
+// `generate_keypair`, …) to the agent; the agent forwards it down to
+// pier-net-helper over /run/pier/net.sock and relays the helper's reply
+// back over HTTPS. This keeps the privileged code path on the host short
+// (helper → root, agent → unprivileged) and uniformly observable in
+// Pier's HTTP logs.
+//
+// Preflight is the one read-only escape hatch: it does NOT round-trip
+// through the helper, just checks whether the socket exists. Core uses
+// it from the "Enable Mesh" wizard to tell the operator which nodes
+// need an install-helper.sh retrofit.
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+async fn mesh_proxy(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Path(op): Path<String>,
+    body: Option<Json<serde_json::Value>>,
+) -> impl IntoResponse {
+    require_auth!(headers, state);
+
+    // Empty body is acceptable for unit ops (commit/rollback/up/down/status).
+    let extra = body.map(|j| j.0).unwrap_or_else(|| serde_json::json!({}));
+
+    // Random id so concurrent core requests don't collide in helper logs.
+    // We don't depend on a uuid crate just for this — a 64-bit counter
+    // mixed with the request timestamp is enough.
+    let id = format!(
+        "req-{}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+        rand::random::<u32>()
+    );
+
+    let body = match helper_client::build_request(&id, &op, &extra) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("bad request: {e:#}")})),
+            )
+                .into_response();
+        }
+    };
+
+    match helper_client::call(&body).await {
+        Ok(resp) if resp.ok => Json(serde_json::json!({
+            "ok": true,
+            "result": resp.result.unwrap_or(serde_json::json!({})),
+        }))
+        .into_response(),
+        Ok(resp) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": resp.error.unwrap_or_else(|| "helper returned ok=false with no error".into()),
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": format!("helper unreachable: {e:#}"),
+            })),
+        )
+            .into_response(),
+    }
+}
+
+#[cfg(not(unix))]
+async fn mesh_proxy(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Path(_op): Path<String>,
+    _body: Option<Json<serde_json::Value>>,
+) -> impl IntoResponse {
+    require_auth!(headers, state);
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(serde_json::json!({
+            "ok": false,
+            "error": "mesh is Linux-only; this agent is built for a non-unix target",
+        })),
+    )
+        .into_response()
+}
+
+async fn mesh_preflight(State(state): State<SharedState>, headers: HeaderMap) -> impl IntoResponse {
+    require_auth!(headers, state);
+    let socket = std::env::var("PIER_NET_HELPER_SOCKET")
+        .unwrap_or_else(|_| "/run/pier/net.sock".to_string());
+    let helper_available = std::path::Path::new(&socket).exists();
+    Json(serde_json::json!({
+        "helper_available": helper_available,
+        "socket_path": socket,
+    }))
+    .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +648,11 @@ async fn main() -> Result<()> {
         .route("/api/v1/agent/exec", post(exec_cmd))
         .route("/api/v1/agent/status", get(stack_status))
         .route("/api/v1/agent/promote", post(promote))
+        // Mesh: thin proxy into pier-net-helper. {op} is the helper op
+        // name (install_wireguard, apply, …). Preflight is a read-only
+        // check that doesn't round-trip through the helper.
+        .route("/api/v1/agent/mesh/preflight", get(mesh_preflight))
+        .route("/api/v1/agent/mesh/{op}", post(mesh_proxy))
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");
