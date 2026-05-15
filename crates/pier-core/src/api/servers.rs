@@ -1183,6 +1183,59 @@ curl -fsSL -o /opt/pier/bin/pier-agent "$DOWNLOAD_URL" || {{
 }}
 chmod +x /opt/pier/bin/pier-agent
 
+# 3b. Drop pier-net-helper (dormant). The helper is the privileged hook
+#     that pier-agent uses later to bring up a WireGuard mesh from the UI
+#     ("Enable Mesh" wizard). It does NOTHING on its own — no `wg`, no
+#     `apt install wireguard`, no `wg-quick up` — until pier-core sends
+#     an explicit op over /run/pier/net.sock. Failing to install it here
+#     is non-fatal: the agent works without mesh; the operator can run
+#     /install-helper.sh later to retrofit.
+echo "Installing pier-net-helper (dormant)..."
+HELPER_URL="https://github.com/joveptesg/Pier/releases/download/latest/pier-net-helper-linux-amd64"
+if curl -fsSL -o /usr/local/bin/pier-net-helper "$HELPER_URL"; then
+    chmod 0755 /usr/local/bin/pier-net-helper
+    cat > /etc/systemd/system/pier-net-helper.service <<HELPER_UNIT
+[Unit]
+Description=Pier Network Helper (privileged WireGuard mesh operations)
+Documentation=https://github.com/joveptesg/Pier
+After=network-pre.target
+Before=pier-agent.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pier-net-helper
+Restart=on-failure
+RestartSec=2
+User=root
+Group=root
+RuntimeDirectory=pier
+RuntimeDirectoryMode=0750
+ProtectSystem=strict
+ReadWritePaths=/etc/wireguard /run/pier
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE
+
+[Install]
+WantedBy=multi-user.target
+HELPER_UNIT
+    chmod 644 /etc/systemd/system/pier-net-helper.service
+    systemctl daemon-reload
+    systemctl enable --now pier-net-helper.service || \
+        echo "Warning: pier-net-helper.service failed to start; mesh features will be unavailable."
+else
+    echo "Warning: pier-net-helper binary unavailable; mesh features will be unavailable until you re-run with a working release."
+fi
+
 # 4. Handshake — spend the one-shot bootstrap for a long-term agent token.
 #    The plaintext returned here is the only place the long-term token ever
 #    exists outside the systemd Environment= file we're about to write.

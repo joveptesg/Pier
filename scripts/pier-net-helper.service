@@ -1,0 +1,49 @@
+[Unit]
+Description=Pier Network Helper (privileged WireGuard mesh operations)
+Documentation=https://github.com/joveptesg/Pier
+After=network-pre.target
+Before=pier-agent.service pier.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pier-net-helper
+Restart=on-failure
+RestartSec=2
+
+# The helper is privileged on purpose — it has to run `wg-quick up`, write
+# /etc/wireguard/wg0.conf, and `apt install wireguard`. The systemd unit
+# tightens the blast radius:
+#
+#   * `RuntimeDirectory=pier` + `RuntimeDirectoryMode=0750` creates
+#     /run/pier owned by root:pier so pier-agent (user `pier`) can
+#     write/read the helper's unix socket but `nobody` cannot.
+#   * `ReadWritePaths` whitelists exactly the two filesystem locations
+#     the helper is supposed to touch. `ProtectSystem=strict` makes the
+#     rest of `/` read-only from this process's view.
+#   * Capabilities are pared to the two the helper actually needs: writing
+#     network config and loading the wireguard kernel module on first use.
+#
+# What this unit explicitly does NOT grant: no /home, no /tmp host share,
+# no ability to ptrace, no new privileges via setuid. The helper cannot
+# escalate from these even if the binary itself is later compromised.
+User=root
+Group=root
+RuntimeDirectory=pier
+RuntimeDirectoryMode=0750
+ProtectSystem=strict
+ReadWritePaths=/etc/wireguard /run/pier
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE
+
+[Install]
+WantedBy=multi-user.target

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/pier-core",
     "crates/pier-agent",
+    "crates/pier-net-helper",
 ]
 
 [workspace.package]
