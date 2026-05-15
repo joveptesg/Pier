@@ -270,6 +270,12 @@ pub async fn run_pipeline(
                     // every service so UI-defined vars reach the container by default.
                     // `environment:` in the user's compose still wins for explicit overrides.
                     let yaml = inject_env_file_into_services(&yaml);
+                    // Mesh-DNS: when WireGuard mesh is active, every container gets
+                    // `extra_hosts:` entries mapping `{peer}.mesh` to that peer's
+                    // private IP. No-op when mesh is disabled or no peers are
+                    // `active`, so non-mesh deployments are byte-identical.
+                    let mesh_hosts = mesh_hosts_for_inject(&state);
+                    let yaml = inject_mesh_extra_hosts_into_services(&yaml, &mesh_hosts);
 
                     // Move repo contents to stack dir so build context works from persistent location
                     let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
@@ -1278,6 +1284,193 @@ fn inject_env_file_into_services(yaml: &str) -> String {
     lines.join("\n")
 }
 
+/// Inject `extra_hosts:` entries into every `services:` block so the
+/// container resolves Pier mesh peer names (`vps1.mesh`, `vps2.mesh`,
+/// …) to their private mesh IPs. This is how an app deployed on one
+/// node reaches a sibling app on another through the WireGuard tunnel
+/// without the operator hard-coding `10.42.0.x` in env vars.
+///
+/// `hosts` is `(hostname, ip)` pairs already sanitised by the caller.
+/// Pass an empty slice to leave the YAML untouched (e.g. mesh
+/// disabled, no active peers, or the deployment isn't supposed to
+/// participate in mesh-DNS).
+///
+/// Services that already declare an `extra_hosts:` key are left alone
+/// — overwriting would silently drop the operator's entries. The
+/// trade-off is that those services don't get mesh-DNS automatically;
+/// they can include the entries themselves if they want both.
+pub fn inject_mesh_extra_hosts_into_services(yaml: &str, hosts: &[(String, String)]) -> String {
+    if hosts.is_empty() {
+        return yaml.to_string();
+    }
+    let mut lines: Vec<String> = yaml.lines().map(|l| l.to_string()).collect();
+
+    // Locate top-level `services:` — same scanning approach as
+    // inject_env_file_into_services. Kept inline rather than
+    // refactored into a shared helper because the structural-edit
+    // pattern is small and clearer when read top-to-bottom.
+    let services_idx = match lines
+        .iter()
+        .position(|l| l.trim() == "services:" && !l.starts_with(' ') && !l.starts_with('\t'))
+    {
+        Some(i) => i,
+        None => return yaml.to_string(),
+    };
+
+    let service_indent = lines
+        .iter()
+        .skip(services_idx + 1)
+        .find_map(|line| {
+            if line.trim().is_empty() {
+                return None;
+            }
+            let indent = line.len() - line.trim_start().len();
+            if indent == 0 {
+                return Some(0);
+            }
+            Some(indent)
+        })
+        .unwrap_or(0);
+    if service_indent == 0 {
+        return yaml.to_string();
+    }
+
+    let mut service_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut current_start: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate().skip(services_idx + 1) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if indent == 0 {
+            if let Some(start) = current_start.take() {
+                service_ranges.push((start, i));
+            }
+            break;
+        }
+        if indent == service_indent && trimmed.ends_with(':') {
+            if let Some(start) = current_start.take() {
+                service_ranges.push((start, i));
+            }
+            current_start = Some(i);
+        }
+    }
+    if let Some(start) = current_start.take() {
+        service_ranges.push((start, lines.len()));
+    }
+
+    for (start, end) in service_ranges.into_iter().rev() {
+        let prop_indent = lines[start + 1..end]
+            .iter()
+            .find_map(|line| {
+                if line.trim().is_empty() {
+                    return None;
+                }
+                let indent = line.len() - line.trim_start().len();
+                if indent > service_indent {
+                    Some(indent)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(service_indent + 2);
+
+        let has_extra_hosts = lines[start + 1..end].iter().any(|l| {
+            let indent = l.len() - l.trim_start().len();
+            indent == prop_indent && l.trim_start().starts_with("extra_hosts:")
+        });
+        if has_extra_hosts {
+            continue;
+        }
+
+        let mut insert_at = end;
+        while insert_at > start + 1 && lines[insert_at - 1].trim().is_empty() {
+            insert_at -= 1;
+        }
+
+        let pad = " ".repeat(prop_indent);
+        lines.insert(insert_at, format!("{pad}extra_hosts:"));
+        for (i, (host, ip)) in hosts.iter().enumerate() {
+            lines.insert(insert_at + 1 + i, format!("{pad}  - \"{host}:{ip}\""));
+        }
+    }
+
+    lines.join("\n")
+}
+
+/// Build the list of mesh peer hostnames Pier should inject into every
+/// deployed stack. Returns an empty vec when mesh is disabled or no
+/// peers have reached `status='active'` — the caller is expected to
+/// treat that as "skip injection".
+///
+/// Hostname normalisation: `lower(server.name)`, swap whitespace +
+/// non-`[a-z0-9.-]` characters for `-`, collapse runs, suffix with
+/// `.mesh`. Predictable and reversible enough for the operator to
+/// guess what to put in their app env (`http://vps1-master.mesh:8080`)
+/// before they go look at the dashboard.
+pub fn mesh_hosts_for_inject(state: &crate::state::AppState) -> Vec<(String, String)> {
+    let db = match state.db.lock() {
+        Ok(g) => g,
+        Err(_) => return Vec::new(),
+    };
+    let enabled: i64 = db
+        .query_row(
+            "SELECT enabled FROM wireguard_config WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if enabled != 1 {
+        return Vec::new();
+    }
+    let mut stmt = match db.prepare(
+        "SELECT s.name, wp.assigned_ip
+         FROM wireguard_peers wp
+         JOIN servers s ON s.id = wp.server_id
+         WHERE wp.status = 'active'
+           AND wp.public_key IS NOT NULL",
+    ) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let rows = match stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    let mut out: Vec<(String, String)> = Vec::new();
+    for row in rows.flatten() {
+        out.push((normalize_mesh_hostname(&row.0), row.1));
+    }
+    out
+}
+
+fn normalize_mesh_hostname(name: &str) -> String {
+    let mut s = String::with_capacity(name.len() + 5);
+    let mut prev_dash = true; // suppress leading dashes
+    for c in name.chars() {
+        let ch = c.to_ascii_lowercase();
+        let allowed = ch.is_ascii_alphanumeric() || ch == '.' || ch == '-';
+        if allowed {
+            s.push(ch);
+            prev_dash = ch == '-' || ch == '.';
+        } else if !prev_dash {
+            s.push('-');
+            prev_dash = true;
+        }
+    }
+    while s.ends_with('-') || s.ends_with('.') {
+        s.pop();
+    }
+    if s.is_empty() {
+        s.push_str("peer");
+    }
+    s.push_str(".mesh");
+    s
+}
+
 /// Load a service's env vars from `services.env_json` into a flat map for
 /// docker-compose-style `${VAR}` substitution. Returns an empty map on any
 /// error (caller treats unset vars as empty).
@@ -1512,8 +1705,108 @@ struct ServiceInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{env_json_to_env_content, inject_env_file_into_services};
+    use super::{
+        env_json_to_env_content, inject_env_file_into_services,
+        inject_mesh_extra_hosts_into_services, normalize_mesh_hostname,
+    };
     use crate::crypto::encrypt_env_json;
+
+    fn hosts() -> Vec<(String, String)> {
+        vec![
+            ("vps1.mesh".into(), "10.42.0.1".into()),
+            ("vps2.mesh".into(), "10.42.0.2".into()),
+        ]
+    }
+
+    #[test]
+    fn mesh_hosts_inject_into_service_without_extra_hosts() {
+        let yaml = "services:\n  backend:\n    image: foo:bar\n";
+        let out = inject_mesh_extra_hosts_into_services(yaml, &hosts());
+        assert!(out.contains("extra_hosts:"));
+        assert!(out.contains(r#"- "vps1.mesh:10.42.0.1""#));
+        assert!(out.contains(r#"- "vps2.mesh:10.42.0.2""#));
+        assert_eq!(out.matches("extra_hosts:").count(), 1);
+    }
+
+    #[test]
+    fn mesh_hosts_skip_service_with_user_extra_hosts() {
+        // The operator put their own extra_hosts in — don't clobber it.
+        // They miss out on mesh-DNS for this service; that's the trade.
+        let yaml =
+            "services:\n  backend:\n    image: foo:bar\n    extra_hosts:\n      - \"db:1.2.3.4\"\n";
+        let out = inject_mesh_extra_hosts_into_services(yaml, &hosts());
+        assert!(out.contains("db:1.2.3.4"));
+        assert_eq!(out.matches("extra_hosts:").count(), 1);
+        assert!(!out.contains("vps1.mesh"));
+    }
+
+    #[test]
+    fn mesh_hosts_inject_into_every_service_in_multi_service_compose() {
+        let yaml = "services:\n  backend:\n    image: foo:bar\n  worker:\n    image: baz:qux\n";
+        let out = inject_mesh_extra_hosts_into_services(yaml, &hosts());
+        assert_eq!(out.matches("extra_hosts:").count(), 2);
+        assert_eq!(out.matches("vps1.mesh:10.42.0.1").count(), 2);
+    }
+
+    #[test]
+    fn mesh_hosts_noop_on_empty_list() {
+        // When mesh is disabled or has no active peers, the helper hands
+        // us an empty slice and the YAML must round-trip unchanged.
+        let yaml = "services:\n  backend:\n    image: foo:bar\n";
+        let out = inject_mesh_extra_hosts_into_services(yaml, &[]);
+        assert_eq!(out, yaml);
+    }
+
+    #[test]
+    fn mesh_hosts_noop_without_services_block() {
+        let yaml = "version: '3'\nnetworks:\n  pier-net:\n    external: true\n";
+        let out = inject_mesh_extra_hosts_into_services(yaml, &hosts());
+        assert!(!out.contains("extra_hosts:"));
+    }
+
+    #[test]
+    fn mesh_hosts_does_not_leak_into_top_level_networks() {
+        let yaml = "services:\n  backend:\n    image: foo:bar\nnetworks:\n  pier-net:\n    external: true\n";
+        let out = inject_mesh_extra_hosts_into_services(yaml, &hosts());
+        let extra_pos = out.find("extra_hosts:").expect("must inject");
+        let networks_pos = out
+            .find("\nnetworks:")
+            .expect("must preserve top-level networks");
+        assert!(extra_pos < networks_pos);
+        assert_eq!(out.matches("extra_hosts:").count(), 1);
+    }
+
+    #[test]
+    fn normalize_lowercases_and_replaces_spaces() {
+        assert_eq!(normalize_mesh_hostname("VPS 1 Master"), "vps-1-master.mesh");
+    }
+
+    #[test]
+    fn normalize_keeps_dots_and_dashes() {
+        assert_eq!(
+            normalize_mesh_hostname("vps1.master-eu"),
+            "vps1.master-eu.mesh"
+        );
+    }
+
+    #[test]
+    fn normalize_collapses_punctuation_runs() {
+        // `__` and `&` both unmap to `-`; consecutive disallowed chars
+        // collapse so we don't end up with `vps---1.mesh`.
+        assert_eq!(normalize_mesh_hostname("vps__&1"), "vps-1.mesh");
+    }
+
+    #[test]
+    fn normalize_strips_trailing_punctuation() {
+        assert_eq!(normalize_mesh_hostname("vps1!!!"), "vps1.mesh");
+    }
+
+    #[test]
+    fn normalize_falls_back_when_input_is_all_garbage() {
+        // All disallowed chars → empty → fall back to "peer.mesh" so
+        // we never emit a malformed `extra_hosts: - ":10.42.0.1"`.
+        assert_eq!(normalize_mesh_hostname("!!!"), "peer.mesh");
+    }
 
     #[test]
     fn inject_env_file_adds_to_service_without_it() {

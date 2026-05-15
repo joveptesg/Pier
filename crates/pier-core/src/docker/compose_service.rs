@@ -16,8 +16,17 @@
 
 use anyhow::Result;
 
+use crate::deploy::{inject_mesh_extra_hosts_into_services, mesh_hosts_for_inject};
 use crate::docker::compose::{self, ComposeAuth};
 use crate::state::AppState;
+
+/// Inject mesh-DNS `extra_hosts:` into every `services:` block when
+/// the WireGuard mesh is active. No-op otherwise, so non-mesh stacks
+/// are byte-identical to what the operator wrote.
+fn with_mesh_hosts(state: &AppState, yaml: &str) -> String {
+    let hosts = mesh_hosts_for_inject(state);
+    inject_mesh_extra_hosts_into_services(yaml, &hosts)
+}
 
 /// Materialize `.env` from the service's encrypted `env_json` and run
 /// `docker compose up -d`.
@@ -29,7 +38,8 @@ pub async fn deploy_service_stack(
     auth: ComposeAuth,
 ) -> Result<String> {
     crate::deploy::write_env_file(state, service_id, stack_name).await;
-    compose::deploy_stack(stack_name, yaml, &state.config, auth).await
+    let yaml = with_mesh_hosts(state, yaml);
+    compose::deploy_stack(stack_name, &yaml, &state.config, auth).await
 }
 
 /// Materialize `.env` from the service's encrypted `env_json` and run
@@ -42,5 +52,6 @@ pub async fn deploy_service_stack_no_cache(
     auth: ComposeAuth,
 ) -> Result<String> {
     crate::deploy::write_env_file(state, service_id, stack_name).await;
-    compose::deploy_stack_no_cache(stack_name, yaml, &state.config, auth).await
+    let yaml = with_mesh_hosts(state, yaml);
+    compose::deploy_stack_no_cache(stack_name, &yaml, &state.config, auth).await
 }
