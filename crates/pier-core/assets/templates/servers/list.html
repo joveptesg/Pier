@@ -16,6 +16,137 @@
         </button>
     </div>
 
+    <!-- Mesh Network card.
+         Lives above the Servers Grid so it's the first thing the
+         operator sees when they're about to wire several boxes
+         together. When mesh is disabled this is a passive summary
+         + Enable button; when enabled it surfaces each peer's
+         live status and lets the operator re-apply or disable. -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-3">
+        <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+                     :class="mesh.config.enabled ? 'bg-green-50 dark:bg-green-600/10' : 'bg-gray-100 dark:bg-gray-800'">
+                    <svg class="w-5 h-5"
+                         :class="mesh.config.enabled ? 'text-green-500' : 'text-gray-400'"
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Mesh Network</h3>
+                    <p class="text-xs text-gray-500" x-show="!mesh.config.enabled">
+                        WireGuard tunnel between every Pier node. Disabled.
+                    </p>
+                    <p class="text-xs text-green-600 dark:text-green-400" x-show="mesh.config.enabled">
+                        <span x-text="meshPeerSummary()"></span> peers
+                        on <span class="font-mono" x-text="mesh.config.subnet"></span>
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button x-show="!mesh.config.enabled"
+                        @click="showMeshEdit = true; meshForm.subnet = mesh.config.subnet; meshForm.listen_port = mesh.config.listen_port; meshForm.persistent_keepalive = mesh.config.persistent_keepalive"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
+                    Edit
+                </button>
+                <button x-show="!mesh.config.enabled"
+                        :disabled="meshLoading"
+                        @click="enableMesh()"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
+                    <span x-show="!meshLoading">Enable Mesh</span>
+                    <span x-show="meshLoading">Working…</span>
+                </button>
+                <button x-show="mesh.config.enabled"
+                        :disabled="meshLoading"
+                        @click="configureMesh()"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-60"
+                        title="Re-run install + keypair + apply on every peer">
+                    <span x-show="!meshLoading">Apply</span>
+                    <span x-show="meshLoading">Applying…</span>
+                </button>
+                <button x-show="mesh.config.enabled"
+                        :disabled="meshLoading"
+                        @click="disableMesh()"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 disabled:opacity-60">
+                    Disable
+                </button>
+            </div>
+        </div>
+
+        <!-- Per-peer status. Only shown while mesh is enabled — when
+             disabled there are no rows in wireguard_peers. -->
+        <div x-show="mesh.config.enabled && mesh.peers.length" class="border-t border-gray-200 dark:border-gray-800 pt-3 space-y-1.5">
+            <template x-for="p in mesh.peers" :key="p.server_id">
+                <div class="flex items-center justify-between text-xs">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="w-1.5 h-1.5 rounded-full"
+                              :class="p.status === 'active' ? 'bg-green-500'
+                                     : p.status === 'error' ? 'bg-red-500'
+                                     : 'bg-gray-400'"></span>
+                        <span class="text-gray-700 dark:text-gray-300 truncate" x-text="p.server_name"></span>
+                        <span x-show="p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300">local</span>
+                    </div>
+                    <div class="flex items-center gap-3 text-right">
+                        <span class="font-mono text-gray-500" x-text="p.assigned_ip"></span>
+                        <span class="w-16 text-right"
+                              :class="p.status === 'active' ? 'text-green-600 dark:text-green-400'
+                                     : p.status === 'error' ? 'text-red-500'
+                                     : 'text-gray-500'"
+                              x-text="p.status"></span>
+                    </div>
+                </div>
+                <template x-if="p.error_message">
+                    <div class="ml-3.5 text-[11px] text-red-500 dark:text-red-400/80 break-words"
+                         x-text="'└─ ' + p.error_message"></div>
+                </template>
+            </template>
+        </div>
+
+        <!-- Last error from the most recent configure/enable round. -->
+        <template x-if="meshError">
+            <div class="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg px-3 py-2 text-xs text-red-700 dark:text-red-400" x-text="meshError"></div>
+        </template>
+    </div>
+
+    <!-- Mesh edit modal — subnet/port/keepalive. Refused server-side
+         when mesh is enabled or has peers, so this only opens in the
+         disabled state and the button is hidden otherwise. -->
+    <div x-show="showMeshEdit" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showMeshEdit = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4" @click.stop>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Mesh settings</h3>
+            <p class="text-xs text-gray-500">
+                Only editable while mesh is disabled — changing subnet on a live
+                mesh would orphan every assigned IP.
+            </p>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Subnet (CIDR)</label>
+                <input x-model="meshForm.subnet" type="text" placeholder="10.42.0.0/24"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono">
+                <p class="text-[11px] text-gray-500 mt-1">/30 or shorter prefix. /24 holds 254 nodes.</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Listen port</label>
+                <input x-model.number="meshForm.listen_port" type="number" min="1024" max="65535"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm">
+                <p class="text-[11px] text-gray-500 mt-1">UDP. Must be open in the firewall on every node.</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">PersistentKeepalive (sec)</label>
+                <input x-model.number="meshForm.persistent_keepalive" type="number" min="0" max="65535"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm">
+                <p class="text-[11px] text-gray-500 mt-1">0 disables keepalive. Use ≥25 if any node is behind NAT.</p>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button @click="showMeshEdit = false"
+                        class="px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">Cancel</button>
+                <button @click="saveMeshConfig()"
+                        class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Servers Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <template x-for="srv in servers" :key="srv.id">
@@ -244,11 +375,23 @@ function serversData() {
         lastBootstrap: null,
         form: { name: '', host: '', port: 3001, url: '', api_token: '' },
 
+        // Mesh state. Mirrors `GET /api/v1/network/mesh`; refreshed on a
+        // tick alongside the servers list. `meshLoading` gates the
+        // enable/disable/configure buttons so the operator can't fire
+        // two long-running orchestration passes at once.
+        mesh: { config: { enabled: false, subnet: '10.42.0.0/24', listen_port: 51820, persistent_keepalive: 25 }, peers: [] },
+        meshLoading: false,
+        meshError: null,
+        showMeshEdit: false,
+        meshForm: { subnet: '10.42.0.0/24', listen_port: 51820, persistent_keepalive: 25 },
+
         async init() {
             await this.refresh();
             this.servers = await fetch('/api/v1/servers').then(r => r.ok ? r.json() : []).catch(() => []);
+            await this.refreshMesh();
             setInterval(() => this.refresh(), 5000);
             setInterval(() => this.refreshServers(), 5000);
+            setInterval(() => this.refreshMesh(), 5000);
         },
         async refresh() {
             try {
@@ -344,7 +487,112 @@ function serversData() {
             return String.fromCodePoint(code.charCodeAt(0) + base, code.charCodeAt(1) + base);
         },
         formatUptime(s) { if(!s) return '--'; const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60); if(d>0) return d+'d '+h+'h'; if(h>0) return h+'h '+m+'m'; return m+'m'; },
-        diskPercent(disk) { if(!disk||!disk.total) return 0; return (((disk.total-disk.available)/disk.total)*100).toFixed(1); }
+        diskPercent(disk) { if(!disk||!disk.total) return 0; return (((disk.total-disk.available)/disk.total)*100).toFixed(1); },
+
+        // ----- Mesh -----
+        // Mirror of GET /api/v1/network/mesh. We keep this on a poll
+        // (5s, set up in init) so a successful configure run shows the
+        // updated per-peer status without the operator needing to
+        // refresh the page manually.
+        async refreshMesh() {
+            try {
+                const r = await fetch('/api/v1/network/mesh');
+                if (!r.ok) return;
+                this.mesh = await r.json();
+            } catch {}
+        },
+        meshPeerSummary() {
+            const active = this.mesh.peers.filter(p => p.status === 'active').length;
+            const total = this.mesh.peers.length;
+            return active + '/' + total;
+        },
+        async enableMesh() {
+            // Two-step: allocate IPs, then run install/keypair/apply.
+            // Each call is independent so a network blip during step 2
+            // leaves the allocation in place; the operator can re-run
+            // Apply to finish the rollout.
+            if (this.meshLoading) return;
+            this.meshLoading = true;
+            this.meshError = null;
+            try {
+                await api('/api/v1/network/mesh/enable', { method: 'POST' });
+                await this.refreshMesh();
+                // configure is the long one — apt-get install across N
+                // peers can take minutes. We surface the spinner the
+                // whole time, then the refresh below shows per-peer
+                // status from the response we stored in this.mesh.
+                const res = await api('/api/v1/network/mesh/configure', { method: 'POST' });
+                const data = typeof res === 'string' ? JSON.parse(res) : res;
+                if (data && data.ok === false) {
+                    this.meshError = 'Configure aborted on a peer. Check the peer rows below for details.';
+                }
+                await this.refreshMesh();
+                toast(data.ok ? 'Mesh active' : 'Mesh partially configured', data.ok ? 'success' : 'error');
+            } catch (e) {
+                this.meshError = e.message || String(e);
+                toast('Enable mesh failed: ' + this.meshError, 'error');
+                await this.refreshMesh();
+            } finally {
+                this.meshLoading = false;
+            }
+        },
+        async configureMesh() {
+            // Re-run install/keypair/apply on whatever's in
+            // wireguard_peers. Used when a single peer was added
+            // mid-flight, or after fixing an 'error' status from a
+            // previous run.
+            if (this.meshLoading) return;
+            this.meshLoading = true;
+            this.meshError = null;
+            try {
+                const res = await api('/api/v1/network/mesh/configure', { method: 'POST' });
+                const data = typeof res === 'string' ? JSON.parse(res) : res;
+                if (data && data.ok === false) {
+                    this.meshError = 'Configure aborted on a peer. Check the peer rows below for details.';
+                }
+                await this.refreshMesh();
+                toast(data.ok ? 'Mesh re-applied' : 'Apply partially failed', data.ok ? 'success' : 'error');
+            } catch (e) {
+                this.meshError = e.message || String(e);
+                toast('Apply failed: ' + this.meshError, 'error');
+                await this.refreshMesh();
+            } finally {
+                this.meshLoading = false;
+            }
+        },
+        async disableMesh() {
+            if (!confirm('Disable mesh? Tunnels stay up on the nodes until you reboot or run uninstall — this only clears the Pier-side allocation.')) return;
+            if (this.meshLoading) return;
+            this.meshLoading = true;
+            this.meshError = null;
+            try {
+                await api('/api/v1/network/mesh/disable', { method: 'POST' });
+                await this.refreshMesh();
+                toast('Mesh disabled');
+            } catch (e) {
+                this.meshError = e.message || String(e);
+                toast('Disable failed: ' + this.meshError, 'error');
+            } finally {
+                this.meshLoading = false;
+            }
+        },
+        async saveMeshConfig() {
+            try {
+                await api('/api/v1/network/mesh', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        subnet: this.meshForm.subnet,
+                        listen_port: this.meshForm.listen_port,
+                        persistent_keepalive: this.meshForm.persistent_keepalive,
+                    }),
+                });
+                this.showMeshEdit = false;
+                await this.refreshMesh();
+                toast('Mesh settings saved');
+            } catch (e) {
+                toast('Save failed: ' + (e.message || e), 'error');
+            }
+        },
     };
 }
 </script>
