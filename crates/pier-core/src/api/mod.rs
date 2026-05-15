@@ -104,6 +104,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/health", get(health))
         // Agent heartbeat (token-based auth, not session)
         .route("/servers/heartbeat", post(servers::heartbeat))
+        // Agent handshake — exchanges a one-shot bootstrap token for the
+        // long-term agent_token. Public because install.sh calls it before
+        // the agent has any session/long-term credential.
+        .route("/servers/{id}/handshake", post(servers::handshake))
         // Webhooks (public — GitHub/GitLab need to reach these)
         .route("/webhooks/github", post(webhooks::github))
         .route("/webhooks/gitlab", post(webhooks::gitlab))

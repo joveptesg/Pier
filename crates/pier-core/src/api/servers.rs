@@ -6,7 +6,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::auth::middleware::PEER_TOKEN_HEADER;
-use crate::catalog;
+use crate::auth::server_token;
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
@@ -126,21 +126,36 @@ pub async fn create(
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| AppError::BadRequest("host is required for agent".into()))?
                 .to_string();
-            let agent_token = catalog::generate_password(32);
+            // Issue a short-lived bootstrap token. The long-term agent_token is
+            // minted by /handshake on first contact from the agent and is the
+            // only credential that ever leaves the install command.
+            //
+            // `agent_token` (plaintext column, NOT NULL since migration 5)
+            // stays empty until handshake — the row is identifiable by
+            // `bootstrap_token_hash`, not by any callable credential.
+            let bootstrap = server_token::generate_bootstrap();
+            let now = chrono::Utc::now().timestamp();
+            let expires_at = now + server_token::BOOTSTRAP_TTL_SECS;
             {
                 let db = state
                     .db
                     .lock()
                     .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
                 db.execute(
-                    "INSERT INTO servers (id, name, kind, host, port, agent_token, ssh_user, ssh_port)
-                     VALUES (?1, ?2, 'agent', ?3, ?4, ?5, ?6, ?7)",
+                    "INSERT INTO servers
+                        (id, name, kind, host, port, agent_token,
+                         bootstrap_token_hash, bootstrap_expires_at,
+                         ssh_user, ssh_port)
+                     VALUES (?1, ?2, 'agent', ?3, ?4, '',
+                             ?5, ?6,
+                             ?7, ?8)",
                     rusqlite::params![
                         id,
                         name,
                         host,
                         body.port,
-                        agent_token,
+                        server_token::hash(&bootstrap.plaintext),
+                        expires_at,
                         body.ssh_user,
                         body.ssh_port.unwrap_or(22)
                     ],
@@ -150,7 +165,8 @@ pub async fn create(
                 "ok": true,
                 "id": id,
                 "kind": "agent",
-                "agent_token": agent_token,
+                "bootstrap_token": bootstrap.plaintext,
+                "bootstrap_expires_at": expires_at,
             })))
         }
         KIND_PEER => {
@@ -196,6 +212,130 @@ pub async fn create(
             "unknown kind '{other}' — expected 'agent' or 'peer'"
         ))),
     }
+}
+
+#[derive(Deserialize)]
+pub struct HandshakeRequest {
+    /// `pier_boot_…` plaintext from the install command.
+    pub bootstrap_token: String,
+    /// Best-effort host facts so the operator sees a populated server card
+    /// without waiting for the first heartbeat round-trip.
+    pub os_info: Option<String>,
+    pub docker_version: Option<String>,
+}
+
+/// POST /api/v1/servers/{id}/handshake (public — bootstrap-token auth)
+///
+/// Spends a one-shot bootstrap token and mints the long-term agent credential.
+/// The plaintext long-term token is returned **exactly once** in the response
+/// and persisted only as sha256 on core; the agent stores it in its systemd
+/// `Environment=` file.
+///
+/// Idempotency: a row with an already-redeemed bootstrap (NULL hash) responds
+/// 401 — the operator must recreate the server in the UI to get a fresh
+/// bootstrap. This is intentional: a "second handshake" almost always means
+/// the install command leaked or was re-run accidentally, and silently
+/// rotating the token would mask that.
+pub async fn handshake(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<HandshakeRequest>,
+) -> AppResult<impl IntoResponse> {
+    let bootstrap = body.bootstrap_token.trim();
+    if bootstrap.is_empty() {
+        return Err(AppError::BadRequest("bootstrap_token required".into()));
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    let bootstrap_hash = server_token::hash(bootstrap);
+
+    // Look up the row by hash + id together. Matching on `id` as well stops a
+    // valid bootstrap from being redeemed against the wrong server row in the
+    // (unlikely) event of a hash collision or operator copy-paste error.
+    let row: Option<(Option<String>, Option<i64>)> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT bootstrap_token_hash, bootstrap_expires_at
+             FROM servers
+             WHERE id = ?1 AND kind = 'agent'",
+            [&id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                ))
+            },
+        )
+        .ok()
+    };
+
+    let Some((stored_hash, expires_at)) = row else {
+        return Err(AppError::Unauthorized);
+    };
+
+    // Already redeemed (or never had a bootstrap — legacy row).
+    let Some(stored_hash) = stored_hash else {
+        return Err(AppError::Unauthorized);
+    };
+
+    if stored_hash != bootstrap_hash {
+        return Err(AppError::Unauthorized);
+    }
+    if !server_token::bootstrap_alive(expires_at, now) {
+        return Err(AppError::Unauthorized);
+    }
+
+    // Mint long-term credential. From this point on the agent authenticates
+    // with `agent_token` plaintext, and core looks it up via `agent_token_hash`.
+    let agent = server_token::generate_agent();
+    let agent_hash = server_token::hash(&agent.plaintext);
+
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let updated = db.execute(
+            "UPDATE servers
+             SET agent_token = ?1,
+                 agent_token_hash = ?2,
+                 agent_token_prefix = ?3,
+                 bootstrap_token_hash = NULL,
+                 bootstrap_expires_at = NULL,
+                 status = 'online',
+                 last_heartbeat = datetime('now'),
+                 os_info = COALESCE(?4, os_info),
+                 docker_version = COALESCE(?5, docker_version),
+                 last_error = NULL,
+                 updated_at = datetime('now')
+             WHERE id = ?6
+               AND kind = 'agent'
+               AND bootstrap_token_hash = ?7",
+            rusqlite::params![
+                agent.plaintext,
+                agent_hash,
+                agent.prefix,
+                body.os_info,
+                body.docker_version,
+                id,
+                bootstrap_hash,
+            ],
+        )?;
+        // Race: another concurrent handshake redeemed first. Treat as
+        // unauthorized — only one bootstrap → one long-term token.
+        if updated == 0 {
+            return Err(AppError::Unauthorized);
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "agent_token": agent.plaintext,
+        "agent_token_prefix": agent.prefix,
+    })))
 }
 
 /// DELETE /api/v1/servers/{id}
@@ -556,28 +696,65 @@ pub async fn metrics(
 }
 
 /// POST /api/v1/servers/heartbeat (public — uses token auth)
+///
+/// Identifies the server in two orderings, in this order:
+///   1. sha256(body.agent_token) matches `agent_token_hash` — the new path,
+///      used by every agent post-handshake.
+///   2. body.agent_token matches plaintext `agent_token` — legacy fallback for
+///      rows created before migration 40. On a successful legacy match we
+///      lazily backfill `agent_token_hash` so the next heartbeat takes the
+///      fast path and the plaintext column can eventually be retired.
 pub async fn heartbeat(
     State(state): State<SharedState>,
     Json(body): Json<HeartbeatRequest>,
 ) -> AppResult<impl IntoResponse> {
-    // Read previous status first so we can detect an offline→online transition.
-    let prev: Option<(String, String, String)> = {
+    let token_hash = server_token::hash(&body.agent_token);
+
+    // Resolve to a server row up front so we know which id to update and
+    // whether we need to backfill the hash.
+    let resolved: Option<(String, String, String, bool)> = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row(
-            "SELECT id, name, status FROM servers WHERE agent_token = ?1",
-            [&body.agent_token],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
-        )
-        .ok()
+        // Try hash first.
+        let by_hash = db
+            .query_row(
+                "SELECT id, name, status FROM servers WHERE agent_token_hash = ?1",
+                [&token_hash],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .ok()
+            .map(|(id, name, status)| (id, name, status, false));
+        by_hash.or_else(|| {
+            // Legacy fallback: rows from pre-migration-40 still carry the
+            // plaintext token verbatim. The 4th tuple element flags this
+            // path so we can backfill below.
+            db.query_row(
+                "SELECT id, name, status FROM servers
+                 WHERE agent_token = ?1 AND agent_token <> '' AND agent_token_hash IS NULL",
+                [&body.agent_token],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .ok()
+            .map(|(id, name, status)| (id, name, status, true))
+        })
+    };
+
+    let Some((server_id, server_name, prev_status, legacy)) = resolved else {
+        return Err(AppError::Unauthorized);
     };
 
     let rows = {
@@ -585,25 +762,59 @@ pub async fn heartbeat(
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.execute(
-            "UPDATE servers SET status = 'online', last_heartbeat = datetime('now'),
-             os_info = COALESCE(?2, os_info), cpu_count = COALESCE(?3, cpu_count),
-             memory_total = COALESCE(?4, memory_total), docker_version = COALESCE(?5, docker_version),
-             updated_at = datetime('now')
-             WHERE agent_token = ?1",
-            rusqlite::params![
-                body.agent_token,
-                body.os_info,
-                body.cpu_count,
-                body.memory_total,
-                body.docker_version
-            ],
-        )?
+        if legacy {
+            // Backfill the hash so future heartbeats take the fast path.
+            // Plaintext column is left in place for one more release cycle
+            // in case rollback is needed; a future migration nulls it.
+            db.execute(
+                "UPDATE servers
+                 SET agent_token_hash = ?2,
+                     status = 'online',
+                     last_heartbeat = datetime('now'),
+                     os_info = COALESCE(?3, os_info),
+                     cpu_count = COALESCE(?4, cpu_count),
+                     memory_total = COALESCE(?5, memory_total),
+                     docker_version = COALESCE(?6, docker_version),
+                     updated_at = datetime('now')
+                 WHERE id = ?1",
+                rusqlite::params![
+                    server_id,
+                    token_hash,
+                    body.os_info,
+                    body.cpu_count,
+                    body.memory_total,
+                    body.docker_version
+                ],
+            )?
+        } else {
+            db.execute(
+                "UPDATE servers
+                 SET status = 'online',
+                     last_heartbeat = datetime('now'),
+                     os_info = COALESCE(?2, os_info),
+                     cpu_count = COALESCE(?3, cpu_count),
+                     memory_total = COALESCE(?4, memory_total),
+                     docker_version = COALESCE(?5, docker_version),
+                     updated_at = datetime('now')
+                 WHERE id = ?1",
+                rusqlite::params![
+                    server_id,
+                    body.os_info,
+                    body.cpu_count,
+                    body.memory_total,
+                    body.docker_version
+                ],
+            )?
+        }
     };
 
     if rows == 0 {
         return Err(AppError::Unauthorized);
     }
+
+    // Reuse the existing offline→online detection by reshaping the prev row
+    // to the tuple the rest of this function expects.
+    let prev = Some((server_id.clone(), server_name.clone(), prev_status));
 
     // Fire reachable event on offline→online transition.
     if let Some((sid, name, prev_status)) = prev {
@@ -670,9 +881,11 @@ pub async fn get(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let server = db
         .query_row(
-            "SELECT id, name, kind, host, port, url, agent_token, status, last_heartbeat, os_info,
+            "SELECT id, name, kind, host, port, url, status, last_heartbeat, os_info,
                 cpu_count, memory_total, docker_version, remote_version, last_error,
-                is_local, created_at, country, city, country_code
+                is_local, created_at, country, city, country_code,
+                agent_token_prefix, bootstrap_expires_at,
+                CASE WHEN bootstrap_token_hash IS NULL THEN 0 ELSE 1 END AS bootstrap_pending
          FROM servers WHERE id = ?1",
             [&id],
             |row| {
@@ -683,20 +896,26 @@ pub async fn get(
                     "host": row.get::<_, String>(3)?,
                     "port": row.get::<_, i64>(4)?,
                     "url": row.get::<_, Option<String>>(5)?,
-                    "agent_token": row.get::<_, String>(6)?,
-                    "status": row.get::<_, String>(7)?,
-                    "last_heartbeat": row.get::<_, Option<String>>(8)?,
-                    "os_info": row.get::<_, Option<String>>(9)?,
-                    "cpu_count": row.get::<_, Option<i64>>(10)?,
-                    "memory_total": row.get::<_, Option<i64>>(11)?,
-                    "docker_version": row.get::<_, Option<String>>(12)?,
-                    "remote_version": row.get::<_, Option<String>>(13)?,
-                    "last_error": row.get::<_, Option<String>>(14)?,
-                    "is_local": row.get::<_, bool>(15)?,
-                    "created_at": row.get::<_, String>(16)?,
-                    "country": row.get::<_, Option<String>>(17)?,
-                    "city": row.get::<_, Option<String>>(18)?,
-                    "country_code": row.get::<_, Option<String>>(19)?,
+                    // agent_token plaintext is no longer returned — only the
+                    // 16-char fingerprint, so the operator can recognise the
+                    // active credential without us shipping the secret over
+                    // the wire on every page load.
+                    "status": row.get::<_, String>(6)?,
+                    "last_heartbeat": row.get::<_, Option<String>>(7)?,
+                    "os_info": row.get::<_, Option<String>>(8)?,
+                    "cpu_count": row.get::<_, Option<i64>>(9)?,
+                    "memory_total": row.get::<_, Option<i64>>(10)?,
+                    "docker_version": row.get::<_, Option<String>>(11)?,
+                    "remote_version": row.get::<_, Option<String>>(12)?,
+                    "last_error": row.get::<_, Option<String>>(13)?,
+                    "is_local": row.get::<_, bool>(14)?,
+                    "created_at": row.get::<_, String>(15)?,
+                    "country": row.get::<_, Option<String>>(16)?,
+                    "city": row.get::<_, Option<String>>(17)?,
+                    "country_code": row.get::<_, Option<String>>(18)?,
+                    "agent_token_prefix": row.get::<_, Option<String>>(19)?,
+                    "bootstrap_expires_at": row.get::<_, Option<i64>>(20)?,
+                    "bootstrap_pending": row.get::<_, i64>(21)? == 1,
                 }))
             },
         )
@@ -855,9 +1074,17 @@ pub async fn install_script(
     State(state): State<SharedState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult<impl IntoResponse> {
-    let token = params.get("token").cloned().unwrap_or_default();
-    if token.is_empty() {
+    // Bootstrap token is one-shot and short-lived (TTL 1h); the script
+    // exchanges it for a long-term agent token via /handshake before
+    // writing the systemd unit. `id` identifies the server row so the
+    // handshake hits the right endpoint.
+    let bootstrap_token = params.get("token").cloned().unwrap_or_default();
+    let server_id = params.get("id").cloned().unwrap_or_default();
+    if bootstrap_token.is_empty() {
         return Err(AppError::BadRequest("token parameter required".into()));
+    }
+    if server_id.is_empty() {
+        return Err(AppError::BadRequest("id parameter required".into()));
     }
 
     // Get Pier server's public IP and port
@@ -909,7 +1136,7 @@ pub async fn install_script(
 
     let script = format!(
         r#"#!/bin/bash
-set -e
+set -euo pipefail
 
 # Pier Agent Installer
 # Auto-generated by Pier
@@ -919,13 +1146,15 @@ set -e
 # re-download this installer from the UI and re-run on the agent host.
 
 PIER_CORE_URL="{scheme}://{server_ip}:{pier_port}"
-AGENT_TOKEN="{token}"
+SERVER_ID="{server_id}"
+BOOTSTRAP_TOKEN="{bootstrap_token}"
 AGENT_PORT=3001
 
 {cacert_block}
 
 echo "=== Pier Agent Installer ==="
 echo "Core server: $PIER_CORE_URL"
+echo "Server id:   $SERVER_ID"
 
 # 1. Install Docker if not present
 if ! command -v docker &>/dev/null; then
@@ -954,7 +1183,43 @@ curl -fsSL -o /opt/pier/bin/pier-agent "$DOWNLOAD_URL" || {{
 }}
 chmod +x /opt/pier/bin/pier-agent
 
-# 4. Create systemd service
+# 4. Handshake — spend the one-shot bootstrap for a long-term agent token.
+#    The plaintext returned here is the only place the long-term token ever
+#    exists outside the systemd Environment= file we're about to write.
+echo "Performing handshake with Pier core..."
+OS_INFO="$(uname -srm)"
+DOCKER_VERSION="$(docker --version 2>/dev/null | cut -d' ' -f3 | tr -d ',' || echo unknown)"
+HANDSHAKE_BODY=$(printf '{{"bootstrap_token":"%s","os_info":"%s","docker_version":"%s"}}' \
+    "$BOOTSTRAP_TOKEN" "$OS_INFO" "$DOCKER_VERSION")
+
+HANDSHAKE_RESPONSE=$(curl -fsSL {cacert_arg} \
+    -X POST "$PIER_CORE_URL/api/v1/servers/$SERVER_ID/handshake" \
+    -H "Content-Type: application/json" \
+    -d "$HANDSHAKE_BODY" 2>&1) || {{
+    echo "Error: handshake failed."
+    echo "  Response: $HANDSHAKE_RESPONSE"
+    echo "  The bootstrap token may have expired or already been used."
+    echo "  Recreate the server in Pier UI to issue a fresh bootstrap, then re-run this script."
+    exit 1
+}}
+
+# Extract agent_token without depending on jq — the field is the single
+# string after `"agent_token":"…"` and contains only [A-Za-z0-9_].
+AGENT_TOKEN=$(printf '%s' "$HANDSHAKE_RESPONSE" \
+    | grep -oE '"agent_token":"[^"]+"' \
+    | head -n 1 \
+    | cut -d'"' -f4)
+
+if [ -z "$AGENT_TOKEN" ]; then
+    echo "Error: handshake response did not contain agent_token."
+    echo "  Response: $HANDSHAKE_RESPONSE"
+    exit 1
+fi
+echo "Handshake OK (agent token issued)."
+
+# 5. Create systemd service with the long-term token. The bootstrap is now
+#    invalid on core — even if this file leaks it, replaying the install
+#    script will fail at handshake.
 cat > /etc/systemd/system/pier-agent.service <<UNIT
 [Unit]
 Description=Pier Agent
@@ -974,8 +1239,9 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
+chmod 600 /etc/systemd/system/pier-agent.service
 
-# 5. Start agent
+# 6. Start agent
 systemctl daemon-reload
 systemctl enable --now pier-agent
 
@@ -985,11 +1251,15 @@ echo "Agent port: $AGENT_PORT"
 echo "Status: systemctl status pier-agent"
 echo "Logs:   journalctl -u pier-agent -f"
 
-# 6. Register with Pier core (send first heartbeat)
+# 7. Confirm liveness — first heartbeat. /handshake already marked us
+#    online, this is a sanity check that the running agent can reach core
+#    with the new long-term token.
 sleep 2
-curl -s {cacert_arg} -X POST "$PIER_CORE_URL/api/v1/servers/heartbeat" \
+curl -fsS {cacert_arg} -X POST "$PIER_CORE_URL/api/v1/servers/heartbeat" \
     -H "Content-Type: application/json" \
-    -d '{{"agent_token":"'"$AGENT_TOKEN"'","os_info":"'"$(uname -srm)"'","docker_version":"'"$(docker --version 2>/dev/null | cut -d' ' -f3 | tr -d ',')"'"}}'
+    -d "$(printf '{{"agent_token":"%s","os_info":"%s","docker_version":"%s"}}' \
+            "$AGENT_TOKEN" "$OS_INFO" "$DOCKER_VERSION")" \
+    || echo "Warning: first heartbeat failed; agent will retry."
 
 echo ""
 echo "Agent registered with Pier core."

@@ -9,7 +9,7 @@
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Servers</h2>
             <p class="text-sm text-gray-500 mt-1">Local core, remote agents, and federated peer cores — all in one place.</p>
         </div>
-        <button @click="showAdd = true; addKind = 'agent'; lastToken = ''; form = { name: '', host: '', port: 3001, url: '', api_token: '' }"
+        <button @click="showAdd = true; addKind = 'agent'; lastBootstrap = null; form = { name: '', host: '', port: 3001, url: '', api_token: '' }"
                 class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-1.5">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
             Add Server
@@ -120,9 +120,9 @@
     </div>
 
     <!-- Add Server Modal — type picker + shape-specific form -->
-    <div x-show="showAdd" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showAdd = false; lastToken = ''">
+    <div x-show="showAdd" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showAdd = false; lastBootstrap = null">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4" @click.stop>
-            <template x-if="!lastToken">
+            <template x-if="!lastBootstrap">
                 <div class="space-y-4">
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Server</h3>
 
@@ -191,27 +191,41 @@
                 </div>
             </template>
 
-            <!-- Token display state (agent only) -->
-            <template x-if="lastToken">
+            <!-- Install command state (agent only). Shown exactly once;
+                 the bootstrap token is unrecoverable after this dialog
+                 closes. The operator must run the command within 1h before
+                 the bootstrap expires. -->
+            <template x-if="lastBootstrap">
                 <div class="space-y-4">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 bg-green-100 dark:bg-green-600/20 rounded-full flex items-center justify-center">
                             <svg class="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         </div>
                         <div>
-                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Agent added</h3>
-                            <p class="text-sm text-gray-500">Save the agent token below</p>
+                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Agent created</h3>
+                            <p class="text-sm text-gray-500">Run the install command on the remote server</p>
                         </div>
                     </div>
                     <div class="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/30 rounded-lg p-4">
-                        <p class="text-xs font-medium text-yellow-800 dark:text-yellow-400 mb-2">Agent Token:</p>
-                        <div class="bg-white dark:bg-gray-800 rounded px-3 py-2 border border-yellow-200 dark:border-yellow-600/30">
-                            <code class="text-sm font-mono text-yellow-900 dark:text-yellow-300 break-all select-all" x-text="lastToken"></code>
+                        <p class="text-xs font-medium text-yellow-800 dark:text-yellow-400 mb-2">
+                            Install command — bootstrap token expires
+                            <span x-text="bootstrapExpiresHuman()"></span>:
+                        </p>
+                        <div class="relative">
+                            <pre class="bg-white dark:bg-gray-800 rounded px-3 py-2 border border-yellow-200 dark:border-yellow-600/30 text-xs font-mono text-yellow-900 dark:text-yellow-300 overflow-x-auto whitespace-pre-wrap break-all select-all" x-ref="installCmd" x-text="installCommand()"></pre>
+                            <button @click="copyText($refs.installCmd.textContent)"
+                                    class="absolute top-2 right-2 p-1.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 hover:text-yellow-900" title="Copy">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                            </button>
                         </div>
-                        <p class="text-xs text-yellow-700 dark:text-yellow-500 mt-2">Set this as <code class="font-mono">PIER_AGENT_TOKEN</code> on the remote server.</p>
+                        <p class="text-xs text-yellow-700 dark:text-yellow-500 mt-2">
+                            The command exchanges the bootstrap for a long-term token and starts the agent.
+                            This bootstrap is one-shot — you won't see it again. If the install fails,
+                            delete the server and create it again to issue a fresh bootstrap.
+                        </p>
                     </div>
                     <div class="flex justify-end pt-2">
-                        <button @click="showAdd = false; lastToken = ''" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Done</button>
+                        <button @click="showAdd = false; lastBootstrap = null" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Done</button>
                     </div>
                 </div>
             </template>
@@ -223,7 +237,11 @@
 function serversData() {
     return {
         metrics: {}, docker: {}, servers: [],
-        showAdd: false, addKind: 'agent', lastToken: '',
+        showAdd: false, addKind: 'agent',
+        // Set by addServer() when an agent is created; cleared on dialog close.
+        // { id, token, expires_at } — the plaintext bootstrap exists only in
+        // browser memory and never round-trips back to the server.
+        lastBootstrap: null,
         form: { name: '', host: '', port: 3001, url: '', api_token: '' },
 
         async init() {
@@ -253,8 +271,15 @@ function serversData() {
                 const res = await api('/api/v1/servers', { method: 'POST', body: JSON.stringify(body) });
                 const data = typeof res === 'string' ? JSON.parse(res) : res;
                 if (this.addKind === 'agent') {
-                    this.lastToken = data.agent_token || '';
-                    toast('Agent registered');
+                    // Bootstrap is shown exactly once. We keep it in component
+                    // state (never written back to the server) so the install
+                    // command stays renderable until the dialog closes.
+                    this.lastBootstrap = {
+                        id: data.id,
+                        token: data.bootstrap_token || '',
+                        expires_at: data.bootstrap_expires_at || 0,
+                    };
+                    toast('Agent created — run the install command');
                 } else {
                     this.showAdd = false;
                     toast('Peer registered');
@@ -262,6 +287,34 @@ function serversData() {
                 this.form = { name: '', host: '', port: 3001, url: '', api_token: '' };
                 await this.refreshServers();
             } catch (e) { toast(e.message, 'error'); }
+        },
+        installCommand() {
+            if (!this.lastBootstrap) return '';
+            const { id, token } = this.lastBootstrap;
+            const proto = window.location.protocol === 'https:' ? 'https' : 'http';
+            const host = window.location.hostname;
+            const port = window.location.port ? ':' + window.location.port : '';
+            const url = proto + '://' + host + port +
+                '/api/v1/servers/install-script?id=' + encodeURIComponent(id) +
+                '&token=' + encodeURIComponent(token);
+            return 'curl -fsSL "' + url + '" | sudo bash';
+        },
+        bootstrapExpiresHuman() {
+            if (!this.lastBootstrap || !this.lastBootstrap.expires_at) return 'soon';
+            const secs = this.lastBootstrap.expires_at - Math.floor(Date.now() / 1000);
+            if (secs <= 0) return 'now (refresh — bootstrap has expired)';
+            const mins = Math.floor(secs / 60);
+            if (mins < 1) return 'in less than a minute';
+            if (mins === 1) return 'in 1 minute';
+            return 'in ' + mins + ' minutes';
+        },
+        copyText(text) {
+            try {
+                navigator.clipboard.writeText(text);
+                toast('Copied');
+            } catch (e) {
+                toast('Copy failed: ' + e.message, 'error');
+            }
         },
         async testServer(id) {
             try { await api('/api/v1/servers/' + id + '/test', { method: 'POST' }); toast('Server is online'); await this.refreshServers(); }

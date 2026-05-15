@@ -714,6 +714,46 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE domains ADD COLUMN strip_prefix INTEGER NOT NULL DEFAULT 1;
     "#,
+    // Migration 40: Bootstrap tokens (TTL'd) + hashed long-term agent tokens.
+    //
+    // Previously `servers.agent_token` held a plaintext secret that doubled as
+    // both the install-time bootstrap credential and the long-lived API token.
+    // A DB leak therefore handed over full control of every connected node.
+    //
+    // New flow (used by rows inserted after this migration):
+    //   1. Operator creates a server in the UI → core issues a short-lived
+    //      bootstrap token (TTL 1h), stores only its sha256 in
+    //      `bootstrap_token_hash`.
+    //   2. install.sh ships the bootstrap plaintext as `PIER_BOOTSTRAP_TOKEN`.
+    //   3. Agent on first boot POSTs `/api/v1/servers/{id}/handshake` with the
+    //      bootstrap; core generates a long-term token, hashes it into
+    //      `agent_token_hash`, returns plaintext exactly once, and clears the
+    //      bootstrap columns.
+    //   4. All subsequent calls (heartbeat, outbound Bearer) carry the
+    //      long-term plaintext, validated via sha256 compare on the agent and
+    //      via `agent_token_hash` lookup on core.
+    //
+    // Backward compatibility: existing rows keep their plaintext `agent_token`
+    // populated; the heartbeat validator falls back to a plaintext match when
+    // `agent_token_hash IS NULL`, and lazily backfills the hash on first
+    // successful match. A later migration can null out the legacy column
+    // once telemetry confirms all agents have rotated.
+    //
+    // `agent_token_prefix` mirrors the api_tokens pattern (auth/api_token.rs):
+    // a short visible fingerprint shown in the UI so the operator can
+    // distinguish tokens without exposing them.
+    r#"
+    ALTER TABLE servers ADD COLUMN bootstrap_token_hash TEXT;
+    ALTER TABLE servers ADD COLUMN bootstrap_expires_at INTEGER;
+    ALTER TABLE servers ADD COLUMN agent_token_hash TEXT;
+    ALTER TABLE servers ADD COLUMN agent_token_prefix TEXT;
+    CREATE INDEX IF NOT EXISTS idx_servers_bootstrap_hash
+        ON servers(bootstrap_token_hash)
+        WHERE bootstrap_token_hash IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_servers_agent_token_hash
+        ON servers(agent_token_hash)
+        WHERE agent_token_hash IS NOT NULL;
+    "#,
 ];
 
 /// Run all pending database migrations.

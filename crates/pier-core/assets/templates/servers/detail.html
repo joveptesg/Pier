@@ -137,14 +137,15 @@ systemctl enable --now pier</pre>
             <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Connection Info</h3>
             <div class="flex justify-between text-sm"><span class="text-gray-500">Host</span><span class="text-gray-700 dark:text-gray-200 font-mono text-xs" x-text="server.host || '--'"></span></div>
             <div class="flex justify-between text-sm"><span class="text-gray-500">Port</span><span class="text-gray-700 dark:text-gray-200 font-mono text-xs" x-text="server.port || '--'"></span></div>
-            <div x-show="!server.is_local" class="flex justify-between items-center text-sm">
+            <div x-show="!server.is_local && server.agent_token_prefix" class="flex justify-between items-center text-sm">
                 <span class="text-gray-500">Agent Token</span>
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-700 dark:text-gray-200 font-mono text-xs" x-text="tokenMasked"></span>
-                    <button @click="copyText(server.agent_token || '')" class="text-gray-400 hover:text-blue-500 transition-colors" title="Copy token">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                    </button>
-                </div>
+                <span class="text-gray-700 dark:text-gray-200 font-mono text-xs"
+                      x-text="server.agent_token_prefix + '…'"
+                      title="Only the prefix is shown. The full token lives in the agent's systemd unit."></span>
+            </div>
+            <div x-show="!server.is_local && server.bootstrap_pending" class="flex justify-between items-center text-sm">
+                <span class="text-gray-500">Agent Token</span>
+                <span class="text-yellow-600 dark:text-yellow-400 text-xs">Bootstrap pending</span>
             </div>
             <div class="flex justify-between text-sm"><span class="text-gray-500">OS</span><span class="text-gray-700 dark:text-gray-200" x-text="server.os_info || metrics.os || '--'"></span></div>
             <div class="flex justify-between text-sm"><span class="text-gray-500">Hostname</span><span class="text-gray-700 dark:text-gray-200" x-text="metrics.hostname || '--'"></span></div>
@@ -273,19 +274,37 @@ systemctl enable --now pier</pre>
         </div>
     </div>
 
-    <!-- Agent Install (agent kind only) -->
-    <template x-if="server.kind === 'agent' && server.agent_token">
+    <!-- Bootstrap pending (agent kind, awaiting handshake from remote host).
+         The plaintext bootstrap was shown once at creation time and is no
+         longer recoverable; if the operator lost it, the only remediation is
+         to delete the server and create it again. -->
+    <template x-if="server.kind === 'agent' && server.bootstrap_pending">
+        <div class="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/30 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-300 mb-2">Bootstrap pending</h3>
+            <p class="text-xs text-yellow-700 dark:text-yellow-400 mb-1">
+                Waiting for the remote host to run the install command. The
+                bootstrap token is one-shot and was shown at creation time —
+                we don't keep a copy.
+            </p>
+            <p class="text-xs text-yellow-700 dark:text-yellow-400">
+                Bootstrap expires <span x-text="bootstrapExpiresHuman()"></span>.
+                If you lost the install command, delete this agent and create
+                it again to issue a fresh bootstrap.
+            </p>
+        </div>
+    </template>
+
+    <!-- Agent identity, post-handshake. We never re-emit the plaintext
+         agent_token; only its 16-char prefix as a recognition fingerprint. -->
+    <template x-if="server.kind === 'agent' && !server.bootstrap_pending && server.agent_token_prefix">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Agent Install</h3>
-            <p class="text-xs text-gray-500 mb-3">Run this command on the remote server to install and start the Pier Agent:</p>
-            <div class="relative">
-                <pre class="bg-gray-100 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-3 text-xs font-mono text-gray-700 dark:text-gray-300 overflow-x-auto whitespace-pre-wrap break-all"
-                     x-ref="installCmd" x-text="installCommand"></pre>
-                <button @click="copyText($refs.installCmd.textContent)"
-                        class="absolute top-2 right-2 p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-500 hover:text-blue-500 transition-colors" title="Copy command">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                </button>
-            </div>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Agent Credential</h3>
+            <p class="text-xs text-gray-500 mb-2">
+                Long-term token in use (only the prefix is shown; the full
+                value lives in the agent's systemd unit on the remote host).
+            </p>
+            <code class="text-xs font-mono text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded px-3 py-2 inline-block"
+                  x-text="server.agent_token_prefix + '…'"></code>
         </div>
     </template>
 </div>
@@ -463,19 +482,21 @@ function serverDetail(serverId) {
             }
         },
 
-        get tokenMasked() {
-            const t = this.server.agent_token || '';
-            if (!t) return '--';
-            if (t.length <= 8) return '*'.repeat(t.length);
-            return t.substring(0, 4) + '*'.repeat(Math.min(t.length - 8, 24)) + t.substring(t.length - 4);
-        },
+        // tokenMasked / installCommand removed: the plaintext agent_token is
+        // no longer returned by GET /api/v1/servers/{id} (migration 40). The
+        // install command is shown exactly once at creation time on
+        // /servers (list.html#installCommand). For an existing agent the
+        // operator's only "recovery" path is to delete + recreate.
 
-        get installCommand() {
-            const token = this.server.agent_token || 'YOUR_TOKEN';
-            const host = window.location.hostname;
-            const port = window.location.port ? ':' + window.location.port : '';
-            const proto = window.location.protocol === 'https:' ? 'https' : 'http';
-            return 'curl -fsSL ' + proto + '://' + host + port + '/api/v1/agent/install.sh | PIER_TOKEN=' + token + ' bash';
+        bootstrapExpiresHuman() {
+            const exp = this.server.bootstrap_expires_at;
+            if (!exp) return 'soon';
+            const secs = exp - Math.floor(Date.now() / 1000);
+            if (secs <= 0) return 'now (expired — delete and recreate the agent)';
+            const mins = Math.floor(secs / 60);
+            if (mins < 1) return 'in less than a minute';
+            if (mins === 1) return 'in 1 minute';
+            return 'in ' + mins + ' minutes';
         },
 
         countryFlag(code) {
