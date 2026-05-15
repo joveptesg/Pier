@@ -362,6 +362,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/{id}", get(servers::get).delete(servers::remove))
         .route("/servers/{id}/name", put(servers::rename))
         .route("/servers/{id}/test", post(servers::test_connection))
+        // Issue a fresh long-term token for this agent and tell the
+        // agent to swap it in. The OLD token is invalidated as soon
+        // as the agent's systemd unit respawns with the new env.
+        .route("/servers/{id}/rotate", post(servers::rotate_token))
         .route("/servers/{id}/metrics", get(servers::metrics))
         .route("/servers/{id}/containers", get(servers::containers))
         .route("/servers/{id}/deploy", post(servers::deploy_to_server))

@@ -805,6 +805,25 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_wireguard_peers_status
         ON wireguard_peers(status);
     "#,
+    // Migration 42: per-server token rotation tracking.
+    //
+    // The bootstrap → long-term handshake from migration 40 hashed the
+    // server credential at rest, but the token itself never expires
+    // until the operator manually deletes the server. For a long-lived
+    // mesh that's a leak vector — a stolen agent_token (e.g. via a
+    // compromised systemd unit file) lets the attacker pose as that
+    // node forever.
+    //
+    // `token_rotated_at` is the wall-clock timestamp of the most
+    // recent successful rotation. NULL means "never rotated since
+    // initial handshake" — treat it like `created_at` for scheduling.
+    // `token_version` is a monotonic counter the UI shows so the
+    // operator can see history at a glance and so a /rotate that
+    // races with a second click is detectable.
+    r#"
+    ALTER TABLE servers ADD COLUMN token_rotated_at INTEGER;
+    ALTER TABLE servers ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1;
+    "#,
 ];
 
 /// Run all pending database migrations.

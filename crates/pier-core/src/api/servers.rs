@@ -214,6 +214,112 @@ pub async fn create(
     }
 }
 
+/// POST /api/v1/servers/{id}/rotate
+///
+/// Mints a fresh `pier_srv_…` long-term token, asks the agent to swap
+/// it in via `/api/v1/agent/auth/rotate` (authenticated with the OLD
+/// token), and persists the new hash+plaintext on core once the agent
+/// acks 200. The agent then exits and systemd respawns it with the new
+/// `PIER_AGENT_TOKEN` in its environment, so the OLD token is dead the
+/// next time anyone tries to use it.
+///
+/// Why we keep the plaintext column even after hashing landed in
+/// migration 40: core needs to authenticate OUTBOUND to the agent
+/// using a Bearer that the agent itself compares with `==`. The hash
+/// alone can't reproduce the plaintext, so we trade a slightly weaker
+/// at-rest posture for a much simpler outbound auth story. A future
+/// migration moves outbound auth to a per-agent signing key derived
+/// from a master secret in `data_dir`, at which point the plaintext
+/// column can finally be nulled out.
+///
+/// Mesh-routed: once configure_mesh has flipped this peer to `active`,
+/// `get_server_info` returns the mesh IP so the POST below goes over
+/// WireGuard. Pre-mesh rotations work the same way over the public
+/// IP — the endpoint is identical.
+pub async fn rotate_token(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    // Resolve the current server (host honors mesh-IP preference set in
+    // 0.3e). Only agent-kind makes sense here — peers carry their own
+    // user-issued grant token that this endpoint doesn't own.
+    let (host, port, current_token, is_local, kind) = get_server_info(&state, &id)?;
+    if kind != KIND_AGENT {
+        return Err(AppError::BadRequest(
+            "rotate is only valid for kind='agent' servers".into(),
+        ));
+    }
+    if is_local {
+        return Err(AppError::BadRequest(
+            "the local server has no remote agent_token to rotate".into(),
+        ));
+    }
+    if current_token.is_empty() {
+        return Err(AppError::BadRequest(
+            "server has no active agent_token yet (bootstrap pending?)".into(),
+        ));
+    }
+
+    // Mint the new token. Hash now so we never write the plaintext
+    // anywhere except the agent's env file (and `servers.agent_token`,
+    // for outbound auth — same trade-off as above).
+    let next = server_token::generate_agent();
+    let next_hash = server_token::hash(&next.plaintext);
+
+    // Push to the agent BEFORE we update the DB. If the agent never
+    // sees the new token (network blip, agent down, helper rejected
+    // the file write), we don't want core thinking it succeeded.
+    let url = format!("http://{host}:{port}/api/v1/agent/auth/rotate");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("http client: {e}")))?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {current_token}"))
+        .json(&serde_json::json!({"new_token": next.plaintext}))
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("agent unreachable at {url}: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(AppError::BadRequest(format!(
+            "agent refused rotation ({status}): {body}"
+        )));
+    }
+
+    // Persist the new token. We bump token_version so the UI can show
+    // monotonic rotation history and so two concurrent rotation clicks
+    // would race in a detectable way (the second one would observe a
+    // version it didn't expect).
+    let now = chrono::Utc::now().timestamp();
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "UPDATE servers
+             SET agent_token = ?1,
+                 agent_token_hash = ?2,
+                 agent_token_prefix = ?3,
+                 token_rotated_at = ?4,
+                 token_version = token_version + 1,
+                 updated_at = datetime('now')
+             WHERE id = ?5",
+            rusqlite::params![next.plaintext, next_hash, next.prefix, now, id],
+        )?;
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "token_rotated_at": now,
+        "agent_token_prefix": next.prefix,
+    })))
+}
+
 #[derive(Deserialize)]
 pub struct HandshakeRequest {
     /// `pier_boot_…` plaintext from the install command.
@@ -885,7 +991,8 @@ pub async fn get(
                 cpu_count, memory_total, docker_version, remote_version, last_error,
                 is_local, created_at, country, city, country_code,
                 agent_token_prefix, bootstrap_expires_at,
-                CASE WHEN bootstrap_token_hash IS NULL THEN 0 ELSE 1 END AS bootstrap_pending
+                CASE WHEN bootstrap_token_hash IS NULL THEN 0 ELSE 1 END AS bootstrap_pending,
+                token_rotated_at, token_version
          FROM servers WHERE id = ?1",
             [&id],
             |row| {
@@ -916,6 +1023,8 @@ pub async fn get(
                     "agent_token_prefix": row.get::<_, Option<String>>(19)?,
                     "bootstrap_expires_at": row.get::<_, Option<i64>>(20)?,
                     "bootstrap_pending": row.get::<_, i64>(21)? == 1,
+                    "token_rotated_at": row.get::<_, Option<i64>>(22)?,
+                    "token_version": row.get::<_, i64>(23)?,
                 }))
             },
         )
@@ -1270,9 +1379,19 @@ if [ -z "$AGENT_TOKEN" ]; then
 fi
 echo "Handshake OK (agent token issued)."
 
-# 5. Create systemd service with the long-term token. The bootstrap is now
-#    invalid on core — even if this file leaks it, replaying the install
-#    script will fail at handshake.
+# 5. Write the long-term token to a private env file the agent can
+#    rewrite later during rotation, then create a systemd unit that
+#    pulls it via EnvironmentFile=. This indirection matters: if we
+#    embedded the token directly with Environment="PIER_AGENT_TOKEN=…",
+#    rotation would have to rebuild the unit file (and `systemctl
+#    daemon-reload`), which is heavier and easier to break than
+#    overwriting a single line in a file the agent owns.
+mkdir -p /etc/pier-agent
+cat > /etc/pier-agent/auth.env <<ENV
+PIER_AGENT_TOKEN=$AGENT_TOKEN
+ENV
+chmod 600 /etc/pier-agent/auth.env
+
 cat > /etc/systemd/system/pier-agent.service <<UNIT
 [Unit]
 Description=Pier Agent
@@ -1281,7 +1400,7 @@ Requires=docker.service
 
 [Service]
 Type=simple
-Environment="PIER_AGENT_TOKEN=$AGENT_TOKEN"
+EnvironmentFile=/etc/pier-agent/auth.env
 Environment="PIER_AGENT_PORT=$AGENT_PORT"
 Environment="PIER_AGENT_DATA_DIR=/var/lib/pier-agent"
 Environment="RUST_LOG=info"

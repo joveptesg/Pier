@@ -376,6 +376,112 @@ async fn mesh_preflight(State(state): State<SharedState>, headers: HeaderMap) ->
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/v1/agent/auth/rotate
+//
+// Core calls this with the CURRENT bearer to swap in a fresh
+// long-term token. We overwrite /etc/pier-agent/auth.env (which the
+// install script seeded and the systemd unit picks up via
+// EnvironmentFile=) and then exit so systemd's Restart=always
+// respawns us with the new PIER_AGENT_TOKEN in our environment.
+//
+// Why exit instead of hot-swapping `state.token`?
+//   * `state.token` is held by every in-flight request as `&AgentState`.
+//     A mid-request swap would create a race where the SAME request
+//     could see both the old and the new value depending on when it
+//     reads, and the bearer string is compared via `==`, not a guarded
+//     accessor. Restarting closes every connection cleanly.
+//   * systemd respawn is a well-understood failure mode the operator
+//     can already monitor; adding bespoke runtime mutability buys us
+//     nothing over it.
+//
+// Race window: between writing the env file and exit, requests with
+// the OLD bearer still authenticate. We delay the exit by ~500ms so
+// the rotation response itself reaches core before the process dies;
+// if we exited immediately the response might fail at the TCP layer
+// even though the rotation succeeded.
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct RotateRequest {
+    new_token: String,
+}
+
+async fn auth_rotate(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(body): Json<RotateRequest>,
+) -> impl IntoResponse {
+    require_auth!(headers, state);
+
+    let new_token = body.new_token.trim();
+    if new_token.is_empty() || !new_token.starts_with("pier_srv_") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": "new_token must be a non-empty `pier_srv_…` value",
+            })),
+        )
+            .into_response();
+    }
+
+    // Atomic write: dump to a sibling file with 0600, then rename. We
+    // can't just append-and-truncate because a crash between truncate
+    // and write would leave the agent with no token on next boot.
+    let path = "/etc/pier-agent/auth.env";
+    let tmp = "/etc/pier-agent/auth.env.new";
+    let body = format!("PIER_AGENT_TOKEN={new_token}\n");
+
+    if let Err(e) = tokio::fs::write(tmp, &body).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": format!("write {tmp}: {e}"),
+            })),
+        )
+            .into_response();
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) =
+            tokio::fs::set_permissions(tmp, std::fs::Permissions::from_mode(0o600)).await
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "error": format!("chmod {tmp}: {e}"),
+                })),
+            )
+                .into_response();
+        }
+    }
+    if let Err(e) = tokio::fs::rename(tmp, path).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "ok": false,
+                "error": format!("rename {tmp} → {path}: {e}"),
+            })),
+        )
+            .into_response();
+    }
+
+    // Schedule the respawn just after we return the response. If we
+    // exit before the HTTP write finishes, core sees a dropped
+    // connection even though the rotation succeeded.
+    tokio::spawn(async {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        tracing::info!("auth rotated — exiting for systemd to respawn with new token");
+        std::process::exit(0);
+    });
+
+    Json(serde_json::json!({"ok": true})).into_response()
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/v1/agent/status
 // ---------------------------------------------------------------------------
 
@@ -653,6 +759,11 @@ async fn main() -> Result<()> {
         // check that doesn't round-trip through the helper.
         .route("/api/v1/agent/mesh/preflight", get(mesh_preflight))
         .route("/api/v1/agent/mesh/{op}", post(mesh_proxy))
+        // Token rotation. Core posts the new long-term token; the
+        // agent rewrites /etc/pier-agent/auth.env and exits so systemd
+        // respawns it with the new env var. Auth header is the OLD
+        // token — once we exit, that token is invalidated on core too.
+        .route("/api/v1/agent/auth/rotate", post(auth_rotate))
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");
