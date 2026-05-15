@@ -1,10 +1,12 @@
 use axum::extract::{Request, State};
-use axum::http::header::{AUTHORIZATION, COOKIE};
+use axum::http::header::{AUTHORIZATION, COOKIE, SET_COOKIE};
+use axum::http::HeaderValue;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use base64::Engine;
 
 use crate::auth::api_token;
+use crate::auth::cookie::clear_session_cookies;
 use crate::auth::password;
 use crate::error::AppError;
 use crate::state::SharedState;
@@ -281,11 +283,17 @@ pub async fn require_auth(
         match result {
             Ok(user) => user,
             Err(_) => {
-                return if is_api {
-                    Err(AppError::Unauthorized)
+                // Cookie was sent but no live session matches it. Tell the
+                // browser to drop the dead cookie so the next request comes
+                // in clean — otherwise the operator can get stuck in a
+                // /login bounce that only manual cookie-clearing fixes.
+                let mut response = if is_api {
+                    AppError::Unauthorized.into_response()
                 } else {
-                    Ok(Redirect::to(&login_redirect_target(&req)).into_response())
+                    Redirect::to(&login_redirect_target(&req)).into_response()
                 };
+                attach_clear_session_cookies(&mut response, &state);
+                return Ok(response);
             }
         }
     };
@@ -293,6 +301,26 @@ pub async fn require_auth(
     // Inject AuthUser into request extensions
     req.extensions_mut().insert(auth_user);
     Ok(next.run(req).await)
+}
+
+/// Append `Set-Cookie` headers that delete the session cookie on the client.
+/// Used when the request brought a `pier_session` cookie that no longer maps
+/// to a live session row — without this, browsers happily keep replaying the
+/// dead cookie on every redirect to /login.
+fn attach_clear_session_cookies(response: &mut Response, state: &SharedState) {
+    for raw in clear_session_cookies(state) {
+        match HeaderValue::from_str(&raw) {
+            Ok(v) => {
+                response.headers_mut().append(SET_COOKIE, v);
+            }
+            Err(e) => {
+                // Cookie name is operator-controlled (`PIER_SESSION_COOKIE`).
+                // Anything that fails HeaderValue parsing is a misconfig, not
+                // a runtime concern — log and move on.
+                tracing::warn!("clear-session-cookie header rejected: {e}");
+            }
+        }
+    }
 }
 
 /// Build the redirect target for an unauthenticated UI request. Plain `/login`

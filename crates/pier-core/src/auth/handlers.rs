@@ -5,12 +5,12 @@ use axum::http::header::{HeaderMap, SET_COOKIE, USER_AGENT};
 use axum::response::{IntoResponse, Json, Response};
 use serde::Deserialize;
 
-use crate::config::TlsMode;
 use crate::crypto;
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
 use super::audit::{self, AuthEvent};
+use super::cookie::build_session_cookie;
 use super::password;
 use super::totp;
 
@@ -382,32 +382,6 @@ fn issue_session(
     }
 
     Ok(build_session_cookie(state, &session_id, ttl * 3600))
-}
-
-/// Build a `Set-Cookie` header for the session.
-///
-/// `Secure` is set whenever TLS termination is in-process. We deliberately do
-/// not set it when `tls_mode == Off` so that an operator who terminates TLS at
-/// a separate reverse proxy and runs Pier on plain HTTP locally still gets a
-/// working session cookie.
-///
-/// `SameSite=Lax` (not `Strict`) because the panel takes part in OAuth-style
-/// return flows where a third-party site redirects the operator back to a
-/// Pier URL via top-level navigation — e.g. GitHub redirecting from the
-/// "install App" page to `/sources?installation_id=…`. `Strict` would strip
-/// the cookie on those redirects and dump the operator to `/login`. `Lax`
-/// still blocks the dangerous CSRF cases (cross-site POST/fetch/iframe),
-/// which is what we actually care about.
-fn build_session_cookie(state: &SharedState, value: &str, max_age_secs: i64) -> String {
-    let secure = if state.config.tls_mode == TlsMode::Off {
-        ""
-    } else {
-        "Secure; "
-    };
-    format!(
-        "{}={}; Path=/; HttpOnly; {}SameSite=Lax; Max-Age={}",
-        state.config.session_cookie, value, secure, max_age_secs,
-    )
 }
 
 /// GET /api/v1/auth/session — Return current user info.
