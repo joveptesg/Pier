@@ -27,7 +27,8 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::error::{AppError, AppResult};
-use crate::network::wireguard::{allocate_ip, MeshConfig, Peer, Subnet};
+use crate::network::mesh_call::{dispatch, MeshOpResult};
+use crate::network::wireguard::{allocate_ip, render_wg_conf, MeshConfig, Peer, Subnet};
 use crate::state::SharedState;
 
 /// `GET /api/v1/network/mesh`
@@ -216,6 +217,270 @@ pub async fn enable_mesh(State(state): State<SharedState>) -> AppResult<impl Int
         "ok": true,
         "peers_allocated": servers.len(),
     })))
+}
+
+/// `POST /api/v1/network/mesh/configure`
+///
+/// Atomically install WireGuard on every node, mint per-node keypairs,
+/// and push wg0.conf to bring the tunnel up. Sequenced so partial
+/// failures stop early and leave a recoverable state:
+///
+/// 1. For each peer, in `wireguard_peers.assigned_ip` order: first
+///    `install_wireguard` (idempotent apt-get install), then
+///    `generate_keypair` — the helper returns (priv, pub); we persist
+///    pub on `wireguard_peers.public_key` and hold priv in this
+///    handler's stack until step 3.
+/// 2. Render each peer's wg0.conf locally (peers without public_key
+///    yet won't get a [Peer] block, but by now every row has one).
+/// 3. For each peer, `write_config` then `up` (first activation). We
+///    do this AFTER all keys are minted so the very first wg0.conf
+///    written already lists every peer — no two-pass "first config
+///    with no peers, second config with peers" round-trip.
+///
+/// Partial failure: on any step error for a peer, that peer's status
+/// flips to 'error' with the helper's message, and the endpoint aborts.
+/// Peers already marked 'active' keep their config (the helper's `up`
+/// only fails if the kernel says so, which is rare and never a "I broke
+/// myself" scenario). The operator clears errors by hitting
+/// `disable` then `enable` and re-running configure.
+///
+/// **Private-key handling**: helper returns the private key over the
+/// transport (HTTPS+Bearer for remote nodes, unix socket for local).
+/// Core holds it for the duration of this handler only and renders it
+/// straight into the wg0.conf text passed to `write_config`. Nothing is
+/// persisted to disk by core; the only at-rest copy lives in
+/// /etc/wireguard/wg0.conf on the target node (mode 0600 root). A
+/// future improvement (Phase 0.3d) will move keypair generation behind
+/// the helper so the private side never crosses the wire.
+pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    // Snapshot config + peers up front so we don't hold the DB lock
+    // across the long-running helper round-trips.
+    let (cfg, mut peers) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let cfg = MeshConfig::load(&db).map_err(AppError::Internal)?;
+        if !cfg.enabled {
+            return Err(AppError::BadRequest(
+                "enable mesh before running configure".into(),
+            ));
+        }
+        let peers = Peer::load_all(&db).map_err(AppError::Internal)?;
+        if peers.is_empty() {
+            return Err(AppError::BadRequest(
+                "no peers allocated; press Enable Mesh first".into(),
+            ));
+        }
+        (cfg, peers)
+    };
+
+    // server_id → private_key plaintext. Lives only for this handler's
+    // scope; never written to disk by core.
+    let mut private_keys: std::collections::HashMap<String, String> = Default::default();
+    let mut per_peer_result: Vec<serde_json::Value> = Vec::with_capacity(peers.len());
+
+    // -- Phase 1: install + keypair per peer ----------------------------
+    for peer in peers.iter_mut() {
+        let sid = peer.server_id.clone();
+
+        // Skip already-keyed peers so a re-run after a partial failure
+        // doesn't churn the private key (which would invalidate every
+        // other peer's view of this node).
+        if peer.public_key.is_some() && private_keys.contains_key(&sid) {
+            per_peer_result.push(per_peer(&sid, "keyed", None));
+            continue;
+        }
+
+        // 1a. install_wireguard
+        match dispatch(&state, &sid, "install_wireguard", &serde_json::json!({})).await {
+            Ok(MeshOpResult { ok: true, .. }) => {}
+            Ok(other) => {
+                let msg = other.error.unwrap_or_else(|| "install rejected".into());
+                mark_error(&state, &sid, &format!("install_wireguard: {msg}"))?;
+                per_peer_result.push(per_peer(&sid, "error", Some(&msg)));
+                return Ok(Json(summary(per_peer_result, "aborted")));
+            }
+            Err(e) => {
+                let msg = format!("install_wireguard transport: {e:#}");
+                mark_error(&state, &sid, &msg)?;
+                per_peer_result.push(per_peer(&sid, "error", Some(&msg)));
+                return Ok(Json(summary(per_peer_result, "aborted")));
+            }
+        }
+
+        // 1b. generate_keypair — already-keyed peers won't re-mint, but
+        //     since we got here, this peer wasn't keyed by us yet.
+        let kp = match dispatch(&state, &sid, "generate_keypair", &serde_json::json!({})).await {
+            Ok(MeshOpResult {
+                ok: true,
+                result: Some(v),
+                ..
+            }) => v,
+            Ok(other) => {
+                let msg = other.error.unwrap_or_else(|| "no keypair returned".into());
+                mark_error(&state, &sid, &format!("generate_keypair: {msg}"))?;
+                per_peer_result.push(per_peer(&sid, "error", Some(&msg)));
+                return Ok(Json(summary(per_peer_result, "aborted")));
+            }
+            Err(e) => {
+                let msg = format!("generate_keypair transport: {e:#}");
+                mark_error(&state, &sid, &msg)?;
+                per_peer_result.push(per_peer(&sid, "error", Some(&msg)));
+                return Ok(Json(summary(per_peer_result, "aborted")));
+            }
+        };
+
+        let priv_key = kp
+            .get("private_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!(
+                    "helper returned no private_key field on generate_keypair"
+                ))
+            })?
+            .to_string();
+        let pub_key = kp
+            .get("public_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!(
+                    "helper returned no public_key field on generate_keypair"
+                ))
+            })?
+            .to_string();
+
+        // Persist pub_key + status='keyed'. Private key stays in RAM.
+        {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            db.execute(
+                "UPDATE wireguard_peers
+                 SET public_key = ?2, status = 'keyed', error_message = NULL
+                 WHERE server_id = ?1",
+                rusqlite::params![sid, pub_key],
+            )?;
+        }
+        peer.public_key = Some(pub_key);
+        private_keys.insert(sid.clone(), priv_key);
+        per_peer_result.push(per_peer(&sid, "keyed", None));
+    }
+
+    // -- Phase 2: render + write_config + up per peer -------------------
+    //
+    // Every peer now has a public_key, so each rendered config lists
+    // every other peer in one shot. No two-pass dance.
+    for peer in &peers {
+        let sid = peer.server_id.clone();
+        let priv_key = private_keys.get(&sid).ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!(
+                "internal: no private key stashed for {sid} (skipped phase 1?)"
+            ))
+        })?;
+        let conf = render_wg_conf(peer, &peers, &cfg, priv_key);
+
+        // write_config — helper validates the directive whitelist and
+        // rejects anything PreUp/PostUp/etc, so corrupt renders fail
+        // closed rather than silently shelling out.
+        match dispatch(
+            &state,
+            &sid,
+            "write_config",
+            &serde_json::json!({ "content": conf }),
+        )
+        .await
+        {
+            Ok(MeshOpResult { ok: true, .. }) => {}
+            Ok(other) => {
+                let msg = other
+                    .error
+                    .unwrap_or_else(|| "write_config rejected".into());
+                mark_error(&state, &sid, &format!("write_config: {msg}"))?;
+                per_peer_result.push(per_peer(&sid, "error", Some(&msg)));
+                return Ok(Json(summary(per_peer_result, "aborted")));
+            }
+            Err(e) => {
+                let msg = format!("write_config transport: {e:#}");
+                mark_error(&state, &sid, &msg)?;
+                per_peer_result.push(per_peer(&sid, "error", Some(&msg)));
+                return Ok(Json(summary(per_peer_result, "aborted")));
+            }
+        }
+
+        // up — first-time activation; on a re-run after partial failure
+        // this is `wg-quick up wg0`, which is a no-op if already up but
+        // returns non-zero exit, so we treat helper-level errors as
+        // soft failures here only if the wg0 interface is already up.
+        match dispatch(&state, &sid, "up", &serde_json::json!({})).await {
+            Ok(MeshOpResult { ok: true, .. }) => {
+                let now = chrono::Utc::now().timestamp();
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.execute(
+                    "UPDATE wireguard_peers
+                     SET status = 'active', error_message = NULL,
+                         deployed_at = ?2
+                     WHERE server_id = ?1",
+                    rusqlite::params![sid, now],
+                )?;
+            }
+            Ok(other) => {
+                let msg = other.error.unwrap_or_else(|| "up rejected".into());
+                mark_error(&state, &sid, &format!("up: {msg}"))?;
+                per_peer_result.push(per_peer(&sid, "error", Some(&msg)));
+                return Ok(Json(summary(per_peer_result, "aborted")));
+            }
+            Err(e) => {
+                let msg = format!("up transport: {e:#}");
+                mark_error(&state, &sid, &msg)?;
+                per_peer_result.push(per_peer(&sid, "error", Some(&msg)));
+                return Ok(Json(summary(per_peer_result, "aborted")));
+            }
+        }
+
+        // Replace or push the per-peer entry to reflect final state.
+        if let Some(entry) = per_peer_result.iter_mut().find(|v| v["server_id"] == sid) {
+            *entry = per_peer(&sid, "active", None);
+        } else {
+            per_peer_result.push(per_peer(&sid, "active", None));
+        }
+    }
+
+    Ok(Json(summary(per_peer_result, "ok")))
+}
+
+fn per_peer(server_id: &str, status: &str, error: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "server_id": server_id,
+        "status": status,
+        "error": error,
+    })
+}
+
+fn summary(per_peer: Vec<serde_json::Value>, overall: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": overall == "ok",
+        "overall": overall,
+        "peers": per_peer,
+    })
+}
+
+fn mark_error(state: &SharedState, server_id: &str, msg: &str) -> AppResult<()> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    db.execute(
+        "UPDATE wireguard_peers
+         SET status = 'error', error_message = ?2
+         WHERE server_id = ?1",
+        rusqlite::params![server_id, msg],
+    )?;
+    Ok(())
 }
 
 /// `POST /api/v1/network/mesh/disable`

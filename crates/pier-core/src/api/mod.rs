@@ -351,6 +351,11 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         .route("/network/mesh/enable", post(network::enable_mesh))
         .route("/network/mesh/disable", post(network::disable_mesh))
+        // Atomic install + keypair + render + apply across every peer.
+        // Runs after `enable` has allocated IPs; the first node it can't
+        // reach aborts the whole pass with that node marked 'error', so
+        // the operator can fix it and re-run without doubling up keys.
+        .route("/network/mesh/configure", post(network::configure_mesh))
         // Servers
         .route("/servers", get(servers::list).post(servers::create))
         .route("/servers/install-script", get(servers::install_script))
