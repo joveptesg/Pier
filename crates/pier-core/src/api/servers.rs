@@ -1336,18 +1336,50 @@ fn get_server_info(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    db.query_row(
-        "SELECT host, port, agent_token, is_local, kind FROM servers WHERE id = ?1",
-        [id],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, bool>(3)?,
-                row.get::<_, String>(4)?,
-            ))
-        },
-    )
-    .map_err(|_| AppError::NotFound(format!("Server {id} not found")))
+
+    // Prefer the mesh IP when this server's wireguard_peers row is
+    // `active` and the global mesh is enabled. This is what flips
+    // outbound core→agent traffic onto the encrypted tunnel once
+    // `configure_mesh` finishes: the public IP stops being used for
+    // any agent ops, even though core continues to listen on it for
+    // incoming heartbeats during the transition (see migration plan
+    // 0.3f for the firewall close).
+    //
+    // Fallback to the public host if mesh isn't fully up yet so a
+    // mid-rollout configure_mesh still works — the dispatcher uses
+    // this same function to reach the very peer it's bringing online.
+    let row = db
+        .query_row(
+            "SELECT s.host, s.port, s.agent_token, s.is_local, s.kind,
+                    wp.assigned_ip, wp.status, wc.enabled
+             FROM servers s
+             LEFT JOIN wireguard_peers wp ON wp.server_id = s.id
+             LEFT JOIN wireguard_config wc ON wc.id = 1
+             WHERE s.id = ?1",
+            [id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, bool>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                ))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Server {id} not found")))?;
+
+    let (mut host, port, token, is_local, kind, mesh_ip, mesh_status, mesh_enabled) = row;
+    let mesh_active = mesh_enabled.unwrap_or(0) == 1
+        && mesh_status.as_deref() == Some("active")
+        && mesh_ip.is_some();
+    if mesh_active && !is_local {
+        if let Some(ip) = mesh_ip {
+            host = ip;
+        }
+    }
+    Ok((host, port, token, is_local, kind))
 }

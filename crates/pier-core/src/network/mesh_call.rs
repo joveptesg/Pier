@@ -71,9 +71,20 @@ fn lookup_server(
     server_id: &str,
 ) -> Result<(String, String, i64, String, bool)> {
     let db = state.db.lock().map_err(|e| anyhow!("DB lock: {e}"))?;
+    // Same mesh-preference logic as servers::get_server_info: once a
+    // peer's wireguard_peers.status is `active`, subsequent mesh ops
+    // go through its private IP. During the initial configure pass
+    // every peer is still `pending` or `keyed`, so the first round
+    // legitimately uses the public host — this is intentional, it's
+    // how the bootstrap chain ever gets off the ground.
     let row = db
         .query_row(
-            "SELECT kind, host, port, agent_token, is_local FROM servers WHERE id = ?1",
+            "SELECT s.kind, s.host, s.port, s.agent_token, s.is_local,
+                    wp.assigned_ip, wp.status, wc.enabled
+             FROM servers s
+             LEFT JOIN wireguard_peers wp ON wp.server_id = s.id
+             LEFT JOIN wireguard_config wc ON wc.id = 1
+             WHERE s.id = ?1",
             [server_id],
             |row| {
                 Ok((
@@ -82,12 +93,25 @@ fn lookup_server(
                     row.get::<_, i64>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, i64>(4)? != 0,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| anyhow!("server {server_id} not found"))?;
-    Ok(row)
+
+    let (kind, mut host, port, token, is_local, mesh_ip, mesh_status, mesh_enabled) = row;
+    let mesh_active = mesh_enabled.unwrap_or(0) == 1
+        && mesh_status.as_deref() == Some("active")
+        && mesh_ip.is_some();
+    if mesh_active && !is_local {
+        if let Some(ip) = mesh_ip {
+            host = ip;
+        }
+    }
+    Ok((kind, host, port, token, is_local))
 }
 
 // ---------------------------------------------------------------------------
