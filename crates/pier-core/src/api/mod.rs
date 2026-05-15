@@ -14,6 +14,9 @@ pub mod env;
 pub mod events;
 pub mod grants;
 pub mod images;
+// Note: `networks` (plural) is the Docker-networks management API.
+// `network` (singular) below is the host-level WireGuard mesh.
+pub mod network;
 pub mod networks;
 pub mod npm;
 pub mod npm_web_login;
@@ -337,6 +340,17 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/s3", get(s3::list).post(s3::create))
         .route("/s3/{id}", put(s3::update).delete(s3::remove))
         .route("/s3/{id}/test", post(s3::test))
+        // WireGuard mesh — host-level network configuration. Read-only
+        // discovery + IP allocation lives here; the actual provision /
+        // apply orchestration through pier-net-helper is deliberately a
+        // separate set of endpoints (added in a follow-up commit) so
+        // mistakes in the data model can't trigger privileged actions.
+        .route(
+            "/network/mesh",
+            get(network::get_mesh).put(network::put_mesh),
+        )
+        .route("/network/mesh/enable", post(network::enable_mesh))
+        .route("/network/mesh/disable", post(network::disable_mesh))
         // Servers
         .route("/servers", get(servers::list).post(servers::create))
         .route("/servers/install-script", get(servers::install_script))

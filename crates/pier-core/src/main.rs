@@ -11,6 +11,7 @@ mod deploy;
 mod docker;
 mod error;
 mod git;
+mod network;
 mod proxy;
 mod registry;
 mod s3;
