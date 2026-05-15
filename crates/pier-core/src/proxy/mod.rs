@@ -80,9 +80,13 @@ pub async fn deploy_traefik(
     let image = traefik_image(version);
     pull_image_if_needed(docker, &image, None).await?;
 
-    // Remove old container if exists
-    let _ = docker.stop_container(TRAEFIK_CONTAINER, None).await;
-    let _ = docker
+    // Remove old container if exists. Log at debug — errors are usually
+    // just "no such container" on first deploy, but capturing them helps
+    // diagnose port-binding races on later updates.
+    if let Err(e) = docker.stop_container(TRAEFIK_CONTAINER, None).await {
+        tracing::debug!("Stop old Traefik (ignored): {e}");
+    }
+    if let Err(e) = docker
         .remove_container(
             TRAEFIK_CONTAINER,
             Some(RemoveContainerOptions {
@@ -90,7 +94,10 @@ pub async fn deploy_traefik(
                 ..Default::default()
             }),
         )
-        .await;
+        .await
+    {
+        tracing::debug!("Remove old Traefik (ignored): {e}");
+    }
 
     // Bridge mode + pier-net: Traefik accesses services via Docker DNS (container names).
     // Port bindings: 80, 443, + all active TCP public ports.
@@ -171,6 +178,34 @@ pub async fn deploy_traefik(
     docker
         .start_container(TRAEFIK_CONTAINER, None::<StartContainerOptions>)
         .await?;
+
+    // Health-check: Docker's start_container returns OK as soon as the container
+    // is launched, not when the process inside is stable. Some Traefik versions
+    // (e.g. 3.7 on certain configs) exit shortly after start without writing a
+    // fatal log line. Wait a few seconds, then verify the container is still
+    // running. If not — surface the last log lines so the caller can diagnose
+    // (and rollback if applicable).
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let info = docker.inspect_container(TRAEFIK_CONTAINER, None).await?;
+    let running = info
+        .state
+        .as_ref()
+        .and_then(|s| s.running)
+        .unwrap_or(false);
+    if !running {
+        let exit_code = info
+            .state
+            .as_ref()
+            .and_then(|s| s.exit_code)
+            .unwrap_or(-1);
+        let logs = crate::docker::logs::get_logs(docker, TRAEFIK_CONTAINER, 50, false)
+            .await
+            .unwrap_or_else(|_| Vec::new())
+            .join("\n");
+        return Err(anyhow::anyhow!(
+            "Traefik container exited shortly after start (exit_code={exit_code}). Last logs:\n{logs}"
+        ));
+    }
 
     tracing::info!("Traefik proxy started on ports 80/443");
     Ok(())
