@@ -240,10 +240,32 @@ pub async fn rotate_token(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    let outcome = rotate_token_internal(&state, &id).await?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "token_rotated_at": outcome.rotated_at,
+        "agent_token_prefix": outcome.prefix,
+    })))
+}
+
+/// Result of a successful rotation. Returned to both the HTTP handler
+/// (wrapped in JSON) and to the scheduled rotator (for logging).
+#[derive(Debug, Clone)]
+pub struct RotationOutcome {
+    pub rotated_at: i64,
+    pub prefix: String,
+}
+
+/// Core of [`rotate_token`], usable from contexts without axum
+/// extractors (e.g. the periodic rotation scheduler in
+/// [`auth::rotation`]). All preconditions and side effects are
+/// identical to the handler: agent-kind only, non-local, agent must
+/// be reachable, DB write happens only after the agent ack.
+pub async fn rotate_token_internal(state: &SharedState, id: &str) -> AppResult<RotationOutcome> {
     // Resolve the current server (host honors mesh-IP preference set in
     // 0.3e). Only agent-kind makes sense here — peers carry their own
     // user-issued grant token that this endpoint doesn't own.
-    let (host, port, current_token, is_local, kind) = get_server_info(&state, &id)?;
+    let (host, port, current_token, is_local, kind) = get_server_info(state, id)?;
     if kind != KIND_AGENT {
         return Err(AppError::BadRequest(
             "rotate is only valid for kind='agent' servers".into(),
@@ -313,11 +335,10 @@ pub async fn rotate_token(
         )?;
     }
 
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "token_rotated_at": now,
-        "agent_token_prefix": next.prefix,
-    })))
+    Ok(RotationOutcome {
+        rotated_at: now,
+        prefix: next.prefix,
+    })
 }
 
 #[derive(Deserialize)]

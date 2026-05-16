@@ -273,6 +273,13 @@ async fn main() -> Result<()> {
     federation::sync::start_scheduler(state.clone());
     tracing::info!("Federation sync scheduler started");
 
+    // Periodic agent_token rotation (default every 7 days, configurable
+    // via settings.rotation.interval_days). Each tick collects every
+    // agent older than the cutoff and runs the same rotate path as
+    // the manual UI button. Etap 0.4 wrap-up.
+    auth::rotation::start_scheduler(state.clone());
+    tracing::info!("Token rotation scheduler started");
+
     // Cleanup invalid domains (with https:// prefix) and their Traefik configs
     {
         if let Ok(db) = state.db.lock() {
