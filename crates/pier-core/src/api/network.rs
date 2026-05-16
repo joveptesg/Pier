@@ -7,8 +7,10 @@
 //! * `POST /api/v1/network/mesh/enable` — allocate IPs for every server
 //!   and flip `enabled=1`. Does NOT install WireGuard or push configs —
 //!   that's the job of a future provision/apply pass.
-//! * `POST /api/v1/network/mesh/disable` — drop every `wireguard_peers`
-//!   row and flip `enabled=0`.
+//! * `POST /api/v1/network/mesh/disable` — `wg-quick down` on every
+//!   peer (best-effort, offline nodes flagged but don't block), then
+//!   drop `wireguard_peers` and flip `enabled=0`. Optional
+//!   `uninstall_helper` payload also purges the WireGuard package.
 //!
 //! Out of scope for now (lives in the next commit):
 //!
@@ -483,28 +485,110 @@ fn mark_error(state: &SharedState, server_id: &str, msg: &str) -> AppResult<()> 
     Ok(())
 }
 
+#[derive(Default, Deserialize)]
+pub struct DisableMeshRequest {
+    /// When true, also tell each helper to `apt-get purge wireguard` and
+    /// drop `/etc/wireguard` after bringing the interface down. Off by
+    /// default because operators usually want to re-enable later and
+    /// keeping the package installed is harmless.
+    #[serde(default)]
+    pub uninstall_helper: bool,
+}
+
 /// `POST /api/v1/network/mesh/disable`
 ///
-/// Drops every `wireguard_peers` row and flips `enabled=0`. Does NOT
-/// `wg-quick down` anything — that's handled by a separate teardown
-/// pass once we've wired the agent mesh proxy into orchestration. For
-/// now disabling is a DB-only operation, suitable for clearing a bad
-/// allocation before any real apply has happened.
-pub async fn disable_mesh(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    let tx = db
-        .unchecked_transaction()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("begin tx: {e}")))?;
-    tx.execute("DELETE FROM wireguard_peers", [])?;
+/// Brings the mesh down end-to-end:
+///   1. Snapshot the current peer list (server_ids with any non-`pending`
+///      status — these are the ones with a live `wg0`).
+///   2. For each peer (including the local node), dispatch `helper.down`
+///      and optionally `helper.uninstall` via [`mesh_call::dispatch`].
+///      Failures are *not fatal* — a peer being offline shouldn't
+///      block the operator from cleaning up DB state and re-enabling
+///      later. The per-peer outcome is included in the response so
+///      the UI can flag stragglers.
+///   3. Drop every `wireguard_peers` row and flip
+///      `wireguard_config.enabled=0`.
+///
+/// Returns `{ok, overall: "ok"|"partial", peers: [...]}` matching the
+/// shape `configure_mesh` already uses so the UI doesn't need a second
+/// rendering path.
+pub async fn disable_mesh(
+    State(state): State<SharedState>,
+    body: Option<Json<DisableMeshRequest>>,
+) -> AppResult<impl IntoResponse> {
+    let req = body.map(|Json(r)| r).unwrap_or_default();
+
+    // Snapshot before we hold any helper round-trips. We tear down even
+    // peers stuck in 'pending' / 'keyed' — those still ran
+    // `install_wireguard` and may have an interface, even if
+    // configure_mesh aborted before the final `up`.
+    let peers = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        Peer::load_all(&db).map_err(AppError::Internal)?
+    };
+
+    let mut per_peer_result: Vec<serde_json::Value> = Vec::with_capacity(peers.len());
+    let mut had_failure = false;
+
+    for peer in &peers {
+        let sid = peer.server_id.clone();
+        // 1. bring the interface down
+        let down = dispatch(&state, &sid, "down", &serde_json::json!({})).await;
+        let down_ok = matches!(&down, Ok(MeshOpResult { ok: true, .. }));
+        let down_msg = match &down {
+            Ok(MeshOpResult { ok: true, .. }) => None,
+            Ok(other) => other.error.clone(),
+            Err(e) => Some(format!("transport: {e:#}")),
+        };
+
+        // 2. optional uninstall — only attempted when down succeeded;
+        //    purging the package while wg0 is still up risks leaving
+        //    the routing table dirty.
+        let uninstall_msg = if req.uninstall_helper && down_ok {
+            match dispatch(&state, &sid, "uninstall", &serde_json::json!({})).await {
+                Ok(MeshOpResult { ok: true, .. }) => None,
+                Ok(other) => other.error.clone().or(Some("uninstall rejected".into())),
+                Err(e) => Some(format!("uninstall transport: {e:#}")),
+            }
+        } else {
+            None
+        };
+
+        let status = if down_ok && uninstall_msg.is_none() {
+            "torndown"
+        } else {
+            had_failure = true;
+            "error"
+        };
+        let err = down_msg.or(uninstall_msg);
+        per_peer_result.push(per_peer(&sid, status, err.as_deref()));
+    }
+
+    // 3. DB cleanup regardless — leaving stale rows around blocks a
+    //    re-enable later, and a partial teardown is still "the mesh is
+    //    not the source of truth anymore". Operators who want a clean
+    //    retry can re-Enable to re-allocate IPs.
     let now = chrono::Utc::now().timestamp();
-    tx.execute(
-        "UPDATE wireguard_config SET enabled = 0, updated_at = ?1 WHERE id = 1",
-        rusqlite::params![now],
-    )?;
-    tx.commit()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("commit: {e}")))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let tx = db
+            .unchecked_transaction()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("begin tx: {e}")))?;
+        tx.execute("DELETE FROM wireguard_peers", [])?;
+        tx.execute(
+            "UPDATE wireguard_config SET enabled = 0, updated_at = ?1 WHERE id = 1",
+            rusqlite::params![now],
+        )?;
+        tx.commit()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("commit: {e}")))?;
+    }
+
+    let overall = if had_failure { "partial" } else { "ok" };
+    Ok(Json(summary(per_peer_result, overall)))
 }

@@ -561,14 +561,28 @@ function serversData() {
             }
         },
         async disableMesh() {
-            if (!confirm('Disable mesh? Tunnels stay up on the nodes until you reboot or run uninstall — this only clears the Pier-side allocation.')) return;
+            if (!confirm('Disable mesh? This will bring wg0 down on every peer and clear the Pier-side allocation.')) return;
+            // Second prompt only if the user wants the heavier teardown
+            // — purging the WireGuard package makes re-enabling slower
+            // because configure has to re-install. Default to off.
+            const uninstall = confirm('Also uninstall pier-net-helper / wireguard packages on each peer? (OK = uninstall, Cancel = keep installed)');
             if (this.meshLoading) return;
             this.meshLoading = true;
             this.meshError = null;
             try {
-                await api('/api/v1/network/mesh/disable', { method: 'POST' });
+                const resp = await api('/api/v1/network/mesh/disable', {
+                    method: 'POST',
+                    body: JSON.stringify({ uninstall_helper: uninstall }),
+                });
                 await this.refreshMesh();
-                toast('Mesh disabled');
+                // Mirror the configure-mesh response: surface partial failures
+                // instead of silently claiming success.
+                if (resp && resp.overall === 'partial') {
+                    const bad = (resp.peers || []).filter(p => p.status === 'error');
+                    toast('Mesh disabled — ' + bad.length + ' peer(s) had issues', 'warn');
+                } else {
+                    toast('Mesh disabled');
+                }
             } catch (e) {
                 this.meshError = e.message || String(e);
                 toast('Disable failed: ' + this.meshError, 'error');
