@@ -1,11 +1,15 @@
 use axum::extract::{Multipart, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::Json;
+use rusqlite::Connection;
 use serde::Deserialize;
 
+use crate::auth::middleware::AuthUser;
+use crate::auth::rbac::{enforce_resource_role, ProjectRole};
 use crate::backup::executor::DbCredential;
 use crate::backup::scheduler::{build_s3_key, load_db_credentials};
 use crate::error::{AppError, AppResult};
+use crate::scheduler::cron_utils;
 use crate::state::SharedState;
 
 /// Body of POST /api/v1/resources/{id}/backup-schedules.
@@ -53,12 +57,85 @@ fn cron_to_next_run(cron: &str) -> &'static str {
     }
 }
 
+/// Stable id of the unified-scheduler row that mirrors a `backup_schedules`
+/// entry. Matches the backfill pattern in migration 48, so existing rows
+/// keep working without a second pass.
+fn unified_id(backup_schedule_id: &str) -> String {
+    format!("sched-bk-{backup_schedule_id}")
+}
+
+/// UPSERT the unified-scheduler row for a backup schedule. Called from the
+/// API handlers whenever the legacy `backup_schedules` table changes so the
+/// new runner sees an up-to-date `cron_expression` + `next_run_at`.
+fn sync_unified_for_backup(
+    db: &Connection,
+    backup_schedule_id: &str,
+    service_id: &str,
+    cron_expression: &str,
+    is_active: bool,
+) -> anyhow::Result<()> {
+    let id = unified_id(backup_schedule_id);
+    let next = cron_utils::next_fire_utc(cron_expression, "UTC", chrono::Utc::now())
+        .ok()
+        .flatten()
+        .map(|t| t.to_rfc3339());
+
+    // Resolve a friendlier display name from the service row.
+    let service_name: Option<String> = db
+        .query_row(
+            "SELECT name FROM services WHERE id = ?1",
+            [service_id],
+            |row| row.get(0),
+        )
+        .ok();
+    let label = format!(
+        "Backup: {}",
+        service_name.unwrap_or_else(|| service_id.to_string())
+    );
+    let config = format!("{{\"backup_schedule_id\":\"{backup_schedule_id}\"}}");
+
+    // Replace the row outright on every update. Cheaper than an
+    // emulated UPSERT path and keeps the audit-style created_by /
+    // is_system / description columns from the migration unchanged.
+    db.execute(
+        "INSERT INTO schedules
+            (id, name, cron_expression, timezone, action_type, action_config,
+             enabled, is_system, next_run_at)
+         VALUES (?1, ?2, ?3, 'UTC', 'backup', ?4, ?5, 1, ?6)
+         ON CONFLICT(id) DO UPDATE SET
+             name            = excluded.name,
+             cron_expression = excluded.cron_expression,
+             action_config   = excluded.action_config,
+             enabled         = excluded.enabled,
+             next_run_at     = excluded.next_run_at,
+             updated_at      = datetime('now')",
+        rusqlite::params![
+            id,
+            label,
+            cron_expression,
+            config,
+            is_active as i64,
+            next,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Drop the mirror row when a `backup_schedules` row is deleted.
+fn drop_unified_for_backup(db: &Connection, backup_schedule_id: &str) -> anyhow::Result<()> {
+    let id = unified_id(backup_schedule_id);
+    db.execute("DELETE FROM schedules WHERE id = ?1", [&id])?;
+    Ok(())
+}
+
 /// GET /api/v1/resources/{id}/backup-schedules
 /// Returns all schedules for the service, cluster-wide first then per-DB.
 pub async fn list_schedules(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let db = state
         .db
         .lock()
@@ -93,9 +170,11 @@ pub async fn list_schedules(
 /// (service_id, database_name) pair, it is replaced.
 pub async fn create_schedule(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<CreateScheduleRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Admin)?;
     if body.s3_storage_id.is_empty() {
         return Err(AppError::BadRequest("S3 storage is required".into()));
     }
@@ -130,15 +209,20 @@ pub async fn create_schedule(
         ],
     )?;
 
+    sync_unified_for_backup(&db, &schedule_id, &id, &body.cron_expression, true)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("sync scheduler row: {e}")))?;
+
     Ok(Json(serde_json::json!({"ok": true, "id": schedule_id})))
 }
 
 /// PATCH /api/v1/resources/{id}/backup-schedules/{sid}
 pub async fn update_schedule(
     State(state): State<SharedState>,
-    Path((_, schedule_id)): Path<(String, String)>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path((id, schedule_id)): Path<(String, String)>,
     Json(body): Json<UpdateScheduleRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Admin)?;
     let db = state
         .db
         .lock()
@@ -168,19 +252,35 @@ pub async fn update_schedule(
             rusqlite::params![v as i64, schedule_id],
         )?;
     }
+
+    // Sync the mirror row. We re-read the canonical fields after the
+    // partial update so we don't have to recompute the merged state in
+    // application code.
+    let (service_id, cron_expr, active): (String, String, bool) = db.query_row(
+        "SELECT service_id, cron_expression, is_active FROM backup_schedules WHERE id = ?1",
+        [&schedule_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    sync_unified_for_backup(&db, &schedule_id, &service_id, &cron_expr, active)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("sync scheduler row: {e}")))?;
+
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
 /// DELETE /api/v1/resources/{id}/backup-schedules/{sid}
 pub async fn delete_schedule(
     State(state): State<SharedState>,
-    Path((_, schedule_id)): Path<(String, String)>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path((id, schedule_id)): Path<(String, String)>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Admin)?;
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     db.execute("DELETE FROM backup_schedules WHERE id = ?1", [&schedule_id])?;
+    drop_unified_for_backup(&db, &schedule_id)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("drop scheduler row: {e}")))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -199,9 +299,11 @@ pub struct TriggerQuery {
 /// without pre-configuring a per-DB schedule.
 pub async fn trigger_backup(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Query(q): Query<TriggerQuery>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let (name, catalog_id, env_json) = {
         let db = state
             .db
@@ -413,8 +515,10 @@ fn mark_failed(state: &SharedState, backup_id: &str, msg: &str) {
 /// GET /api/v1/resources/{id}/backups
 pub async fn list_backups(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let db = state
         .db
         .lock()
@@ -460,9 +564,26 @@ pub struct RestoreRequest {
 /// deliberately not supported (see plan, "Восстановление только per-DB").
 pub async fn restore_backup(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(backup_id): Path<String>,
     Json(body): Json<RestoreRequest>,
 ) -> AppResult<impl IntoResponse> {
+    // Resolve service_id from the backup row, then gate on its project as Admin
+    // (restore is destructive — it drops & recreates the target DB).
+    let service_id: String = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT service_id FROM backups WHERE id = ?1",
+            [&backup_id],
+            |r| r.get(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("Backup {backup_id} not found")))?
+    };
+    enforce_resource_role(&state, &user, &service_id, ProjectRole::Admin)?;
+
     if body.target_database_name.is_empty() {
         return Err(AppError::BadRequest(
             "target_database_name is required".into(),
@@ -599,9 +720,11 @@ pub async fn restore_backup(
 /// matching `<dbname>.dump` or `<dbname>.sql` entries.
 pub async fn restore_database_from_upload(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path((id, dbname)): Path<(String, String)>,
     mut multipart: Multipart,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Admin)?;
     if dbname.is_empty() {
         return Err(AppError::BadRequest("database name is required".into()));
     }
@@ -884,8 +1007,24 @@ async fn download_blob(
 /// GET /api/v1/backups/{backup_id}/download
 pub async fn download_backup(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(backup_id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    // Resolve the owning service so we can gate on the project. Viewer is
+    // enough: download lets you read a dump you already had read access to.
+    let service_for_check: String = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT service_id FROM backups WHERE id = ?1",
+            [&backup_id],
+            |r| r.get(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("Backup {backup_id} not found")))?
+    };
+    enforce_resource_role(&state, &user, &service_for_check, ProjectRole::Viewer)?;
     let (s3_storage_id, s3_key) = {
         let db = state
             .db
@@ -970,8 +1109,22 @@ pub async fn download_backup(
 /// missing keys).
 pub async fn delete_backup(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(backup_id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    let service_for_check: String = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT service_id FROM backups WHERE id = ?1",
+            [&backup_id],
+            |r| r.get(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("Backup {backup_id} not found")))?
+    };
+    enforce_resource_role(&state, &user, &service_for_check, ProjectRole::Admin)?;
     let (s3_storage_id, s3_key) = {
         let db = state
             .db

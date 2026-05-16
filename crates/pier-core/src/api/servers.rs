@@ -1447,7 +1447,7 @@ echo "Agent registered with Pier core."
 /// Helper: extract server connection info
 /// Returns (host, port, agent_token, is_local, kind). For peer kind, `host`/`port`
 /// are empty/0 and callers should route through the proxy handler instead.
-fn get_server_info(
+pub(crate) fn get_server_info(
     state: &SharedState,
     id: &str,
 ) -> Result<(String, i64, String, bool, String), AppError> {

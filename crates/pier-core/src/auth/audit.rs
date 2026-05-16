@@ -33,6 +33,14 @@ pub enum AuthEvent {
     TwoFaDisabled,
     SessionRevoked,
     SessionRevokedAll,
+    // RBAC events
+    UserInvited,
+    UserInviteAccepted,
+    UserDeleted,
+    UserRoleChanged,
+    ProjectMemberAdded,
+    ProjectMemberRoleChanged,
+    ProjectMemberRemoved,
 }
 
 impl AuthEvent {
@@ -52,6 +60,13 @@ impl AuthEvent {
             Self::TwoFaDisabled => "two_fa_disabled",
             Self::SessionRevoked => "session_revoked",
             Self::SessionRevokedAll => "session_revoked_all",
+            Self::UserInvited => "user.invited",
+            Self::UserInviteAccepted => "user.invite_accepted",
+            Self::UserDeleted => "user.deleted",
+            Self::UserRoleChanged => "user.role_changed",
+            Self::ProjectMemberAdded => "project.member_added",
+            Self::ProjectMemberRoleChanged => "project.member_role_changed",
+            Self::ProjectMemberRemoved => "project.member_removed",
         }
     }
 }

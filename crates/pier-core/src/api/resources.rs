@@ -6,6 +6,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::auth::middleware::AuthUser;
+use crate::auth::rbac::{enforce_project_role, enforce_resource_role, GlobalRole, ProjectRole};
 use crate::catalog;
 use crate::catalog::cluster as cluster_gen;
 use crate::db::ports;
@@ -148,11 +149,30 @@ fn check_name_available(
 /// POST /api/v1/resources — create and deploy a resource from catalog.
 pub async fn create(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Json(body): Json<CreateResourceRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
         return Err(AppError::BadRequest("Name is required".into()));
+    }
+    // Project membership gate: if a project is supplied, the caller needs at
+    // least Editor on it. Standalone resources (no project_id) remain admin-only.
+    match body.project_id.as_deref() {
+        Some(pid) => {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            enforce_project_role(&user, pid, ProjectRole::Editor, &db)?;
+        }
+        None => {
+            if !user.is_peer && !user.global_role.at_least(GlobalRole::Admin) {
+                return Err(AppError::Forbidden(
+                    "creating resources without a project requires Admin".into(),
+                ));
+            }
+        }
     }
 
     // Block duplicates up-front: if a service with the same (project_id, name) already exists
@@ -1195,48 +1215,74 @@ async fn create_git_deploy_github_app(
     })))
 }
 
-/// GET /api/v1/resources — list all deployed resources.
-pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+/// GET /api/v1/resources — list deployed resources visible to the caller.
+///
+/// Global Admin+ and peer requests see every resource. Plain Users see only
+/// resources whose `project_id` matches a project they're a member of.
+pub async fn list(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> AppResult<impl IntoResponse> {
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let see_all = user.is_peer || user.global_role.at_least(GlobalRole::Admin);
 
-    let mut stmt = db.prepare(
-        "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image,
-                s.catalog_id, s.category, s.created_at, s.git_repo_url,
-                (SELECT domain FROM domains WHERE service_id = s.id ORDER BY created_at LIMIT 1) AS primary_domain
-         FROM services s WHERE s.catalog_id IS NOT NULL ORDER BY s.created_at DESC",
-    )?;
+    let row_to_json = |row: &rusqlite::Row<'_>| -> rusqlite::Result<serde_json::Value> {
+        let catalog_id: Option<String> = row.get(7)?;
+        let icon: Option<String> = catalog_id.as_deref().and_then(|cid| {
+            state
+                .catalog
+                .iter()
+                .find(|i| i.meta.id == cid)
+                .and_then(|i| i.meta.icon.clone())
+        });
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "project_id": row.get::<_, Option<String>>(1)?,
+            "name": row.get::<_, String>(2)?,
+            "service_type": row.get::<_, String>(3)?,
+            "status": row.get::<_, String>(4)?,
+            "port": row.get::<_, Option<i64>>(5)?,
+            "image": row.get::<_, Option<String>>(6)?,
+            "catalog_id": catalog_id,
+            "category": row.get::<_, Option<String>>(8)?,
+            "created_at": row.get::<_, String>(9)?,
+            "git_repo_url": row.get::<_, Option<String>>(10)?,
+            "primary_domain": row.get::<_, Option<String>>(11)?,
+            "icon": icon,
+        }))
+    };
 
-    let resources: Vec<serde_json::Value> = stmt
-        .query_map([], |row| {
-            let catalog_id: Option<String> = row.get(7)?;
-            let icon: Option<String> = catalog_id.as_deref().and_then(|cid| {
-                state
-                    .catalog
-                    .iter()
-                    .find(|i| i.meta.id == cid)
-                    .and_then(|i| i.meta.icon.clone())
-            });
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "project_id": row.get::<_, Option<String>>(1)?,
-                "name": row.get::<_, String>(2)?,
-                "service_type": row.get::<_, String>(3)?,
-                "status": row.get::<_, String>(4)?,
-                "port": row.get::<_, Option<i64>>(5)?,
-                "image": row.get::<_, Option<String>>(6)?,
-                "catalog_id": catalog_id,
-                "category": row.get::<_, Option<String>>(8)?,
-                "created_at": row.get::<_, String>(9)?,
-                "git_repo_url": row.get::<_, Option<String>>(10)?,
-                "primary_domain": row.get::<_, Option<String>>(11)?,
-                "icon": icon,
-            }))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+    let resources: Vec<serde_json::Value> = if see_all {
+        let mut stmt = db.prepare(
+            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image,
+                    s.catalog_id, s.category, s.created_at, s.git_repo_url,
+                    (SELECT domain FROM domains WHERE service_id = s.id ORDER BY created_at LIMIT 1) AS primary_domain
+             FROM services s WHERE s.catalog_id IS NOT NULL ORDER BY s.created_at DESC",
+        )?;
+        let rows: Vec<serde_json::Value> = stmt
+            .query_map([], row_to_json)?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    } else {
+        let mut stmt = db.prepare(
+            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image,
+                    s.catalog_id, s.category, s.created_at, s.git_repo_url,
+                    (SELECT domain FROM domains WHERE service_id = s.id ORDER BY created_at LIMIT 1) AS primary_domain
+             FROM services s
+             JOIN project_members pm ON pm.project_id = s.project_id
+             WHERE s.catalog_id IS NOT NULL AND pm.user_id = ?1
+             ORDER BY s.created_at DESC",
+        )?;
+        let rows: Vec<serde_json::Value> = stmt
+            .query_map([&user.id], row_to_json)?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    };
 
     Ok(Json(resources))
 }
@@ -1244,8 +1290,10 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
 /// GET /api/v1/resources/{id} — get resource details with ports.
 pub async fn get(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let db = state
         .db
         .lock()
@@ -1425,6 +1473,7 @@ pub async fn remove(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     Json(body): Json<DeleteRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Admin)?;
     let name = {
         let db = state
             .db
@@ -1566,8 +1615,10 @@ pub async fn remove(
 /// POST /api/v1/resources/{id}/stop
 pub async fn stop(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let name = {
         let db = state
             .db
@@ -1604,8 +1655,10 @@ pub async fn stop(
 /// POST /api/v1/resources/{id}/start
 pub async fn start(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let (name, yaml) = {
         let db = state
             .db
@@ -1652,8 +1705,10 @@ pub async fn start(
 /// POST /api/v1/resources/{id}/restart
 pub async fn restart(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let (name, yaml) = {
         let db = state
             .db
@@ -1701,9 +1756,11 @@ pub async fn restart(
 /// POST /api/v1/resources/{id}/redeploy
 pub async fn redeploy(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let no_cache = params.get("no_cache").map(|v| v == "true").unwrap_or(false);
     let (name, yaml, git_repo_url, git_branch) = {
         let db = state
@@ -1820,8 +1877,10 @@ pub async fn redeploy(
 /// GET /api/v1/resources/{id}/nodes — get cluster node info
 pub async fn get_nodes(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let (cluster_mode, cluster_config_json, catalog_id) = {
         let db = state
             .db
@@ -1864,9 +1923,11 @@ pub async fn get_nodes(
 /// POST /api/v1/resources/{id}/scale — scale cluster up/down
 pub async fn scale(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<ScaleRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let (name, catalog_id, cluster_mode, cluster_config_json, env_json) = {
         let db = state
             .db
@@ -2052,8 +2113,10 @@ fn build_tcp_upstreams(
 /// GET /api/v1/resources/{id}/load-balance — current LB config + distribution.
 pub async fn get_load_balance(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let db = state
         .db
         .lock()
@@ -2156,9 +2219,11 @@ pub async fn get_load_balance(
 /// rewrites `service_replicas`, and regenerates Traefik dynamic config.
 pub async fn load_balance(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<LoadBalanceRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     // ── Step 1. Read service row ──────────────────────────────────
     let (name, catalog_id, env_json, network_id, current_server_id, cluster_mode) = {
         let db = state
@@ -2675,8 +2740,10 @@ fn record_deployment_log(
 /// GET /api/v1/resources/{id}/deployment-logs
 pub async fn deployment_logs(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let db = state
         .db
         .lock()
@@ -2707,8 +2774,10 @@ pub async fn deployment_logs(
 /// GET /api/v1/resources/{id}/git — get git config for a service.
 pub async fn get_git_config(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let db = state
         .db
         .lock()
@@ -2737,9 +2806,11 @@ pub async fn get_git_config(
 /// PUT /api/v1/resources/{id}/git — configure git source for a service.
 pub async fn update_git_config(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<UpdateGitConfigRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     // Generate webhook secret if not provided
     let webhook_secret = body.webhook_secret.unwrap_or_else(|| {
         hex::encode(uuid::Uuid::new_v4().as_bytes().as_slice())
@@ -2787,9 +2858,11 @@ pub struct UpdateGitConfigRequest {
 /// No container redeploy needed — only Traefik config update.
 pub async fn set_port_public(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<SetPortPublicRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let public_port = body.public_port.unwrap_or(0) as u16;
 
     // Disabling public access: if the service has domains attached, require
@@ -2953,8 +3026,10 @@ pub struct SetPortPublicRequest {
 /// UI can show users exactly what they wrote.
 pub async fn get_git_compose(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let yaml = crate::deploy::fetch_compose_from_git(&state, &id)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Fetch compose: {e}")))?;
@@ -2971,8 +3046,10 @@ pub async fn get_git_compose(
 /// compose_content for non-git resources.
 pub async fn get_compose_services(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     // Try git first; if no git is configured, use the stored compose_content.
     let yaml = match crate::deploy::fetch_compose_from_git(&state, &id).await {
         Ok(y) => y,
@@ -3019,8 +3096,10 @@ pub async fn get_compose_services(
 /// new mapping reflected without a full redeploy.
 pub async fn reload_compose(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let yaml = crate::deploy::reload_compose_ports(&state, &id)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Reload compose: {e}")))?;
@@ -3030,9 +3109,11 @@ pub async fn reload_compose(
 /// PUT /api/v1/resources/{id}/network — change network assignment.
 pub async fn set_network(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<SetNetworkRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     // Resolve network name
     let network_name = {
         let db = state
@@ -3201,9 +3282,11 @@ pub struct UpdateSettingsRequest {
 /// PUT /api/v1/resources/{id}/settings — update advanced settings.
 pub async fn update_settings(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<UpdateSettingsRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let db = state
         .db
         .lock()
@@ -3233,9 +3316,11 @@ pub struct RenameRequest {
 /// PUT /api/v1/resources/{id}/rename — rename a service (restarts container).
 pub async fn rename(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<RenameRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let new_name = body.name.trim().to_lowercase().replace(' ', "-");
 
     if new_name.is_empty()

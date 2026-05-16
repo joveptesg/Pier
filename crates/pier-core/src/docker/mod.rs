@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod cleanup;
 pub mod compose;
 pub mod compose_service;
 pub mod containers;

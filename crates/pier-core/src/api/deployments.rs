@@ -4,6 +4,8 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::Json;
 
+use crate::auth::middleware::AuthUser;
+use crate::auth::rbac::{enforce_resource_role, ProjectRole};
 use crate::deploy::{self, rollback, CommitInfo};
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
@@ -11,8 +13,10 @@ use crate::state::SharedState;
 /// GET /api/v1/resources/{id}/deployments — list deployment history.
 pub async fn list(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let db = state
         .db
         .lock()
@@ -48,8 +52,10 @@ pub async fn list(
 /// GET /api/v1/resources/{id}/deployments/{dep_id} — single deployment details.
 pub async fn get(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path((id, dep_id)): Path<(String, String)>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let db = state
         .db
         .lock()
@@ -87,8 +93,10 @@ pub async fn get(
 /// resurrect the cancelled row.
 pub async fn cancel(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path((id, dep_id)): Path<(String, String)>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let db = state
         .db
         .lock()
@@ -128,9 +136,11 @@ pub async fn cancel(
 /// POST /api/v1/resources/{id}/deploy — manual deploy trigger.
 pub async fn manual_deploy(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<ManualDeployRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     // Verify service exists and has git configured
     let (git_repo_url, git_branch) = {
         let db = state
@@ -185,8 +195,10 @@ pub async fn manual_deploy(
 /// POST /api/v1/resources/{id}/rollback — rollback to previous version.
 pub async fn rollback(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let state_clone = Arc::clone(&state);
     let sid = id.clone();
 

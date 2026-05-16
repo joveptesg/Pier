@@ -70,6 +70,8 @@ pub async fn me(
         "username": user.username,
         "email": email,
         "role": user.role,
+        "global_role": user.global_role.as_str(),
+        "is_peer": user.is_peer,
         "created_at": created_at,
         "last_login_at": last_login,
         "session_count": session_count,

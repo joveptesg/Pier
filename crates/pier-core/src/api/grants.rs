@@ -24,6 +24,7 @@ pub async fn probe(axum::Extension(user): axum::Extension<AuthUser>) -> impl Int
         "ok": true,
         "version": env!("CARGO_PKG_VERSION"),
         "role": user.role,
+        "global_role": user.global_role.as_str(),
         "principal": user.username,
     }))
 }

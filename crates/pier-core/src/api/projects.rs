@@ -4,6 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::auth::middleware::AuthUser;
+use crate::auth::rbac::{enforce_project_role, GlobalRole, ProjectRole};
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
@@ -27,38 +28,75 @@ pub struct UpdateProjectRequest {
 }
 
 /// GET /api/v1/projects
-pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+///
+/// Global Admin+ and peer requests see every project. Plain Users see only
+/// those they're a `project_members` row for.
+pub async fn list(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> AppResult<impl IntoResponse> {
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-    let mut stmt = db.prepare(
-        "SELECT id, name, description, port_range_start, port_range_end, created_at FROM projects ORDER BY name"
-    )?;
+    let see_all = user.is_peer || user.global_role.at_least(GlobalRole::Admin);
 
-    let projects: Vec<serde_json::Value> = stmt
-        .query_map([], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "name": row.get::<_, String>(1)?,
-                "description": row.get::<_, String>(2)?,
-                "port_range_start": row.get::<_, Option<i64>>(3)?,
-                "port_range_end": row.get::<_, Option<i64>>(4)?,
-                "created_at": row.get::<_, String>(5)?,
-            }))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+    let projects: Vec<serde_json::Value> = if see_all {
+        let mut stmt = db.prepare(
+            "SELECT id, name, description, port_range_start, port_range_end, created_at
+             FROM projects ORDER BY name",
+        )?;
+        let rows: Vec<serde_json::Value> = stmt
+            .query_map([], project_row)?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    } else {
+        let mut stmt = db.prepare(
+            "SELECT p.id, p.name, p.description, p.port_range_start, p.port_range_end, p.created_at
+             FROM projects p
+             JOIN project_members pm ON pm.project_id = p.id
+             WHERE pm.user_id = ?1
+             ORDER BY p.name",
+        )?;
+        let rows: Vec<serde_json::Value> = stmt
+            .query_map([&user.id], project_row)?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    };
 
     Ok(Json(projects))
 }
 
+fn project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "id": row.get::<_, String>(0)?,
+        "name": row.get::<_, String>(1)?,
+        "description": row.get::<_, String>(2)?,
+        "port_range_start": row.get::<_, Option<i64>>(3)?,
+        "port_range_end": row.get::<_, Option<i64>>(4)?,
+        "created_at": row.get::<_, String>(5)?,
+    }))
+}
+
 /// POST /api/v1/projects
+///
+/// Only global Admin+ can create projects; once the project exists, its
+/// Project Admins manage membership and inner settings via the project-scoped
+/// routes. Peers retain create access (federation mode treats peer-cores as
+/// Admin-equivalent for resource ops, see `policy::can`).
 pub async fn create(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Json(body): Json<CreateProjectRequest>,
 ) -> AppResult<impl IntoResponse> {
+    if !user.is_peer && !user.global_role.at_least(GlobalRole::Admin) {
+        return Err(AppError::Forbidden(
+            "only Admin can create projects".into(),
+        ));
+    }
     if body.name.trim().is_empty() {
         return Err(AppError::BadRequest("Project name is required".into()));
     }
@@ -87,12 +125,14 @@ pub async fn create(
 /// GET /api/v1/projects/:id
 pub async fn get(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    enforce_project_role(&user, &id, ProjectRole::Viewer, &db)?;
 
     let project = db.query_row(
         "SELECT id, name, description, port_range_start, port_range_end, created_at FROM projects WHERE id = ?1",
@@ -152,6 +192,7 @@ pub async fn get(
 /// PUT /api/v1/projects/:id
 pub async fn update(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<UpdateProjectRequest>,
 ) -> AppResult<impl IntoResponse> {
@@ -159,6 +200,7 @@ pub async fn update(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    enforce_project_role(&user, &id, ProjectRole::Admin, &db)?;
 
     // Build dynamic update
     let mut sets = vec!["updated_at = datetime('now')".to_string()];
@@ -214,6 +256,7 @@ pub async fn delete(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    enforce_project_role(&user, &id, ProjectRole::Admin, &db)?;
 
     let exists: i64 = db.query_row(
         "SELECT COUNT(*) FROM projects WHERE id = ?1",

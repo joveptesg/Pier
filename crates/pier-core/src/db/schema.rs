@@ -875,6 +875,266 @@ const MIGRATIONS: &[&str] = &[
         consecutive_failures INTEGER NOT NULL DEFAULT 0
     );
     "#,
+    // Migration 44: Multi-user RBAC — global role on users.
+    //
+    // Until now `users.role` was a free-form TEXT used only as `== "admin"`
+    // in a handful of places. We're moving to a typed three-level hierarchy
+    // (Owner / Admin / User) but keep the legacy column populated so a
+    // rollback to N-1 still parses sessions correctly.
+    //
+    // The first user by `created_at` is promoted to Owner (the installer);
+    // any other admins become global Admin. Everyone else stays at User.
+    r#"
+    ALTER TABLE users ADD COLUMN global_role TEXT NOT NULL DEFAULT 'user';
+
+    UPDATE users SET global_role = 'owner'
+        WHERE id = (
+            SELECT id FROM users WHERE role = 'admin'
+            ORDER BY created_at ASC LIMIT 1
+        );
+
+    UPDATE users SET global_role = 'admin'
+        WHERE role = 'admin' AND global_role = 'user';
+
+    CREATE INDEX IF NOT EXISTS idx_users_global_role ON users(global_role);
+    "#,
+    // Migration 45: Project-scoped membership.
+    //
+    // One row per (user, project) granting one of three project roles:
+    // `admin` (manages membership + everything below), `editor` (deploy,
+    // edit env, restart), `viewer` (read-only). Global Owner/Admin bypass
+    // these rows entirely — they're for granting non-admin users access
+    // to specific projects.
+    //
+    // UNIQUE(project_id, user_id) prevents accidental duplicates; cascade
+    // deletes from either side clear the row automatically.
+    r#"
+    CREATE TABLE IF NOT EXISTS project_members (
+        id           TEXT PRIMARY KEY NOT NULL,
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id      TEXT NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+        project_role TEXT NOT NULL CHECK (project_role IN ('admin','editor','viewer')),
+        added_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        added_by     TEXT REFERENCES users(id) ON DELETE SET NULL,
+        UNIQUE(project_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_members_user
+        ON project_members(user_id);
+    CREATE INDEX IF NOT EXISTS idx_project_members_project
+        ON project_members(project_id);
+    "#,
+    // Migration 46: User invitations — one-time tokens for onboarding.
+    //
+    // Admins generate an invite for an email + default global role. The
+    // plaintext token is shown once to the inviter (copy-paste link); we
+    // only store sha256 here, same pattern as `api_tokens`. The invitee
+    // opens /invitations/{token}, sets a password (and optional 2FA),
+    // and the row flips to `accepted_at IS NOT NULL` with a back-link to
+    // the new user row via `accepted_user_id`.
+    //
+    // Expired rows are kept for audit but cannot be redeemed (handler
+    // checks `expires_at > now() AND accepted_at IS NULL`).
+    r#"
+    CREATE TABLE IF NOT EXISTS user_invitations (
+        id                  TEXT PRIMARY KEY NOT NULL,
+        email               TEXT NOT NULL,
+        invite_token_hash   TEXT NOT NULL UNIQUE,
+        default_global_role TEXT NOT NULL DEFAULT 'user',
+        invited_by          TEXT REFERENCES users(id) ON DELETE SET NULL,
+        expires_at          TEXT NOT NULL,
+        accepted_at         TEXT,
+        accepted_user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_invitations_email
+        ON user_invitations(email);
+    CREATE INDEX IF NOT EXISTS idx_user_invitations_expires_at
+        ON user_invitations(expires_at);
+    "#,
+    // Migration 47: Ad-hoc Tasks — saved shell command "templates" plus a
+    // history of every run.
+    //
+    // `task_templates` is the Semaphore-style "saved task" — a named
+    // command + default timeout. Templates can be invoked one-click, or
+    // an ad-hoc run can skip the template entirely (template_id NULL).
+    //
+    // `task_runs` records each execution. `command_snapshot` captures the
+    // exact command that ran (so editing a template later doesn't rewrite
+    // history). `agent_run_id` is the in-memory id the agent assigns —
+    // we use it to re-attach to the agent's buffer after a core restart.
+    // `stdout` / `stderr` are kept inline (capped to 5 MiB in handler)
+    // for simplicity; if the deployment-log pattern outgrows TEXT we
+    // can split to a side table later.
+    r#"
+    CREATE TABLE IF NOT EXISTS task_templates (
+        id                   TEXT PRIMARY KEY NOT NULL,
+        name                 TEXT NOT NULL,
+        description          TEXT,
+        command              TEXT NOT NULL,
+        default_timeout_sec  INTEGER NOT NULL DEFAULT 1800,
+        default_env_json     TEXT NOT NULL DEFAULT '{}',
+        created_by           TEXT NOT NULL,
+        created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_task_templates_name
+        ON task_templates(name);
+
+    CREATE TABLE IF NOT EXISTS task_runs (
+        id               TEXT PRIMARY KEY NOT NULL,
+        template_id      TEXT REFERENCES task_templates(id) ON DELETE SET NULL,
+        server_id        TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        batch_id         TEXT,
+        command_snapshot TEXT NOT NULL,
+        env_json         TEXT NOT NULL DEFAULT '{}',
+        timeout_sec      INTEGER NOT NULL,
+        status           TEXT NOT NULL,
+        exit_code        INTEGER,
+        stdout           TEXT NOT NULL DEFAULT '',
+        stderr           TEXT NOT NULL DEFAULT '',
+        agent_run_id     TEXT,
+        triggered_by     TEXT NOT NULL,
+        error_message    TEXT,
+        started_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_runs_server
+        ON task_runs(server_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_runs_status
+        ON task_runs(status, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_runs_template
+        ON task_runs(template_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_runs_batch
+        ON task_runs(batch_id);
+    "#,
+    // Migration 48: User-defined cron schedules.
+    //
+    // `schedules` is the single source of truth for "fire X on a cron".
+    // It replaces the per-feature loops (backup scheduler, Docker cleanup
+    // loop) with one tokio task that reads from this table. `action_type`
+    // selects the dispatcher; `action_config` is its JSON payload schema:
+    //
+    //   * `task`    — `{template_id: "...", server_id: "..."}`
+    //   * `backup`  — `{backup_schedule_id: "..."}` (joins backup_schedules
+    //                 for the actual cron + service binding; the row here
+    //                 only tracks when it's due next)
+    //   * `cleanup` — `{prune_images: bool, prune_cache: bool,
+    //                  prune_containers: bool}`
+    //
+    // `is_system = 1` marks rows seeded by core itself (auto-cleanup,
+    // backed-up legacy schedules). UI hides their Delete button but
+    // allows Enable/Disable.
+    //
+    // `schedule_runs` records every fire — manually triggered, cron-driven,
+    // or skipped due to concurrency / misfire. `task_run_id` links to
+    // `task_runs` for `action_type='task'` so the user can drill from
+    // the schedule history into the live task log.
+    r#"
+    CREATE TABLE IF NOT EXISTS schedules (
+        id              TEXT PRIMARY KEY NOT NULL,
+        name            TEXT NOT NULL,
+        description     TEXT NOT NULL DEFAULT '',
+        cron_expression TEXT NOT NULL,
+        timezone        TEXT NOT NULL DEFAULT 'UTC',
+        action_type     TEXT NOT NULL,
+        action_config   TEXT NOT NULL DEFAULT '{}',
+        enabled         INTEGER NOT NULL DEFAULT 1,
+        misfire_policy  TEXT NOT NULL DEFAULT 'skip',
+        last_run_at     TEXT,
+        next_run_at     TEXT,
+        last_status     TEXT,
+        last_error      TEXT,
+        created_by      TEXT REFERENCES users(id) ON DELETE SET NULL,
+        is_system       INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_schedules_due
+        ON schedules(enabled, next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_schedules_action_type
+        ON schedules(action_type);
+
+    CREATE TABLE IF NOT EXISTS schedule_runs (
+        id            TEXT PRIMARY KEY NOT NULL,
+        schedule_id   TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+        started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at   TEXT,
+        status        TEXT NOT NULL DEFAULT 'running',
+        triggered_by  TEXT NOT NULL DEFAULT 'cron',
+        output        TEXT NOT NULL DEFAULT '',
+        error         TEXT,
+        task_run_id   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_schedule_runs_sched
+        ON schedule_runs(schedule_id, started_at DESC);
+
+    -- Backfill: every active row in backup_schedules becomes a `backup`
+    -- schedule. The unified runner reads cron_expression from
+    -- backup_schedules (via action_config.backup_schedule_id), so this
+    -- preserves the legacy timer behavior verbatim.
+    INSERT INTO schedules
+        (id, name, cron_expression, timezone, action_type, action_config,
+         enabled, is_system)
+    SELECT
+        'sched-bk-' || bs.id,
+        'Backup: ' || COALESCE(s.name, bs.service_id),
+        bs.cron_expression,
+        'UTC',
+        'backup',
+        json_object('backup_schedule_id', bs.id),
+        bs.is_active,
+        1
+    FROM backup_schedules bs
+    LEFT JOIN services s ON s.id = bs.service_id
+    WHERE NOT EXISTS (
+        SELECT 1 FROM schedules WHERE id = 'sched-bk-' || bs.id
+    );
+    "#,
+    // Migration 49: Seed the system Docker-cleanup schedule.
+    //
+    // Replaces the standalone tokio::spawn loop in main.rs. We translate
+    // the existing `cleanup.interval_hours` setting into a cron expression
+    // so operators don't lose their cadence: 24h → '0 0 * * *', 12h →
+    // '0 */12 * * *', 6h → '0 */6 * * *', 1h → '0 * * * *'. Anything else
+    // falls back to '0 0 * * *' (daily at midnight UTC).
+    //
+    // `enabled` mirrors the previous `cleanup.enabled` setting. Prune
+    // flags land in `action_config` so the cleanup dispatcher can read
+    // them without re-querying `settings` on every fire. `is_system = 1`
+    // protects the row from accidental deletion in the UI — operators
+    // can still disable or re-tune it.
+    //
+    // INSERT OR IGNORE keeps the migration idempotent: if a previous
+    // partial deploy already inserted the row, we don't clobber it.
+    r#"
+    INSERT OR IGNORE INTO schedules
+        (id, name, description, cron_expression, timezone, action_type,
+         action_config, enabled, is_system)
+    SELECT
+        'sched-cleanup-default',
+        'Docker cleanup',
+        'Periodically prune unused Docker images, build cache, and (optionally) containers.',
+        CASE
+            WHEN COALESCE((SELECT value FROM settings WHERE key='cleanup.interval_hours'), '24') = '1'  THEN '0 * * * *'
+            WHEN COALESCE((SELECT value FROM settings WHERE key='cleanup.interval_hours'), '24') = '6'  THEN '0 */6 * * *'
+            WHEN COALESCE((SELECT value FROM settings WHERE key='cleanup.interval_hours'), '24') = '12' THEN '0 */12 * * *'
+            WHEN COALESCE((SELECT value FROM settings WHERE key='cleanup.interval_hours'), '24') = '48' THEN '0 0 */2 * *'
+            WHEN COALESCE((SELECT value FROM settings WHERE key='cleanup.interval_hours'), '24') = '168' THEN '0 0 * * 0'
+            ELSE '0 0 * * *'
+        END,
+        'UTC',
+        'cleanup',
+        json_object(
+            'prune_images',      COALESCE((SELECT value FROM settings WHERE key='cleanup.prune_images'),      'true') != 'false',
+            'prune_build_cache', COALESCE((SELECT value FROM settings WHERE key='cleanup.prune_build_cache'), 'true') != 'false',
+            'prune_containers',  COALESCE((SELECT value FROM settings WHERE key='cleanup.prune_containers'),  'false') = 'true'
+        ),
+        CASE
+            WHEN COALESCE((SELECT value FROM settings WHERE key='cleanup.enabled'), 'true') = 'false' THEN 0
+            ELSE 1
+        END,
+        1;
+    "#,
 ];
 
 /// Run all pending database migrations.

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Task Run{% endblock %}
+
+{% block content %}
+<div x-data='runDetail({{ run_id | tojson }})' x-init="load()" class="p-6 max-w-5xl space-y-4">
+    <div class="flex items-center justify-between">
+        <div>
+            <a href="/tasks" class="text-xs text-gray-500 hover:text-blue-600">← Tasks</a>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white mt-1">Task run</h2>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="inline-block px-3 py-1 text-xs rounded-full font-medium"
+                  :class="statusClasses(run?.status)"
+                  x-text="run?.status || '…'"></span>
+            <button x-show="run && (run.status === 'running' || run.status === 'pending')" x-cloak
+                    @click="cancel()"
+                    class="px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">
+                Cancel
+            </button>
+        </div>
+    </div>
+
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <div><div class="text-xs text-gray-500">Server</div><div x-text="run?.server_id"></div></div>
+        <div><div class="text-xs text-gray-500">Triggered by</div><div x-text="run?.triggered_by"></div></div>
+        <div><div class="text-xs text-gray-500">Exit code</div><div x-text="run?.exit_code ?? '—'"></div></div>
+        <div><div class="text-xs text-gray-500">Started</div><div x-text="run?.started_at"></div></div>
+        <div><div class="text-xs text-gray-500">Finished</div><div x-text="run?.finished_at || '—'"></div></div>
+        <div><div class="text-xs text-gray-500">Timeout</div><div x-text="(run?.timeout_sec ?? 0) + 's'"></div></div>
+        <div class="col-span-2">
+            <div class="text-xs text-gray-500">Command</div>
+            <pre class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-2 mt-1 whitespace-pre-wrap" x-text="run?.command_snapshot"></pre>
+        </div>
+        <div class="col-span-2" x-show="run?.error_message" x-cloak>
+            <div class="text-xs text-red-500">Error</div>
+            <div class="text-xs text-red-600 dark:text-red-400" x-text="run?.error_message"></div>
+        </div>
+    </div>
+
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+        <div class="px-4 py-2 border-b border-gray-100 dark:border-gray-800/50 flex items-center justify-between">
+            <span class="text-xs font-medium text-gray-500 uppercase tracking-wider">stdout</span>
+            <span class="text-xs text-gray-400" x-text="(run?.stdout?.length || 0) + ' bytes'"></span>
+        </div>
+        <pre class="text-xs font-mono bg-gray-900 text-gray-100 p-4 overflow-x-auto max-h-[60vh] whitespace-pre-wrap"
+             x-text="run?.stdout || '(empty)'"></pre>
+    </div>
+
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden"
+         x-show="run?.stderr && run.stderr.length > 0" x-cloak>
+        <div class="px-4 py-2 border-b border-gray-100 dark:border-gray-800/50 flex items-center justify-between">
+            <span class="text-xs font-medium text-red-500 uppercase tracking-wider">stderr</span>
+            <span class="text-xs text-gray-400" x-text="(run?.stderr?.length || 0) + ' bytes'"></span>
+        </div>
+        <pre class="text-xs font-mono bg-gray-900 text-red-200 p-4 overflow-x-auto max-h-[40vh] whitespace-pre-wrap"
+             x-text="run?.stderr"></pre>
+    </div>
+</div>
+
+<script>
+function runDetail(runId) {
+    return {
+        runId,
+        run: null,
+        _interval: null,
+        async load() {
+            try {
+                this.run = await api(`/api/v1/tasks/runs/${this.runId}`);
+            } catch (e) {
+                toast(e.message || 'Failed to load', 'error');
+                return;
+            }
+            // Poll while not terminal. Stop the interval once the run finishes.
+            this._interval = setInterval(() => this.poll(), 1500);
+        },
+        async poll() {
+            try {
+                const next = await api(`/api/v1/tasks/runs/${this.runId}`);
+                this.run = next;
+                if (['success','failed','cancelled','timeout','unreachable'].includes(next.status)) {
+                    clearInterval(this._interval);
+                    this._interval = null;
+                }
+            } catch (_) { /* keep polling; transient errors are fine */ }
+        },
+        statusClasses(s) {
+            return {
+                'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300': s === 'running' || s === 'pending',
+                'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300': s === 'success',
+                'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300': s === 'failed' || s === 'timeout' || s === 'unreachable',
+                'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200': s === 'cancelled',
+            };
+        },
+        async cancel() {
+            if (!confirm('Cancel this run?')) return;
+            try {
+                await api(`/api/v1/tasks/runs/${this.runId}/cancel`, { method: 'POST' });
+                toast('Cancel requested');
+                await this.poll();
+            } catch (e) {
+                toast(e.message || 'Cancel failed', 'error');
+            }
+        },
+    };
+}
+</script>
+{% endblock %}

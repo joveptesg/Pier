@@ -6,6 +6,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::auth::middleware::AuthUser;
+use crate::auth::rbac::{enforce_resource_role, ProjectRole};
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
@@ -38,10 +39,13 @@ fn js_string(s: &str) -> String {
 }
 
 /// GET /api/v1/resources/{id}/databases — list databases in a PostgreSQL/MySQL container.
+/// Editor+ — DB metadata leaks usernames and we treat that as semi-sensitive.
 pub async fn list_databases(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let (catalog_id, name) = {
         let db = state
             .db
@@ -174,9 +178,11 @@ pub async fn list_databases(
 /// POST /api/v1/resources/{id}/databases — create database + user.
 pub async fn create_database(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<CreateDatabaseRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let db_name = body.database.trim();
     let username = body.username.trim();
     let password = &body.password;
@@ -344,6 +350,8 @@ pub async fn delete_database(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     Json(body): Json<DeleteRequest>,
 ) -> AppResult<impl IntoResponse> {
+    // Dropping a DB is destructive — require project Admin.
+    enforce_resource_role(&state, &user, &id, ProjectRole::Admin)?;
     let delete_backups = params
         .get("delete_backups")
         .map(|v| v == "true")
@@ -567,9 +575,11 @@ pub struct ChangePasswordRequest {
 /// PUT /api/v1/resources/{id}/databases/{dbname}/password — change database user password.
 pub async fn change_password(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path((id, dbname)): Path<(String, String)>,
     Json(body): Json<ChangePasswordRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let password = body.password.trim();
     if password.is_empty() {
         return Err(AppError::BadRequest("Password is required".into()));

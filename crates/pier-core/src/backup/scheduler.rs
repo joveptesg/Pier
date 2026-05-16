@@ -1,25 +1,15 @@
 use std::collections::HashMap;
 
-use tokio::time::{interval, Duration};
-
 use crate::state::SharedState;
 
 use super::executor::DbCredential;
 
-/// Start the background backup scheduler.
-/// Checks every 60 seconds for schedules whose next_run_at <= now.
-pub fn start_scheduler(state: SharedState) {
-    tokio::spawn(async move {
-        let mut tick = interval(Duration::from_secs(60));
-        loop {
-            tick.tick().await;
-            if let Err(e) = check_and_run(&state).await {
-                tracing::error!("Backup scheduler error: {e}");
-            }
-        }
-    });
-}
-
+/// Parameters extracted from a `backup_schedules` row to drive a single run.
+///
+/// Lives in this module rather than being passed as discrete arguments so
+/// the per-run body (`run_single_backup`) stays unchanged through the
+/// scheduler refactor — only the entry point moved from a private tick
+/// loop to [`run_for_schedule`].
 struct DueSchedule {
     schedule_id: String,
     service_id: String,
@@ -28,19 +18,27 @@ struct DueSchedule {
     database_name: Option<String>,
 }
 
-async fn check_and_run(state: &SharedState) -> anyhow::Result<()> {
-    let due_schedules: Vec<DueSchedule> = {
+/// Public entry point used by the unified scheduler.
+///
+/// Looks up the `backup_schedules` row by id, runs a single backup
+/// (dump → upload → retention sweep), and returns. Does NOT advance
+/// `next_run_at` — that's the unified scheduler's responsibility via
+/// `cron::Schedule::after`. Returns a human-readable description of the
+/// outcome for `schedule_runs.output`.
+pub async fn run_for_schedule(
+    state: &SharedState,
+    backup_schedule_id: &str,
+) -> anyhow::Result<String> {
+    let due = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let mut stmt = db.prepare(
-            "SELECT bs.id, bs.service_id, bs.s3_storage_id, bs.retention_count, bs.database_name
-             FROM backup_schedules bs
-             WHERE bs.is_active = 1 AND bs.next_run_at <= datetime('now')",
-        )?;
-        let result: Vec<DueSchedule> = stmt
-            .query_map([], |row| {
+        db.query_row(
+            "SELECT id, service_id, s3_storage_id, retention_count, database_name
+             FROM backup_schedules WHERE id = ?1 AND is_active = 1",
+            [backup_schedule_id],
+            |row| {
                 Ok(DueSchedule {
                     schedule_id: row.get::<_, String>(0)?,
                     service_id: row.get::<_, String>(1)?,
@@ -48,27 +46,22 @@ async fn check_and_run(state: &SharedState) -> anyhow::Result<()> {
                     retention: row.get::<_, i64>(3)?,
                     database_name: row.get::<_, Option<String>>(4)?,
                 })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        result
+            },
+        )
+        .map_err(|_| {
+            anyhow::anyhow!("backup_schedule '{backup_schedule_id}' not found or inactive")
+        })?
     };
 
-    for due in due_schedules {
-        tracing::info!(
-            "Running backup for schedule {} (db={:?})",
-            due.schedule_id,
-            due.database_name
-        );
-        let state = state.clone();
-        tokio::spawn(async move {
-            if let Err(e) = run_single_backup(&state, &due).await {
-                tracing::error!("Backup failed for schedule {}: {e}", due.schedule_id);
-            }
-        });
-    }
-
-    Ok(())
+    let db_name_label = due
+        .database_name
+        .clone()
+        .unwrap_or_else(|| "cluster-wide".to_string());
+    run_single_backup(state, &due).await?;
+    Ok(format!(
+        "backup for service {} ({db_name_label}) completed",
+        due.service_id
+    ))
 }
 
 /// Fetch every database credential row for a service. Used to drive
@@ -265,24 +258,10 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
             "UPDATE backup_schedules SET last_run_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
             [&due.schedule_id],
         )?;
-        // Crude next_run_at advancement (existing behavior; proper cron
-        // parsing is tech debt tracked separately).
-        db.execute(
-            "UPDATE backup_schedules SET next_run_at = datetime('now', '+1 day') WHERE id = ?1 AND cron_expression = '0 2 * * *'",
-            [&due.schedule_id],
-        )?;
-        db.execute(
-            "UPDATE backup_schedules SET next_run_at = datetime('now', '+7 days') WHERE id = ?1 AND cron_expression = '0 2 * * 0'",
-            [&due.schedule_id],
-        )?;
-        db.execute(
-            "UPDATE backup_schedules SET next_run_at = datetime('now', '+6 hours') WHERE id = ?1 AND cron_expression = '0 */6 * * *'",
-            [&due.schedule_id],
-        )?;
-        db.execute(
-            "UPDATE backup_schedules SET next_run_at = datetime('now', '+1 hour') WHERE id = ?1 AND cron_expression = '0 * * * *'",
-            [&due.schedule_id],
-        )?;
+        // next_run_at is now advanced by the unified scheduler
+        // (`scheduler::runner::advance_next_run_at`) using the real `cron`
+        // crate, so we no longer maintain the hand-rolled string-matching
+        // table that used to live here.
         let mut stmt = db.prepare(
             "SELECT id, s3_storage_id, s3_key FROM backups
              WHERE schedule_id = ?1 AND status = 'completed'

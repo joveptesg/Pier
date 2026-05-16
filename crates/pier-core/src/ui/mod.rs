@@ -12,6 +12,9 @@ pub fn ui_router(state: SharedState) -> Router<SharedState> {
     let public = Router::new()
         .route("/login", get(pages::login_page))
         .route("/setup", get(pages::setup_page))
+        // Invitation acceptance page — public, recipient is anonymous until
+        // they POST their chosen credentials.
+        .route("/invitations/{token}", get(pages::invitation_accept_page))
         .route("/static/{*path}", get(pages::static_file));
 
     let protected = Router::new()
@@ -26,6 +29,10 @@ pub fn ui_router(state: SharedState) -> Router<SharedState> {
         )
         .route("/account/security", get(pages::security_page))
         .route("/audit", get(pages::audit_page))
+        .route("/team", get(pages::team_page))
+        .route("/tasks", get(pages::tasks_list_page))
+        .route("/tasks/runs/{id}", get(pages::task_run_detail_page))
+        .route("/schedules", get(pages::schedules_page))
         .route("/packages", get(pages::packages_list))
         .route("/packages/{*name}", get(pages::package_detail))
         // `npm login --auth-type=web` confirmation page (Authorize CLI).

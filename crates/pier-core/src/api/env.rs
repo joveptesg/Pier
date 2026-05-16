@@ -4,15 +4,20 @@ use axum::Json;
 use serde::Deserialize;
 use std::collections::HashMap;
 
+use crate::auth::middleware::AuthUser;
+use crate::auth::rbac::{enforce_resource_role, ProjectRole};
 use crate::docker;
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
-/// GET /api/v1/resources/{id}/env — read environment variables.
+/// GET /api/v1/resources/{id}/env — read environment variables. Editor+ only
+/// — env contains secrets, plain Viewers should not be able to read it.
 pub async fn get_env(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let db = state
         .db
         .lock()
@@ -41,9 +46,11 @@ pub struct UpdateEnvRequest {
 /// PUT /api/v1/resources/{id}/env — update env vars and optionally redeploy.
 pub async fn update_env(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
     Json(body): Json<UpdateEnvRequest>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let env_json_plain = serde_json::to_string(&body.env)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON serialize: {e}")))?;
     let env_json = crate::crypto::encrypt_env_json(&env_json_plain);

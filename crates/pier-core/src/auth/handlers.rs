@@ -392,6 +392,8 @@ pub async fn session_check(
         "id": user.id,
         "username": user.username,
         "role": user.role,
+        "global_role": user.global_role.as_str(),
+        "is_peer": user.is_peer,
     })))
 }
 

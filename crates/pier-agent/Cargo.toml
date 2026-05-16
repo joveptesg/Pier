@@ -42,3 +42,6 @@ futures-util = { workspace = true }
 # Random — used only to mint helper-request ids so concurrent calls
 # don't collide in pier-net-helper's logs.
 rand = { workspace = true }
+
+# Hex encoding — shell-run ids and similar opaque tokens.
+hex = { workspace = true }

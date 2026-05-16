@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+{% block title %}Schedules{% endblock %}
+
+{% block content %}
+<div x-data="schedulesPage()" x-init="load()" class="p-6 max-w-6xl space-y-6">
+    <div class="flex items-end justify-between gap-4">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Schedules</h2>
+            <p class="text-sm text-gray-500 mt-1">
+                Cron-driven jobs. Today the unified runner fires task templates; backup and cleanup schedules are listed here for visibility but still managed by their legacy loops.
+            </p>
+        </div>
+        <button @click="openCreate()"
+                class="px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+            + New schedule
+        </button>
+    </div>
+
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+        <div x-show="loading" class="p-6 text-sm text-gray-500">Loading…</div>
+        <table x-show="!loading && schedules.length" x-cloak class="w-full text-sm">
+            <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase text-gray-500">
+                <tr>
+                    <th class="text-left px-4 py-2">Name</th>
+                    <th class="text-left px-4 py-2">Action</th>
+                    <th class="text-left px-4 py-2">Cron</th>
+                    <th class="text-left px-4 py-2">Next run</th>
+                    <th class="text-left px-4 py-2">Last status</th>
+                    <th class="text-right px-4 py-2">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="s in schedules" :key="s.id">
+                    <tr class="border-t border-gray-100 dark:border-gray-800/50">
+                        <td class="px-4 py-3">
+                            <div class="text-gray-900 dark:text-white font-medium" x-text="s.name"></div>
+                            <div class="text-xs text-gray-500" x-text="s.description"></div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="inline-block px-2 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                                  x-text="s.action_type"></span>
+                            <span x-show="s.is_system" x-cloak
+                                  class="ml-1 inline-block px-2 py-0.5 text-[10px] rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">system</span>
+                        </td>
+                        <td class="px-4 py-3 text-xs font-mono text-gray-600 dark:text-gray-300" x-text="s.cron_expression"></td>
+                        <td class="px-4 py-3 text-xs text-gray-500" x-text="s.next_run_at || '—'"></td>
+                        <td class="px-4 py-3 text-xs">
+                            <span x-show="s.last_status" :class="statusClasses(s.last_status)"
+                                  class="px-2 py-0.5 rounded-full" x-text="s.last_status"></span>
+                            <span x-show="!s.last_status" class="text-gray-400">never</span>
+                        </td>
+                        <td class="px-4 py-3 text-right space-x-2">
+                            <button @click="toggle(s)"
+                                    class="text-xs text-gray-500 hover:text-blue-600"
+                                    x-text="s.enabled ? 'Disable' : 'Enable'"></button>
+                            <button @click="runNow(s)" class="text-xs text-gray-500 hover:text-blue-600">Run now</button>
+                            <button x-show="!s.is_system" @click="remove(s)"
+                                    class="text-xs text-gray-500 hover:text-red-600">Delete</button>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+        <div x-show="!loading && !schedules.length" x-cloak class="p-6 text-sm text-gray-500">
+            No schedules yet.
+        </div>
+    </div>
+
+    <!-- ── Create modal ──────────────────────────────────────── -->
+    <div x-show="showCreate" x-cloak
+         class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+        <div @click.outside="showCreate = false"
+             class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 w-full max-w-lg p-6 space-y-4">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">New schedule</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-gray-500">Name</label>
+                    <input type="text" x-model="form.name"
+                           class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-500">Action</label>
+                    <select x-model="form.action_type"
+                            class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                        <option value="task">Run task template</option>
+                    </select>
+                    <p class="text-[11px] text-gray-500 mt-1">
+                        Backup and cleanup schedules also fire from the unified runner, but they're created elsewhere (resource page / cleanup settings).
+                    </p>
+                </div>
+                <div x-show="form.action_type === 'task'">
+                    <label class="text-xs text-gray-500">Task template</label>
+                    <select x-model="form.template_id"
+                            class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                        <option value="">— select —</option>
+                        <template x-for="t in templates" :key="t.id">
+                            <option :value="t.id" x-text="t.name"></option>
+                        </template>
+                    </select>
+                </div>
+                <div x-show="form.action_type === 'task'">
+                    <label class="text-xs text-gray-500">Server</label>
+                    <select x-model="form.server_id"
+                            class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                        <option value="">— select —</option>
+                        <template x-for="s in servers" :key="s.id">
+                            <option :value="s.id" x-text="s.name + ' (' + s.host + ')'"></option>
+                        </template>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-500">Cron expression</label>
+                    <input type="text" x-model="form.cron_expression" @input.debounce.300ms="validateCron()"
+                           class="w-full px-3 py-2 mt-1 text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+                           placeholder="0 2 * * *  or  @hourly">
+                    <p class="text-[11px] text-red-500 mt-1" x-show="cronError" x-text="cronError"></p>
+                    <div class="text-[11px] text-gray-500 mt-1" x-show="cronPreview.length && !cronError" x-cloak>
+                        Next runs:
+                        <ul class="ml-3 list-disc">
+                            <template x-for="t in cronPreview" :key="t"><li x-text="t"></li></template>
+                        </ul>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-500">Timezone</label>
+                    <input type="text" x-model="form.timezone" @input.debounce.300ms="validateCron()"
+                           class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button @click="showCreate = false" class="px-3 py-1.5 text-sm text-gray-600">Cancel</button>
+                    <button @click="submit()" :disabled="busy || cronError"
+                            class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
+                        <span x-show="!busy">Create</span>
+                        <span x-show="busy">Working…</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function schedulesPage() {
+    return {
+        loading: true,
+        schedules: [],
+        templates: [],
+        servers: [],
+        showCreate: false,
+        busy: false,
+        cronError: '',
+        cronPreview: [],
+        form: {
+            name: '',
+            action_type: 'task',
+            template_id: '',
+            server_id: '',
+            cron_expression: '@hourly',
+            timezone: 'UTC',
+        },
+        async load() {
+            this.loading = true;
+            try {
+                const [s, t, sv] = await Promise.all([
+                    api('/api/v1/schedules'),
+                    api('/api/v1/tasks/templates'),
+                    api('/api/v1/servers'),
+                ]);
+                this.schedules = s;
+                this.templates = t;
+                this.servers = sv;
+            } catch (e) {
+                toast(e.message || 'Failed to load', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+        statusClasses(s) {
+            return {
+                'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300': s === 'success',
+                'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300': s === 'failed',
+                'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200': s === 'skipped',
+                'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300': s === 'running',
+            };
+        },
+        openCreate() {
+            this.form = {
+                name: '',
+                action_type: 'task',
+                template_id: '',
+                server_id: '',
+                cron_expression: '@hourly',
+                timezone: 'UTC',
+            };
+            this.cronError = '';
+            this.cronPreview = [];
+            this.showCreate = true;
+            this.validateCron();
+        },
+        async validateCron() {
+            if (!this.form.cron_expression.trim()) {
+                this.cronError = ''; this.cronPreview = [];
+                return;
+            }
+            try {
+                const r = await api('/api/v1/schedules/validate-cron', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        cron_expression: this.form.cron_expression,
+                        timezone: this.form.timezone,
+                    }),
+                });
+                this.cronError = '';
+                this.cronPreview = r.next_runs || [];
+            } catch (e) {
+                this.cronError = e.message || 'invalid expression';
+                this.cronPreview = [];
+            }
+        },
+        async submit() {
+            if (this.busy) return;
+            this.busy = true;
+            try {
+                let action_config = {};
+                if (this.form.action_type === 'task') {
+                    if (!this.form.template_id || !this.form.server_id) {
+                        toast('Pick a template and a server', 'error');
+                        this.busy = false;
+                        return;
+                    }
+                    action_config = {
+                        template_id: this.form.template_id,
+                        server_id: this.form.server_id,
+                    };
+                }
+                await api('/api/v1/schedules', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: this.form.name,
+                        cron_expression: this.form.cron_expression,
+                        timezone: this.form.timezone,
+                        action_type: this.form.action_type,
+                        action_config,
+                    }),
+                });
+                this.showCreate = false;
+                toast('Schedule created');
+                await this.load();
+            } catch (e) {
+                toast(e.message || 'Create failed', 'error');
+            } finally {
+                this.busy = false;
+            }
+        },
+        async toggle(s) {
+            try {
+                const path = s.enabled ? 'disable' : 'enable';
+                await api(`/api/v1/schedules/${s.id}/${path}`, { method: 'POST' });
+                await this.load();
+            } catch (e) {
+                toast(e.message || 'Toggle failed', 'error');
+            }
+        },
+        async runNow(s) {
+            try {
+                const r = await api(`/api/v1/schedules/${s.id}/run`, { method: 'POST' });
+                if (r.task_run_id) {
+                    window.location = `/tasks/runs/${r.task_run_id}`;
+                } else {
+                    toast(`Run ${r.status}`);
+                    await this.load();
+                }
+            } catch (e) {
+                toast(e.message || 'Run failed', 'error');
+            }
+        },
+        async remove(s) {
+            if (!confirm(`Delete schedule "${s.name}"?`)) return;
+            try {
+                await api(`/api/v1/schedules/${s.id}`, { method: 'DELETE' });
+                toast('Schedule deleted');
+                await this.load();
+            } catch (e) {
+                toast(e.message || 'Delete failed', 'error');
+            }
+        },
+    };
+}
+</script>
+{% endblock %}

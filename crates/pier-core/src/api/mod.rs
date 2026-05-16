@@ -15,12 +15,14 @@ pub mod events;
 pub mod federation;
 pub mod grants;
 pub mod images;
+pub mod invitations;
 // Note: `networks` (plural) is the Docker-networks management API.
 // `network` (singular) below is the host-level WireGuard mesh.
 pub mod network;
 pub mod networks;
 pub mod npm;
 pub mod npm_web_login;
+pub mod project_members;
 pub mod projects;
 pub mod promote;
 pub mod proxy;
@@ -29,12 +31,15 @@ pub mod registry_admin;
 pub mod registry_settings;
 pub mod resources;
 pub mod s3;
+pub mod schedules;
 pub mod security;
 pub mod servers;
 pub mod sources;
 pub mod system;
 pub mod system_logs;
+pub mod tasks;
 pub mod tokens;
+pub mod users;
 pub mod webhooks;
 
 use std::sync::Arc;
@@ -46,6 +51,7 @@ use tower_governor::governor::GovernorConfigBuilder;
 use tower_governor::GovernorLayer;
 
 use crate::auth::middleware::require_auth;
+use crate::auth::rbac::guards::{require_global_admin, require_global_owner};
 use crate::state::SharedState;
 
 /// Health check endpoint — no auth required.
@@ -94,7 +100,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
     let public = Router::new()
         .route(
             "/auth/login",
-            post(auth::login).layer(GovernorLayer::new(login_governor)),
+            post(auth::login).layer(GovernorLayer::new(login_governor.clone())),
         )
         .route(
             "/auth/login/2fa",
@@ -116,7 +122,18 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/webhooks/github", post(webhooks::github))
         .route("/webhooks/gitlab", post(webhooks::gitlab))
         // GitHub App manifest callback (public — GitHub redirects here)
-        .route("/sources/github/callback", get(sources::github_callback));
+        .route("/sources/github/callback", get(sources::github_callback))
+        // Invitation accept — recipient is anonymous until they POST.
+        // Token is verified in-handler via sha256 lookup; rate-limited
+        // by reusing the same governor profile as login to slow guessing.
+        .route(
+            "/invitations/{token}",
+            get(invitations::get).layer(GovernorLayer::new(login_governor.clone())),
+        )
+        .route(
+            "/invitations/{token}/accept",
+            post(invitations::accept).layer(GovernorLayer::new(login_governor.clone())),
+        );
 
     let protected = Router::new()
         // Auth
@@ -142,66 +159,25 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/account/2fa/setup", post(account::two_fa_setup))
         .route("/account/2fa/verify", post(account::two_fa_verify))
         .route("/account/2fa/disable", post(account::two_fa_disable))
-        // Audit log — paginated, filterable view of credential / session events
-        .route("/audit/events", get(audit::list_events))
-        // Security settings (delete confirmation, etc.)
+        // Note: /audit/events moved to admin_only — previously accessible to
+        // any authenticated user, which leaked the auth event log.
+        // Project membership (project-scoped RBAC enforced in-handler).
+        // Listed first so they appear next to `/projects` for navigability.
+        .route(
+            "/projects/{id}/members",
+            get(project_members::list).post(project_members::add),
+        )
+        .route(
+            "/projects/{id}/members/{user_id}",
+            put(project_members::update_role).delete(project_members::remove),
+        )
+        // Security settings (delete confirmation, etc.) — self-owned.
         .route(
             "/security/settings",
             get(security::get_settings).put(security::update_settings),
         )
-        // Embedded npm registry settings (which S3 storage to mirror to)
-        .route(
-            "/registry/settings",
-            get(registry_settings::get).put(registry_settings::update),
-        )
-        // Panel-side registry mutations (dist-tag / unpublish / deprecate).
-        // Mirror the npm-protocol endpoints but use the regular session-cookie
-        // auth so the package detail page can call them directly from the UI.
-        .route(
-            "/registry/packages/{package}/dist-tags/{tag}",
-            put(registry_admin::set_dist_tag).delete(registry_admin::remove_dist_tag),
-        )
-        .route(
-            "/registry/packages/{package}/versions/{version}/deprecate",
-            post(registry_admin::deprecate_version),
-        )
-        .route(
-            "/registry/packages/{package}/versions/{version}",
-            delete(registry_admin::delete_version),
-        )
-        .route(
-            "/registry/packages/{package}",
-            delete(registry_admin::delete_package),
-        )
-        // Containers
-        .route("/containers", get(containers::list))
-        .route(
-            "/containers/{id}",
-            get(containers::inspect).delete(containers::remove),
-        )
-        .route("/containers/{id}/start", post(containers::start))
-        .route("/containers/{id}/stop", post(containers::stop))
-        .route("/containers/{id}/restart", post(containers::restart))
-        .route("/containers/{id}/logs", get(containers::logs))
-        .route("/containers/{id}/logs/ws", get(containers::logs_ws))
-        .route("/containers/all-stats", get(containers::all_stats))
-        .route("/containers/{id}/stats", get(containers::stats))
-        // Docker events fan-out (live container lifecycle)
-        .route("/events/ws", get(events::events_ws))
-        // Images
-        .route("/images", get(images::list))
-        .route("/images/{id}", delete(images::remove))
-        // Stacks
-        .route("/stacks", get(compose::list).post(compose::create))
-        .route(
-            "/stacks/{id}",
-            get(compose::get)
-                .put(compose::update)
-                .delete(compose::remove),
-        )
-        .route("/stacks/{id}/deploy", post(compose::deploy))
-        .route("/stacks/{id}/down", post(compose::down))
-        // Projects
+        // Projects — list filters by membership, get/update/delete gated
+        // per-project in the handler. Create is Admin-only via inline check.
         .route("/projects", get(projects::list).post(projects::create))
         .route(
             "/projects/{id}",
@@ -209,17 +185,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
                 .put(projects::update)
                 .delete(projects::delete),
         )
-        // Registry credentials (per-project + global)
-        .route(
-            "/registries",
-            get(registries::list).post(registries::create),
-        )
-        .route(
-            "/registries/{id}",
-            put(registries::update).delete(registries::remove),
-        )
-        .route("/registries/{id}/test", post(registries::test))
-        // Catalog
+        // Catalog — read-only template browsing for any authenticated user.
         .route("/catalog", get(catalog::list))
         .route("/catalog/{id}", get(catalog::get))
         // Resources
@@ -327,7 +293,162 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/backups/{backup_id}/restore",
             post(backups::restore_backup),
         )
-        // Sources
+        // Servers — read-only endpoints stay here so any authenticated user
+        // can see infrastructure (needed for resource lists, project context).
+        // Mutations (POST /servers, DELETE, /name, /test, /rotate, /deploy,
+        // /stop, /promote*) live in `admin_only`.
+        .route("/servers", get(servers::list))
+        .route("/servers/{id}", get(servers::get))
+        .route("/servers/{id}/metrics", get(servers::metrics))
+        .route("/servers/{id}/containers", get(servers::containers))
+        // Federation proxy — peer-token requests route through here too.
+        // The handler enforces its own per-call policy.
+        .route("/servers/{id}/proxy/{*rest}", any(servers::proxy))
+        // Federation peer probe — anonymous peers hit this with their
+        // X-Pier-Peer-Token; require_auth recognises the header and the
+        // handler returns identity info. Not admin-gated.
+        .route("/peers/probe", get(grants::probe))
+        // Read-only federation cache view.
+        .route("/federation/projects", get(federation::list_projects))
+        .route("/federation/stacks", get(federation::list_stacks))
+        .route("/federation/status", get(federation::status))
+        // Canvas (architect view) — User+ since it's a project-bound visual.
+        .route("/canvas", get(canvas::get_canvas))
+        .route("/canvas/positions", put(canvas::save_positions))
+        // Domains — list/create/delete gated in-handler via the service's
+        // project membership.
+        .route("/domains", get(domains::list).post(domains::create))
+        .route("/domains/{id}", delete(domains::remove))
+        .route("/resources/{id}/domains", get(domains::list_for_service))
+        // Proxy read-only — anyone can see status. Mutating ops moved to
+        // admin_only.
+        .route("/proxy/status", get(proxy::status))
+        .route("/proxy/version", get(proxy::version))
+        // System read-only — metrics + info available to all authenticated
+        // users; mutating ops (cleanup, update, timezone, logs) live in
+        // admin_only.
+        .route("/system/metrics", get(system::metrics))
+        .route("/system/docker", get(system::docker_info))
+        .route("/system/info", get(system::info))
+        .route("/system/disk-usage", get(system::disk_usage))
+        .route("/system/cleanup-info", get(system::cleanup_info))
+        .route("/system/update-check", get(system::update_check));
+
+    // Global-Admin sub-router. Anything here is reached by:
+    //   1. require_auth populates AuthUser in extensions
+    //   2. require_global_admin checks `global_role >= Admin`
+    // The `route_layer` form applies the guard *only* to existing routes
+    // (vs `.layer`, which would also wrap the 404 fallback).
+    //
+    // What lives here vs in `protected`:
+    //   * Anything project-scoped (resources, deployments, env, backups, …)
+    //     stays in `protected` — each handler self-gates via
+    //     `enforce_resource_role` / `enforce_project_role`.
+    //   * Anything global-by-design (Docker daemon, compose stacks, system
+    //     mutations, S3 storages, sources, registries, alerts, audit log,
+    //     server mutations) moves here so non-Admin users can't reach it.
+    let admin_only = Router::new()
+        .route("/users", get(users::list))
+        .route("/users/invite", post(users::invite))
+        .route(
+            "/users/{id}",
+            put(users::update).delete(users::remove),
+        )
+        // Ad-hoc Tasks — admin only (in MVP). Future RBAC may scope by
+        // server/project; for now they share the user-management gate.
+        .route(
+            "/tasks/templates",
+            get(tasks::templates_list).post(tasks::templates_create),
+        )
+        .route(
+            "/tasks/templates/{id}",
+            get(tasks::templates_get)
+                .put(tasks::templates_update)
+                .delete(tasks::templates_delete),
+        )
+        .route(
+            "/tasks/runs",
+            get(tasks::runs_list).post(tasks::runs_start),
+        )
+        .route("/tasks/runs/{id}", get(tasks::runs_get))
+        .route("/tasks/runs/{id}/cancel", post(tasks::runs_cancel))
+        // User-defined cron schedules (Stage 3 of the Semaphore-inspired rollout).
+        .route(
+            "/schedules",
+            get(schedules::list).post(schedules::create),
+        )
+        .route(
+            "/schedules/{id}",
+            get(schedules::get)
+                .put(schedules::update)
+                .delete(schedules::remove),
+        )
+        .route("/schedules/{id}/run", post(schedules::run_now))
+        .route("/schedules/{id}/enable", post(schedules::enable))
+        .route("/schedules/{id}/disable", post(schedules::disable))
+        .route("/schedules/validate-cron", post(schedules::validate_cron))
+        // Audit log — admin-only (was leaking to any authenticated user).
+        .route("/audit/events", get(audit::list_events))
+        // Docker daemon endpoints — not project-bound.
+        .route("/containers", get(containers::list))
+        .route(
+            "/containers/{id}",
+            get(containers::inspect).delete(containers::remove),
+        )
+        .route("/containers/{id}/start", post(containers::start))
+        .route("/containers/{id}/stop", post(containers::stop))
+        .route("/containers/{id}/restart", post(containers::restart))
+        .route("/containers/{id}/logs", get(containers::logs))
+        .route("/containers/{id}/logs/ws", get(containers::logs_ws))
+        .route("/containers/all-stats", get(containers::all_stats))
+        .route("/containers/{id}/stats", get(containers::stats))
+        .route("/events/ws", get(events::events_ws))
+        .route("/images", get(images::list))
+        .route("/images/{id}", delete(images::remove))
+        // Docker Compose stacks — global ops without per-project ownership.
+        .route("/stacks", get(compose::list).post(compose::create))
+        .route(
+            "/stacks/{id}",
+            get(compose::get)
+                .put(compose::update)
+                .delete(compose::remove),
+        )
+        .route("/stacks/{id}/deploy", post(compose::deploy))
+        .route("/stacks/{id}/down", post(compose::down))
+        // Docker networks — system-level.
+        .route("/networks", get(networks::list).post(networks::create))
+        .route("/networks/{id}", delete(networks::delete))
+        // Registry credentials, npm registry admin.
+        .route(
+            "/registries",
+            get(registries::list).post(registries::create),
+        )
+        .route(
+            "/registries/{id}",
+            put(registries::update).delete(registries::remove),
+        )
+        .route("/registries/{id}/test", post(registries::test))
+        .route(
+            "/registry/settings",
+            get(registry_settings::get).put(registry_settings::update),
+        )
+        .route(
+            "/registry/packages/{package}/dist-tags/{tag}",
+            put(registry_admin::set_dist_tag).delete(registry_admin::remove_dist_tag),
+        )
+        .route(
+            "/registry/packages/{package}/versions/{version}/deprecate",
+            post(registry_admin::deprecate_version),
+        )
+        .route(
+            "/registry/packages/{package}/versions/{version}",
+            delete(registry_admin::delete_version),
+        )
+        .route(
+            "/registry/packages/{package}",
+            delete(registry_admin::delete_package),
+        )
+        // Git sources + S3 storages — admin-managed integrations.
         .route("/sources", get(sources::list).post(sources::create))
         .route("/sources/{id}", get(sources::get).delete(sources::remove))
         .route("/sources/{id}/repos", get(sources::list_repos))
@@ -337,88 +458,28 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         .route("/sources/{id}/file", get(sources::get_file))
         .route("/sources/github/manifest", get(sources::github_manifest))
-        // S3 Storages
         .route("/s3", get(s3::list).post(s3::create))
         .route("/s3/{id}", put(s3::update).delete(s3::remove))
         .route("/s3/{id}/test", post(s3::test))
-        // WireGuard mesh — host-level network configuration. Read-only
-        // discovery + IP allocation lives here; the actual provision /
-        // apply orchestration through pier-net-helper is deliberately a
-        // separate set of endpoints (added in a follow-up commit) so
-        // mistakes in the data model can't trigger privileged actions.
-        .route(
-            "/network/mesh",
-            get(network::get_mesh).put(network::put_mesh),
-        )
-        .route("/network/mesh/enable", post(network::enable_mesh))
-        .route("/network/mesh/disable", post(network::disable_mesh))
-        // Atomic install + keypair + render + apply across every peer.
-        // Runs after `enable` has allocated IPs; the first node it can't
-        // reach aborts the whole pass with that node marked 'error', so
-        // the operator can fix it and re-run without doubling up keys.
-        .route("/network/mesh/configure", post(network::configure_mesh))
-        // Servers
-        .route("/servers", get(servers::list).post(servers::create))
+        // Server mutations (server creation/destruction is admin's job).
+        // Read-only server endpoints stay in `protected` so non-admins can
+        // see what infrastructure exists in the UI.
+        .route("/servers", post(servers::create))
         .route("/servers/install-script", get(servers::install_script))
-        .route("/servers/{id}", get(servers::get).delete(servers::remove))
+        .route("/servers/{id}", delete(servers::remove))
         .route("/servers/{id}/name", put(servers::rename))
         .route("/servers/{id}/test", post(servers::test_connection))
-        // Issue a fresh long-term token for this agent and tell the
-        // agent to swap it in. The OLD token is invalidated as soon
-        // as the agent's systemd unit respawns with the new env.
         .route("/servers/{id}/rotate", post(servers::rotate_token))
-        .route("/servers/{id}/metrics", get(servers::metrics))
-        .route("/servers/{id}/containers", get(servers::containers))
         .route("/servers/{id}/deploy", post(servers::deploy_to_server))
         .route("/servers/{id}/stop", post(servers::stop_on_server))
-        // Proxy API calls to a kind='peer' server (Core↔Core federation).
-        .route("/servers/{id}/proxy/{*rest}", any(servers::proxy))
-        // Mode 3 — export or apply a promotion bundle so this server can graduate to a standalone pier-core.
         .route("/servers/{id}/promote-bundle", get(promote::bundle))
         .route("/servers/{id}/promote", post(promote::trigger))
-        // Federation handshake: remote peer-cores probe here with their grant token.
-        .route("/peers/probe", get(grants::probe))
-        // Aggregated read-only view across local + peer-kind servers.
-        // The scheduler in `federation::sync` keeps the cache warm; the
-        // POST endpoint forces an immediate refresh for the "added a
-        // peer, show me now" UX. Write federation (deploy/restart on
-        // peer) is Etap 2 and ships separately.
-        .route("/federation/projects", get(federation::list_projects))
-        .route("/federation/stacks", get(federation::list_stacks))
-        .route("/federation/status", get(federation::status))
-        .route("/federation/sync", post(federation::refresh_now))
-        // External access — tokens that authorize another pier-core to control this one.
-        .route("/grants", get(grants::list).post(grants::create))
-        .route("/grants/{id}", delete(grants::revoke))
-        // Canvas (architect view)
-        .route("/canvas", get(canvas::get_canvas))
-        .route("/canvas/positions", put(canvas::save_positions))
-        // Networks
-        .route("/networks", get(networks::list).post(networks::create))
-        .route("/networks/{id}", delete(networks::delete))
-        // Domains
-        .route("/domains", get(domains::list).post(domains::create))
-        .route("/domains/{id}", delete(domains::remove))
-        .route("/resources/{id}/domains", get(domains::list_for_service))
-        // Proxy
-        .route("/proxy/enable", post(proxy::enable))
-        .route("/proxy/disable", post(proxy::disable))
-        .route("/proxy/status", get(proxy::status))
-        .route("/proxy/settings", put(proxy::update_settings))
-        .route("/proxy/version", get(proxy::version))
-        .route("/proxy/update", post(proxy::update))
-        // System
-        .route("/system/metrics", get(system::metrics))
-        .route("/system/docker", get(system::docker_info))
-        .route("/system/info", get(system::info))
-        .route("/system/disk-usage", get(system::disk_usage))
-        .route("/system/cleanup-info", get(system::cleanup_info))
+        // System mutations (cleanup/update/timezone/logs).
         .route("/system/cleanup", post(system::cleanup))
         .route(
             "/system/cleanup-settings",
             get(system::cleanup_settings_get).put(system::cleanup_settings_update),
         )
-        .route("/system/update-check", get(system::update_check))
         .route("/system/update", post(system::update_now))
         .route(
             "/system/update-settings",
@@ -428,11 +489,15 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/system/timezone",
             get(system::get_timezone).put(system::set_timezone),
         )
-        // System logs (journalctl) — pier / pier-agent units only
         .route("/system/logs", get(system_logs::snapshot))
         .route("/system/logs/units", get(system_logs::units_list))
         .route("/system/logs/ws", get(system_logs::stream_ws))
-        // Alerts (Phase 11.5) — advanced/custom rules
+        // Proxy / Traefik administration — server-wide.
+        .route("/proxy/enable", post(proxy::enable))
+        .route("/proxy/disable", post(proxy::disable))
+        .route("/proxy/settings", put(proxy::update_settings))
+        .route("/proxy/update", post(proxy::update))
+        // Alerts + notifications — admin manages alert rules and channels.
         .route("/alerts", get(alerts::list).post(alerts::create))
         .route("/alerts/events", get(alerts::events_feed))
         .route(
@@ -442,7 +507,6 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/alerts/{id}/toggle", post(alerts::toggle))
         .route("/alerts/{id}/test", post(alerts::test))
         .route("/alerts/{id}/events", get(alerts::rule_events))
-        // Notifications — simplified UI layer (global channel + preset toggles)
         .route(
             "/notifications/channels/telegram",
             get(alerts::channel_get).put(alerts::channel_put),
@@ -477,6 +541,32 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         .route("/notifications/alerts", get(alerts::preset_list))
         .route("/notifications/alerts/{id}/toggle", post(alerts::toggle))
+        // Federation refresh (admin-triggered).
+        .route("/federation/sync", post(federation::refresh_now))
+        .route_layer(axum::middleware::from_fn(require_global_admin));
+
+    // Owner-only sub-router — highest-impact actions: global role changes,
+    // WireGuard mesh control, cross-core federation grants.
+    let owner_only = Router::new()
+        .route("/users/{id}/role", put(users::change_role))
+        // WireGuard mesh — host-level encrypted overlay across all peers.
+        .route(
+            "/network/mesh",
+            get(network::get_mesh).put(network::put_mesh),
+        )
+        .route("/network/mesh/enable", post(network::enable_mesh))
+        .route("/network/mesh/disable", post(network::disable_mesh))
+        .route("/network/mesh/configure", post(network::configure_mesh))
+        // Federation grants — tokens that authorize another pier-core to
+        // control this one. Owner-only because they grant Admin-equivalent
+        // reach over every resource here.
+        .route("/grants", get(grants::list).post(grants::create))
+        .route("/grants/{id}", delete(grants::revoke))
+        .route_layer(axum::middleware::from_fn(require_global_owner));
+
+    let protected = protected
+        .merge(admin_only)
+        .merge(owner_only)
         .layer(axum::middleware::from_fn_with_state(state, require_auth));
 
     Router::new()

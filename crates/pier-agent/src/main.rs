@@ -6,11 +6,15 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use bollard::Docker;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
 
 #[cfg(unix)]
 mod helper_client;
+
+mod shell;
 
 // ---------------------------------------------------------------------------
 // State
@@ -20,6 +24,11 @@ struct AgentState {
     token: String,
     docker: Docker,
     data_dir: String,
+    /// In-memory registry of running and recently-finished shell runs.
+    /// Core polls these via `GET /api/v1/agent/shell/{run_id}` to drive the
+    /// Tasks UI. Entries are GC'd a few minutes after `finished_at` (see
+    /// `shell::start_gc_loop`).
+    shell_runs: Arc<RwLock<HashMap<String, Arc<shell::RunHandle>>>>,
 }
 
 type SharedState = Arc<AgentState>;
@@ -28,7 +37,7 @@ type SharedState = Arc<AgentState>;
 // Auth middleware helper
 // ---------------------------------------------------------------------------
 
-fn verify_token(headers: &HeaderMap, state: &AgentState) -> bool {
+pub(crate) fn verify_token(headers: &HeaderMap, state: &AgentState) -> bool {
     headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -39,11 +48,13 @@ fn verify_token(headers: &HeaderMap, state: &AgentState) -> bool {
 
 macro_rules! require_auth {
     ($headers:expr, $state:expr) => {
-        if !verify_token(&$headers, &$state) {
+        if !$crate::verify_token(&$headers, &$state) {
             return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))).into_response();
         }
     };
 }
+
+pub(crate) use require_auth;
 
 // ---------------------------------------------------------------------------
 // GET /health
@@ -742,7 +753,14 @@ async fn main() -> Result<()> {
         token,
         docker,
         data_dir,
+        shell_runs: Arc::new(RwLock::new(HashMap::new())),
     });
+
+    // Periodically drop finished shell runs from the in-memory registry.
+    // Core has already persisted them by then; keeping a 5-minute grace
+    // window covers a transient core restart that hasn't pulled the final
+    // snapshot yet.
+    shell::start_gc_loop(state.clone());
 
     let app = Router::new()
         // Public health endpoint
@@ -764,6 +782,15 @@ async fn main() -> Result<()> {
         // respawns it with the new env var. Auth header is the OLD
         // token — once we exit, that token is invalidated on core too.
         .route("/api/v1/agent/auth/rotate", post(auth_rotate))
+        // Ad-hoc shell runner. Core POSTs a command and polls /shell/{id}
+        // until status is terminal. No WS — keeps the agent's dependency
+        // surface small and the protocol HTTP-cacheable.
+        .route("/api/v1/agent/shell", post(shell::start_run))
+        .route("/api/v1/agent/shell/{run_id}", get(shell::get_run))
+        .route(
+            "/api/v1/agent/shell/{run_id}/cancel",
+            post(shell::cancel_run),
+        )
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");

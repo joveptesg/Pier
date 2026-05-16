@@ -277,6 +277,47 @@ pub async fn cleanup_settings_update(
         }
     }
 
+    // Mirror the merged settings into the system Docker-cleanup schedule
+    // so the unified scheduler picks up the new cadence + flags without
+    // another deploy. The row was seeded by migration 49; here we just
+    // refresh its cron expression, action_config, enabled flag, and
+    // recompute next_run_at.
+    let read = |key: &str, default: &str| -> String {
+        db.query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+            row.get::<_, String>(0)
+        })
+        .unwrap_or_else(|_| default.to_string())
+    };
+    let interval_h = read("cleanup.interval_hours", "24");
+    let cron = match interval_h.as_str() {
+        "1" => "0 * * * *",
+        "6" => "0 */6 * * *",
+        "12" => "0 */12 * * *",
+        "48" => "0 0 */2 * *",
+        "168" => "0 0 * * 0",
+        _ => "0 0 * * *",
+    };
+    let enabled = read("cleanup.enabled", "true") != "false";
+    let config = serde_json::json!({
+        "prune_images":      read("cleanup.prune_images",      "true") != "false",
+        "prune_build_cache": read("cleanup.prune_build_cache", "true") != "false",
+        "prune_containers":  read("cleanup.prune_containers",  "false") == "true",
+    });
+    let next = crate::scheduler::cron_utils::next_fire_utc(cron, "UTC", chrono::Utc::now())
+        .ok()
+        .flatten()
+        .map(|t| t.to_rfc3339());
+    db.execute(
+        "UPDATE schedules
+            SET cron_expression = ?1,
+                action_config   = ?2,
+                enabled         = ?3,
+                next_run_at     = ?4,
+                updated_at      = datetime('now')
+          WHERE id = 'sched-cleanup-default'",
+        rusqlite::params![cron, config.to_string(), enabled as i64, next],
+    )?;
+
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

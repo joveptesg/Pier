@@ -3,6 +3,8 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
+use crate::auth::middleware::AuthUser;
+use crate::auth::rbac::{enforce_resource_role, GlobalRole, ProjectRole};
 use crate::error::{AppError, AppResult};
 use crate::proxy::config::{self, DomainTarget};
 use crate::state::{AppState, SharedState};
@@ -30,45 +32,75 @@ fn default_strip_prefix() -> bool {
 }
 
 /// GET /api/v1/domains
-pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+///
+/// Global Admin+ and peers see every domain. Plain Users see only domains
+/// whose service belongs to a project they're a member of.
+pub async fn list(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> AppResult<impl IntoResponse> {
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    let mut stmt = db.prepare(
-        "SELECT d.id, d.domain, d.service_id, d.ssl_status, d.ssl_expires_at,
-                d.ssl_provider, d.is_generated, d.created_at, d.compose_service,
-                d.strip_prefix, s.name as service_name
-         FROM domains d
-         LEFT JOIN services s ON d.service_id = s.id
-         ORDER BY d.created_at DESC",
-    )?;
-    let items: Vec<serde_json::Value> = stmt
-        .query_map([], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "domain": row.get::<_, String>(1)?,
-                "service_id": row.get::<_, String>(2)?,
-                "ssl_status": row.get::<_, String>(3)?,
-                "ssl_expires_at": row.get::<_, Option<String>>(4)?,
-                "ssl_provider": row.get::<_, String>(5)?,
-                "is_generated": row.get::<_, i32>(6)? != 0,
-                "created_at": row.get::<_, String>(7)?,
-                "compose_service": row.get::<_, Option<String>>(8)?,
-                "strip_prefix": row.get::<_, i32>(9)? != 0,
-                "service_name": row.get::<_, Option<String>>(10)?,
-            }))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+    let see_all = user.is_peer || user.global_role.at_least(GlobalRole::Admin);
+    let row_to_json = |row: &rusqlite::Row<'_>| -> rusqlite::Result<serde_json::Value> {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "domain": row.get::<_, String>(1)?,
+            "service_id": row.get::<_, String>(2)?,
+            "ssl_status": row.get::<_, String>(3)?,
+            "ssl_expires_at": row.get::<_, Option<String>>(4)?,
+            "ssl_provider": row.get::<_, String>(5)?,
+            "is_generated": row.get::<_, i32>(6)? != 0,
+            "created_at": row.get::<_, String>(7)?,
+            "compose_service": row.get::<_, Option<String>>(8)?,
+            "strip_prefix": row.get::<_, i32>(9)? != 0,
+            "service_name": row.get::<_, Option<String>>(10)?,
+        }))
+    };
+    let items: Vec<serde_json::Value> = if see_all {
+        let mut stmt = db.prepare(
+            "SELECT d.id, d.domain, d.service_id, d.ssl_status, d.ssl_expires_at,
+                    d.ssl_provider, d.is_generated, d.created_at, d.compose_service,
+                    d.strip_prefix, s.name as service_name
+             FROM domains d
+             LEFT JOIN services s ON d.service_id = s.id
+             ORDER BY d.created_at DESC",
+        )?;
+        let rows: Vec<serde_json::Value> = stmt
+            .query_map([], row_to_json)?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    } else {
+        let mut stmt = db.prepare(
+            "SELECT d.id, d.domain, d.service_id, d.ssl_status, d.ssl_expires_at,
+                    d.ssl_provider, d.is_generated, d.created_at, d.compose_service,
+                    d.strip_prefix, s.name as service_name
+             FROM domains d
+             JOIN services s ON d.service_id = s.id
+             JOIN project_members pm ON pm.project_id = s.project_id
+             WHERE pm.user_id = ?1
+             ORDER BY d.created_at DESC",
+        )?;
+        let rows: Vec<serde_json::Value> = stmt
+            .query_map([&user.id], row_to_json)?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    };
     Ok(Json(items))
 }
 
 /// POST /api/v1/domains
 pub async fn create(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Json(body): Json<CreateDomainRequest>,
 ) -> AppResult<impl IntoResponse> {
+    // Need Editor on the service's project before we even touch DB.
+    enforce_resource_role(&state, &user, &body.service_id, ProjectRole::Editor)?;
     // Parse full URL: extract hostname and optional path prefix
     // Input examples: "https://api.example.com/v1", "api.example.com", "http://example.com/api/v2"
     let mut raw = body.domain.trim().to_lowercase();
@@ -199,8 +231,24 @@ pub async fn create(
 /// DELETE /api/v1/domains/{id}
 pub async fn remove(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    // Resolve the domain's service first so we can enforce on the right project.
+    let service_id_for_check: String = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT service_id FROM domains WHERE id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?
+    };
+    enforce_resource_role(&state, &user, &service_id_for_check, ProjectRole::Editor)?;
+
     let service_id: String = {
         let db = state
             .db
@@ -227,8 +275,10 @@ pub async fn remove(
 /// GET /api/v1/resources/{id}/domains — list domains for a specific service
 pub async fn list_for_service(
     State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
     Path(service_id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &service_id, ProjectRole::Viewer)?;
     let db = state
         .db
         .lock()

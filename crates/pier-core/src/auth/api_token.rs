@@ -12,6 +12,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 
 use crate::auth::middleware::AuthUser;
+use crate::auth::rbac::GlobalRole;
 
 /// Prefix prepended to every issued token. Lets a leaked token be recognised
 /// at a glance ("this is a Pier npm token") and gives us room to introduce
@@ -77,7 +78,7 @@ pub fn lookup(conn: &Connection, plaintext: &str) -> Result<Option<AuthUser>> {
     let h = hash(plaintext);
     let row = conn
         .query_row(
-            "SELECT t.id, u.id, u.username, u.role
+            "SELECT t.id, u.id, u.username, u.role, u.global_role
              FROM api_tokens t
              JOIN users u ON u.id = t.user_id
              WHERE t.token_hash = ?1
@@ -90,12 +91,13 @@ pub fn lookup(conn: &Connection, plaintext: &str) -> Result<Option<AuthUser>> {
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             },
         )
         .optional()?;
 
-    let Some((token_id, user_id, username, role)) = row else {
+    let Some((token_id, user_id, username, role, global_role)) = row else {
         return Ok(None);
     };
 
@@ -110,7 +112,9 @@ pub fn lookup(conn: &Connection, plaintext: &str) -> Result<Option<AuthUser>> {
         id: user_id,
         username,
         role,
+        global_role: GlobalRole::parse(&global_role).unwrap_or(GlobalRole::User),
         session_id: String::new(),
+        is_peer: false,
     }))
 }
 

@@ -16,7 +16,9 @@ mod network;
 mod proxy;
 mod registry;
 mod s3;
+mod scheduler;
 mod state;
+mod tasks;
 mod timezone;
 mod tls;
 mod ui;
@@ -245,9 +247,15 @@ async fn main() -> Result<()> {
     // file is absent. Runs synchronously — fast (a few dozen rows).
     crypto_recovery::run_recovery_if_needed(&state);
 
-    // Start backup scheduler
-    backup::scheduler::start_scheduler(state.clone());
-    tracing::info!("Backup scheduler started");
+    // Resume any in-flight ad-hoc task runs that were active when the
+    // previous core process exited.
+    tasks::recover::run_on_boot(state.clone());
+
+    // Unified cron scheduler. Owns the `task`, `backup`, and `cleanup`
+    // action types — the per-feature loops that used to live here and
+    // in `backup::scheduler` are gone (see Stage 3.5 of the refactor).
+    scheduler::start(state.clone());
+    tracing::info!("Unified scheduler started");
 
     // Start SSL certificate monitor (checks acme.json every 15 min)
     proxy::ssl_monitor::start_ssl_monitor(state.clone());
@@ -471,91 +479,10 @@ async fn main() -> Result<()> {
     }
 
     // Build router: UI + API
-    // Scheduled cleanup: configurable Docker pruning
-    {
-        let cleanup_state = state.clone();
-        tokio::spawn(async move {
-            loop {
-                // Read settings (default: enabled, 24h, prune images + build cache)
-                let (enabled, interval_h, do_cache, do_images, do_containers) = {
-                    let db = cleanup_state.db.lock().ok();
-                    let get = |key: &str, default: &str| -> String {
-                        db.as_ref()
-                            .and_then(|db| {
-                                db.query_row(
-                                    "SELECT value FROM settings WHERE key = ?1",
-                                    [key],
-                                    |row| row.get(0),
-                                )
-                                .ok()
-                            })
-                            .unwrap_or_else(|| default.to_string())
-                    };
-                    (
-                        get("cleanup.enabled", "true") == "true",
-                        get("cleanup.interval_hours", "24")
-                            .parse::<u64>()
-                            .unwrap_or(24),
-                        get("cleanup.prune_build_cache", "true") != "false",
-                        get("cleanup.prune_images", "true") != "false",
-                        get("cleanup.prune_containers", "false") == "true",
-                    )
-                };
-
-                tokio::time::sleep(std::time::Duration::from_secs(interval_h * 3600)).await;
-
-                if !enabled {
-                    continue;
-                }
-
-                let state_ref = cleanup_state.clone();
-                let run = |name: &'static str, args: &[&str]| {
-                    let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-                    let s = state_ref.clone();
-                    async move {
-                        match tokio::process::Command::new("docker")
-                            .args(&args)
-                            .output()
-                            .await
-                        {
-                            Ok(out) => {
-                                let stdout =
-                                    String::from_utf8_lossy(&out.stdout).trim().to_string();
-                                tracing::info!("Cleanup {name}: {stdout}");
-                                alerts::hooks::fire_event(
-                                    &s,
-                                    "docker_cleanup_success",
-                                    None,
-                                    format!("Docker {name} pruned: {stdout}"),
-                                )
-                                .await;
-                            }
-                            Err(e) => {
-                                tracing::warn!("Cleanup {name} failed: {e}");
-                                alerts::hooks::fire_event(
-                                    &s,
-                                    "docker_cleanup_failure",
-                                    None,
-                                    format!("Docker {name} prune failed: {e}"),
-                                )
-                                .await;
-                            }
-                        }
-                    }
-                };
-
-                if do_images {
-                    run("images", &["image", "prune", "-f"]).await;
-                }
-                if do_cache {
-                    run("build_cache", &["builder", "prune", "-f"]).await;
-                }
-                if do_containers {
-                    run("containers", &["container", "prune", "-f"]).await;
-                }
-            }
-        });
-    }
+    // Docker cleanup is owned by the unified scheduler now (the
+    // 'sched-cleanup-default' row seeded by migration 49). Operators can
+    // re-tune cadence + prune flags via the Schedules UI; settings keys
+    // remain readable for back-compat but no longer drive a separate loop.
 
     // Auth audit log retention: daily sweep of old `auth_events` rows. Two
     // thresholds — `audit.retention_days` (default 90) and

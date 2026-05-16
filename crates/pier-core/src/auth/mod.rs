@@ -5,6 +5,7 @@ pub mod handlers;
 pub mod middleware;
 pub mod partial_token;
 pub mod password;
+pub mod rbac;
 pub mod server_token;
 pub mod setup_token;
 pub mod totp;

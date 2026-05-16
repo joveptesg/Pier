@@ -213,6 +213,74 @@ pub async fn audit_page(
     )
 }
 
+/// GET /team — global user list + invite UI (Admin+).
+///
+/// The route stays accessible to any authenticated user; the API calls
+/// the page issues (`/api/v1/users`, `/api/v1/users/invite`) are themselves
+/// gated by `require_global_admin`, so a non-admin lands on the page and
+/// just sees an error toast.
+pub async fn team_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "team/index.html",
+        minijinja::context! { user => user.username, page => "team" },
+    )
+}
+
+/// GET /invitations/{token} — public page to accept an invitation. Renders
+/// even for unknown tokens; the JS-side fetch decides whether to show the
+/// form or the "link expired" view.
+pub async fn invitation_accept_page(
+    State(state): State<SharedState>,
+    Path(token): Path<String>,
+) -> PageResult {
+    render(
+        &state,
+        "invitations/accept.html",
+        minijinja::context! { token => token },
+    )
+}
+
+/// GET /tasks — Ad-hoc Tasks dashboard (templates + recent runs).
+pub async fn tasks_list_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "tasks/list.html",
+        minijinja::context! { user => user.username, page => "tasks" },
+    )
+}
+
+/// GET /tasks/runs/{id} — single task-run detail with live log polling.
+pub async fn task_run_detail_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(run_id): Path<String>,
+) -> PageResult {
+    render(
+        &state,
+        "tasks/run_detail.html",
+        minijinja::context! { user => user.username, page => "tasks", run_id => run_id },
+    )
+}
+
+/// GET /schedules — user-defined cron schedules dashboard.
+pub async fn schedules_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "schedules/list.html",
+        minijinja::context! { user => user.username, page => "schedules" },
+    )
+}
+
 /// GET /settings/external-access — manage tokens that let other pier-cores control this one.
 pub async fn external_access_page(
     State(state): State<SharedState>,

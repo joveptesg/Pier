@@ -8,6 +8,7 @@ use base64::Engine;
 use crate::auth::api_token;
 use crate::auth::cookie::clear_session_cookies;
 use crate::auth::password;
+use crate::auth::rbac::GlobalRole;
 use crate::error::AppError;
 use crate::state::SharedState;
 
@@ -53,13 +54,23 @@ fn parse_basic(header: &str) -> Option<(String, String)> {
 pub struct AuthUser {
     pub id: String,
     pub username: String,
+    /// Legacy free-form role string — kept populated for back-compat with the
+    /// pre-RBAC `user.role == "admin"` call-sites still in flight. New code
+    /// should reach for [`Self::global_role`] instead.
     pub role: String,
+    /// Typed system role used by RBAC guards and policy checks. Populated
+    /// from `users.global_role` (or synthesised for peer-token requests).
+    pub global_role: GlobalRole,
     /// ID of the session cookie this request authenticated with. Lets handlers
     /// distinguish "current session" from other active sessions (e.g. to avoid
     /// revoking the caller's own session in /account/sessions).
     ///
     /// Empty string for peer-token authenticated requests (no session).
     pub session_id: String,
+    /// True if this request was authenticated via the `X-Pier-Peer-Token`
+    /// federation header rather than a local user credential. Peer requests
+    /// bypass project-membership checks but cannot mutate user records.
+    pub is_peer: bool,
 }
 
 /// Middleware that checks for a valid session cookie OR a peer-core bearer token.
@@ -115,7 +126,12 @@ pub async fn require_auth(
                 id: format!("peer:{grant_id}"),
                 username: format!("peer:{grant_name}"),
                 role: "peer_admin".to_string(),
+                // Peers act with Admin-level reach for resource operations
+                // but are filtered out of user-management routes by the
+                // `is_peer` flag in `rbac::policy::can`.
+                global_role: GlobalRole::Admin,
                 session_id: String::new(),
+                is_peer: true,
             });
             return Ok(next.run(req).await);
         }
@@ -182,9 +198,9 @@ pub async fn require_auth(
                     .db
                     .lock()
                     .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
-                let row: Option<(String, String, String, String)> = db
+                let row: Option<(String, String, String, String, String)> = db
                     .query_row(
-                        "SELECT id, username, password, role FROM users
+                        "SELECT id, username, password, role, global_role FROM users
                          WHERE (username = ?1 OR email = ?1) AND is_active = 1",
                         [&basic_user],
                         |row| {
@@ -193,11 +209,12 @@ pub async fn require_auth(
                                 row.get::<_, String>(1)?,
                                 row.get::<_, String>(2)?,
                                 row.get::<_, String>(3)?,
+                                row.get::<_, String>(4)?,
                             ))
                         },
                     )
                     .ok();
-                let Some((id, username, hash, role)) = row else {
+                let Some((id, username, hash, role, global_role)) = row else {
                     return Ok(None);
                 };
                 if password::verify_password(&basic_pass, &hash)? {
@@ -205,7 +222,10 @@ pub async fn require_auth(
                         id,
                         username,
                         role,
+                        global_role: GlobalRole::parse(&global_role)
+                            .unwrap_or(GlobalRole::User),
                         session_id: String::new(),
+                        is_peer: false,
                     }))
                 } else {
                     Ok(None)
@@ -263,7 +283,7 @@ pub async fn require_auth(
 
         let sid = session_id.clone();
         let result = db.query_row(
-            "SELECT u.id, u.username, u.role
+            "SELECT u.id, u.username, u.role, u.global_role
              FROM sessions s
              JOIN users u ON s.user_id = u.id
              WHERE s.id = ?1
@@ -271,11 +291,15 @@ pub async fn require_auth(
                AND u.is_active = 1",
             [&session_id],
             |row| {
+                let global_role_str: String = row.get(3)?;
                 Ok(AuthUser {
                     id: row.get(0)?,
                     username: row.get(1)?,
                     role: row.get(2)?,
+                    global_role: GlobalRole::parse(&global_role_str)
+                        .unwrap_or(GlobalRole::User),
                     session_id: sid.clone(),
+                    is_peer: false,
                 })
             },
         );
