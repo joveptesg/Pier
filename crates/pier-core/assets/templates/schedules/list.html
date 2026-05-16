@@ -2,7 +2,7 @@
 {% block title %}Schedules{% endblock %}
 
 {% block content %}
-<div x-data="schedulesPage()" x-init="load()" class="p-6 max-w-6xl space-y-6">
+<div x-data="schedulesPage()" x-init="load()" class="p-6 max-w-7xl space-y-6">
     <div class="flex items-end justify-between gap-4">
         <div>
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Schedules</h2>
@@ -49,13 +49,41 @@
                                   class="px-2 py-0.5 rounded-full" x-text="s.last_status"></span>
                             <span x-show="!s.last_status" class="text-gray-400">never</span>
                         </td>
-                        <td class="px-4 py-3 text-right space-x-2">
-                            <button @click="toggle(s)"
-                                    class="text-xs text-gray-500 hover:text-blue-600"
-                                    x-text="s.enabled ? 'Disable' : 'Enable'"></button>
-                            <button @click="runNow(s)" class="text-xs text-gray-500 hover:text-blue-600">Run now</button>
-                            <button x-show="!s.is_system" @click="remove(s)"
-                                    class="text-xs text-gray-500 hover:text-red-600">Delete</button>
+                        <td class="px-4 py-3 text-right">
+                            <div class="flex justify-end items-center gap-1">
+                                <!-- Run now -->
+                                <button @click="runNow(s)"
+                                        :title="'Run now — ' + s.name"
+                                        class="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                </button>
+                                <!-- Enable / Disable toggle -->
+                                <button @click="toggle(s)"
+                                        :title="s.enabled ? 'Disable schedule' : 'Enable schedule'"
+                                        class="p-1.5 rounded transition-colors"
+                                        :class="s.enabled
+                                            ? 'text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/30'
+                                            : 'text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'">
+                                    <!-- pause when enabled, play-circle when disabled -->
+                                    <template x-if="s.enabled">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                    </template>
+                                    <template x-if="!s.enabled">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                    </template>
+                                </button>
+                                <!-- Delete (non-system only) -->
+                                <button x-show="!s.is_system" @click="remove(s)"
+                                        title="Delete schedule"
+                                        class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                                <!-- System badge — non-deletable rows show a lock-icon hint instead -->
+                                <span x-show="s.is_system" title="System schedule (cannot be deleted)"
+                                      class="p-1.5 text-gray-300 dark:text-gray-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                                </span>
+                            </div>
                         </td>
                     </tr>
                 </template>

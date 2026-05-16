@@ -103,15 +103,32 @@ pub async fn require_global_user(req: Request, next: Next) -> Result<Response, A
 /// then enforce `min_role` on that project. Combines the two lookups so
 /// handlers can do a one-liner gate at the top of the function.
 ///
-/// Returns `Forbidden` if the resource exists but belongs to no project
-/// (orphan service rows) — there's no project to scope membership against,
-/// so non-admins can't act on them.
+/// Returns `Forbidden` (for non-admins) if the resource exists but belongs
+/// to no project — there's no project to scope membership against. Global
+/// Owner / Admin and peer requests bypass the project lookup entirely so
+/// legacy orphan rows (e.g. compose stacks created before projects existed,
+/// rows whose project was deleted with `ON DELETE SET NULL`) remain reachable
+/// from the admin UI.
 pub fn enforce_resource_role(
     state: &crate::state::SharedState,
     user: &AuthUser,
     resource_id: &str,
     min: ProjectRole,
 ) -> Result<ProjectMembership, AppError> {
+    // Fast path matching `enforce_project_role`: global admins/peers don't
+    // need the resource→project lookup to succeed. Doing this *before* the
+    // DB query also avoids 403'ing the Owner on services with NULL
+    // project_id, which was the root cause of the post-RBAC "Loading…"
+    // hang on legacy compose stacks.
+    if user.is_peer || user.global_role.at_least(GlobalRole::Admin) {
+        return Ok(ProjectMembership {
+            project_id: String::new(),
+            user_id: user.id.clone(),
+            role: ProjectRole::Admin,
+            via_global_admin: true,
+        });
+    }
+
     let db = state
         .db
         .lock()

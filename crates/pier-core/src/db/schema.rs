@@ -1135,6 +1135,38 @@ const MIGRATIONS: &[&str] = &[
         END,
         1;
     "#,
+    // Migration 50: Re-label backfilled backup schedules so per-database
+    // and cluster-wide rows are visually distinct.
+    //
+    // Migration 48 created one mirror row per `backup_schedules` entry but
+    // composed the display label from `service_name` only — services that
+    // have 5+ schedules (cluster dump + per-DB dumps) all ended up as
+    // "Backup: postgresql" in the UI. This pass appends `(cluster)` or
+    // `(<database_name>)` so operators can tell them apart at a glance.
+    //
+    // Only touches rows the backfill owns (`id LIKE 'sched-bk-%'` AND
+    // `action_type = 'backup'`); user-created schedules and the cleanup
+    // row are untouched.
+    r#"
+    UPDATE schedules
+       SET name = (
+           SELECT 'Backup: ' || COALESCE(s.name, bs.service_id)
+                  || CASE
+                       WHEN bs.database_name IS NOT NULL AND bs.database_name <> ''
+                       THEN ' (' || bs.database_name || ')'
+                       ELSE ' (cluster)'
+                     END
+             FROM backup_schedules bs
+             LEFT JOIN services s ON s.id = bs.service_id
+            WHERE 'sched-bk-' || bs.id = schedules.id
+       )
+     WHERE action_type = 'backup'
+       AND id LIKE 'sched-bk-%'
+       AND EXISTS (
+           SELECT 1 FROM backup_schedules bs
+            WHERE 'sched-bk-' || bs.id = schedules.id
+       );
+    "#,
 ];
 
 /// Run all pending database migrations.

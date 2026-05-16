@@ -88,8 +88,25 @@ fn sync_unified_for_backup(
             |row| row.get(0),
         )
         .ok();
+    // Per-DB schedules get a `(database_name)` suffix; cluster-wide rows
+    // get `(cluster)`. Without this, services with multiple backup schedules
+    // (cluster dump + N per-DB dumps) all collapse to the same label in
+    // the unified Schedules list. Migration 50 rewrites legacy rows the
+    // same way.
+    let database_name: Option<String> = db
+        .query_row(
+            "SELECT database_name FROM backup_schedules WHERE id = ?1",
+            [backup_schedule_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten();
+    let suffix = match database_name.as_deref() {
+        Some(name) if !name.is_empty() => format!(" ({name})"),
+        _ => " (cluster)".to_string(),
+    };
     let label = format!(
-        "Backup: {}",
+        "Backup: {}{suffix}",
         service_name.unwrap_or_else(|| service_id.to_string())
     );
     let config = format!("{{\"backup_schedule_id\":\"{backup_schedule_id}\"}}");
