@@ -15,6 +15,7 @@ pub mod events;
 pub mod federation;
 pub mod grants;
 pub mod images;
+pub mod install;
 pub mod invitations;
 // Note: `networks` (plural) is the Docker-networks management API.
 // `network` (singular) below is the host-level WireGuard mesh.
@@ -557,6 +558,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/network/mesh/enable", post(network::enable_mesh))
         .route("/network/mesh/disable", post(network::disable_mesh))
         .route("/network/mesh/configure", post(network::configure_mesh))
+        // Pre-flight: ask every node whether pier-net-helper is reachable
+        // so the Enable Mesh wizard can refuse to start with missing
+        // helpers instead of failing halfway through configure.
+        .route("/network/mesh/preflight", get(network::peer_preflight))
         // Federation grants — tokens that authorize another pier-core to
         // control this one. Owner-only because they grant Admin-equivalent
         // reach over every resource here.
@@ -572,5 +577,11 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
     Router::new()
         // Health at root level for easy monitoring
         .route("/health", get(health))
+        // Public retrofit installer for pier-net-helper. Lives at root
+        // so the curl-pipe-bash convention works (`curl -fsSL
+        // https://core/install-helper.sh | bash`). Unauthenticated by
+        // design — same trust model as the existing agent install
+        // script. See [`install::install_helper_script`].
+        .route("/install-helper.sh", get(install::install_helper_script))
         .nest("/api/v1", public.merge(protected))
 }

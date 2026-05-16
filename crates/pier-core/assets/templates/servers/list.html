@@ -110,6 +110,72 @@
         </template>
     </div>
 
+    <!-- Mesh preflight modal — listed peers that don't have pier-net-helper
+         reachable, with copy-paste install command. Opens automatically
+         when enableMesh() finds at least one node missing the helper, so
+         the user fixes everything up front instead of half-way through
+         configure. -->
+    <div x-show="showPreflight" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showPreflight = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4" @click.stop>
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Mesh preflight</h3>
+                <p class="text-xs text-gray-500 mt-1">
+                    Every node needs <span class="font-mono">pier-net-helper</span> running before mesh can come up.
+                    Run the command below on each missing node, then click <em>Re-check</em>.
+                </p>
+            </div>
+
+            <div class="space-y-1.5 max-h-60 overflow-y-auto">
+                <template x-for="p in (preflightResult.peers || [])" :key="p.server_id">
+                    <div class="flex items-center justify-between text-xs border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="w-1.5 h-1.5 rounded-full"
+                                  :class="p.helper_available ? 'bg-green-500' : 'bg-red-500'"></span>
+                            <span class="text-gray-700 dark:text-gray-300 truncate" x-text="p.name"></span>
+                            <span x-show="p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300">local</span>
+                            <span x-show="p.kind === 'peer' && !p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">peer</span>
+                        </div>
+                        <span class="text-right shrink-0"
+                              :class="p.helper_available ? 'text-green-600 dark:text-green-400' : 'text-red-500'"
+                              x-text="p.helper_available ? 'helper online' : (p.error || 'helper missing')"></span>
+                    </div>
+                </template>
+            </div>
+
+            <div x-show="!preflightResult.ok" class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-3 space-y-2">
+                <p class="text-xs text-amber-700 dark:text-amber-300">
+                    Run this command as root on every red node above:
+                </p>
+                <div class="flex items-center gap-2">
+                    <code class="flex-1 font-mono text-[11px] bg-gray-900 text-green-300 rounded px-2 py-1.5 overflow-x-auto whitespace-nowrap"
+                          x-text="preflightCommand()"></code>
+                    <button @click="copyPreflightCommand()"
+                            class="shrink-0 px-2.5 py-1.5 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-white">
+                        Copy
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
+                <button @click="showPreflight = false"
+                        class="px-3 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                    Cancel
+                </button>
+                <button :disabled="preflightLoading"
+                        @click="runPreflight()"
+                        class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-60">
+                    <span x-show="!preflightLoading">Re-check</span>
+                    <span x-show="preflightLoading">Checking…</span>
+                </button>
+                <button :disabled="!preflightResult.ok || meshLoading"
+                        @click="showPreflight = false; enableMeshAfterPreflight()"
+                        class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60 disabled:cursor-not-allowed">
+                    Enable Mesh
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Mesh edit modal — subnet/port/keepalive. Refused server-side
          when mesh is enabled or has peers, so this only opens in the
          disabled state and the button is hidden otherwise. -->
@@ -384,6 +450,11 @@ function serversData() {
         meshError: null,
         showMeshEdit: false,
         meshForm: { subnet: '10.42.0.0/24', listen_port: 51820, persistent_keepalive: 25 },
+        // Preflight state — populated by runPreflight(); modal shown
+        // only when enableMesh is invoked and at least one node fails.
+        showPreflight: false,
+        preflightLoading: false,
+        preflightResult: { ok: true, peers: [] },
 
         async init() {
             await this.refresh();
@@ -507,6 +578,19 @@ function serversData() {
             return active + '/' + total;
         },
         async enableMesh() {
+            // Preflight: refuse to start configure until every node has
+            // pier-net-helper reachable. Without this guard, configure
+            // aborts halfway through on the first missing helper and
+            // leaves the operator with a confusing partial state.
+            if (this.meshLoading || this.preflightLoading) return;
+            await this.runPreflight();
+            if (!this.preflightResult.ok) {
+                this.showPreflight = true;
+                return;
+            }
+            await this.enableMeshAfterPreflight();
+        },
+        async enableMeshAfterPreflight() {
             // Two-step: allocate IPs, then run install/keypair/apply.
             // Each call is independent so a network blip during step 2
             // leaves the allocation in place; the operator can re-run
@@ -534,6 +618,45 @@ function serversData() {
                 await this.refreshMesh();
             } finally {
                 this.meshLoading = false;
+            }
+        },
+        async runPreflight() {
+            this.preflightLoading = true;
+            try {
+                const res = await fetch('/api/v1/network/mesh/preflight').then(r => r.ok ? r.json() : null);
+                if (res) {
+                    this.preflightResult = res;
+                } else {
+                    this.preflightResult = { ok: false, peers: [], error: 'preflight endpoint unreachable' };
+                }
+            } catch (e) {
+                this.preflightResult = { ok: false, peers: [], error: e.message || String(e) };
+            } finally {
+                this.preflightLoading = false;
+            }
+        },
+        preflightCommand() {
+            // Build the curl-pipe-bash one-liner pointing at this core.
+            // window.location.origin includes scheme + host + port — the
+            // retrofit endpoint inside install.rs sets PIER_CORE_URL to
+            // a derived value too, but we want the operator to see the
+            // URL they actually typed in their browser. --insecure
+            // because the operator's pier-core often uses a self-signed
+            // cert that the retrofit node's CA store doesn't know.
+            const base = window.location.origin;
+            return 'curl -fsSL --insecure ' + base + '/install-helper.sh | sudo bash';
+        },
+        copyPreflightCommand() {
+            const cmd = this.preflightCommand();
+            try {
+                navigator.clipboard.writeText(cmd);
+                toast('Command copied');
+            } catch (e) {
+                // Fallback for older browsers / non-HTTPS dev origins
+                const t = document.createElement('textarea');
+                t.value = cmd; document.body.appendChild(t); t.select();
+                document.execCommand('copy'); document.body.removeChild(t);
+                toast('Command copied');
             }
         },
         async configureMesh() {

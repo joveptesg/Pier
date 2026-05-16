@@ -485,6 +485,96 @@ fn mark_error(state: &SharedState, server_id: &str, msg: &str) -> AppResult<()> 
     Ok(())
 }
 
+/// `GET /api/v1/network/mesh/preflight`
+///
+/// Fans out a `helper.status` check to every non-local server registered
+/// in `servers` and returns whether each one has a usable
+/// `pier-net-helper`. The UI runs this before showing the "Enable Mesh"
+/// button and refuses to proceed if any node returns `helper_available=
+/// false`, so the operator can copy the retrofit command up front rather
+/// than discovering the gap halfway through `configure_mesh`.
+///
+/// Why `status` and not a dedicated `preflight` op:
+/// - `status` already returns `interface_up` + a populated `{}` even when
+///   wg0 is down, *as long as the helper itself is reachable*. That's
+///   exactly what "is the helper installed and listening" means.
+/// - A transport error from `mesh_call::dispatch` (socket missing, agent
+///   down) is what we map to `helper_available=false` here.
+///
+/// Local node uses the unix socket directly. Remote nodes go through
+/// the agent's `/api/v1/agent/mesh/{op}` proxy, which is what the same
+/// status panel uses post-enable — so a green preflight here is a strong
+/// guarantee the actual provision pass will work.
+pub async fn peer_preflight(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let servers = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt = db.prepare(
+            "SELECT id, name, kind, is_local FROM servers ORDER BY is_local DESC, name",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)? != 0,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>();
+        rows
+    };
+
+    let mut results = Vec::with_capacity(servers.len());
+    for (id, name, kind, is_local) in servers {
+        // Peer-kind nodes don't expose `/api/v1/agent/mesh/{op}` yet —
+        // their helper installation path is the retrofit script. Mark
+        // them as unknown so the UI surfaces the install command
+        // without erroring out.
+        if kind == "peer" && !is_local {
+            results.push(serde_json::json!({
+                "server_id": id,
+                "name": name,
+                "kind": kind,
+                "is_local": is_local,
+                "helper_available": false,
+                "checked": false,
+                "error": "peer-kind retrofit required — run /install-helper.sh on this node",
+            }));
+            continue;
+        }
+
+        let outcome = dispatch(&state, &id, "status", &serde_json::json!({})).await;
+        let (available, error) = match outcome {
+            Ok(MeshOpResult { ok: true, .. }) => (true, None),
+            Ok(MeshOpResult {
+                ok: false, error, ..
+            }) => (false, error.or(Some("helper rejected status".into()))),
+            Err(e) => (false, Some(format!("transport: {e:#}"))),
+        };
+        results.push(serde_json::json!({
+            "server_id": id,
+            "name": name,
+            "kind": kind,
+            "is_local": is_local,
+            "helper_available": available,
+            "checked": true,
+            "error": error,
+        }));
+    }
+
+    let all_ok = results
+        .iter()
+        .all(|r| r["helper_available"].as_bool().unwrap_or(false));
+    Ok(Json(serde_json::json!({
+        "ok": all_ok,
+        "peers": results,
+    })))
+}
+
 #[derive(Default, Deserialize)]
 pub struct DisableMeshRequest {
     /// When true, also tell each helper to `apt-get purge wireguard` and
