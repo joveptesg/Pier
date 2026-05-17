@@ -1167,6 +1167,55 @@ const MIGRATIONS: &[&str] = &[
             WHERE 'sched-bk-' || bs.id = schedules.id
        );
     "#,
+    // Migration 51: Write-federation foundation (Etap 2.1).
+    //
+    // Peer pier-core can now accept a long-lived `federation_token` from
+    // a remote primary pier-core. Token plaintext lives only in the
+    // operator's clipboard during pairing; we keep just its SHA-256 hash
+    // and an 8-char prefix for the UI. Schema mirrors `peer_grants`
+    // (migration 30) but for the opposite direction — peer GRANTING a
+    // primary write access, vs peer-cores reading from each other.
+    //
+    // Why a separate table and not an extension of `peer_grants`:
+    // - `peer_grants` carries the full plaintext token (legacy reasons).
+    //   New surface gets to start clean with hashing-only.
+    // - Audit trail per-token (last_used_at) for revocation hygiene
+    //   needs its own column set.
+    // - Federation tokens grant a strictly narrower scope (only
+    //   `/api/v1/agent/*`, no UI sessions), so mixing them with the
+    //   broad-scope peer_grants would be a foot-gun.
+    //
+    // Ownership tracking: each `services` (compose stack) and `projects`
+    // row gains an `owner_server_id` column. NULL means "managed by this
+    // peer's own UI" — the legacy case for every pre-existing row.
+    // Non-NULL stores `federation_tokens.id`, so we can attribute a
+    // stack to "the primary identified by token X". Tokens are
+    // groupable later (a future migration could add a `primary_id`
+    // grouping if we let one primary rotate through multiple tokens),
+    // but MVP keeps it 1:1.
+    r#"
+    CREATE TABLE IF NOT EXISTS federation_tokens (
+        id              TEXT PRIMARY KEY NOT NULL,
+        token_hash      TEXT NOT NULL UNIQUE,
+        token_prefix    TEXT NOT NULL,
+        label           TEXT NOT NULL,
+        is_active       INTEGER NOT NULL DEFAULT 1,
+        created_at      INTEGER NOT NULL,
+        last_used_at    INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_federation_tokens_hash
+        ON federation_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_federation_tokens_active
+        ON federation_tokens(is_active);
+
+    ALTER TABLE services ADD COLUMN owner_server_id TEXT;
+    ALTER TABLE projects ADD COLUMN owner_server_id TEXT;
+
+    CREATE INDEX IF NOT EXISTS idx_services_owner_server_id
+        ON services(owner_server_id);
+    CREATE INDEX IF NOT EXISTS idx_projects_owner_server_id
+        ON projects(owner_server_id);
+    "#,
 ];
 
 /// Run all pending database migrations.
