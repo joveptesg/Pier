@@ -176,6 +176,108 @@
         </div>
     </div>
 
+    <!-- Service DNS card.
+         Logical name → server:port mappings. Pier injects each row
+         as `<name>.mesh` into every locally-managed stack's
+         extra_hosts on deploy, so consumer stacks reference services
+         by role (`db.mesh`, `cache.mesh`) instead of by host
+         (`vps3.mesh`). Mutations spawn a background redeploy of all
+         running stacks so the change reaches existing containers
+         within seconds. -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-4">
+        <div class="flex items-start justify-between gap-4">
+            <div class="flex items-start gap-3">
+                <div class="w-9 h-9 bg-emerald-50 dark:bg-emerald-600/10 rounded-lg flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5 text-emerald-500 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M4 6h16M4 12h16M4 18h7"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Service DNS</h3>
+                    <p class="text-xs text-gray-500" x-show="!serviceDns.length">
+                        No mappings. Register a logical name so stacks can refer to a service by role instead of node.
+                    </p>
+                    <p class="text-xs text-gray-500" x-show="serviceDns.length"
+                       x-text="serviceDns.length + ' mapping(s) — stacks redeploy automatically on change'"></p>
+                </div>
+            </div>
+            <button @click="showServiceDnsForm = true; serviceDnsForm = { name: '', server_id: '', port: '', service_id: '' }; serviceDnsEditing = null"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">
+                + New
+            </button>
+        </div>
+
+        <div x-show="serviceDns.length" class="border-t border-gray-200 dark:border-gray-800 pt-3 space-y-1.5">
+            <template x-for="m in serviceDns" :key="m.name">
+                <div class="flex items-center justify-between text-xs">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="font-mono text-emerald-600 dark:text-emerald-400" x-text="m.name + '.mesh'"></span>
+                        <span class="text-gray-400">→</span>
+                        <span class="text-gray-700 dark:text-gray-300 truncate"
+                              x-text="(m.server_name || m.server_id) + ':' + m.port"></span>
+                    </div>
+                    <div class="flex items-center gap-3 text-right">
+                        <button @click="editServiceDns(m)"
+                                class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Edit</button>
+                        <button @click="deleteServiceDns(m.name)"
+                                class="text-red-500 hover:text-red-700">Delete</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Service DNS: create / edit modal. Same form re-used for both
+         paths; serviceDnsEditing holds the original name when editing
+         (PUT lands on /{name}, name field disabled because PRIMARY
+         KEY is on name and renaming = delete+create). -->
+    <div x-show="showServiceDnsForm" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showServiceDnsForm = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4" @click.stop>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white"
+                x-text="serviceDnsEditing ? 'Edit ' + serviceDnsEditing + '.mesh' : 'New service-DNS mapping'"></h3>
+            <p class="text-xs text-gray-500">
+                A name like <span class="font-mono">db</span> becomes <span class="font-mono">db.mesh</span> in every stack. Lowercase, [a-z0-9-], 1-31 chars.
+            </p>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                <input x-model="serviceDnsForm.name" type="text"
+                       :disabled="serviceDnsEditing !== null"
+                       placeholder="db"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono disabled:opacity-60">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Target server</label>
+                <select x-model="serviceDnsForm.server_id"
+                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm">
+                    <option value="">— select —</option>
+                    <template x-for="s in (servers || [])" :key="s.id">
+                        <option :value="s.id" x-text="s.name + (s.is_local ? ' (local)' : '')"></option>
+                    </template>
+                </select>
+                <p class="text-[11px] text-gray-500 mt-1">Only meshed servers actually inject; non-mesh peers are silently skipped at deploy time.</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port</label>
+                <input x-model.number="serviceDnsForm.port" type="number" min="1" max="65535"
+                       placeholder="5432"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm">
+            </div>
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
+                <button @click="showServiceDnsForm = false"
+                        class="px-3 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                    Cancel
+                </button>
+                <button :disabled="serviceDnsBusy || !serviceDnsForm.name || !serviceDnsForm.server_id || !serviceDnsForm.port"
+                        @click="saveServiceDns()"
+                        class="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60">
+                    <span x-show="!serviceDnsBusy" x-text="serviceDnsEditing ? 'Save' : 'Create'"></span>
+                    <span x-show="serviceDnsBusy">Working…</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Federation Tokens card.
          Lets the operator mint federation tokens so a remote primary
          pier-core can drive /api/v1/agent/* on this peer. Plaintext is
@@ -563,6 +665,15 @@ function serversData() {
         showPreflight: false,
         preflightLoading: false,
         preflightResult: { ok: true, peers: [] },
+        // Service-DNS state (Etap 3.5). serviceDnsEditing is the
+        // original `name` of the row being edited (or null for new).
+        // Form is re-used for both paths so the field set stays in
+        // sync between create and edit.
+        serviceDns: [],
+        showServiceDnsForm: false,
+        serviceDnsBusy: false,
+        serviceDnsEditing: null,
+        serviceDnsForm: { name: '', server_id: '', port: '', service_id: '' },
         // Federation tokens (peer-side issuance) — populated from
         // /api/v1/federation-tokens. revealedFedToken holds the
         // plaintext just shown after a POST, cleared as soon as the
@@ -579,10 +690,12 @@ function serversData() {
             this.servers = await fetch('/api/v1/servers').then(r => r.ok ? r.json() : []).catch(() => []);
             await this.refreshMesh();
             await this.refreshFedTokens();
+            await this.refreshServiceDns();
             setInterval(() => this.refresh(), 5000);
             setInterval(() => this.refreshServers(), 5000);
             setInterval(() => this.refreshMesh(), 5000);
             setInterval(() => this.refreshFedTokens(), 10000);
+            setInterval(() => this.refreshServiceDns(), 10000);
         },
         async refresh() {
             try {
@@ -843,6 +956,64 @@ function serversData() {
             if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
             if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
             return Math.floor(diff / 86400) + 'd ago';
+        },
+        // ─── Service DNS (mesh-layer logical names) ────────────────────
+        async refreshServiceDns() {
+            try {
+                const rows = await fetch('/api/v1/network/service-dns').then(r => r.ok ? r.json() : []);
+                this.serviceDns = rows || [];
+            } catch (e) { /* silent */ }
+        },
+        editServiceDns(m) {
+            this.serviceDnsEditing = m.name;
+            this.serviceDnsForm = {
+                name: m.name,
+                server_id: m.server_id,
+                port: m.port,
+                service_id: m.service_id || '',
+            };
+            this.showServiceDnsForm = true;
+        },
+        async saveServiceDns() {
+            const f = this.serviceDnsForm;
+            const body = {
+                server_id: f.server_id,
+                port: parseInt(f.port, 10),
+                service_id: f.service_id ? f.service_id : null,
+            };
+            this.serviceDnsBusy = true;
+            try {
+                if (this.serviceDnsEditing) {
+                    await api('/api/v1/network/service-dns/' + encodeURIComponent(this.serviceDnsEditing), {
+                        method: 'PUT',
+                        body: JSON.stringify(body),
+                    });
+                    toast('Mapping updated; redeploying stacks');
+                } else {
+                    await api('/api/v1/network/service-dns', {
+                        method: 'POST',
+                        body: JSON.stringify({ name: f.name.trim().toLowerCase(), ...body }),
+                    });
+                    toast('Mapping created; redeploying stacks');
+                }
+                this.showServiceDnsForm = false;
+                this.serviceDnsEditing = null;
+                await this.refreshServiceDns();
+            } catch (e) {
+                toast('Save failed: ' + (e.message || e), 'error');
+            } finally {
+                this.serviceDnsBusy = false;
+            }
+        },
+        async deleteServiceDns(name) {
+            if (!confirm('Delete mapping "' + name + '.mesh"? Stacks referring to it will lose the host on their next redeploy.')) return;
+            try {
+                await api('/api/v1/network/service-dns/' + encodeURIComponent(name), { method: 'DELETE' });
+                toast('Mapping removed; redeploying stacks');
+                await this.refreshServiceDns();
+            } catch (e) {
+                toast('Delete failed: ' + (e.message || e), 'error');
+            }
         },
         async configureMesh() {
             // Re-run install/keypair/apply on whatever's in
