@@ -250,6 +250,19 @@ pub async fn release_stack(peer: &WritePeer, stack_id: &str) -> Result<Value> {
     .await
 }
 
+/// Rotate the federation token. Peer mints a new secret in-place,
+/// returns the plaintext exactly once. Caller is expected to persist
+/// the returned plaintext to `servers.federation_token` **before**
+/// the next federation call (otherwise the next call will 401 with
+/// the now-stale token).
+pub async fn rotate_token(peer: &WritePeer) -> Result<String> {
+    let v = post(peer, "/rotate-token", &serde_json::json!({})).await?;
+    v.get("token")
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow!("peer {} returned no token field", peer.name))
+}
+
 /// Fetch a snapshot of `docker compose logs` for a federated stack.
 /// Returns the body as plain text (peer endpoint sets the right MIME).
 pub async fn stack_logs(peer: &WritePeer, stack_id: &str, tail: u64) -> Result<String> {

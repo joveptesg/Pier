@@ -1232,6 +1232,17 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE servers ADD COLUMN federation_token TEXT;
     "#,
+    // Migration 53: Federation-token rotation timestamp (Etap 2.9).
+    //
+    // The agent-token rotator (Etap 0.4 / migration 42) keys off
+    // servers.token_rotated_at. Reusing that column for federation
+    // tokens would conflate two unrelated rotation cycles on the same
+    // row, so we add a parallel column dedicated to federation. NULL
+    // means "never rotated" — treat it as "rotate-on-first-tick after
+    // pairing", same semantics as token_rotated_at NULL for agents.
+    r#"
+    ALTER TABLE servers ADD COLUMN federation_token_rotated_at INTEGER;
+    "#,
 ];
 
 /// Run all pending database migrations.

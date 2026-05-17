@@ -660,6 +660,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/release/{stack_id}",
             post(federation_agent::release_stack),
         )
+        .route("/rotate-token", post(federation_agent::rotate_token))
         .layer(axum::middleware::from_fn_with_state(
             state,
             crate::auth::federation::require_federation,

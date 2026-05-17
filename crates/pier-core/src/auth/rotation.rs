@@ -68,8 +68,96 @@ pub fn start_scheduler(state: SharedState) {
                     ),
                 }
             }
+
+            // Federation tokens for paired peers follow the same
+            // cadence — the cliff between old and new is shorter for
+            // them (peer's UPDATE happens in-band with the rotate
+            // call) but the pressure for rotation is the same.
+            let due_fed = match collect_due_federation(&state, cutoff) {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::warn!("rotation: collect_due_federation failed: {e}");
+                    continue;
+                }
+            };
+            for (id, name) in due_fed {
+                match rotate_federation_token_internal(&state, &id).await {
+                    Ok(prefix) => tracing::info!(
+                        "rotation: peer {name} ({id}) federation token rotated to {prefix}"
+                    ),
+                    Err(e) => tracing::warn!(
+                        "rotation: peer {name} ({id}) federation rotation failed: {e}; will retry next tick"
+                    ),
+                }
+            }
         }
     });
+}
+
+/// Identical to `collect_due` but for `kind='peer'` rows with a paired
+/// `federation_token`. NULL `federation_token_rotated_at` is treated as
+/// "rotate-on-first-tick" — same semantics as the agent side.
+fn collect_due_federation(
+    state: &SharedState,
+    cutoff: i64,
+) -> anyhow::Result<Vec<(String, String)>> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let mut stmt = db.prepare(
+        "SELECT id, name FROM servers \
+         WHERE kind = 'peer' \
+           AND is_local = 0 \
+           AND federation_token IS NOT NULL \
+           AND federation_token <> '' \
+           AND (federation_token_rotated_at IS NULL OR federation_token_rotated_at < ?1) \
+         ORDER BY federation_token_rotated_at NULLS FIRST, name",
+    )?;
+    let rows = stmt
+        .query_map([cutoff], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+/// Drive one peer's federation token rotation. Steps:
+///   1. Resolve a `WritePeer` from current `servers.federation_token`.
+///   2. Call peer's `/api/v1/agent/rotate-token`; peer mints + persists
+///      a new hash for the same row id, returns plaintext.
+///   3. Persist plaintext to `servers.federation_token` and stamp
+///      `federation_token_rotated_at`.
+///
+/// If step 3 fails the operator is left with peer hashed-and-updated
+/// but primary still holding the old token — the next federation call
+/// will 401. We deliberately log+continue rather than try to roll back
+/// the peer (peer's rotation is intentionally one-way for simplicity);
+/// the operator can re-pair manually from /servers/<id>.
+async fn rotate_federation_token_internal(
+    state: &SharedState,
+    server_id: &str,
+) -> anyhow::Result<String> {
+    let peer = crate::federation::write_client::lookup_write_peer(state, server_id)?
+        .ok_or_else(|| anyhow::anyhow!("peer {server_id} not paired for federation"))?;
+    let new_plaintext = crate::federation::write_client::rotate_token(&peer).await?;
+    let now = chrono::Utc::now().timestamp();
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "UPDATE servers \
+             SET federation_token = ?1, federation_token_rotated_at = ?2, \
+                 updated_at = datetime('now') \
+             WHERE id = ?3",
+            rusqlite::params![new_plaintext, now, server_id],
+        )?;
+    }
+    // Return the visible prefix only — we never log the full plaintext.
+    Ok(new_plaintext.chars().take(16).collect())
 }
 
 fn rotation_enabled(state: &SharedState) -> bool {

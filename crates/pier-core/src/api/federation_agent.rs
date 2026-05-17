@@ -389,6 +389,44 @@ pub async fn stack_logs_ws(
     }))
 }
 
+/// POST /api/v1/agent/rotate-token
+///
+/// Mints a fresh secret for the **current** federation_tokens row (the
+/// one that authenticated this call), persists its hash + prefix, and
+/// returns the new plaintext exactly once. Primary uses this in its
+/// scheduled rotator to roll federation credentials without operator
+/// intervention; identity of the row stays the same so every
+/// `owner_server_id` reference keeps pointing at the right primary.
+///
+/// We do NOT invalidate the old hash here — the caller (primary) is
+/// presenting that very hash to authenticate the call. The next call
+/// the primary makes will arrive with the new plaintext, hash mismatch
+/// on the old one will produce 401 if it's ever re-used, and that's
+/// the rotation cliff. Refusing the same in-flight call would race
+/// with primary's "store the new token" step.
+pub async fn rotate_token(
+    State(state): State<SharedState>,
+    Extension(ctx): Extension<FederationContext>,
+) -> AppResult<impl IntoResponse> {
+    let issued = crate::auth::federation::generate();
+    let new_hash = crate::auth::federation::hash(&issued.plaintext);
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    db.execute(
+        "UPDATE federation_tokens \
+         SET token_hash = ?1, token_prefix = ?2 \
+         WHERE id = ?3",
+        rusqlite::params![new_hash, issued.prefix, ctx.token_id],
+    )?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "token": issued.plaintext,
+        "token_prefix": issued.prefix,
+    })))
+}
+
 /// POST /api/v1/agent/release/{stack_id}
 ///
 /// Returns the stack to the peer's own UI. Doesn't touch the running
