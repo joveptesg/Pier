@@ -1,6 +1,7 @@
 pub mod api_token;
 pub mod audit;
 pub mod cookie;
+pub mod federation;
 pub mod handlers;
 pub mod middleware;
 pub mod partial_token;
