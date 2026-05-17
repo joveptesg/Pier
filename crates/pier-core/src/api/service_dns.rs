@@ -118,7 +118,14 @@ pub async fn create(
         rusqlite::params![name, body.server_id, body.service_id, body.port, now],
     );
     match result {
-        Ok(_) => Ok(Json(serde_json::json!({"ok": true, "name": name}))),
+        Ok(_) => {
+            drop(db);
+            // Existing containers cache extra_hosts at create-time, so
+            // a fresh row only reaches them after a redeploy. Kick that
+            // in the background so the API call stays fast.
+            crate::deploy::spawn_redeploy_all_compose(state.clone());
+            Ok(Json(serde_json::json!({"ok": true, "name": name, "redeploy": "queued"})))
+        }
         Err(rusqlite::Error::SqliteFailure(err, _))
             if err.code == rusqlite::ErrorCode::ConstraintViolation =>
         {
@@ -176,7 +183,13 @@ pub async fn update(
             "service-DNS mapping '{name}' not found"
         )));
     }
-    Ok(Json(serde_json::json!({"ok": true, "name": name})))
+    drop(db);
+    crate::deploy::spawn_redeploy_all_compose(state.clone());
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "name": name,
+        "redeploy": "queued",
+    })))
 }
 
 /// DELETE /api/v1/network/service-dns/{name}
@@ -195,7 +208,13 @@ pub async fn remove(
             "service-DNS mapping '{name}' not found"
         )));
     }
-    Ok(Json(serde_json::json!({"ok": true, "action": "deleted"})))
+    drop(db);
+    crate::deploy::spawn_redeploy_all_compose(state.clone());
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "action": "deleted",
+        "redeploy": "queued",
+    })))
 }
 
 /// Validate a hostname leaf. Mirrors RFC 1123 label rules tightened to

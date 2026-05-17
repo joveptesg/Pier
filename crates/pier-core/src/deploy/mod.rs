@@ -1491,6 +1491,88 @@ pub fn mesh_hosts_for_inject(state: &crate::state::AppState) -> Vec<(String, Str
     out
 }
 
+/// Redeploy every locally-managed compose stack to pick up a fresh
+/// `extra_hosts` map. Used by the service-DNS CRUD endpoints to make
+/// changes visible to running containers — extra_hosts is only read
+/// at container create-time, so a `docker compose up -d` against the
+/// existing spec is what actually plumbs the new entry through.
+///
+/// Async background task. Per-stack failures are logged at WARN but
+/// don't abort the rest of the pass — the operator's intent is "best
+/// effort, get most stacks pointing at the new IP" and we shouldn't
+/// hold up the API response or strand the remaining stacks just
+/// because one of them had an image pull glitch.
+pub fn spawn_redeploy_all_compose(state: crate::state::SharedState) {
+    tokio::spawn(async move {
+        // Snapshot the candidate list under the DB lock, then release
+        // before any docker work. Each redeploy can take seconds, so
+        // holding the lock across the loop would block every other
+        // request.
+        let candidates: Vec<(String, String, String)> = {
+            let db = match state.db.lock() {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::warn!("redeploy_all_compose: DB lock: {e}");
+                    return;
+                }
+            };
+            let mut stmt = match db.prepare(
+                "SELECT id, name, compose_content \
+                 FROM services \
+                 WHERE service_type = 'compose' \
+                   AND compose_content IS NOT NULL \
+                   AND compose_content <> '' \
+                   AND status = 'running' \
+                   AND owner_server_id IS NULL",
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("redeploy_all_compose: prepare: {e}");
+                    return;
+                }
+            };
+            let rows = match stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            }) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("redeploy_all_compose: query: {e}");
+                    return;
+                }
+            };
+            rows.filter_map(|r| r.ok()).collect()
+        };
+
+        if candidates.is_empty() {
+            tracing::debug!("redeploy_all_compose: no running stacks to refresh");
+            return;
+        }
+        tracing::info!(
+            "redeploy_all_compose: refreshing {} stack(s) after mesh-hosts change",
+            candidates.len()
+        );
+
+        for (id, name, yaml) in candidates {
+            // Same auth-map pickup as `api::compose::deploy` — private
+            // registry credentials still apply to a redeploy.
+            let auth = state
+                .db
+                .lock()
+                .ok()
+                .and_then(|db| crate::docker::auth::auth_map_for_service(&db, &id).ok())
+                .filter(|m| !m.is_empty());
+            match crate::docker::deploy_service_stack(&state, &id, &name, &yaml, auth).await {
+                Ok(_) => tracing::info!("redeploy_all_compose: {name} ok"),
+                Err(e) => tracing::warn!("redeploy_all_compose: {name} failed: {e}"),
+            }
+        }
+    });
+}
+
 fn normalize_mesh_hostname(name: &str) -> String {
     let mut s = String::with_capacity(name.len() + 5);
     let mut prev_dash = true; // suppress leading dashes
