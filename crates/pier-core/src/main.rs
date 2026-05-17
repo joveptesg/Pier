@@ -444,6 +444,12 @@ async fn main() -> Result<()> {
                             "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.enabled', 'true')",
                             [],
                         );
+                        // Clear any prior auto-start error so the /setup banner
+                        // disappears once Traefik is up.
+                        let _ = db.execute(
+                            "DELETE FROM settings WHERE key IN ('proxy.last_error', 'proxy.last_error_at')",
+                            [],
+                        );
                     }
                     // Write platform domain config if set. Normalize the stored
                     // value on startup — older installs may have full URLs (with
@@ -480,7 +486,24 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
-                Err(e) => tracing::warn!("Proxy auto-start failed: {e}"),
+                Err(e) => {
+                    tracing::warn!("Proxy auto-start failed: {e}");
+                    // Persist for /setup banner and operator visibility.
+                    // The error message is rendered to the operator verbatim;
+                    // pier's deploy_traefik already formats user-facing strings.
+                    let msg = e.to_string();
+                    let now = chrono::Utc::now().to_rfc3339();
+                    if let Ok(db) = proxy_state.db.lock() {
+                        let _ = db.execute(
+                            "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.last_error', ?1)",
+                            [&msg],
+                        );
+                        let _ = db.execute(
+                            "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.last_error_at', ?1)",
+                            [&now],
+                        );
+                    }
+                }
             }
         });
     }

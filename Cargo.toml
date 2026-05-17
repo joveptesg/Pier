@@ -47,7 +47,7 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 sysinfo = "0.38.3"
 
 # Templates & UI
-minijinja = { version = "2.16", features = ["loader"] }
+minijinja = { version = "2.19", features = ["loader", "json"] }
 rust-embed = { version = "8.11", features = ["compression"] }
 
 # Auth & Crypto

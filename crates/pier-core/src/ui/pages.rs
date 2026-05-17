@@ -52,12 +52,23 @@ pub async fn setup_page(
     State(state): State<SharedState>,
     Query(q): Query<HashMap<String, String>>,
 ) -> PageResult {
-    let count: u32 = {
+    // Pull both the user count and the (optional) proxy auto-start error
+    // in one DB lock acquisition so we don't take the mutex twice.
+    let (count, proxy_error) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?
+        let count: u32 = db.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
+        let proxy_error: Option<String> = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'proxy.last_error'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .filter(|v| !v.is_empty());
+        (count, proxy_error)
     };
 
     if count > 0 {
@@ -72,7 +83,7 @@ pub async fn setup_page(
     render(
         &state,
         "setup.html",
-        minijinja::context! { setup_token => supplied },
+        minijinja::context! { setup_token => supplied, proxy_error => proxy_error },
     )
 }
 

@@ -2,6 +2,22 @@
 {% block title %}Setup{% endblock %}
 
 {% block content %}
+{% if proxy_error %}
+<div class="mb-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4 text-sm text-amber-900 dark:text-amber-200">
+    <div class="flex items-start gap-2">
+        <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        <div class="flex-1 min-w-0">
+            <p class="font-semibold">Reverse-proxy (Traefik) не запустился</p>
+            <p class="mt-1 text-xs break-words text-amber-800 dark:text-amber-300">{{ proxy_error }}</p>
+            <p class="mt-3 text-xs">Это часто из-за rate-limit Docker Hub на shared-IP VPS. Чтобы починить вручную, выполните на сервере:</p>
+            <pre class="mt-1.5 text-xs bg-amber-100 dark:bg-amber-500/20 p-2 rounded overflow-x-auto"><code>docker pull mirror.gcr.io/library/traefik:v3.3
+docker tag mirror.gcr.io/library/traefik:v3.3 traefik:v3.3
+sudo systemctl restart pier</code></pre>
+            <p class="mt-2 text-xs">После рестарта Pier переподнимет Traefik автоматически. На /setup эта плашка пропадёт.</p>
+        </div>
+    </div>
+</div>
+{% endif %}
 <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6" x-data="setupForm()">
     <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Create Admin Account</h2>
     <p class="text-sm text-gray-500 mb-6">First-time setup. Create the administrator account.</p>
