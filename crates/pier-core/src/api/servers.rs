@@ -964,6 +964,52 @@ pub async fn heartbeat(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(Deserialize)]
+pub struct SetFederationTokenRequest {
+    /// Plaintext token the operator copied from the peer's UI.
+    /// Empty string clears the field (effectively un-pairs).
+    pub token: String,
+}
+
+/// PUT /api/v1/servers/{id}/federation-token
+///
+/// Primary-side companion to migration 52. Stores the plaintext
+/// federation token the operator copied from the peer's federation
+/// settings page. Only meaningful for `kind='peer'` rows — the peer
+/// is what mints federation tokens; an agent never does.
+///
+/// Validation is intentionally light: the actual proof that the token
+/// works happens when the next federation write call returns 200.
+/// Storing a garbage value here only breaks future writes, it doesn't
+/// expose anything.
+pub async fn set_federation_token(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<SetFederationTokenRequest>,
+) -> AppResult<impl IntoResponse> {
+    let token = body.token.trim().to_string();
+    let store_value = if token.is_empty() { None } else { Some(token) };
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let rows = db.execute(
+        "UPDATE servers SET federation_token = ?1, updated_at = datetime('now') \
+         WHERE id = ?2 AND kind = 'peer'",
+        rusqlite::params![store_value, id],
+    )?;
+    if rows == 0 {
+        return Err(AppError::NotFound(format!(
+            "Peer {id} not found (federation tokens are only valid for kind='peer')"
+        )));
+    }
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "paired": store_value.is_some(),
+    })))
+}
+
 /// PUT /api/v1/servers/{id}/name — rename server.
 pub async fn rename(
     State(state): State<SharedState>,
@@ -1013,7 +1059,9 @@ pub async fn get(
                 is_local, created_at, country, city, country_code,
                 agent_token_prefix, bootstrap_expires_at,
                 CASE WHEN bootstrap_token_hash IS NULL THEN 0 ELSE 1 END AS bootstrap_pending,
-                token_rotated_at, token_version
+                token_rotated_at, token_version,
+                CASE WHEN federation_token IS NULL OR federation_token = ''
+                     THEN 0 ELSE 1 END AS federation_paired
          FROM servers WHERE id = ?1",
             [&id],
             |row| {
@@ -1046,6 +1094,7 @@ pub async fn get(
                     "bootstrap_pending": row.get::<_, i64>(21)? == 1,
                     "token_rotated_at": row.get::<_, Option<i64>>(22)?,
                     "token_version": row.get::<_, i64>(23)?,
+                    "federation_paired": row.get::<_, i64>(24)? == 1,
                 }))
             },
         )

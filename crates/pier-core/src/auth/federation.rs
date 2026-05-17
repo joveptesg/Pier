@@ -17,9 +17,9 @@
 //!   needs to know **which** token wrote the row. Putting that in
 //!   `req.extensions()` here makes the downstream handlers trivial.
 
-// Most items here are referenced only by /api/v1/agent/* (2.3) and the
-// token-management handlers (2.5). Until those land the symbols look
-// unused — re-evaluate this allow once those phases are committed.
+// `IssuedFederationToken` is currently only constructed by `generate()`
+// inside `api::federation_tokens::create`; the unused fields warning
+// is a false-positive about the public shape, not the runtime path.
 #![allow(dead_code)]
 
 use axum::extract::{Request, State};

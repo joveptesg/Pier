@@ -14,6 +14,7 @@ pub mod env;
 pub mod events;
 pub mod federation;
 pub mod federation_agent;
+pub mod federation_tokens;
 pub mod grants;
 pub mod images;
 pub mod install;
@@ -472,6 +473,25 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/{id}/name", put(servers::rename))
         .route("/servers/{id}/test", post(servers::test_connection))
         .route("/servers/{id}/rotate", post(servers::rotate_token))
+        // Primary-side: store the plaintext federation token the operator
+        // copied from a peer's federation_tokens settings page. Only
+        // meaningful for kind='peer' rows; agents don't mint these.
+        .route(
+            "/servers/{id}/federation-token",
+            put(servers::set_federation_token),
+        )
+        // Peer-side: CRUD over this peer's federation_tokens — the
+        // tokens it mints so a primary can drive /api/v1/agent/*.
+        // Plain admin-level routes (require_auth above) — the actual
+        // federation surface they gate sits on a separate auth path.
+        .route(
+            "/federation-tokens",
+            get(federation_tokens::list).post(federation_tokens::create),
+        )
+        .route(
+            "/federation-tokens/{id}",
+            delete(federation_tokens::revoke),
+        )
         .route("/servers/{id}/deploy", post(servers::deploy_to_server))
         .route("/servers/{id}/stop", post(servers::stop_on_server))
         .route("/servers/{id}/promote-bundle", get(promote::bundle))

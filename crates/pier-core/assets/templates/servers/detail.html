@@ -300,6 +300,43 @@ systemctl enable --now pier</pre>
          pier-agent via systemd — the old token dies the moment the unit
          restarts, so a leaked unit file or process listing buys an
          attacker only the time until the next rotation. -->
+    <!-- Federation token (peer-kind only). Stores the plaintext token
+         minted on the peer's UI; primary attaches it as X-Pier-Federation
+         on every write call to /api/v1/agent/* there. -->
+    <template x-if="server.kind === 'peer'">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Federation token</h3>
+                <span class="text-xs"
+                      :class="fedPaired ? 'text-green-600 dark:text-green-400' : 'text-gray-500'"
+                      x-text="fedPaired ? 'paired' : 'not paired'"></span>
+            </div>
+            <p class="text-xs text-gray-500 mb-3">
+                Paste the plaintext token this peer minted under
+                <span class="font-mono">/servers</span> → Federation Tokens →
+                <em>New Token</em>. Pier stores it as plaintext (same
+                trade-off as <span class="font-mono">agent_token</span>);
+                we never re-display it after saving.
+            </p>
+            <div class="flex items-center gap-2">
+                <input x-model="fedTokenInput" type="password"
+                       placeholder="pier_fed_…"
+                       class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono">
+                <button @click="saveFedToken()"
+                        :disabled="fedTokenBusy || !fedTokenInput"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-60">
+                    <span x-show="!fedTokenBusy">Save</span>
+                    <span x-show="fedTokenBusy">Working…</span>
+                </button>
+                <button x-show="fedPaired" @click="clearFedToken()"
+                        :disabled="fedTokenBusy"
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 disabled:opacity-60">
+                    Clear
+                </button>
+            </div>
+        </div>
+    </template>
+
     <template x-if="server.kind === 'agent' && !server.bootstrap_pending && server.agent_token_prefix">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-2">
@@ -346,6 +383,9 @@ function serverDetail(serverId) {
         promoteDetach: true,
         promoteResult: null,
         rotating: false,
+        // Federation token (peer-kind only)
+        fedTokenInput: '',
+        fedTokenBusy: false,
         _interval: null,
 
         async init() {
@@ -531,6 +571,46 @@ function serverDetail(serverId) {
                 return new Date(ts * 1000).toLocaleString();
             } catch {
                 return '';
+            }
+        },
+
+        get fedPaired() {
+            return !!(this.server && this.server.federation_paired);
+        },
+        async saveFedToken() {
+            if (this.fedTokenBusy) return;
+            const token = (this.fedTokenInput || '').trim();
+            if (!token) return;
+            this.fedTokenBusy = true;
+            try {
+                await api('/api/v1/servers/' + this.serverId + '/federation-token', {
+                    method: 'PUT',
+                    body: JSON.stringify({ token }),
+                });
+                this.fedTokenInput = '';
+                toast('Federation paired');
+                await this.fetchServer();
+            } catch (e) {
+                toast('Save failed: ' + (e.message || e), 'error');
+            } finally {
+                this.fedTokenBusy = false;
+            }
+        },
+        async clearFedToken() {
+            if (this.fedTokenBusy) return;
+            if (!confirm('Unpair federation? Primary will lose the ability to deploy/restart stacks on this peer until you paste a fresh token.')) return;
+            this.fedTokenBusy = true;
+            try {
+                await api('/api/v1/servers/' + this.serverId + '/federation-token', {
+                    method: 'PUT',
+                    body: JSON.stringify({ token: '' }),
+                });
+                toast('Federation unpaired');
+                await this.fetchServer();
+            } catch (e) {
+                toast('Unpair failed: ' + (e.message || e), 'error');
+            } finally {
+                this.fedTokenBusy = false;
             }
         },
 
