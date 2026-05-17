@@ -83,8 +83,12 @@ const ABBREVIATED_KEYS: &[&str] = &[
 ///
 /// Rate-limit profile (per peer IP):
 /// - Read endpoints (packument, version, tarball): 200 req/min burst 50.
-/// - Publish (PUT): 10 req/min burst 3 — `npm publish` is rare and expensive.
-/// - Login (PUT /-/user/...): 12 req/min burst 5 (same profile as `/auth/login`).
+/// - Publish (PUT body, expensive): ~10 req/min, burst 3.
+/// - Admin mutations (dist-tag / deprecate / unpublish — cheap DB-only ops):
+///   30 req/min, burst 10. A real user clicking buttons in the UI or running
+///   `npm dist-tag add` on a release stream won't trip this; only an obvious
+///   abuse loop will.
+/// - Login (PUT /-/user/...): 12 req/min, burst 5 (same as `/auth/login`).
 ///
 /// `ping` and `whoami` are intentionally not rate-limited — clients probe them
 /// constantly during `npm install` and they touch nothing but a hash map.
@@ -102,6 +106,16 @@ pub fn router(state: SharedState) -> Router<SharedState> {
             .burst_size(3)
             .finish()
             .expect("registry publish governor config"),
+    );
+    // Distinct from `publish_governor` because dist-tag / deprecate / unpublish
+    // are cheap (single-row UPDATE / DELETE) but a user can legitimately fire
+    // several in quick succession — promoting a release, renaming tags, etc.
+    let admin_governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(2)
+            .burst_size(10)
+            .finish()
+            .expect("registry admin governor config"),
     );
     let login_governor = Arc::new(
         GovernorConfigBuilder::default()
@@ -150,7 +164,7 @@ pub fn router(state: SharedState) -> Router<SharedState> {
         .route("/@{scope}/{name}", put(publish_scoped))
         .route("/{package}", put(publish_unscoped))
         .layer(DefaultBodyLimit::max(PUBLISH_BODY_LIMIT))
-        .layer(GovernorLayer::new(publish_governor.clone()));
+        .layer(GovernorLayer::new(publish_governor));
 
     // Dist-tag management — `npm dist-tag add/rm/ls`. Both scoped and
     // unscoped paths because axum can't tell from `/{pkg}` whether `{pkg}`
@@ -176,7 +190,7 @@ pub fn router(state: SharedState) -> Router<SharedState> {
                 .post(set_dist_tag_scoped)
                 .delete(remove_dist_tag_scoped),
         )
-        .layer(GovernorLayer::new(publish_governor.clone()));
+        .layer(GovernorLayer::new(admin_governor.clone()));
 
     // Mutation endpoints used by `npm unpublish` and `npm deprecate`.
     // - DELETE /{pkg}/-rev/{rev}              → full unpublish
@@ -201,7 +215,7 @@ pub fn router(state: SharedState) -> Router<SharedState> {
             delete(delete_version_scoped),
         )
         .layer(DefaultBodyLimit::max(PUBLISH_BODY_LIMIT))
-        .layer(GovernorLayer::new(publish_governor));
+        .layer(GovernorLayer::new(admin_governor));
 
     let protected = Router::new()
         .route("/-/whoami", get(whoami))
