@@ -28,7 +28,9 @@
             <p class="text-sm font-medium text-blue-900 dark:text-blue-200 mb-1">Configure your client</p>
             <p class="text-xs text-blue-800 dark:text-blue-300 mb-2">In your project's <code class="font-mono">.npmrc</code>:</p>
 <pre class="text-xs font-mono bg-white dark:bg-gray-900 border border-blue-100 dark:border-blue-500/20 rounded-lg p-3 text-gray-800 dark:text-gray-200 overflow-x-auto">registry=https://YOUR-PIER-HOST/registry/npm/
-//YOUR-PIER-HOST/registry/npm/:_authToken=pier_npm_xxx</pre>
+//YOUR-PIER-HOST/registry/npm/:_authToken=pier_npm_xxx
+always-auth=true</pre>
+            <p class="text-[11px] text-blue-700/80 dark:text-blue-300/70 mt-2"><code class="font-mono">always-auth=true</code> is required for yarn 1.x (it skips the Bearer token on GET otherwise). npm, pnpm, and bun ignore it harmlessly.</p>
         </div>
 
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
