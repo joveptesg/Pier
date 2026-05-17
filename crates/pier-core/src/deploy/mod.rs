@@ -1441,8 +1441,52 @@ pub fn mesh_hosts_for_inject(state: &crate::state::AppState) -> Vec<(String, Str
         Err(_) => return Vec::new(),
     };
     let mut out: Vec<(String, String)> = Vec::new();
+    let mut server_names_taken: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     for row in rows.flatten() {
-        out.push((normalize_mesh_hostname(&row.0), row.1));
+        let host = normalize_mesh_hostname(&row.0);
+        server_names_taken.insert(host.clone());
+        out.push((host, row.1));
+    }
+
+    // Drop the prepared statement before opening another one — sqlite
+    // doesn't allow two concurrent prepared statements on the same
+    // connection in rusqlite's binding.
+    drop(stmt);
+
+    // Service-DNS overlay (Etap 3.3): each row in `service_dns` maps a
+    // logical name → host server. Inject `<name>.mesh` → server's mesh
+    // IP so consumer stacks can `postgres://db.mesh:5432/...` instead
+    // of hard-coding the per-node hostname.
+    //
+    // We only emit a row when:
+    //   - the target server has an active wireguard_peers row (i.e. the
+    //     IP we'd inject is the same one its server-mesh hostname is
+    //     already using)
+    //   - the logical name doesn't collide with an existing
+    //     <server>.mesh hostname (the API layer refuses these at
+    //     INSERT time, but defence-in-depth here costs nothing)
+    let mut stmt_dns = match db.prepare(
+        "SELECT sd.name, wp.assigned_ip \
+         FROM service_dns sd \
+         JOIN wireguard_peers wp ON wp.server_id = sd.server_id \
+         WHERE wp.status = 'active'",
+    ) {
+        Ok(s) => s,
+        Err(_) => return out,
+    };
+    let dns_rows = match stmt_dns.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }) {
+        Ok(r) => r,
+        Err(_) => return out,
+    };
+    for row in dns_rows.flatten() {
+        let host = format!("{}.mesh", row.0);
+        if server_names_taken.contains(&host) {
+            continue;
+        }
+        out.push((host, row.1));
     }
     out
 }
