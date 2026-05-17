@@ -565,6 +565,25 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/notifications/alerts/{id}/toggle", post(alerts::toggle))
         // Federation refresh (admin-triggered).
         .route("/federation/sync", post(federation::refresh_now))
+        // Write-federation passthroughs. Operator clicks Deploy/Down/
+        // Restart on a federated stack card → we look up the paired
+        // peer's federation token and forward via write_client.
+        .route(
+            "/federation/peer/{server_id}/stacks/{stack_id}/deploy",
+            post(federation::peer_deploy_stack),
+        )
+        .route(
+            "/federation/peer/{server_id}/stacks/{stack_id}/down",
+            post(federation::peer_down_stack),
+        )
+        .route(
+            "/federation/peer/{server_id}/stacks/{stack_id}/restart",
+            post(federation::peer_restart_stack),
+        )
+        .route(
+            "/federation/peer/{server_id}/stacks/{stack_id}/release",
+            post(federation::peer_release_stack),
+        )
         .route_layer(axum::middleware::from_fn(require_global_admin));
 
     // Owner-only sub-router — highest-impact actions: global role changes,

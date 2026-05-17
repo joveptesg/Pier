@@ -52,8 +52,7 @@
                     <span x-show="s.source === 'local'" x-text="'Created: ' + s.created_at"></span>
                     <span x-show="s.source === 'peer'" x-text="'Synced: ' + formatAgo(s.fetched_at)"></span>
                 </p>
-                <!-- Mutation buttons only on local stacks. Peer stacks are
-                     read-only until write-federation (Etap 2). -->
+                <!-- Local stacks: full mutation buttons. -->
                 <div class="flex items-center gap-2" x-show="s.source === 'local'">
                     <button @click="deploy(s.id)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
@@ -68,8 +67,38 @@
                         Delete
                     </button>
                 </div>
-                <div class="flex items-center text-xs text-gray-500" x-show="s.source === 'peer'">
-                    <span>Managed on <span class="text-purple-300" x-text="s.peer_name"></span></span>
+                <!-- Federated stack on a peer that's been paired (peer
+                     has a federation_token stored on primary). Active
+                     Deploy / Down / Restart buttons hit the primary's
+                     /federation/peer/{id}/stacks/{id}/* proxy which in
+                     turn calls the peer's /api/v1/agent/*. -->
+                <div class="flex items-center gap-2"
+                     x-show="s.source === 'peer' && s.peer_paired">
+                    <button @click="peerDeploy(s)"
+                            :disabled="busy[s._key]"
+                            class="px-3 py-1.5 text-xs rounded-lg bg-purple-600/20 text-purple-300 hover:bg-purple-600/30 transition-colors disabled:opacity-60">
+                        Deploy
+                    </button>
+                    <button @click="peerDown(s)"
+                            :disabled="busy[s._key]"
+                            class="px-3 py-1.5 text-xs rounded-lg bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 transition-colors disabled:opacity-60">
+                        Down
+                    </button>
+                    <button @click="peerRestart(s)"
+                            :disabled="busy[s._key]"
+                            class="px-3 py-1.5 text-xs rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors disabled:opacity-60">
+                        Restart
+                    </button>
+                    <a x-show="s.peer_url" :href="peerHref(s)" target="_blank" rel="noopener"
+                       class="ml-auto px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300">Open ↗</a>
+                </div>
+                <!-- Federated but peer NOT paired yet — read-only with
+                     a callout pointing at the setup step. -->
+                <div class="flex items-center text-xs text-gray-500"
+                     x-show="s.source === 'peer' && !s.peer_paired">
+                    <span>Managed on <span class="text-purple-300" x-text="s.peer_name"></span>
+                        <span class="text-amber-400" title="Pair federation on /servers/{peer-id} to enable remote actions"> · not paired</span>
+                    </span>
                     <a x-show="s.peer_url" :href="peerHref(s)" target="_blank" rel="noopener"
                        class="ml-auto text-purple-400 hover:text-purple-300">Open ↗</a>
                 </div>
@@ -88,6 +117,9 @@ function stacksData() {
     return {
         stacks: [],
         loading: true,
+        // Per-row busy flag, keyed by stack._key. Stops the operator
+        // double-clicking Deploy while a peer call is still in flight.
+        busy: {},
         async init() {
             await this.refresh();
         },
@@ -128,6 +160,28 @@ function stacksData() {
                 toast(e.message, 'error');
             }
         },
+        async peerAction(s, verb, toastMsg) {
+            // Single helper for deploy/down/restart on a federated
+            // stack. Sets busy[_key] so the buttons can disable.
+            this.busy[s._key] = true;
+            try {
+                toast(toastMsg + ' on ' + s.peer_name + '...');
+                await api(
+                    '/api/v1/federation/peer/' + encodeURIComponent(s.peer_server_id) +
+                    '/stacks/' + encodeURIComponent(s.id) + '/' + verb,
+                    { method: 'POST' }
+                );
+                toast(toastMsg + ' OK');
+                await this.refresh();
+            } catch (e) {
+                toast(toastMsg + ' failed: ' + (e.message || e), 'error');
+            } finally {
+                this.busy[s._key] = false;
+            }
+        },
+        peerDeploy(s) { return this.peerAction(s, 'deploy', 'Deploy'); },
+        peerDown(s)   { return this.peerAction(s, 'down', 'Down'); },
+        peerRestart(s){ return this.peerAction(s, 'restart', 'Restart'); },
         async down(id) {
             try {
                 await api('/api/v1/stacks/' + id + '/down', { method: 'POST' });

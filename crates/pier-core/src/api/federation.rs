@@ -19,12 +19,12 @@
 //! does that job for peer-kind servers; adding a second route would
 //! be redundant. UI links use the existing path.
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::Json;
 
-use crate::error::AppResult;
-use crate::federation::sync;
+use crate::error::{AppError, AppResult};
+use crate::federation::{sync, write_client};
 use crate::state::SharedState;
 
 /// GET /api/v1/federation/projects
@@ -116,7 +116,9 @@ pub async fn list_stacks(State(state): State<SharedState>) -> AppResult<impl Int
         .collect();
 
     let mut peer_stmt = db.prepare(
-        "SELECT fs.peer_server_id, s.name, s.url, fs.stack_id, fs.name, fs.status, fs.has_yaml, fs.fetched_at \
+        "SELECT fs.peer_server_id, s.name, s.url, fs.stack_id, fs.name, fs.status, fs.has_yaml, fs.fetched_at, \
+                CASE WHEN s.federation_token IS NULL OR s.federation_token = '' \
+                     THEN 0 ELSE 1 END AS peer_paired \
          FROM federated_stacks fs \
          JOIN servers s ON s.id = fs.peer_server_id \
          ORDER BY s.name, fs.name",
@@ -133,6 +135,7 @@ pub async fn list_stacks(State(state): State<SharedState>) -> AppResult<impl Int
                 "status": row.get::<_, String>(5)?,
                 "has_yaml": row.get::<_, i64>(6)? != 0,
                 "fetched_at": row.get::<_, i64>(7)?,
+                "peer_paired": row.get::<_, i64>(8)? != 0,
             }))
         })?
         .filter_map(|r| r.ok())
@@ -197,4 +200,83 @@ pub async fn refresh_now(State(state): State<SharedState>) -> AppResult<impl Int
         "ok": true,
         "peers_attempted": attempted,
     })))
+}
+
+// ---------------------------------------------------------------------------
+// Write-federation passthroughs (Etap 2.6).
+//
+// Thin handlers that resolve the peer + token via write_client and forward
+// the call. We deliberately keep these primary-side endpoints under
+// /api/v1/federation/peer/{id}/... so they sit alongside the read views
+// and inherit the same session-auth layer — only **primary's operator**
+// can trigger them. The peer↔primary X-Pier-Federation hop happens
+// inside write_client.
+//
+// Same pattern across deploy/down/restart/release: look up endpoint,
+// call write_client verb, map errors to 4xx so the UI can surface them.
+// ---------------------------------------------------------------------------
+
+async fn resolve_peer(
+    state: &SharedState,
+    server_id: &str,
+) -> AppResult<write_client::WritePeer> {
+    write_client::lookup_write_peer(state, server_id)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "peer {server_id} is not paired for federation — set its token in /servers/<id>"
+            ))
+        })
+}
+
+/// POST /api/v1/federation/peer/{server_id}/stacks/{stack_id}/deploy
+pub async fn peer_deploy_stack(
+    State(state): State<SharedState>,
+    Path((server_id, stack_id)): Path<(String, String)>,
+) -> AppResult<impl IntoResponse> {
+    let peer = resolve_peer(&state, &server_id).await?;
+    let res = write_client::deploy_stack(&peer, &stack_id)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("peer rejected deploy: {e:#}")))?;
+    let _ = sync::run_sync_pass(&state).await; // refresh cache so UI shows new state
+    Ok(Json(res))
+}
+
+/// POST /api/v1/federation/peer/{server_id}/stacks/{stack_id}/down
+pub async fn peer_down_stack(
+    State(state): State<SharedState>,
+    Path((server_id, stack_id)): Path<(String, String)>,
+) -> AppResult<impl IntoResponse> {
+    let peer = resolve_peer(&state, &server_id).await?;
+    let res = write_client::down_stack(&peer, &stack_id)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("peer rejected down: {e:#}")))?;
+    let _ = sync::run_sync_pass(&state).await;
+    Ok(Json(res))
+}
+
+/// POST /api/v1/federation/peer/{server_id}/stacks/{stack_id}/restart
+pub async fn peer_restart_stack(
+    State(state): State<SharedState>,
+    Path((server_id, stack_id)): Path<(String, String)>,
+) -> AppResult<impl IntoResponse> {
+    let peer = resolve_peer(&state, &server_id).await?;
+    let res = write_client::restart_stack(&peer, &stack_id)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("peer rejected restart: {e:#}")))?;
+    let _ = sync::run_sync_pass(&state).await;
+    Ok(Json(res))
+}
+
+/// POST /api/v1/federation/peer/{server_id}/stacks/{stack_id}/release
+pub async fn peer_release_stack(
+    State(state): State<SharedState>,
+    Path((server_id, stack_id)): Path<(String, String)>,
+) -> AppResult<impl IntoResponse> {
+    let peer = resolve_peer(&state, &server_id).await?;
+    let res = write_client::release_stack(&peer, &stack_id)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("peer rejected release: {e:#}")))?;
+    let _ = sync::run_sync_pass(&state).await;
+    Ok(Json(res))
 }
