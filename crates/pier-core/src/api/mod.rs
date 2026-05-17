@@ -37,6 +37,7 @@ pub mod s3;
 pub mod schedules;
 pub mod security;
 pub mod servers;
+pub mod service_dns;
 pub mod sources;
 pub mod system;
 pub mod system_logs;
@@ -614,6 +615,19 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // so the Enable Mesh wizard can refuse to start with missing
         // helpers instead of failing halfway through configure.
         .route("/network/mesh/preflight", get(network::peer_preflight))
+        // Mesh service-DNS CRUD (Etap 3.2). Operators register logical
+        // names (`db`, `cache`) that the deploy pipeline injects as
+        // `<name>.mesh` extra_hosts entries so consumer stacks don't
+        // hard-code per-node hostnames. Auto-redeploy on change is
+        // wired in a follow-up commit.
+        .route(
+            "/network/service-dns",
+            get(service_dns::list).post(service_dns::create),
+        )
+        .route(
+            "/network/service-dns/{name}",
+            put(service_dns::update).delete(service_dns::remove),
+        )
         // Federation grants — tokens that authorize another pier-core to
         // control this one. Owner-only because they grant Admin-equivalent
         // reach over every resource here.
