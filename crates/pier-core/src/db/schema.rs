@@ -1243,6 +1243,42 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE servers ADD COLUMN federation_token_rotated_at INTEGER;
     "#,
+    // Migration 54: Mesh service-DNS (Etap 3.1).
+    //
+    // Decouples "where a service lives right now" from "what other
+    // stacks call it". Each row maps a logical name (`db`, `cache`,
+    // `auth`) to the server that hosts it. The deploy pipeline injects
+    // an `extra_hosts` entry per service_dns row alongside the
+    // `<server>.mesh` entries already injected by Etap 0.3f, so a
+    // consumer stack with `DATABASE_URL=postgres://db.mesh:5432/x`
+    // keeps working after the operator moves postgres between nodes —
+    // they just update this table and the dependent stacks get
+    // re-injected hosts on next redeploy.
+    //
+    // Constraints worth knowing:
+    // - `name` is the LEAF of the future `<name>.mesh` hostname (we
+    //   add the `.mesh` suffix at injection time). Lowercase
+    //   alphanumeric + hyphen, validated at the API layer.
+    // - PRIMARY KEY(name) — one server per name in v1. Multi-replica
+    //   load balancing is on the FUTURE list.
+    // - server_id FK with ON DELETE CASCADE — if the host server is
+    //   removed, the mapping disappears too; the next sync removes
+    //   the stale extra_host on its own.
+    // - service_id is optional so an operator can register a name
+    //   that points at a port not yet associated with a managed
+    //   service (e.g. an external postgres listening on the host).
+    r#"
+    CREATE TABLE IF NOT EXISTS service_dns (
+        name        TEXT PRIMARY KEY NOT NULL,
+        server_id   TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        service_id  TEXT,
+        port        INTEGER NOT NULL,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_service_dns_server_id
+        ON service_dns(server_id);
+    "#,
 ];
 
 /// Run all pending database migrations.
