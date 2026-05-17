@@ -250,6 +250,37 @@ pub async fn release_stack(peer: &WritePeer, stack_id: &str) -> Result<Value> {
     .await
 }
 
+/// Fetch a snapshot of `docker compose logs` for a federated stack.
+/// Returns the body as plain text (peer endpoint sets the right MIME).
+pub async fn stack_logs(peer: &WritePeer, stack_id: &str, tail: u64) -> Result<String> {
+    let url = format!(
+        "{}/api/v1/agent/stacks/{stack_id}/logs?tail={tail}",
+        peer.base_url
+    );
+    let resp = client()?
+        .get(&url)
+        .header(
+            crate::auth::federation::FEDERATION_HEADER,
+            &peer.token,
+        )
+        .send()
+        .await
+        .with_context(|| format!("GET {url}"))?;
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .unwrap_or_else(|_| "<empty body>".to_string());
+    if !status.is_success() {
+        return Err(anyhow!(
+            "peer {} returned {} for logs: {body}",
+            peer.name,
+            status
+        ));
+    }
+    Ok(body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

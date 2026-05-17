@@ -585,6 +585,14 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             post(federation::peer_restart_stack),
         )
         .route(
+            "/federation/peer/{server_id}/stacks/{stack_id}/logs",
+            get(federation::peer_stack_logs),
+        )
+        .route(
+            "/federation/peer/{server_id}/stacks/{stack_id}/logs/ws-info",
+            get(federation::peer_stack_logs_ws_info),
+        )
+        .route(
             "/federation/peer/{server_id}/stacks/{stack_id}/release",
             post(federation::peer_release_stack),
         )
@@ -642,6 +650,11 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/stacks/{id}/restart",
             post(federation_agent::restart_stack),
+        )
+        .route("/stacks/{id}/logs", get(federation_agent::stack_logs))
+        .route(
+            "/stacks/{id}/logs/ws",
+            get(federation_agent::stack_logs_ws),
         )
         .route(
             "/release/{stack_id}",

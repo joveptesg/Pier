@@ -296,6 +296,74 @@ pub async fn peer_restart_stack(
     Ok(Json(res))
 }
 
+/// GET /api/v1/federation/peer/{server_id}/stacks/{stack_id}/logs?tail=N
+///
+/// Snapshot of the peer-side `docker compose logs --tail N --no-color`
+/// for the federated stack. We forward via reqwest (federation
+/// write_client builds the right URL + auth) and stream the response
+/// body straight to the client.
+pub async fn peer_stack_logs(
+    State(state): State<SharedState>,
+    Path((server_id, stack_id)): Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> AppResult<impl IntoResponse> {
+    let peer = resolve_peer(&state, &server_id).await?;
+    let tail = params
+        .get("tail")
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(200);
+    let body = crate::federation::write_client::stack_logs(&peer, &stack_id, tail)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("peer rejected logs: {e:#}")))?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        body,
+    ))
+}
+
+/// GET /api/v1/federation/peer/{server_id}/stacks/{stack_id}/logs/ws-info
+///
+/// Returns the connection details the **browser** needs to open a
+/// WebSocket directly to the peer (`ws_url`) plus the plaintext
+/// federation token to append as `?token=...`. We do this rather than
+/// proxying the WS through primary because the proxy hop would add
+/// latency and a non-trivial bridging path (axum WS server ↔
+/// tokio-tungstenite client). The token is admin-grade either way; the
+/// browser already needs primary's session cookie to fetch this info
+/// in the first place.
+pub async fn peer_stack_logs_ws_info(
+    State(state): State<SharedState>,
+    Path((server_id, stack_id)): Path<(String, String)>,
+) -> AppResult<impl IntoResponse> {
+    let peer = resolve_peer(&state, &server_id).await?;
+    // wss:// when peer.base_url is https:// (always, after Etap 0).
+    // Re-prefix for clarity rather than substring-replacing in case
+    // the upstream URL format changes in future.
+    let ws_url = if let Some(rest) = peer.base_url.strip_prefix("https://") {
+        format!(
+            "wss://{rest}/api/v1/agent/stacks/{}/logs/ws",
+            urlencoding::encode(&stack_id)
+        )
+    } else if let Some(rest) = peer.base_url.strip_prefix("http://") {
+        // Self-hosted dev with TLS disabled — still works over ws://.
+        format!(
+            "ws://{rest}/api/v1/agent/stacks/{}/logs/ws",
+            urlencoding::encode(&stack_id)
+        )
+    } else {
+        format!(
+            "{}/api/v1/agent/stacks/{}/logs/ws",
+            peer.base_url,
+            urlencoding::encode(&stack_id)
+        )
+    };
+    Ok(Json(serde_json::json!({
+        "ws_url": ws_url,
+        "token": peer.token,
+        "peer_name": peer.name,
+    })))
+}
+
 /// POST /api/v1/federation/peer/{server_id}/stacks/{stack_id}/release
 pub async fn peer_release_stack(
     State(state): State<SharedState>,

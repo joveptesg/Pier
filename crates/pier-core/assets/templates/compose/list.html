@@ -89,6 +89,10 @@
                             class="px-3 py-1.5 text-xs rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors disabled:opacity-60">
                         Restart
                     </button>
+                    <button @click="openLogs(s)"
+                            class="px-3 py-1.5 text-xs rounded-lg bg-gray-700/40 text-gray-200 hover:bg-gray-700/60 transition-colors">
+                        Logs
+                    </button>
                     <a x-show="s.peer_url" :href="peerHref(s)" target="_blank" rel="noopener"
                        class="ml-auto px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300">Open ↗</a>
                 </div>
@@ -110,6 +114,35 @@
         <p class="text-gray-500 mb-4">No stacks yet</p>
         <a href="/stacks/new" class="text-blue-400 hover:text-blue-300 text-sm">Create your first stack</a>
     </div>
+
+    <!-- Logs modal for federated stacks.
+         Two-phase: first GET /logs renders the snapshot, then we open
+         WS to peer's URL using token returned by /logs/ws-info. The
+         token sits in browser memory only — same trust boundary as
+         the operator's pier session cookie. -->
+    <div x-show="logs.open" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
+         style="top:0;left:0" @click.self="closeLogs()">
+        <div class="bg-gray-950 border border-gray-800 rounded-xl shadow-xl w-full max-w-4xl p-5 space-y-3" @click.stop>
+            <div class="flex items-center justify-between">
+                <div class="min-w-0">
+                    <h3 class="text-sm font-semibold text-white truncate" x-text="logs.title"></h3>
+                    <p class="text-xs text-gray-500" x-text="logs.status"></p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="flex items-center gap-1 text-xs text-gray-400">
+                        <input type="checkbox" x-model="logs.follow"
+                               @change="logs.follow ? startLogsStream() : stopLogsStream()">
+                        Follow
+                    </label>
+                    <button @click="closeLogs()"
+                            class="px-2 py-1 text-xs rounded bg-gray-800 hover:bg-gray-700 text-gray-200">Close</button>
+                </div>
+            </div>
+            <pre x-ref="logBody"
+                 class="bg-black/60 text-green-200 text-[11px] font-mono leading-snug rounded p-3 h-[60vh] overflow-y-auto whitespace-pre-wrap"
+                 x-text="logs.body"></pre>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -120,6 +153,18 @@ function stacksData() {
         // Per-row busy flag, keyed by stack._key. Stops the operator
         // double-clicking Deploy while a peer call is still in flight.
         busy: {},
+        // Logs modal state. `_ws` holds the live WebSocket; `_stack`
+        // is the snapshot of the federated row we opened so closing
+        // the modal can tear down cleanly.
+        logs: {
+            open: false,
+            title: '',
+            status: '',
+            body: '',
+            follow: true,
+            _ws: null,
+            _stack: null,
+        },
         async init() {
             await this.refresh();
         },
@@ -182,6 +227,72 @@ function stacksData() {
         peerDeploy(s) { return this.peerAction(s, 'deploy', 'Deploy'); },
         peerDown(s)   { return this.peerAction(s, 'down', 'Down'); },
         peerRestart(s){ return this.peerAction(s, 'restart', 'Restart'); },
+        async openLogs(s) {
+            this.logs.open = true;
+            this.logs.title = 'Logs · ' + s.name + ' on ' + s.peer_name;
+            this.logs.status = 'Loading snapshot…';
+            this.logs.body = '';
+            this.logs._stack = s;
+            try {
+                const url =
+                    '/api/v1/federation/peer/' + encodeURIComponent(s.peer_server_id) +
+                    '/stacks/' + encodeURIComponent(s.id) + '/logs?tail=400';
+                const text = await fetch(url, { credentials: 'include' }).then(r => r.text());
+                this.logs.body = text || '(empty)';
+                this.logs.status = 'Snapshot loaded.';
+                this.$nextTick(() => this.scrollLogsToBottom());
+                if (this.logs.follow) {
+                    this.startLogsStream();
+                }
+            } catch (e) {
+                this.logs.status = 'Snapshot failed: ' + (e.message || e);
+            }
+        },
+        async startLogsStream() {
+            const s = this.logs._stack;
+            if (!s || this.logs._ws) return;
+            try {
+                const info = await fetch(
+                    '/api/v1/federation/peer/' + encodeURIComponent(s.peer_server_id) +
+                    '/stacks/' + encodeURIComponent(s.id) + '/logs/ws-info',
+                    { credentials: 'include' },
+                ).then(r => r.ok ? r.json() : Promise.reject(new Error('ws-info failed')));
+                const u = info.ws_url + (info.ws_url.includes('?') ? '&' : '?') +
+                          'token=' + encodeURIComponent(info.token);
+                const ws = new WebSocket(u);
+                ws.onopen = () => { this.logs.status = 'Streaming live from ' + info.peer_name; };
+                ws.onmessage = (ev) => {
+                    if (this.logs.body && !this.logs.body.endsWith('\n')) this.logs.body += '\n';
+                    this.logs.body += ev.data;
+                    // Keep buffer bounded so a chatty stack doesn't OOM the tab
+                    if (this.logs.body.length > 500_000) {
+                        this.logs.body = this.logs.body.slice(-400_000);
+                    }
+                    this.$nextTick(() => this.scrollLogsToBottom());
+                };
+                ws.onerror = () => { this.logs.status = 'Stream error — peer cert untrusted? Try opening the modal again.'; };
+                ws.onclose = () => { if (this.logs._ws === ws) this.logs._ws = null; };
+                this.logs._ws = ws;
+            } catch (e) {
+                this.logs.status = 'Live stream unavailable: ' + (e.message || e);
+            }
+        },
+        stopLogsStream() {
+            if (this.logs._ws) {
+                try { this.logs._ws.close(); } catch (e) { /* ignore */ }
+                this.logs._ws = null;
+            }
+        },
+        scrollLogsToBottom() {
+            const el = this.$refs.logBody;
+            if (el) el.scrollTop = el.scrollHeight;
+        },
+        closeLogs() {
+            this.stopLogsStream();
+            this.logs.open = false;
+            this.logs.body = '';
+            this.logs._stack = null;
+        },
         async down(id) {
             try {
                 await api('/api/v1/stacks/' + id + '/down', { method: 'POST' });

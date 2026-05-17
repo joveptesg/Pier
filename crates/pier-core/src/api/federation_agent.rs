@@ -20,7 +20,8 @@
 //! orchestration of *future* stacks the primary creates, not seizure
 //! of existing ones.
 
-use axum::extract::{Extension, Path, State};
+use axum::extract::ws::WebSocketUpgrade;
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::Json;
 use rusqlite::OptionalExtension;
@@ -314,6 +315,78 @@ pub async fn restart_stack(
         [&id],
     );
     Ok(Json(serde_json::json!({ "ok": true, "output": output })))
+}
+
+#[derive(Deserialize)]
+pub struct StackLogsParams {
+    /// Tail length; capped at 5000 inside `get_stack_logs`.
+    #[serde(default = "default_tail")]
+    pub tail: u64,
+}
+
+fn default_tail() -> u64 {
+    200
+}
+
+/// GET /api/v1/agent/stacks/{id}/logs?tail=N
+///
+/// Snapshot of the last N lines of `docker compose logs`. Returns
+/// `text/plain` so the operator's primary UI can dump it verbatim
+/// into a `<pre>` without doing JSON-string-escape gymnastics.
+pub async fn stack_logs(
+    State(state): State<SharedState>,
+    Extension(ctx): Extension<FederationContext>,
+    Path(id): Path<String>,
+    Query(params): Query<StackLogsParams>,
+) -> AppResult<impl IntoResponse> {
+    let name = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        assert_owned(&db, &id, &ctx.token_id)?;
+        db.query_row(
+            "SELECT name FROM services WHERE id = ?1 AND service_type = 'compose'",
+            [&id],
+            |row| row.get::<_, String>(0),
+        )?
+    };
+    let body = crate::docker::compose::get_stack_logs(&name, &state.config, params.tail).await?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        body,
+    ))
+}
+
+/// GET /api/v1/agent/stacks/{id}/logs/ws
+///
+/// WebSocket — streams `docker compose logs -f` line-by-line for the
+/// stack. Auth happens via the federation middleware as usual; browsers
+/// can't easily set custom headers on `new WebSocket(...)`, so the
+/// middleware also accepts `?token=<plaintext>` as a fallback (the
+/// proxy on the primary side passes it through that way).
+pub async fn stack_logs_ws(
+    State(state): State<SharedState>,
+    Extension(ctx): Extension<FederationContext>,
+    Path(id): Path<String>,
+    ws: WebSocketUpgrade,
+) -> AppResult<impl IntoResponse> {
+    let name = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        assert_owned(&db, &id, &ctx.token_id)?;
+        db.query_row(
+            "SELECT name FROM services WHERE id = ?1 AND service_type = 'compose'",
+            [&id],
+            |row| row.get::<_, String>(0),
+        )?
+    };
+    let config = state.config.clone();
+    Ok(ws.on_upgrade(move |socket| async move {
+        crate::docker::compose::stream_stack_logs_ws(&name, &config, socket).await;
+    }))
 }
 
 /// POST /api/v1/agent/release/{stack_id}

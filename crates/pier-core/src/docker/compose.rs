@@ -190,3 +190,146 @@ pub async fn remove_stack(name: &str, config: &PierConfig) -> Result<()> {
     }
     Ok(())
 }
+
+/// Snapshot of recent stack logs. Wraps
+/// `docker compose -f <compose> logs --tail <n> --no-color` so the
+/// output looks like what an operator would see at the shell.
+///
+/// Returns the combined stdout+stderr verbatim (compose mixes per-
+/// service prefixes into stdout already, so we don't need to merge by
+/// hand). `tail` is capped at 5000 lines to prevent a malicious or
+/// runaway request from streaming gigabytes back through axum.
+pub async fn get_stack_logs(name: &str, config: &PierConfig, tail: u64) -> Result<String> {
+    let stack_dir = stacks_dir(config).join(name);
+    let compose_file = stack_dir.join("docker-compose.yml");
+    if !compose_file.exists() {
+        anyhow::bail!("Stack '{name}' not found");
+    }
+    let tail = tail.clamp(1, 5000);
+
+    let output = Command::new("docker")
+        .args(["compose", "-f"])
+        .arg(&compose_file)
+        .args(["logs", "--tail", &tail.to_string(), "--no-color"])
+        .current_dir(&stack_dir)
+        .output()
+        .await?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok(format!("{stdout}{stderr}"))
+}
+
+/// Stream `docker compose logs -f` into a WebSocket. The child process
+/// is killed when the websocket closes or the caller aborts the future,
+/// so a disconnected client never leaves a zombie `docker compose logs`
+/// behind.
+///
+/// We intentionally don't reconnect on Docker stream end — unlike the
+/// container-level streamer, compose's own `-f` already follows
+/// restarts internally. If `docker compose` exits we surface that and
+/// let the client decide to retry.
+pub async fn stream_stack_logs_ws(
+    name: &str,
+    config: &PierConfig,
+    mut socket: axum::extract::ws::WebSocket,
+) {
+    use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let stack_dir = stacks_dir(config).join(name);
+    let compose_file = stack_dir.join("docker-compose.yml");
+    if !compose_file.exists() {
+        let _ = socket
+            .send(axum::extract::ws::Message::Text(
+                format!("error: stack '{name}' not found").into(),
+            ))
+            .await;
+        return;
+    }
+
+    let mut cmd = Command::new("docker");
+    cmd.args(["compose", "-f"])
+        .arg(&compose_file)
+        .args(["logs", "-f", "--tail", "200", "--no-color"])
+        .current_dir(&stack_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = socket
+                .send(axum::extract::ws::Message::Text(
+                    format!("error: spawn docker compose logs: {e}").into(),
+                ))
+                .await;
+            return;
+        }
+    };
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(128);
+
+    // Pump stdout
+    if let Some(out) = stdout {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(out).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                if tx.send(line).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    // Pump stderr (compose writes status messages here, e.g. "service X exited")
+    if let Some(err) = stderr {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(err).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                if tx.send(line).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    drop(tx); // close channel when both pumps exit
+
+    // Forward lines + watch the socket for disconnect. We don't need
+    // to consume client→server messages, but we do need to react to
+    // the half-close so the spawned child can be reaped.
+    loop {
+        tokio::select! {
+            biased;
+            line = rx.recv() => {
+                match line {
+                    Some(line) => {
+                        if socket
+                            .send(axum::extract::ws::Message::Text(line.into()))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    None => break, // child exited
+                }
+            }
+            msg = socket.recv() => {
+                if msg.is_none()
+                    || matches!(msg, Some(Err(_)) | Some(Ok(axum::extract::ws::Message::Close(_))))
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    // kill_on_drop handles the cleanup, but call wait explicitly so we
+    // don't leave defunct processes if drop happens during shutdown.
+    let _ = child.kill().await;
+}

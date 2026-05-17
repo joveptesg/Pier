@@ -100,12 +100,34 @@ pub async fn require_federation(
     mut req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
+    // Browsers can't set custom headers on `new WebSocket(...)`, so for
+    // the streaming endpoints we accept the same token via `?token=...`.
+    // Header still wins when both are present — server-to-server callers
+    // (federation::write_client) keep using the header path.
     let plaintext = req
         .headers()
         .get(FEDERATION_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+        .or_else(|| {
+            req.uri().query().and_then(|q| {
+                q.split('&').find_map(|pair| {
+                    let (k, v) = pair.split_once('=')?;
+                    if k == "token" {
+                        let decoded =
+                            urlencoding::decode(v).ok().map(|c| c.into_owned()).unwrap_or_else(|| v.to_string());
+                        if decoded.is_empty() {
+                            None
+                        } else {
+                            Some(decoded)
+                        }
+                    } else {
+                        None
+                    }
+                })
+            })
+        })
         .ok_or(AppError::Unauthorized)?;
 
     let token_hash = hash(&plaintext);
