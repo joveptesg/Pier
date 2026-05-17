@@ -83,8 +83,8 @@ pub async fn setup(
         // succeed. This single statement inserts only when the users table is
         // still empty; SQLite serialises it under the database write lock.
         let n = db.execute(
-            "INSERT INTO users (id, username, email, password, role)
-             SELECT ?1, ?2, ?3, ?4, 'admin'
+            "INSERT INTO users (id, username, email, password, role, global_role)
+             SELECT ?1, ?2, ?3, ?4, 'admin', 'owner'
              WHERE NOT EXISTS (SELECT 1 FROM users)",
             rusqlite::params![id, username, email, hash],
         )?;

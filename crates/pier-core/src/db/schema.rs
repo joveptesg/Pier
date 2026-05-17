@@ -1279,6 +1279,31 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_service_dns_server_id
         ON service_dns(server_id);
     "#,
+    // Migration 55: Re-backfill global_role for installs whose first user was
+    // created via /setup after migration 44 ran.
+    //
+    // Migration 44 added the `global_role` column with DEFAULT 'user' and
+    // backfilled existing rows, but the setup handler kept INSERTing only the
+    // legacy `role` column, so the installer ended up with role='admin' and
+    // global_role='user'. They show as Admin on the profile screen but fail
+    // every require_global_admin gate (proxy/update, team management).
+    //
+    // The setup handler is fixed alongside this migration to set global_role
+    // explicitly; this migration repairs already-affected installs. Idempotent:
+    // both UPDATEs no-op on healthy rows.
+    r#"
+    UPDATE users SET global_role = 'owner'
+        WHERE global_role = 'user'
+          AND role = 'admin'
+          AND NOT EXISTS (SELECT 1 FROM users WHERE global_role = 'owner')
+          AND id = (
+              SELECT id FROM users WHERE role = 'admin'
+              ORDER BY created_at ASC LIMIT 1
+          );
+
+    UPDATE users SET global_role = 'admin'
+        WHERE role = 'admin' AND global_role = 'user';
+    "#,
 ];
 
 /// Run all pending database migrations.
