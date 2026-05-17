@@ -1216,6 +1216,22 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_projects_owner_server_id
         ON projects(owner_server_id);
     "#,
+    // Migration 52: Primary-side federation_token storage (Etap 2.4).
+    //
+    // Migration 51 added the *peer-side* federation_tokens table — that's
+    // where a peer pier-core stores the SHA-256 hash of the token it
+    // minted for a particular primary. THIS migration is the other end of
+    // the wire: the primary remembers the plaintext federation_token it
+    // received during pairing so the federation write-client can present
+    // it on every primary→peer call.
+    //
+    // Plaintext at rest is the same trade-off `servers.agent_token`
+    // already makes for outbound heartbeat auth. A future migration can
+    // promote this to "encrypted by a master secret in data_dir" once
+    // the same is done for agent_token (see deferred items in Etap 0.5).
+    r#"
+    ALTER TABLE servers ADD COLUMN federation_token TEXT;
+    "#,
 ];
 
 /// Run all pending database migrations.
