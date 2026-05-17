@@ -569,6 +569,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Restart on a federated stack card → we look up the paired
         // peer's federation token and forward via write_client.
         .route(
+            "/federation/peer/{server_id}/stacks",
+            post(federation::peer_create_stack),
+        )
+        .route(
             "/federation/peer/{server_id}/stacks/{stack_id}/deploy",
             post(federation::peer_deploy_stack),
         )

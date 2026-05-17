@@ -16,6 +16,24 @@
 
     <!-- Form -->
     <div class="bg-gray-900 border border-gray-800/50 rounded-xl p-5 space-y-4">
+        <!-- Target server selector — only shown on create, only when
+             there's at least one paired peer server to choose. Default
+             stays "local" so existing single-node deployments are
+             unchanged. -->
+        <template x-if="mode === 'create' && targets.length > 1">
+            <div>
+                <label class="block text-sm font-medium text-gray-400 mb-1.5">Deploy on</label>
+                <select x-model="targetServerId"
+                        class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 text-sm">
+                    <template x-for="t in targets" :key="t.id">
+                        <option :value="t.id" x-text="t.label"></option>
+                    </template>
+                </select>
+                <p class="text-[11px] text-gray-500 mt-1">
+                    Local stays on this server. Peer entries require the federation token to be paired on <span class="font-mono">/servers/&lt;peer-id&gt;</span>.
+                </p>
+            </div>
+        </template>
         <div>
             <label class="block text-sm font-medium text-gray-400 mb-1.5">Stack Name</label>
             <input x-model="name" type="text" :disabled="mode === 'edit'"
@@ -66,7 +84,15 @@ function stackEditor(mode, stackId) {
         error: '',
         saving: false,
         deploying: false,
+        // Target server selection — populated from /api/v1/servers
+        // filtered to local + paired peer kinds. 'local' is special
+        // and routes to the same /api/v1/stacks endpoint as always.
+        targets: [{ id: 'local', label: 'This server (local)' }],
+        targetServerId: 'local',
         async init() {
+            if (mode === 'create') {
+                await this.loadTargets();
+            }
             if (mode === 'edit' && stackId) {
                 try {
                     const data = await fetch('/api/v1/stacks/' + stackId).then(r => r.json());
@@ -77,17 +103,36 @@ function stackEditor(mode, stackId) {
                 }
             }
         },
+        async loadTargets() {
+            try {
+                const servers = await fetch('/api/v1/servers').then(r => r.ok ? r.json() : []);
+                const paired = (servers || [])
+                    .filter(s => s.kind === 'peer' && !s.is_local && s.federation_paired)
+                    .map(s => ({ id: s.id, label: s.name + ' (peer)' }));
+                if (paired.length) {
+                    this.targets = [{ id: 'local', label: 'This server (local)' }, ...paired];
+                }
+            } catch (e) { /* silent — leave just local */ }
+        },
         async save() {
             this.saving = true;
             this.error = '';
             try {
                 if (this.mode === 'create') {
-                    const result = await api('/api/v1/stacks', {
+                    const onLocal = this.targetServerId === 'local';
+                    const url = onLocal
+                        ? '/api/v1/stacks'
+                        : '/api/v1/federation/peer/' + encodeURIComponent(this.targetServerId) + '/stacks';
+                    const result = await api(url, {
                         method: 'POST',
                         body: JSON.stringify({ name: this.name, yaml: this.yaml })
                     });
-                    toast('Stack created');
-                    window.location.href = '/stacks/' + result.id;
+                    toast(onLocal ? 'Stack created' : 'Stack created on peer');
+                    // Federated stacks live on the peer — there's no
+                    // primary-side /stacks/<id> page for them, so we
+                    // bounce back to the list (the new card will appear
+                    // after the next federation sync).
+                    window.location.href = onLocal ? ('/stacks/' + result.id) : '/stacks';
                 } else {
                     await api('/api/v1/stacks/' + this.stackId, {
                         method: 'PUT',

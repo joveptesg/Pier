@@ -76,9 +76,9 @@ pub async fn deploy_traefik(
     // Ensure pier-net network exists
     ensure_network(docker).await?;
 
-    // Pull image if not present
+    // Pull image if not present (resilient: retries + Docker Hub mirror fallback)
     let image = traefik_image(version);
-    pull_image_if_needed(docker, &image, None).await?;
+    pull_traefik_image(docker, version).await?;
 
     // Remove old container if exists. Log at debug — errors are usually
     // just "no such container" on first deploy, but capturing them helps
@@ -295,6 +295,7 @@ async fn ensure_network(docker: &Docker) -> Result<()> {
 /// Pull an image if not already present. `creds` plumbs registry auth for
 /// private images; callers resolve it via `docker::auth::credentials_for`.
 /// Traefik's own image is public, so the current caller passes `None`.
+#[allow(dead_code)]
 pub async fn pull_image_if_needed(
     docker: &Docker,
     image: &str,
@@ -320,6 +321,128 @@ pub async fn pull_image_if_needed(
     }
 
     tracing::info!("Pulled {image}");
+    Ok(())
+}
+
+/// Public Docker Hub `library/*` mirrors used as fallback for the Traefik
+/// image when Docker Hub rate-limits the host. Both serve the exact same
+/// layers as `docker.io/library/*` (read-only pull-through caches operated
+/// by Google Cloud and AWS respectively) — no modification, no auth needed.
+const TRAEFIK_MIRRORS: &[&str] = &[
+    "mirror.gcr.io/library",
+    "public.ecr.aws/docker/library",
+];
+
+fn is_rate_limit_error(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("rate limit") || m.contains("rate-limit") || m.contains("toomanyrequests")
+}
+
+/// Pull `traefik:<version>` resiliently.
+///
+/// Strategy:
+///   1. Short-circuit if the image is already cached locally.
+///   2. Try Docker Hub up to 3 times with backoff (5s → 15s → 45s).
+///   3. On detected rate-limit, skip remaining Docker Hub retries and jump
+///      to mirrors immediately.
+///   4. Try public mirrors (`mirror.gcr.io/library`, `public.ecr.aws/docker/library`).
+///   5. On mirror success, `docker tag <mirror>/traefik:<v>` back to
+///      `traefik:<v>` so downstream `inspect_image` / container spec keeps working.
+pub async fn pull_traefik_image(docker: &Docker, version: &str) -> Result<()> {
+    let canonical = traefik_image(version);
+
+    if docker.inspect_image(&canonical).await.is_ok() {
+        return Ok(());
+    }
+
+    let backoffs_s = [5u64, 15, 45];
+    let mut last_err: Option<String> = None;
+    let mut rate_limited = false;
+
+    for (i, delay) in backoffs_s.iter().enumerate() {
+        tracing::info!("Pulling {canonical} (attempt {}/3)...", i + 1);
+        match pull_image_attempt(docker, &canonical, None).await {
+            Ok(()) => {
+                tracing::info!("Pulled {canonical}");
+                return Ok(());
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if is_rate_limit_error(&msg) {
+                    tracing::warn!(
+                        "Docker Hub rate-limited pulling {canonical}; switching to public mirrors"
+                    );
+                    last_err = Some(msg);
+                    rate_limited = true;
+                    break;
+                }
+                tracing::warn!("Pull {canonical} attempt {} failed: {msg}", i + 1);
+                last_err = Some(msg);
+                if i + 1 < backoffs_s.len() {
+                    tokio::time::sleep(std::time::Duration::from_secs(*delay)).await;
+                }
+            }
+        }
+    }
+
+    let traefik_ref = format!("traefik:{version}");
+    for mirror in TRAEFIK_MIRRORS {
+        let mirror_image = format!("{mirror}/{traefik_ref}");
+        tracing::info!("Trying mirror: pulling {mirror_image}...");
+        match pull_image_attempt(docker, &mirror_image, None).await {
+            Ok(()) => {
+                let tag_opts = bollard::query_parameters::TagImageOptions {
+                    repo: Some("traefik".to_string()),
+                    tag: Some(version.to_string()),
+                };
+                docker
+                    .tag_image(&mirror_image, Some(tag_opts))
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Pulled {mirror_image} but failed to retag as {canonical}: {e}"
+                        )
+                    })?;
+                tracing::info!("Pulled {mirror_image} and tagged as {canonical}");
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::warn!("Mirror {mirror_image} failed: {e}");
+                last_err = Some(e.to_string());
+            }
+        }
+    }
+
+    let reason = if rate_limited {
+        "Docker Hub rate-limited and all public mirrors failed"
+    } else {
+        "Docker Hub and all public mirrors failed"
+    };
+    Err(anyhow::anyhow!(
+        "Failed to pull {canonical}: {reason}. Last error: {}",
+        last_err.as_deref().unwrap_or("(none)")
+    ))
+}
+
+/// One-shot Docker pull without the `inspect_image` short-circuit.
+/// Used by `pull_traefik_image` for individual attempts so retry/fallback
+/// logic stays in one place.
+async fn pull_image_attempt(
+    docker: &Docker,
+    image: &str,
+    creds: Option<DockerCredentials>,
+) -> Result<()> {
+    use futures_util::StreamExt;
+    let opts = CreateImageOptions {
+        from_image: Some(image.to_string()),
+        ..Default::default()
+    };
+    let mut stream = docker.create_image(Some(opts), None, creds);
+    while let Some(result) = stream.next().await {
+        if let Err(e) = result {
+            return Err(anyhow::anyhow!("{e}"));
+        }
+    }
     Ok(())
 }
 

@@ -229,6 +229,34 @@ async fn resolve_peer(
         })
 }
 
+#[derive(serde::Deserialize)]
+pub struct CreateFederatedStackRequest {
+    pub name: String,
+    pub yaml: String,
+}
+
+/// POST /api/v1/federation/peer/{server_id}/stacks
+///
+/// Create a new stack on the named peer. Mirrors the local
+/// `POST /api/v1/stacks` but routes through write_client so the peer's
+/// `services.owner_server_id` is set to the federation token id and the
+/// stack shows up as managed-remotely on its own UI.
+pub async fn peer_create_stack(
+    State(state): State<SharedState>,
+    Path(server_id): Path<String>,
+    Json(body): Json<CreateFederatedStackRequest>,
+) -> AppResult<impl IntoResponse> {
+    if body.name.trim().is_empty() || body.yaml.trim().is_empty() {
+        return Err(AppError::BadRequest("name and yaml are required".into()));
+    }
+    let peer = resolve_peer(&state, &server_id).await?;
+    let res = crate::federation::write_client::create_stack(&peer, body.name.trim(), &body.yaml)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("peer rejected create: {e:#}")))?;
+    let _ = sync::run_sync_pass(&state).await;
+    Ok(Json(res))
+}
+
 /// POST /api/v1/federation/peer/{server_id}/stacks/{stack_id}/deploy
 pub async fn peer_deploy_stack(
     State(state): State<SharedState>,

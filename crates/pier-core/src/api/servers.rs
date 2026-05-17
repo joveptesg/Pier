@@ -71,7 +71,9 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
     let mut stmt = db.prepare(
         "SELECT id, name, kind, host, port, url, status, last_heartbeat, os_info, cpu_count,
                 memory_total, docker_version, remote_version, last_error, is_local, created_at,
-                country, city, country_code
+                country, city, country_code,
+                CASE WHEN federation_token IS NULL OR federation_token = ''
+                     THEN 0 ELSE 1 END AS federation_paired
          FROM servers ORDER BY is_local DESC, kind ASC, created_at ASC",
     )?;
     let items: Vec<serde_json::Value> = stmt
@@ -96,6 +98,7 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
                 "country": row.get::<_, Option<String>>(16)?,
                 "city": row.get::<_, Option<String>>(17)?,
                 "country_code": row.get::<_, Option<String>>(18)?,
+                "federation_paired": row.get::<_, i64>(19)? == 1,
             }))
         })?
         .filter_map(|r| r.ok())
