@@ -13,6 +13,7 @@ pub mod domains;
 pub mod env;
 pub mod events;
 pub mod federation;
+pub mod federation_agent;
 pub mod grants;
 pub mod images;
 pub mod install;
@@ -572,7 +573,41 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
     let protected = protected
         .merge(admin_only)
         .merge(owner_only)
-        .layer(axum::middleware::from_fn_with_state(state, require_auth));
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            require_auth,
+        ));
+
+    // Write-federation surface — completely separate auth path
+    // (X-Pier-Federation, not sessions/Bearer). Mounted at
+    // /api/v1/agent/* via a second nest below; deliberately *not*
+    // merged into `protected` so a federation token can never
+    // accidentally satisfy require_auth or vice versa.
+    let federation_agent = Router::new()
+        .route(
+            "/stacks",
+            get(federation_agent::list_stacks).post(federation_agent::create_stack),
+        )
+        .route(
+            "/stacks/{id}",
+            get(federation_agent::get_stack)
+                .put(federation_agent::update_stack)
+                .delete(federation_agent::delete_stack),
+        )
+        .route("/stacks/{id}/deploy", post(federation_agent::deploy_stack))
+        .route("/stacks/{id}/down", post(federation_agent::down_stack))
+        .route(
+            "/stacks/{id}/restart",
+            post(federation_agent::restart_stack),
+        )
+        .route(
+            "/release/{stack_id}",
+            post(federation_agent::release_stack),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::auth::federation::require_federation,
+        ));
 
     Router::new()
         // Health at root level for easy monitoring
@@ -584,4 +619,5 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // script. See [`install::install_helper_script`].
         .route("/install-helper.sh", get(install::install_helper_script))
         .nest("/api/v1", public.merge(protected))
+        .nest("/api/v1/agent", federation_agent)
 }
