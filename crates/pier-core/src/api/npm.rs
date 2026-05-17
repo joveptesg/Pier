@@ -708,13 +708,22 @@ async fn handle_publish(
         .decode(data_b64)
         .map_err(|e| AppError::BadRequest(format!("base64 decode: {e}")))?;
 
-    // Sanity-check the filename (prevents `_attachments['../../foo']` paths).
-    let expected_name = registry::tarball_filename(package, &version);
-    if attachment_name != &expected_name {
+    // Sanity-check the filename. Two forms are accepted because npm CLIs are
+    // inconsistent for scoped packages:
+    // - the canonical (and on-disk) form is the unscoped basename:
+    //     `fixture-1.0.0.tgz`
+    // - npm CLI publish uses the full scoped key:
+    //     `@pier-smoke/fixture-1.0.0.tgz`
+    // We accept either, then continue using the short form everywhere downstream
+    // (FS layout, `dist.tarball` URL).
+    let expected_short = registry::tarball_filename(package, &version);
+    let expected_full = format!("{package}-{version}.tgz");
+    if !attachment_name_matches(attachment_name, &expected_short, &expected_full) {
         return Err(AppError::BadRequest(format!(
-            "attachment name '{attachment_name}' does not match expected '{expected_name}'"
+            "attachment name '{attachment_name}' does not match expected '{expected_short}' or '{expected_full}'"
         )));
     }
+    let expected_name = expected_short;
 
     // Verify integrity if the client supplied one.
     if let Some(claimed) = manifest_val
@@ -1086,7 +1095,10 @@ async fn require_can_modify(
     package: &str,
     version: Option<&str>,
 ) -> Result<(), AppError> {
-    if user.global_role.at_least(crate::auth::rbac::GlobalRole::Admin) {
+    if user
+        .global_role
+        .at_least(crate::auth::rbac::GlobalRole::Admin)
+    {
         return Ok(());
     }
     let package_owned = package.to_string();
@@ -1221,6 +1233,18 @@ fn json_response(
         bytes,
     )
         .into_response())
+}
+
+/// Check whether the `_attachments` key from a publish body matches either of
+/// the two filename forms a real npm client may send:
+/// - `expected_short`: the bare basename used by Pier on disk and in
+///   `dist.tarball` (`fixture-1.0.0.tgz`).
+/// - `expected_full`: the scoped form npm CLI actually transmits
+///   (`@scope/fixture-1.0.0.tgz`).
+///
+/// Pulled out of `handle_publish` so the matching rule is unit-testable.
+fn attachment_name_matches(actual: &str, expected_short: &str, expected_full: &str) -> bool {
+    actual == expected_short || actual == expected_full
 }
 
 /// True when the client opts into the abbreviated packument via Accept.
@@ -1390,6 +1414,21 @@ mod tests {
             "application/vnd.npm.install-v1+json, */*".parse().unwrap(),
         );
         assert!(wants_abbreviated(&h));
+    }
+
+    #[test]
+    fn attachment_name_accepts_both_forms() {
+        let short = "fixture-1.0.0.tgz";
+        let full = "@pier-smoke/fixture-1.0.0.tgz";
+        // Unscoped clients (and the spec-canonical key) send the short form.
+        assert!(attachment_name_matches(short, short, full));
+        // Real npm CLI sends the full scoped form even though `dist.tarball`
+        // and the on-disk filename use the short form — accept it.
+        assert!(attachment_name_matches(full, short, full));
+        // Anything else is rejected.
+        assert!(!attachment_name_matches("other-1.0.0.tgz", short, full));
+        assert!(!attachment_name_matches("../../etc/passwd", short, full));
+        assert!(!attachment_name_matches("", short, full));
     }
 
     #[test]

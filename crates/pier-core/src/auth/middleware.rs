@@ -1,4 +1,4 @@
-use axum::extract::{Request, State};
+use axum::extract::{OriginalUri, Request, State};
 use axum::http::header::{AUTHORIZATION, COOKIE, SET_COOKIE};
 use axum::http::HeaderValue;
 use axum::middleware::Next;
@@ -15,6 +15,14 @@ use crate::state::SharedState;
 /// Header used by a remote Pier core to authenticate its cross-core API calls.
 /// Must match a row in the `peer_grants` table with `is_active = 1`.
 pub const PEER_TOKEN_HEADER: &str = "X-Pier-Peer-Token";
+
+/// Whether a path belongs to the JSON API surface (vs the HTML UI). Affects
+/// the failure mode of unauthenticated requests: API → 401, UI → 303 to
+/// `/login`. Pulled out of the middleware so it can be unit-tested without
+/// constructing a full `Request`.
+fn is_api_path(full_path: &str) -> bool {
+    full_path.starts_with("/api/") || full_path.starts_with("/registry/")
+}
 
 /// Extract the bearer value from an `Authorization: Bearer …` header.
 fn parse_bearer(header: &str) -> Option<&str> {
@@ -82,10 +90,18 @@ pub async fn require_auth(
     next: Next,
 ) -> Result<Response, AppError> {
     let path = req.uri().path();
-    // `/registry/...` is the embedded npm-compatible registry. Treat it as
-    // API for auth purposes — 401s, not redirects to /login — because npm
-    // clients can't follow HTML redirects.
-    let is_api = path.starts_with("/api/") || path.starts_with("/registry/");
+    // Inside a `nest()`ed router axum rewrites `req.uri()` to the *stripped*
+    // path (e.g. `/registry/npm/-/whoami` becomes `/-/whoami` once handed to
+    // the npm router). The `OriginalUri` extension preserves the full URL —
+    // we need it to classify `/api/...` and `/registry/...` correctly, because
+    // npm clients can't follow the HTML redirect we'd otherwise emit for
+    // "UI" paths.
+    let full_path: String = req
+        .extensions()
+        .get::<OriginalUri>()
+        .map(|o| o.0.path().to_string())
+        .unwrap_or_else(|| path.to_string());
+    let is_api = is_api_path(&full_path);
 
     // 1. Check for peer-core token first — only accepted on API routes.
     //    This lets another pier-core act as an admin on this instance.
@@ -179,7 +195,7 @@ pub async fn require_auth(
     //     in `.npmrc`. We intentionally do NOT accept Basic on the rest of the
     //     API: there's no use case beyond the npm CLI, and refusing it
     //     elsewhere keeps the attack surface narrow.
-    let basic_opt = if path.starts_with("/registry/") {
+    let basic_opt = if full_path.starts_with("/registry/") {
         req.headers()
             .get(AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
@@ -222,8 +238,7 @@ pub async fn require_auth(
                         id,
                         username,
                         role,
-                        global_role: GlobalRole::parse(&global_role)
-                            .unwrap_or(GlobalRole::User),
+                        global_role: GlobalRole::parse(&global_role).unwrap_or(GlobalRole::User),
                         session_id: String::new(),
                         is_peer: false,
                     }))
@@ -296,8 +311,7 @@ pub async fn require_auth(
                     id: row.get(0)?,
                     username: row.get(1)?,
                     role: row.get(2)?,
-                    global_role: GlobalRole::parse(&global_role_str)
-                        .unwrap_or(GlobalRole::User),
+                    global_role: GlobalRole::parse(&global_role_str).unwrap_or(GlobalRole::User),
                     session_id: sid.clone(),
                     is_peer: false,
                 })
@@ -386,6 +400,23 @@ fn login_redirect_for_path(path_and_query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_api_path_matches_api_and_registry_only() {
+        assert!(is_api_path("/api/v1/users"));
+        assert!(is_api_path("/api/v1/registry/packages/foo"));
+        assert!(is_api_path("/registry/npm/-/whoami"));
+        assert!(is_api_path("/registry/npm/@scope/pkg"));
+        // UI paths must NOT be classified as API — otherwise unauth requests
+        // would 401 instead of redirecting to /login.
+        assert!(!is_api_path("/login"));
+        assert!(!is_api_path("/packages"));
+        assert!(!is_api_path("/login/cli/abc123"));
+        assert!(!is_api_path("/"));
+        // Strict prefix — `/registryctl` is not the embedded registry.
+        assert!(!is_api_path("/registryctl"));
+        assert!(!is_api_path("/apiary"));
+    }
 
     #[test]
     fn bearer_parsing() {
