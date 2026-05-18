@@ -16,13 +16,15 @@
 //! The orchestrator handler that actually drives the migration moves
 //! in next (Этап 4.2).
 
-// Consumers land in 4.2 (orchestrator handler) and 4.3 (UI eligibility
-// check). Re-evaluate this allow once those ship.
-#![allow(dead_code)]
-
+use axum::extract::{Path, State};
+use axum::response::IntoResponse;
+use axum::Json;
 use rusqlite::Connection;
+use serde::Deserialize;
 
 use crate::error::{AppError, AppResult};
+use crate::federation::write_client;
+use crate::state::SharedState;
 
 /// Detailed result of a statelessness check. The error string is
 /// surfaced to the operator verbatim so they understand why a Move
@@ -132,6 +134,13 @@ pub fn check_stack_stateless(compose_yaml: &str) -> StatelessVerdict {
 }
 
 /// Same check, indexed off the stack id. Returns AppError for handlers.
+///
+/// Currently unused — the orchestrator inlines the equivalent check
+/// inside its source-validation step so it can pull `compose_content`
+/// and the statelessness verdict from the same query. Kept as a
+/// public helper because the UI eligibility check (Этап 4.3) will
+/// reach for it.
+#[allow(dead_code)]
 pub fn is_stack_stateless(db: &Connection, stack_id: &str) -> AppResult<()> {
     let yaml: Option<String> = db
         .query_row(
@@ -176,6 +185,217 @@ pub fn release_migration_lock(db: &Connection, stack_id: &str) -> AppResult<()> 
         [stack_id],
     )?;
     Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct MigrateRequest {
+    /// `servers.id` of the destination peer. Must be paired for
+    /// federation (servers.federation_token IS NOT NULL) or the
+    /// orchestrator can't talk to it.
+    pub target_server_id: String,
+}
+
+/// POST /api/v1/stacks/{id}/migrate
+///
+/// Move a locally-owned compose stack to a federated peer. Pipeline:
+///
+/// 1. Validate: source stack exists locally, is owner_server_id NULL
+///    (locally managed), is stateless per [`check_stack_stateless`].
+/// 2. Acquire migration lock (atomic UPDATE on services row).
+/// 3. Resolve target peer through [`write_client::lookup_write_peer`].
+///    Fails fast with 400 if not paired.
+/// 4. Snapshot YAML.
+/// 5. Create stack on target via `write_client::create_stack`.
+/// 6. Deploy stack on target via `write_client::deploy_stack`.
+/// 7. Tear down on source via `docker::compose::down_stack` +
+///    `docker::compose::remove_stack`.
+/// 8. Delete source row from `services`, releasing the lock with it.
+///
+/// Failure handling per step is documented inline. Domain cut-over
+/// is NOT automated — each Pier node has its own Traefik instance,
+/// so an external DNS A-record change is still on the operator's
+/// plate. The response includes a `domain_advice` field listing the
+/// domains the operator should re-point, since Pier knows them and
+/// the alternative is making the operator hunt them down by hand.
+pub async fn migrate_stack(
+    State(state): State<SharedState>,
+    Path(stack_id): Path<String>,
+    Json(body): Json<MigrateRequest>,
+) -> AppResult<impl IntoResponse> {
+    // --- Step 1: validate source -----------------------------------
+    let (source_name, source_yaml, source_domains) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+        let row = db
+            .query_row(
+                "SELECT name, compose_content, owner_server_id \
+                 FROM services WHERE id = ?1 AND service_type = 'compose'",
+                [&stack_id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .map_err(|_| AppError::NotFound(format!("Stack {stack_id} not found")))?;
+        let (name, yaml, owner) = row;
+        if owner.is_some() {
+            return Err(AppError::BadRequest(
+                "Stack is managed by a remote primary; migrate from there instead".into(),
+            ));
+        }
+        let yaml = yaml.ok_or_else(|| {
+            AppError::BadRequest("Stack has no compose content; nothing to migrate".into())
+        })?;
+        match check_stack_stateless(&yaml) {
+            StatelessVerdict::Stateless => {}
+            StatelessVerdict::Stateful(reason) => {
+                return Err(AppError::BadRequest(format!(
+                    "{reason}. Stateful migration is on the roadmap — see FUTURE.md."
+                )));
+            }
+        }
+        // Best-effort domain enumeration. The `domains` table can also
+        // carry rows for compose stacks (via service_id), but stacks
+        // typically declare routing inline as Traefik labels. We
+        // return whatever's there so the operator's DNS check is
+        // complete.
+        let mut stmt = db.prepare(
+            "SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain",
+        )?;
+        let domains: Vec<String> = stmt
+            .query_map([&stack_id], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        (name, yaml, domains)
+    };
+
+    // --- Step 2: acquire lock --------------------------------------
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        if !acquire_migration_lock(&db, &stack_id)? {
+            return Err(AppError::Conflict(
+                "Another migration is already in progress for this stack".into(),
+            ));
+        }
+    }
+
+    // From here on, any early return MUST release the lock. We wrap
+    // the rest in a helper closure pattern + an explicit release on
+    // every exit path.
+    let result = run_migration_pipeline(
+        &state,
+        &stack_id,
+        &source_name,
+        &source_yaml,
+        &body.target_server_id,
+        &source_domains,
+    )
+    .await;
+
+    // --- Final lock release on the failure path ---------------------
+    // On the success path the source row is gone (step 8), which drops
+    // the lock with it. On failure the row is still around and we
+    // need to clear the flag explicitly so a retry can take.
+    if result.is_err() {
+        if let Ok(db) = state.db.lock() {
+            let _ = release_migration_lock(&db, &stack_id);
+        }
+    }
+    result
+}
+
+async fn run_migration_pipeline(
+    state: &SharedState,
+    stack_id: &str,
+    source_name: &str,
+    source_yaml: &str,
+    target_server_id: &str,
+    source_domains: &[String],
+) -> AppResult<axum::response::Response> {
+    // --- Step 3: resolve target peer ------------------------------
+    let peer = write_client::lookup_write_peer(state, target_server_id)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "Target {target_server_id} is not paired for federation; set its token in /servers/<id>"
+            ))
+        })?;
+
+    // --- Step 4+5: create + deploy on target ----------------------
+    // create_stack returns {"ok": true, "id": "<uuid>"} from peer.
+    let create_resp = write_client::create_stack(&peer, source_name, source_yaml)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("target rejected create: {e:#}")))?;
+    let new_stack_id = create_resp
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!(
+                "target {} returned no stack id from create",
+                peer.name
+            ))
+        })?
+        .to_string();
+
+    if let Err(e) = write_client::deploy_stack(&peer, &new_stack_id).await {
+        // Target has the row but containers didn't come up. Try to
+        // clean up the target row so a retry doesn't end up with
+        // ghost stacks accumulating. Best-effort; surface the
+        // original error if cleanup also fails.
+        let _ = write_client::delete_stack(&peer, &new_stack_id).await;
+        return Err(AppError::BadRequest(format!(
+            "target deploy failed (target row rolled back): {e:#}"
+        )));
+    }
+
+    // --- Step 7+8: tear down + remove source ----------------------
+    // From here on the operator's traffic should be going to the
+    // target. Source teardown failures are logged but don't fail the
+    // request — leaving a stopped container around is recoverable;
+    // returning an error to the UI would hide the fact that the
+    // target is live.
+    let mut teardown_warning: Option<String> = None;
+    if let Err(e) = crate::docker::compose::down_stack(source_name, &state.config).await {
+        tracing::warn!("migrate: source down failed for {source_name}: {e}");
+        teardown_warning = Some(format!("source down warning: {e}"));
+    }
+    if let Err(e) = crate::docker::compose::remove_stack(source_name, &state.config).await {
+        tracing::warn!("migrate: source remove failed for {source_name}: {e}");
+        teardown_warning = Some(format!(
+            "{}{}source remove warning: {e}",
+            teardown_warning.clone().unwrap_or_default(),
+            if teardown_warning.is_some() { "; " } else { "" }
+        ));
+    }
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute("DELETE FROM services WHERE id = ?1", [stack_id])?;
+    }
+
+    // Kick a federation_sync so the dashboard shows the new
+    // federated card immediately instead of waiting up to 45s.
+    let _ = crate::federation::sync::run_sync_pass(state).await;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "moved_to": peer.name,
+        "new_stack_id": new_stack_id,
+        "domain_advice": source_domains,
+        "teardown_warning": teardown_warning,
+    }))
+    .into_response())
 }
 
 #[cfg(test)]

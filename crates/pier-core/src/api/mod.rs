@@ -420,6 +420,12 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         .route("/stacks/{id}/deploy", post(compose::deploy))
         .route("/stacks/{id}/down", post(compose::down))
+        // Stateless migration — moves a locally-owned compose stack
+        // to a federated peer (Этап 4). Refuses stacks with named or
+        // anonymous volumes; bind mounts are tolerated. The handler
+        // acquires a row-level lock (migration 56) so two operators
+        // can't fire the pipeline concurrently for the same stack.
+        .route("/stacks/{id}/migrate", post(migration::migrate_stack))
         // Docker networks — system-level.
         .route("/networks", get(networks::list).post(networks::create))
         .route("/networks/{id}", delete(networks::delete))
