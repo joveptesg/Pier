@@ -19,6 +19,7 @@ pub mod grants;
 pub mod images;
 pub mod install;
 pub mod invitations;
+pub mod migration;
 // Note: `networks` (plural) is the Docker-networks management API.
 // `network` (singular) below is the host-level WireGuard mesh.
 pub mod network;

@@ -1304,6 +1304,23 @@ const MIGRATIONS: &[&str] = &[
     UPDATE users SET global_role = 'admin'
         WHERE role = 'admin' AND global_role = 'user';
     "#,
+    // Migration 56: Stateless service migration lock (Etap 4.1).
+    //
+    // The migration orchestrator (POST /api/v1/stacks/{id}/migrate) is
+    // a multi-step pipeline: snapshot definition → create on target →
+    // wait for health → cut over domain → tear down source. Two
+    // operators clicking Migrate at the same moment for the same
+    // stack would race in step 3, both ending up with the same stack
+    // running on both target nodes and traffic split.
+    //
+    // We protect against that with a row-level flag rather than an
+    // in-process Mutex so concurrent operators on the same source node
+    // (different browser tabs, API clients) all see the same answer.
+    // The flag is cleared on success or rolled back on failure inside
+    // the orchestrator's own state machine.
+    r#"
+    ALTER TABLE services ADD COLUMN migration_in_progress INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 /// Run all pending database migrations.
