@@ -167,3 +167,20 @@ pub async fn proxy_packages_list(
     let proxy_only: Vec<_> = all.into_iter().filter(|p| p.is_proxy).collect();
     Ok(Json(proxy_only))
 }
+
+/// `PUT /api/v1/registry/proxy/packages/{name}/pin` — toggle the pinned
+/// flag for a cached proxy package. Pinning marks the package as
+/// primary-interest so the Mirror UI can filter transitive deps out of the
+/// default view.
+pub async fn proxy_pin_toggle(
+    State(state): State<SharedState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let pinned = crate::registry::db::toggle_pinned(&db, &name)
+        .map_err(|e| crate::error::AppError::BadRequest(format!("{e}")))?;
+    Ok(Json(serde_json::json!({ "pinned": pinned })))
+}

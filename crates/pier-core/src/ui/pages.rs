@@ -422,6 +422,61 @@ pub async fn package_detail(
     axum::Extension(user): axum::Extension<AuthUser>,
     Path(name): Path<String>,
 ) -> PageResult {
+    // Pre-flight: for proxy packages whose upstream blob isn't populated yet
+    // (legacy entries from before migration 57, OR a fresh row whose blob
+    // got wiped by an unpublish), do a synchronous upstream refresh so the
+    // detail page renders real data instead of a misleading "0 versions"
+    // state. Failures here are non-fatal — we still render whatever we
+    // have in the DB.
+    let needs_refresh = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let row: Option<(i64, Option<String>)> = db
+            .query_row(
+                "SELECT is_proxy, upstream_packument_json FROM npm_packages WHERE name = ?1",
+                [&name],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+        matches!(row, Some((p, blob)) if p != 0 && blob.as_deref().unwrap_or("").is_empty())
+    };
+    if needs_refresh {
+        let cfg = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            crate::registry::upstream::load_config(&db)
+        };
+        if cfg.enabled {
+            match crate::registry::upstream::fetch_packument(&cfg.upstream_url, &name, false).await
+            {
+                Ok(Some(up)) => {
+                    let db = state
+                        .db
+                        .lock()
+                        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                    if let Err(e) = crate::registry::db::upsert_proxy_packument(
+                        &db,
+                        &name,
+                        &up.body,
+                        up.etag.as_deref(),
+                    ) {
+                        tracing::warn!(%name, "detail-page proxy refresh upsert failed: {e:#}");
+                    }
+                }
+                Ok(None) => {
+                    tracing::info!(%name, "detail-page proxy refresh: upstream 404");
+                }
+                Err(e) => {
+                    tracing::warn!(%name, "detail-page proxy refresh failed: {e:#}");
+                }
+            }
+        }
+    }
+
     let (summary, versions, manifest_only_count, dist_tags, readme_md) = {
         let db = state
             .db

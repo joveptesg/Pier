@@ -1339,6 +1339,18 @@ const MIGRATIONS: &[&str] = &[
      WHERE tarball_size = 0
        AND package_name IN (SELECT name FROM npm_packages WHERE is_proxy = 1);
     "#,
+    // Migration 58: pin flag for the proxy Mirror tab.
+    //
+    // When a Pier mirror caches a public package (say `next`), npm fans out
+    // and ALSO caches every transitive dep (sharp, @next/swc-*, react,
+    // scheduler, …). For an operator who only cares about packages they
+    // explicitly installed, the Mirror list becomes noisy fast. `pinned = 1`
+    // marks a package as primary-interest; the UI exposes a star toggle on
+    // each row + a "Pinned only" filter on the listing.
+    r#"
+    ALTER TABLE npm_packages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX IF NOT EXISTS idx_npm_packages_pinned ON npm_packages(pinned);
+    "#,
 ];
 
 /// Run all pending database migrations.

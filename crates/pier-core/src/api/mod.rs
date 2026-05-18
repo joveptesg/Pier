@@ -448,6 +448,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             get(registry_settings::proxy_packages_list),
         )
         .route(
+            "/registry/proxy/packages/{name}/pin",
+            put(registry_settings::proxy_pin_toggle),
+        )
+        .route(
             "/registry/packages/{package}/dist-tags/{tag}",
             put(registry_admin::set_dist_tag).delete(registry_admin::remove_dist_tag),
         )

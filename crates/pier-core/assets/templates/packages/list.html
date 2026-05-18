@@ -208,18 +208,27 @@ always-auth=true</pre>
             <p class="text-xs text-gray-500">Each row is a public package this Pier has fetched at least once. Tarballs are pulled lazily — only the versions clients actually installed land on disk. Metadata-only versions live in SQLite and don't count toward the cache size cap.</p>
         </div>
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
-            <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+            <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between flex-wrap gap-2">
                 <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <span x-text="filteredProxyPackages().length"></span> /
                     <span x-text="proxyPackages.length"></span> cached package(s)
                 </p>
-                <button @click="loadProxyPackages()" :disabled="proxyListLoading"
-                        class="text-xs text-blue-500 hover:underline disabled:opacity-50">
-                    <span x-text="proxyListLoading ? 'Refreshing…' : 'Refresh'"></span>
-                </button>
+                <div class="flex items-center gap-3">
+                    <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+                        <input type="checkbox" x-model="proxyPinnedOnly"
+                               class="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-700 text-blue-500">
+                        <span>Pinned only</span>
+                    </label>
+                    <button @click="loadProxyPackages()" :disabled="proxyListLoading"
+                            class="text-xs text-blue-500 hover:underline disabled:opacity-50">
+                        <span x-text="proxyListLoading ? 'Refreshing…' : 'Refresh'"></span>
+                    </button>
+                </div>
             </div>
-            <table x-show="proxyPackages.length" x-cloak class="min-w-full text-sm">
+            <table x-show="filteredProxyPackages().length" x-cloak class="min-w-full text-sm">
                 <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
                     <tr>
+                        <th class="px-2 py-2 w-8 text-center font-medium"></th>
                         <th class="px-4 py-2 text-left font-medium">Package</th>
                         <th class="px-4 py-2 text-left font-medium">Latest</th>
                         <th class="px-4 py-2 text-left font-medium">Versions cached</th>
@@ -228,8 +237,16 @@ always-auth=true</pre>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
-                    <template x-for="p in proxyPackages" :key="p.name">
+                    <template x-for="p in filteredProxyPackages()" :key="p.name">
                         <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                            <td class="px-2 py-2 text-center">
+                                <button @click="togglePin(p)"
+                                        :title="p.pinned ? 'Unpin' : 'Pin'"
+                                        class="text-base leading-none transition-colors"
+                                        :class="p.pinned ? 'text-amber-400 hover:text-amber-500' : 'text-gray-300 dark:text-gray-600 hover:text-amber-400'">
+                                    <span x-text="p.pinned ? '★' : '☆'"></span>
+                                </button>
+                            </td>
                             <td class="px-4 py-2">
                                 <a :href="`/packages/${p.name}`" class="font-mono text-blue-600 dark:text-blue-400 hover:underline" x-text="p.name"></a>
                                 <p x-show="p.description" x-cloak class="text-[11px] text-gray-500 mt-0.5 truncate max-w-md" x-text="p.description"></p>
@@ -319,6 +336,7 @@ function packagesPage() {
         proxyError: false,
         proxyPackages: [],
         proxyListLoading: false,
+        proxyPinnedOnly: false,
 
         async init() {
             const hash = (location.hash || '').replace('#', '');
@@ -389,6 +407,25 @@ function packagesPage() {
                 if (r.ok) this.proxyPackages = await r.json();
             } catch (e) { /* silent — list is best-effort */ }
             finally { this.proxyListLoading = false; }
+        },
+
+        filteredProxyPackages() {
+            return this.proxyPinnedOnly
+                ? this.proxyPackages.filter(p => p.pinned)
+                : this.proxyPackages;
+        },
+
+        async togglePin(p) {
+            const prev = p.pinned;
+            p.pinned = !prev; // optimistic
+            try {
+                const r = await fetch(`/api/v1/registry/proxy/packages/${encodeURIComponent(p.name)}/pin`, { method: 'PUT' });
+                if (!r.ok) throw new Error('pin failed');
+                const data = await r.json();
+                p.pinned = !!data.pinned;
+            } catch (e) {
+                p.pinned = prev; // rollback
+            }
         },
 
         async saveProxy() {

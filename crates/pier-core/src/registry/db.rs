@@ -62,6 +62,30 @@ pub struct PackageSummary {
     /// proxy-cached packages where ancient 0.x.x versions are deprecated but
     /// the version a user would actually install today (16.x) is fine.
     pub latest_deprecated: bool,
+    /// Operator pinned this package in the Mirror UI. Used to filter the
+    /// noisy transitive-dep entries out of the default Mirror view.
+    pub pinned: bool,
+}
+
+/// Toggle `pinned` for a package. Returns the new value. Used by the
+/// PUT /api/v1/registry/proxy/packages/{name}/pin endpoint.
+pub fn toggle_pinned(conn: &Connection, package: &str) -> Result<bool> {
+    let current: Option<i64> = conn
+        .query_row(
+            "SELECT pinned FROM npm_packages WHERE name = ?1",
+            params![package],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(current) = current else {
+        anyhow::bail!("package not found: {package}");
+    };
+    let next = if current == 0 { 1 } else { 0 };
+    conn.execute(
+        "UPDATE npm_packages SET pinned = ?2 WHERE name = ?1",
+        params![package, next],
+    )?;
+    Ok(next != 0)
 }
 
 /// Look up a package + all its versions. Returns None if unknown OR if the
@@ -700,7 +724,8 @@ pub fn list_packages(conn: &Connection, only_private: bool) -> Result<Vec<Packag
                                       AND json_extract(v.manifest_json, '$.deprecated') IS NOT NULL
                                  THEN 1 ELSE 0 END
                         ), 0)
-                END AS latest_deprecated
+                END AS latest_deprecated,
+                p.pinned
          FROM npm_packages p
          LEFT JOIN npm_versions v ON v.package_name = p.name
          {where_clause}
@@ -724,6 +749,7 @@ pub fn list_packages(conn: &Connection, only_private: bool) -> Result<Vec<Packag
                 version_count: row.get(7)?,
                 deprecated_count: row.get(8)?,
                 latest_deprecated: row.get::<_, i64>(9)? != 0,
+                pinned: row.get::<_, i64>(10)? != 0,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1186,6 +1212,7 @@ mod tests {
             unpublished: false,
             deprecated_count: 1,
             latest_deprecated: false,
+            pinned: false,
         };
         // Explicit reads — serde-generated reads don't count for the
         // dead_code lint, so poke every field directly.
@@ -1199,6 +1226,7 @@ mod tests {
         assert!(!s.unpublished);
         assert_eq!(s.deprecated_count, 1);
         assert!(!s.latest_deprecated);
+        assert!(!s.pinned);
 
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v.get("name").and_then(|v| v.as_str()), Some("foo"));
@@ -1220,6 +1248,7 @@ mod tests {
             v.get("latest_deprecated").and_then(|v| v.as_bool()),
             Some(false)
         );
+        assert_eq!(v.get("pinned").and_then(|v| v.as_bool()), Some(false));
     }
 
     #[test]
