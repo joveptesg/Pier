@@ -44,7 +44,7 @@ use crate::auth::api_token;
 use crate::auth::middleware::{require_auth, AuthUser};
 use crate::auth::password;
 use crate::error::AppError;
-use crate::registry::{self, db as regdb, storage};
+use crate::registry::{self, db as regdb, storage, upstream};
 use crate::state::SharedState;
 
 /// Per-publish body cap. 100 MiB is large enough for monorepo-sized tarballs
@@ -538,7 +538,51 @@ async fn serve_packument(
 ) -> Result<axum::response::Response, AppError> {
     validate_package_name(package)?;
     let package_owned = package.to_string();
-    let packument = db_blocking(state, move |db| regdb::load_packument(db, &package_owned)).await?;
+    let mut packument =
+        db_blocking(state, move |db| regdb::load_packument(db, &package_owned)).await?;
+
+    // Proxy miss-fill: when the local DB has no row for this package and
+    // upstream-proxy mode is enabled, fetch the packument from upstream,
+    // cache it as is_proxy=1, then reload. A missing-on-upstream result
+    // still passes through as 404 to the client. Failures (DNS, network)
+    // surface as a 502 — staler-data fallback lands in sub-PR 3 alongside
+    // TTL refresh.
+    if packument.is_none() {
+        let cfg = db_blocking(state, move |db| Ok(upstream::load_config(db))).await?;
+        if cfg.enabled {
+            tracing::debug!(%package, upstream = %cfg.upstream_url, "registry proxy miss → upstream fetch");
+            let want_abbrev = wants_abbreviated(headers);
+            let fetched = upstream::fetch_packument(&cfg.upstream_url, package, want_abbrev)
+                .await
+                .map_err(|e| {
+                    tracing::warn!(%package, "upstream fetch failed: {e:#}");
+                    // Map to 502-equivalent through Internal — adding a
+                    // BadGateway variant is a separate concern (every panel
+                    // call site would need to think about it). The handler
+                    // log carries the original detail for the operator.
+                    AppError::Internal(anyhow::anyhow!("upstream fetch failed: {e}"))
+                })?;
+            if let Some(up) = fetched {
+                let package_owned = package.to_string();
+                let body_clone = up.body.clone();
+                let etag_clone = up.etag.clone();
+                db_blocking(state, move |db| {
+                    regdb::upsert_proxy_packument(
+                        db,
+                        &package_owned,
+                        &body_clone,
+                        etag_clone.as_deref(),
+                    )
+                })
+                .await?;
+                let package_owned = package.to_string();
+                packument = db_blocking(state, move |db| {
+                    regdb::load_packument(db, &package_owned)
+                })
+                .await?;
+            }
+        }
+    }
 
     let Some(mut packument) = packument else {
         return Err(AppError::NotFound(format!("package {package}")));

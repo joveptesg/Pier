@@ -263,6 +263,81 @@ pub fn insert_version(
     Ok(())
 }
 
+/// Cache an upstream packument as a proxy entry.
+///
+/// Used by `serve_packument` when proxy mode is enabled and the local DB
+/// doesn't have the package. Stores each version's manifest verbatim but
+/// records `tarball_size = 0` — the actual bytes (and the true size + sha)
+/// are only resolved when a client fetches the tarball, which is the right
+/// laziness for a public-mirror workload (most installs touch only a few
+/// versions per package).
+///
+/// `etag` lets the future TTL-refresh path send `If-None-Match` upstream
+/// and short-circuit on 304. `dist_tarball_check` extracts the upstream
+/// tarball URL into a parallel column eventually — sub-PR 3 territory.
+pub fn upsert_proxy_packument(
+    conn: &Connection,
+    package: &str,
+    upstream_body: &serde_json::Value,
+    etag: Option<&str>,
+) -> Result<()> {
+    let description = upstream_body
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let dist_tags_value = upstream_body
+        .get("dist-tags")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let dist_tags_json = serde_json::to_string(&dist_tags_value)?;
+
+    let now = chrono::Utc::now().timestamp();
+    let tx = conn.unchecked_transaction()?;
+
+    tx.execute(
+        "INSERT INTO npm_packages
+            (name, description, dist_tags_json, is_proxy,
+             upstream_etag, upstream_fetched_at, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?5, ?5)
+         ON CONFLICT(name) DO UPDATE SET
+            description          = ?2,
+            dist_tags_json       = ?3,
+            is_proxy             = 1,
+            upstream_etag        = ?4,
+            upstream_fetched_at  = ?5,
+            unpublished_at       = NULL,
+            updated_at           = ?5",
+        params![package, description, dist_tags_json, etag, now],
+    )?;
+
+    if let Some(versions) = upstream_body.get("versions").and_then(|v| v.as_object()) {
+        for (version, manifest) in versions {
+            let manifest_json = serde_json::to_string(manifest)?;
+            let integrity = manifest
+                .get("dist")
+                .and_then(|d| d.get("integrity"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            // INSERT OR IGNORE keeps already-cached versions (which may
+            // have the real tarball_size populated by a tarball fetch)
+            // untouched on a refresh.
+            tx.execute(
+                "INSERT OR IGNORE INTO npm_versions
+                    (package_name, version, manifest_json, tarball_size,
+                     tarball_sha512, s3_uploaded, published_by, published_at)
+                 VALUES (?1, ?2, ?3, 0, ?4, 0, NULL, ?5)",
+                params![package, version, manifest_json, integrity, now],
+            )?;
+        }
+    }
+
+    tx.commit()?;
+    Ok(())
+}
+
 /// Mark a tarball as successfully uploaded to S3.
 pub fn mark_s3_uploaded(conn: &Connection, package: &str, version: &str) -> Result<()> {
     conn.execute(
