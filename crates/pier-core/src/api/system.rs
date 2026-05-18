@@ -161,10 +161,45 @@ pub async fn info(State(state): State<SharedState>) -> AppResult<impl IntoRespon
     // Uptime from started_at in AppState
     let uptime_seconds = state.started_at.elapsed().as_secs();
 
+    // Network stack info — the UI peer-registration form uses this to
+    // warn the operator when they're about to add a peer they can't
+    // reach (e.g. v6-only peer from a v4-only primary).
+    let (public_ipv4, public_ipv6) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let v4: Option<String> = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'server.public_ipv4'",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
+            .or_else(|| {
+                db.query_row(
+                    "SELECT value FROM settings WHERE key = 'server.public_ip'",
+                    [],
+                    |row| row.get(0),
+                )
+                .ok()
+            });
+        let v6: Option<String> = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'server.public_ipv6'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        (v4, v6)
+    };
+
     Ok(Json(serde_json::json!({
         "version": version,
         "build_date": build_date,
         "uptime_seconds": uptime_seconds,
+        "public_ipv4": public_ipv4,
+        "public_ipv6": public_ipv6,
     })))
 }
 
