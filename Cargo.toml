@@ -4,6 +4,7 @@ members = [
     "crates/pier-core",
     "crates/pier-agent",
     "crates/pier-net-helper",
+    "crates/pier-tests",
 ]
 
 [workspace.package]
@@ -71,7 +72,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 axum-extra = { version = "0.12", features = ["cookie"] }
 
 # HTTP Client
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "cookies"], default-features = false }
 
 # S3
 aws-sdk-s3 = "1.82"
@@ -128,6 +129,9 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 # HTML sanitiser — strips <script>/onerror etc from rendered READMEs so a
 # malicious publish can't XSS the panel.
 ammonia = "4"
+
+# CLI argument parsing (only used by pier-tests harness).
+clap = { version = "4.5", features = ["derive"] }
 
 [profile.release]
 lto = true
