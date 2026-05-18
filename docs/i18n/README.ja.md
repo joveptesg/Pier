@@ -80,6 +80,59 @@
 - 🗃 組み込み SQLite — 外部データベース不要
 - ⚙️ ワンコマンドでサーバーセットアップ
 
+## npm レジストリ
+
+**プライベート + プロキシ npm レジストリをバイナリに内蔵。** 別途の Verdaccio コンテナや外部 DB は不要 — Pier は `/registry/npm/` で npm 互換 API を提供し、`registry.npmjs.org` を透過的にミラーし、すべての主要なパッケージマネージャーで動作します。
+
+### 対応クライアント
+
+| クライアント | バージョン | 備考 |
+|---|---|---|
+| **npm** | 7 – 11 | 設定不要で動作 |
+| **yarn classic** | 1.22.x | `.npmrc` に `always-auth=true` を追加 |
+| **yarn berry** | 2 · 3 · 4 | `.yarnrc.yml` に `npmAlwaysAuth: true` |
+| **pnpm** | 9 · 10 | 設定不要で動作 |
+| **bun** | latest | 設定不要で動作 |
+
+### 対応コマンド
+
+| コマンド | ステータス |
+|---|---|
+| `npm install` / `yarn add` / `pnpm add` / `bun add` | ✓ |
+| `npm publish`(scoped + unscoped) | ✓ |
+| `npm login`(CouchDB フロー + `--auth-type=web`) | ✓ |
+| `npm dist-tag add / rm / ls` | ✓ |
+| `npm deprecate` | ✓ |
+| `npm unpublish`(単一バージョン + パッケージ全体) | ✓ |
+| `npm whoami` · `npm ping` | ✓ |
+
+### Upstream プロキシモード
+
+Pier は **npmjs.org**(または npm 互換の任意の upstream)を透過的にミラーし、チーム全体が 1 つの URL を使えるようにします。packument メタデータはキャッシュされ `If-None-Match` で再検証、tarball は `install` 時に遅延取得、バックグラウンドの LRU GC が設定上限内にディスクキャッシュを保ちます。**Packages → Upstream proxy** で管理。
+
+- チーム全体の `.npmrc` で 1 つの URL — scope routing 不要
+- `npmjs.org` がダウンしても `install` は動き続ける
+- 監査: チームが実際に使う公開パッケージが可視化
+- 304 ショートカットによる TTL ベースの再検証
+
+### クイックスタート
+
+```ini
+# プロジェクトの .npmrc
+registry=https://YOUR-PIER-HOST/registry/npm/
+//YOUR-PIER-HOST/registry/npm/:_authToken=pier_npm_xxx
+always-auth=true
+```
+
+**Packages → Manage tokens** でトークンを発行、次に:
+
+```bash
+npm publish                  # プライベートパッケージ
+npm install left-pad         # npmjs.org からプロキシ + キャッシュ
+```
+
+クライアント別の詳細ガイド: [npm](https://pier.team/docs/registry/clients/npm) · [yarn 1.x](https://pier.team/docs/registry/clients/yarn-classic) · [yarn 2/3/4](https://pier.team/docs/registry/clients/yarn-berry) · [pnpm](https://pier.team/docs/registry/clients/pnpm) · [bun](https://pier.team/docs/registry/clients/bun)。
+
 ## テンプレート
 
 **データベース** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB

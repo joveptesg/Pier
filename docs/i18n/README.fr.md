@@ -80,6 +80,59 @@ Déployez des conteneurs, des stacks Docker Compose et des dépôts Git avec SSL
 - 🗃 SQLite intégré — aucune base de données externe requise
 - ⚙️ Configuration du serveur en une seule commande
 
+## Registre npm
+
+**Registre npm privé + proxy, intégré directement au binaire.** Sans conteneur Verdaccio séparé, sans base de données supplémentaire — Pier expose une API compatible npm sur `/registry/npm/`, met en miroir transparent `registry.npmjs.org` et fonctionne avec tous les gestionnaires de paquets modernes.
+
+### Clients pris en charge
+
+| Client | Versions | Notes |
+|---|---|---|
+| **npm** | 7 – 11 | Fonctionne sans configuration |
+| **yarn classic** | 1.22.x | Ajouter `always-auth=true` au `.npmrc` |
+| **yarn berry** | 2 · 3 · 4 | `.yarnrc.yml` avec `npmAlwaysAuth: true` |
+| **pnpm** | 9 · 10 | Fonctionne sans configuration |
+| **bun** | latest | Fonctionne sans configuration |
+
+### Commandes prises en charge
+
+| Commande | Statut |
+|---|---|
+| `npm install` / `yarn add` / `pnpm add` / `bun add` | ✓ |
+| `npm publish` (scoped + unscoped) | ✓ |
+| `npm login` (flux CouchDB + `--auth-type=web`) | ✓ |
+| `npm dist-tag add / rm / ls` | ✓ |
+| `npm deprecate` | ✓ |
+| `npm unpublish` (version unique + paquet entier) | ✓ |
+| `npm whoami` · `npm ping` | ✓ |
+
+### Mode proxy en amont
+
+Pier peut mettre en miroir de manière transparente **npmjs.org** (ou tout autre amont compatible npm) — toute l'équipe utilise une seule URL. Les packuments sont mis en cache et revalidés via `If-None-Match`, les tarballs sont récupérés paresseusement au premier `install`, et un GC LRU en arrière-plan maintient le cache disque sous une limite configurable. Tout se gère dans **Packages → Upstream proxy**.
+
+- Une seule URL dans `.npmrc` pour toute l'équipe — pas de scope routing
+- Les `install` continuent de fonctionner même si `npmjs.org` est en panne
+- Audit : visibilité des paquets publics réellement utilisés par l'équipe
+- Revalidation TTL avec court-circuit 304
+
+### Démarrage rapide
+
+```ini
+# .npmrc dans votre projet
+registry=https://YOUR-PIER-HOST/registry/npm/
+//YOUR-PIER-HOST/registry/npm/:_authToken=pier_npm_xxx
+always-auth=true
+```
+
+Créez le token dans **Packages → Manage tokens**, puis :
+
+```bash
+npm publish                  # paquet privé
+npm install left-pad         # proxy depuis npmjs.org + cache
+```
+
+Guides complets par client : [npm](https://pier.team/docs/registry/clients/npm) · [yarn 1.x](https://pier.team/docs/registry/clients/yarn-classic) · [yarn 2/3/4](https://pier.team/docs/registry/clients/yarn-berry) · [pnpm](https://pier.team/docs/registry/clients/pnpm) · [bun](https://pier.team/docs/registry/clients/bun).
+
 ## Modèles
 
 **Bases de données** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB

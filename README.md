@@ -78,6 +78,59 @@ Deploy containers, Docker Compose stacks, and Git repositories with automatic SS
 - 🗃 Embedded SQLite — no external database required
 - ⚙️ One-command server setup
 
+## npm Registry
+
+**A private + proxy npm registry, built into the binary.** No Verdaccio container, no extra database — Pier serves an npm-compatible API at `/registry/npm/`, mirrors `registry.npmjs.org` transparently, and works with every modern package manager.
+
+### Supported clients
+
+| Client | Versions | Notes |
+|---|---|---|
+| **npm** | 7 – 11 | Works out of the box |
+| **yarn classic** | 1.22.x | Add `always-auth=true` to `.npmrc` |
+| **yarn berry** | 2 · 3 · 4 | `.yarnrc.yml` with `npmAlwaysAuth: true` |
+| **pnpm** | 9 · 10 | Works out of the box |
+| **bun** | latest | Works out of the box |
+
+### Supported commands
+
+| Command | Status |
+|---|---|
+| `npm install` / `yarn add` / `pnpm add` / `bun add` | ✓ |
+| `npm publish` (scoped + unscoped) | ✓ |
+| `npm login` (CouchDB flow + `--auth-type=web`) | ✓ |
+| `npm dist-tag add / rm / ls` | ✓ |
+| `npm deprecate` | ✓ |
+| `npm unpublish` (single version + whole package) | ✓ |
+| `npm whoami` · `npm ping` | ✓ |
+
+### Upstream proxy mode
+
+Pier can transparently mirror **npmjs.org** (or any npm-compatible upstream) so the whole team uses one URL. Packuments are cached and revalidated through `If-None-Match`, tarballs are pulled lazily on first install, and a background LRU GC keeps the on-disk cache under a configurable cap. Manage everything in **Packages → Upstream proxy**.
+
+- One `.npmrc` URL for the whole team — no scope routing
+- Installs keep working when `npmjs.org` is down
+- Audit trail: every public package the team actually uses
+- TTL revalidation with 304 short-circuit
+
+### Quick start
+
+```ini
+# .npmrc in your project
+registry=https://YOUR-PIER-HOST/registry/npm/
+//YOUR-PIER-HOST/registry/npm/:_authToken=pier_npm_xxx
+always-auth=true
+```
+
+Mint the token in **Packages → Manage tokens**, then:
+
+```bash
+npm publish                  # private package
+npm install left-pad         # proxied from npmjs.org + cached
+```
+
+Full per-client guides: [npm](https://pier.team/docs/registry/clients/npm) · [yarn 1.x](https://pier.team/docs/registry/clients/yarn-classic) · [yarn 2/3/4](https://pier.team/docs/registry/clients/yarn-berry) · [pnpm](https://pier.team/docs/registry/clients/pnpm) · [bun](https://pier.team/docs/registry/clients/bun).
+
 ## Templates
 
 **Databases** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB

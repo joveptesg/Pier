@@ -80,6 +80,59 @@
 - 🗃 Встроенная SQLite — внешняя база данных не требуется
 - ⚙️ Настройка сервера одной командой
 
+## npm-реестр
+
+**Приватный + proxy-реестр npm встроен прямо в бинарник.** Без отдельного Verdaccio-контейнера, без отдельной БД — Pier отдаёт npm-совместимый API на `/registry/npm/`, прозрачно зеркалит `registry.npmjs.org` и работает со всеми современными пакетными менеджерами.
+
+### Поддерживаемые клиенты
+
+| Клиент | Версии | Примечания |
+|---|---|---|
+| **npm** | 7 – 11 | Работает «из коробки» |
+| **yarn classic** | 1.22.x | Добавить `always-auth=true` в `.npmrc` |
+| **yarn berry** | 2 · 3 · 4 | `.yarnrc.yml` с `npmAlwaysAuth: true` |
+| **pnpm** | 9 · 10 | Работает «из коробки» |
+| **bun** | latest | Работает «из коробки» |
+
+### Поддерживаемые команды
+
+| Команда | Статус |
+|---|---|
+| `npm install` / `yarn add` / `pnpm add` / `bun add` | ✓ |
+| `npm publish` (scoped + unscoped) | ✓ |
+| `npm login` (CouchDB-flow + `--auth-type=web`) | ✓ |
+| `npm dist-tag add / rm / ls` | ✓ |
+| `npm deprecate` | ✓ |
+| `npm unpublish` (одна версия + весь пакет) | ✓ |
+| `npm whoami` · `npm ping` | ✓ |
+
+### Режим upstream-proxy
+
+Pier может прозрачно зеркалить **npmjs.org** (или любой совместимый upstream) — вся команда использует один URL. Packument-метаданные кешируются и ревалидируются через `If-None-Match`, tarball'ы тянутся лениво при первом `install`, фоновый LRU GC удерживает кеш в пределах настраиваемого размера. Управление — в **Packages → Upstream proxy**.
+
+- Один URL в `.npmrc` на всю команду — без scope-routing
+- Install работает даже когда `npmjs.org` лежит
+- Аудит: видно какие публичные пакеты реально используются
+- TTL-ревалидация с короткозамыканием 304
+
+### Быстрый старт
+
+```ini
+# .npmrc в проекте
+registry=https://YOUR-PIER-HOST/registry/npm/
+//YOUR-PIER-HOST/registry/npm/:_authToken=pier_npm_xxx
+always-auth=true
+```
+
+Создать токен — **Packages → Manage tokens**, далее:
+
+```bash
+npm publish                  # приватный пакет
+npm install left-pad         # проксируется с npmjs.org + кешируется
+```
+
+Подробные гайды по клиентам: [npm](https://pier.team/docs/registry/clients/npm) · [yarn 1.x](https://pier.team/docs/registry/clients/yarn-classic) · [yarn 2/3/4](https://pier.team/docs/registry/clients/yarn-berry) · [pnpm](https://pier.team/docs/registry/clients/pnpm) · [bun](https://pier.team/docs/registry/clients/bun).
+
 ## Шаблоны
 
 **Базы данных** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB

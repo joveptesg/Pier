@@ -80,6 +80,59 @@
 - 🗃 内嵌 SQLite — 无需外部数据库
 - ⚙️ 一条命令完成服务器配置
 
+## npm 仓库
+
+**内置私有 + 代理 npm 仓库，直接编入二进制文件。** 无需单独的 Verdaccio 容器或额外数据库 — Pier 在 `/registry/npm/` 提供 npm 兼容 API，透明镜像 `registry.npmjs.org`，并与所有现代包管理器协同工作。
+
+### 支持的客户端
+
+| 客户端 | 版本 | 说明 |
+|---|---|---|
+| **npm** | 7 – 11 | 开箱即用 |
+| **yarn classic** | 1.22.x | 在 `.npmrc` 中添加 `always-auth=true` |
+| **yarn berry** | 2 · 3 · 4 | `.yarnrc.yml` 中设置 `npmAlwaysAuth: true` |
+| **pnpm** | 9 · 10 | 开箱即用 |
+| **bun** | latest | 开箱即用 |
+
+### 支持的命令
+
+| 命令 | 状态 |
+|---|---|
+| `npm install` / `yarn add` / `pnpm add` / `bun add` | ✓ |
+| `npm publish`(scoped + unscoped) | ✓ |
+| `npm login`(CouchDB + `--auth-type=web`) | ✓ |
+| `npm dist-tag add / rm / ls` | ✓ |
+| `npm deprecate` | ✓ |
+| `npm unpublish`(单版本 + 整包) | ✓ |
+| `npm whoami` · `npm ping` | ✓ |
+
+### Upstream 代理模式
+
+Pier 可以透明镜像 **npmjs.org**(或任何 npm 兼容 upstream)— 整个团队使用一个 URL。packument 元数据被缓存并通过 `If-None-Match` 进行重新验证,tarball 在首次 `install` 时按需拉取,后台 LRU GC 将磁盘缓存控制在可配置上限内。在 **Packages → Upstream proxy** 中管理。
+
+- 整个团队的 `.npmrc` 只用一个 URL — 无需 scope routing
+- 即使 `npmjs.org` 宕机也能继续 install
+- 审计:清晰可见团队实际使用了哪些公共包
+- 基于 TTL 的重新验证,304 直接短路
+
+### 快速开始
+
+```ini
+# 项目中的 .npmrc
+registry=https://YOUR-PIER-HOST/registry/npm/
+//YOUR-PIER-HOST/registry/npm/:_authToken=pier_npm_xxx
+always-auth=true
+```
+
+在 **Packages → Manage tokens** 中创建令牌,然后:
+
+```bash
+npm publish                  # 私有包
+npm install left-pad         # 从 npmjs.org 代理 + 缓存
+```
+
+完整的客户端指南:[npm](https://pier.team/docs/registry/clients/npm) · [yarn 1.x](https://pier.team/docs/registry/clients/yarn-classic) · [yarn 2/3/4](https://pier.team/docs/registry/clients/yarn-berry) · [pnpm](https://pier.team/docs/registry/clients/pnpm) · [bun](https://pier.team/docs/registry/clients/bun)。
+
 ## 模板
 
 **数据库** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
