@@ -52,10 +52,8 @@ always-auth=true</pre>
                                 <a href="/packages/{{ p.name }}" class="font-mono text-blue-600 dark:text-blue-400 hover:underline">{{ p.name }}</a>
                                 {% if p.unpublished %}
                                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400">Unpublished</span>
-                                {% elif p.deprecated_count > 0 %}
-                                <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400" title="{{ p.deprecated_count }} version{% if p.deprecated_count != 1 %}s{% endif %} deprecated">
-                                    Deprecated{% if p.deprecated_count > 1 %} ({{ p.deprecated_count }}){% endif %}
-                                </span>
+                                {% elif p.latest_deprecated %}
+                                <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400" title="The latest version is deprecated.">Deprecated</span>
                                 {% endif %}
                             </div>
                             {% if p.description %}<p class="text-xs text-gray-500 mt-0.5">{{ p.description }}</p>{% endif %}
@@ -201,11 +199,19 @@ always-auth=true</pre>
             <p x-show="proxyStatus" x-cloak class="text-xs"
                :class="proxyError ? 'text-red-500' : 'text-green-500'" x-text="proxyStatus"></p>
         </div>
+    </div>
 
-        <!-- Cached packages list -->
+    <!-- ── Tab: Mirror (cached packages) ───────────────────── -->
+    <div x-show="tab === 'mirror'" x-cloak class="space-y-6">
+        <div>
+            <p class="text-sm text-gray-500 mb-1">Packages cached from the upstream registry.</p>
+            <p class="text-xs text-gray-500">Each row is a public package this Pier has fetched at least once. Tarballs are pulled lazily — only the versions clients actually installed land on disk. Metadata-only versions live in SQLite and don't count toward the cache size cap.</p>
+        </div>
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
             <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-                <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Cached from upstream</p>
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <span x-text="proxyPackages.length"></span> cached package(s)
+                </p>
                 <button @click="loadProxyPackages()" :disabled="proxyListLoading"
                         class="text-xs text-blue-500 hover:underline disabled:opacity-50">
                     <span x-text="proxyListLoading ? 'Refreshing…' : 'Refresh'"></span>
@@ -216,7 +222,7 @@ always-auth=true</pre>
                     <tr>
                         <th class="px-4 py-2 text-left font-medium">Package</th>
                         <th class="px-4 py-2 text-left font-medium">Latest</th>
-                        <th class="px-4 py-2 text-left font-medium">Versions</th>
+                        <th class="px-4 py-2 text-left font-medium">Versions cached</th>
                         <th class="px-4 py-2 text-left font-medium">Tarballs on disk</th>
                         <th class="px-4 py-2 text-left font-medium">Last fetched</th>
                     </tr>
@@ -280,6 +286,7 @@ function packagesPage() {
             { id: 'packages', label: 'Packages' },
             { id: 'tokens', label: 'Manage tokens' },
             { id: 'proxy', label: 'Upstream proxy' },
+            { id: 'mirror', label: 'Mirror' },
             { id: 's3', label: 'S3 configure' },
         ],
 
@@ -314,7 +321,7 @@ function packagesPage() {
 
         async init() {
             const hash = (location.hash || '').replace('#', '');
-            if (['packages', 'tokens', 'proxy', 's3'].includes(hash)) this.tab = hash;
+            if (['packages', 'tokens', 'proxy', 'mirror', 's3'].includes(hash)) this.tab = hash;
             await Promise.all([this.loadTokens(), this.loadS3(), this.loadProxyPackages()]);
         },
 

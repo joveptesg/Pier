@@ -422,17 +422,29 @@ pub async fn package_detail(
     axum::Extension(user): axum::Extension<AuthUser>,
     Path(name): Path<String>,
 ) -> PageResult {
-    let (summary, versions, dist_tags, readme_md) = {
+    let (summary, versions, manifest_only_count, dist_tags, readme_md) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let summaries = crate::registry::db::list_packages(&db, false)?;
         let summary = summaries.into_iter().find(|p| p.name == name);
-        let versions = crate::registry::db::list_versions_with_deprecation(&db, &name)?;
+        // For proxy packages the upstream packument enumerates the entire
+        // version history (thousands of rows for popular packages). Hide the
+        // manifest-only ones from the table — only show downloaded versions.
+        // Private packages always have tarball_size > 0 so this is a no-op
+        // for them.
+        let is_proxy = summary.as_ref().map(|s| s.is_proxy).unwrap_or(false);
+        let versions =
+            crate::registry::db::list_versions_with_deprecation(&db, &name, is_proxy)?;
+        let manifest_only_count = if is_proxy {
+            crate::registry::db::count_manifest_only_versions(&db, &name)?
+        } else {
+            0
+        };
         let dist_tags = crate::registry::db::load_dist_tags(&db, &name)?.unwrap_or_default();
         let readme_md = crate::registry::db::load_readme(&db, &name)?;
-        (summary, versions, dist_tags, readme_md)
+        (summary, versions, manifest_only_count, dist_tags, readme_md)
     };
     let Some(summary) = summary else {
         return Err(AppError::NotFound(format!("package {name}")));
@@ -456,6 +468,7 @@ pub async fn package_detail(
             page => "packages",
             package => summary,
             versions => versions,
+            manifest_only_count => manifest_only_count,
             dist_tags => dist_tags,
             readme_html => readme_html,
         },

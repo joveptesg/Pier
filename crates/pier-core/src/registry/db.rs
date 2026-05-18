@@ -57,6 +57,11 @@ pub struct PackageSummary {
     /// Number of versions with `deprecated` set on their manifest. > 0 lights
     /// up a badge in the UI.
     pub deprecated_count: i64,
+    /// True when the `latest` dist-tag points at a deprecated version. This
+    /// is the actionable signal — `deprecated_count` is misleading for
+    /// proxy-cached packages where ancient 0.x.x versions are deprecated but
+    /// the version a user would actually install today (16.x) is fine.
+    pub latest_deprecated: bool,
 }
 
 /// Look up a package + all its versions. Returns None if unknown OR if the
@@ -348,6 +353,45 @@ pub struct ProxyTarballState {
     pub upstream_tarball_url: Option<String>,
 }
 
+/// Per-package proxy state: stored upstream ETag + the timestamp of the
+/// last successful upstream fetch. Used by the TTL refresh path in
+/// `serve_packument` to decide whether to revalidate.
+#[derive(Debug, Clone)]
+pub struct ProxyPackageState {
+    pub etag: Option<String>,
+    pub fetched_at: i64,
+}
+
+pub fn load_proxy_state(conn: &Connection, package: &str) -> Result<Option<ProxyPackageState>> {
+    Ok(conn
+        .query_row(
+            "SELECT upstream_etag, COALESCE(upstream_fetched_at, 0)
+               FROM npm_packages
+              WHERE name = ?1 AND is_proxy = 1",
+            params![package],
+            |r| {
+                Ok(ProxyPackageState {
+                    etag: r.get::<_, Option<String>>(0)?,
+                    fetched_at: r.get(1)?,
+                })
+            },
+        )
+        .optional()?)
+}
+
+/// Bump `upstream_fetched_at` to now without touching the rest of the row.
+/// Used after a 304 revalidation when upstream agrees the cached copy is
+/// still current.
+pub fn touch_proxy_fetched_at(conn: &Connection, package: &str) -> Result<()> {
+    let now = chrono::Utc::now().timestamp();
+    conn.execute(
+        "UPDATE npm_packages SET upstream_fetched_at = ?2, updated_at = ?2
+          WHERE name = ?1",
+        params![package, now],
+    )?;
+    Ok(())
+}
+
 /// Read proxy metadata for one version. Returns `None` if the row doesn't
 /// exist (lookup_tarball already returned its own None — this is the second
 /// query, gated by `size == 0`).
@@ -488,7 +532,12 @@ pub fn list_packages(conn: &Connection, only_private: bool) -> Result<Vec<Packag
                 COALESCE(SUM(
                     CASE WHEN json_extract(v.manifest_json, '$.deprecated') IS NOT NULL
                          THEN 1 ELSE 0 END
-                ), 0) AS deprecated_count
+                ), 0) AS deprecated_count,
+                COALESCE(MAX(
+                    CASE WHEN v.version = json_extract(p.dist_tags_json, '$.latest')
+                              AND json_extract(v.manifest_json, '$.deprecated') IS NOT NULL
+                         THEN 1 ELSE 0 END
+                ), 0) AS latest_deprecated
          FROM npm_packages p
          LEFT JOIN npm_versions v ON v.package_name = p.name
          {where_clause}
@@ -511,6 +560,7 @@ pub fn list_packages(conn: &Connection, only_private: bool) -> Result<Vec<Packag
                 total_size: row.get(6)?,
                 version_count: row.get(7)?,
                 deprecated_count: row.get(8)?,
+                latest_deprecated: row.get::<_, i64>(9)? != 0,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -552,16 +602,29 @@ pub struct VersionListing {
 }
 
 /// Per-version listing for the package detail page, with deprecation status.
+///
+/// `downloaded_only = true` suppresses proxy-cached manifest-only rows
+/// (tarball_size = 0). Used to keep the proxy package detail page from
+/// rendering thousands of "0 bytes" rows for every historical version
+/// the upstream packument carried — those tarballs only land on disk
+/// when a client actually installs them.
 pub fn list_versions_with_deprecation(
     conn: &Connection,
     package: &str,
+    downloaded_only: bool,
 ) -> Result<Vec<VersionListing>> {
-    let mut stmt = conn.prepare(
+    let extra_filter = if downloaded_only {
+        " AND tarball_size > 0"
+    } else {
+        ""
+    };
+    let sql = format!(
         "SELECT version, tarball_size, tarball_sha512, published_by, published_at,
                 s3_uploaded, json_extract(manifest_json, '$.deprecated')
-         FROM npm_versions WHERE package_name = ?1
-         ORDER BY published_at DESC",
-    )?;
+         FROM npm_versions WHERE package_name = ?1{extra_filter}
+         ORDER BY published_at DESC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
         .query_map([package], |row| {
             Ok(VersionListing {
@@ -576,6 +639,20 @@ pub fn list_versions_with_deprecation(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+/// Count manifest-only proxy versions (tarball_size = 0). Surfaced on the
+/// detail page as "+N more cached as metadata only" so operators see why
+/// the table is shorter than `version_count` suggests.
+pub fn count_manifest_only_versions(conn: &Connection, package: &str) -> Result<i64> {
+    Ok(conn
+        .query_row(
+            "SELECT COUNT(*) FROM npm_versions
+              WHERE package_name = ?1 AND tarball_size = 0",
+            params![package],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0))
 }
 
 /// Convert a unix timestamp to an ISO-8601 string for the npm `time` map.
@@ -926,6 +1003,7 @@ mod tests {
             updated_at: 1_700_000_000,
             unpublished: false,
             deprecated_count: 1,
+            latest_deprecated: false,
         };
         // Explicit reads — serde-generated reads don't count for the
         // dead_code lint, so poke every field directly.
@@ -938,6 +1016,7 @@ mod tests {
         assert_eq!(s.updated_at, 1_700_000_000);
         assert!(!s.unpublished);
         assert_eq!(s.deprecated_count, 1);
+        assert!(!s.latest_deprecated);
 
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v.get("name").and_then(|v| v.as_str()), Some("foo"));
@@ -955,6 +1034,10 @@ mod tests {
         );
         assert_eq!(v.get("unpublished").and_then(|v| v.as_bool()), Some(false));
         assert_eq!(v.get("deprecated_count").and_then(|v| v.as_i64()), Some(1));
+        assert_eq!(
+            v.get("latest_deprecated").and_then(|v| v.as_bool()),
+            Some(false)
+        );
     }
 
     #[test]

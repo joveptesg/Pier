@@ -588,6 +588,76 @@ async fn serve_packument(
         return Err(AppError::NotFound(format!("package {package}")));
     };
 
+    // TTL revalidation: when this is a proxy-cached packument older than
+    // `registry.proxy.ttl_seconds`, send `If-None-Match` upstream.
+    // - 304 → bump upstream_fetched_at; current cache is fine.
+    // - 200 → re-upsert with new body + reload (so dist-tag promotions land).
+    // - error → log + serve the cached copy anyway (proxy never blocks reads
+    //   on upstream availability).
+    if packument.is_proxy {
+        let cfg = db_blocking(state, move |db| Ok(upstream::load_config(db))).await?;
+        if cfg.enabled && cfg.ttl_seconds > 0 {
+            let package_owned = package.to_string();
+            if let Some(pstate) = db_blocking(state, move |db| {
+                regdb::load_proxy_state(db, &package_owned)
+            })
+            .await?
+            {
+                let now = chrono::Utc::now().timestamp();
+                if pstate.fetched_at + cfg.ttl_seconds as i64 <= now {
+                    let want_abbrev = wants_abbreviated(headers);
+                    match upstream::fetch_packument_cond(
+                        &cfg.upstream_url,
+                        package,
+                        want_abbrev,
+                        pstate.etag.as_deref(),
+                    )
+                    .await
+                    {
+                        Ok(upstream::PackumentRefresh::NotModified) => {
+                            let package_owned = package.to_string();
+                            let _ = db_blocking(state, move |db| {
+                                regdb::touch_proxy_fetched_at(db, &package_owned)
+                            })
+                            .await;
+                        }
+                        Ok(upstream::PackumentRefresh::Updated(up)) => {
+                            let package_owned = package.to_string();
+                            let body_clone = up.body.clone();
+                            let etag_clone = up.etag.clone();
+                            let _ = db_blocking(state, move |db| {
+                                regdb::upsert_proxy_packument(
+                                    db,
+                                    &package_owned,
+                                    &body_clone,
+                                    etag_clone.as_deref(),
+                                )
+                            })
+                            .await;
+                            let package_owned = package.to_string();
+                            if let Ok(Some(fresh)) = db_blocking(state, move |db| {
+                                regdb::load_packument(db, &package_owned)
+                            })
+                            .await
+                            {
+                                packument = fresh;
+                            }
+                        }
+                        Ok(upstream::PackumentRefresh::NotFound) => {
+                            // Package vanished from upstream. Keep serving
+                            // the cached copy for now — explicit unpublish
+                            // would be a separate, more careful operation.
+                            tracing::info!(%package, "upstream 404 on revalidate; serving cached");
+                        }
+                        Err(e) => {
+                            tracing::warn!(%package, "upstream revalidate failed: {e:#}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let base = public_base_url(headers);
     rewrite_tarball_urls(&mut packument, &base);
 

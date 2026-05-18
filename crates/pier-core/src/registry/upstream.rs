@@ -119,18 +119,49 @@ pub struct UpstreamPackument {
     pub etag: Option<String>,
 }
 
+/// Outcome of a conditional packument fetch with `If-None-Match`. `NotModified`
+/// is the cheap path — upstream agrees the cached copy is current; the caller
+/// only needs to bump `upstream_fetched_at`. `Updated` carries the new body.
+#[derive(Debug, Clone)]
+pub enum PackumentRefresh {
+    NotFound,
+    NotModified,
+    Updated(UpstreamPackument),
+}
+
 /// Fetch a packument from upstream. Returns `None` if upstream replied 404
 /// (so the caller can pass that through cleanly instead of dressing it up
 /// as a 5xx). Other non-2xx responses surface as `Err`.
 ///
 /// `If-None-Match` is the caller's responsibility — we don't carry it here
-/// because the proxy-cache TTL gate happens at a higher layer and a stale
-/// cached row can short-circuit the upstream call entirely.
+/// because the initial miss-fill path doesn't have a stored ETag yet. The
+/// TTL-revalidate path uses `fetch_packument_cond` instead.
 pub async fn fetch_packument(
     upstream_url: &str,
     name: &str,
     accept_abbreviated: bool,
 ) -> Result<Option<UpstreamPackument>> {
+    match fetch_packument_cond(upstream_url, name, accept_abbreviated, None).await? {
+        PackumentRefresh::NotFound => Ok(None),
+        PackumentRefresh::NotModified => {
+            // Caller didn't pass If-None-Match, so a 304 is a protocol bug
+            // upstream-side. Bail loud — better than silently serving nothing.
+            anyhow::bail!("upstream returned 304 without an If-None-Match request")
+        }
+        PackumentRefresh::Updated(up) => Ok(Some(up)),
+    }
+}
+
+/// Conditional packument fetch. `if_none_match` is the cached ETag (passes
+/// through verbatim — npm ETags are weak/strong-tagged already). 304
+/// short-circuits without payload transfer, which is the value of this path
+/// on a TTL revalidation.
+pub async fn fetch_packument_cond(
+    upstream_url: &str,
+    name: &str,
+    accept_abbreviated: bool,
+    if_none_match: Option<&str>,
+) -> Result<PackumentRefresh> {
     let client = client()?;
     let url = format!("{}/{}", upstream_url, urlencode_pkg(name));
     let accept = if accept_abbreviated {
@@ -138,16 +169,20 @@ pub async fn fetch_packument(
     } else {
         "application/json"
     };
-    let resp = client
+    let mut req = client
         .get(&url)
         .header(reqwest::header::ACCEPT, accept)
-        .header(reqwest::header::USER_AGENT, user_agent())
-        .send()
-        .await
-        .with_context(|| format!("GET {url}"))?;
+        .header(reqwest::header::USER_AGENT, user_agent());
+    if let Some(etag) = if_none_match {
+        req = req.header(reqwest::header::IF_NONE_MATCH, etag);
+    }
+    let resp = req.send().await.with_context(|| format!("GET {url}"))?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
+        return Ok(PackumentRefresh::NotFound);
+    }
+    if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(PackumentRefresh::NotModified);
     }
     if !resp.status().is_success() {
         anyhow::bail!("upstream {url} returned {}", resp.status());
@@ -161,7 +196,7 @@ pub async fn fetch_packument(
         .json::<serde_json::Value>()
         .await
         .with_context(|| format!("parsing packument from {url}"))?;
-    Ok(Some(UpstreamPackument { body, etag }))
+    Ok(PackumentRefresh::Updated(UpstreamPackument { body, etag }))
 }
 
 /// Open a streaming download for an upstream tarball. Caller pipes the
