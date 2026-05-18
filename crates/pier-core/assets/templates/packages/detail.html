@@ -139,17 +139,53 @@
         <div class="px-4 py-6 text-center text-xs text-gray-500 space-y-3">
             <p>No tarballs cached locally yet.</p>
             {% if package.latest_version %}
-            <div class="flex items-center justify-center gap-2">
-                <button type="button" @click="fetchLatest()" :disabled="fetching"
-                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50">
-                    Download latest ({{ package.latest_version }})
+            <div class="flex flex-col items-center justify-center gap-2">
+                <button type="button" id="proxy-dl-btn"
+                        data-package="{{ package.name }}"
+                        onclick="pierProxyDownload(this)"
+                        class="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-60 disabled:cursor-wait">
+                    <svg id="proxy-dl-spinner" style="display:none" class="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                    </svg>
+                    <span id="proxy-dl-label">Download latest ({{ package.latest_version }})</span>
                 </button>
+                <p id="proxy-dl-status" class="text-[11px] font-mono"></p>
             </div>
             {% endif %}
             <p>Or run <code class="font-mono">npm install {{ package.name }}</code> against this registry. Tarballs are pulled lazily — only versions clients actually request land on disk.</p>
-            <p x-show="fetchStatus" x-cloak class="font-mono"
-               :class="fetchError ? 'text-red-500' : 'text-green-600'" x-text="fetchStatus"></p>
         </div>
+        <script>
+            async function pierProxyDownload(btn) {
+                const name = btn.dataset.package;
+                const spinner = document.getElementById('proxy-dl-spinner');
+                const label = document.getElementById('proxy-dl-label');
+                const status = document.getElementById('proxy-dl-status');
+                btn.disabled = true;
+                spinner.style.display = 'inline-block';
+                label.textContent = 'Fetching from upstream…';
+                status.textContent = '';
+                status.className = 'text-[11px] font-mono';
+                try {
+                    const res = await fetch(`/api/v1/registry/proxy/packages/${encodeURIComponent(name)}/fetch`, { method: 'POST' });
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(data.error || ('HTTP ' + res.status));
+                    }
+                    const data = await res.json();
+                    label.textContent = '✓ Downloaded ' + data.version + ' (' + Math.round(data.size / 1024) + ' KiB)';
+                    status.textContent = 'Reloading…';
+                    status.classList.add('text-green-600');
+                    setTimeout(() => location.reload(), 700);
+                } catch (e) {
+                    spinner.style.display = 'none';
+                    btn.disabled = false;
+                    label.textContent = 'Download latest';
+                    status.textContent = e.message;
+                    status.classList.add('text-red-500');
+                }
+            }
+        </script>
         {% endif %}
     </div>
 
