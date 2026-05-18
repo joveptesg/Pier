@@ -135,6 +135,12 @@
                 {% endfor %}
             </tbody>
         </table>
+        {% if package.is_proxy and not versions %}
+        <div class="px-4 py-6 text-center text-xs text-gray-500">
+            <p>No tarballs cached locally yet.</p>
+            <p class="mt-1">Run <code class="font-mono">npm install {{ package.name }}</code> against this registry to fetch and cache a specific version. Tarballs are pulled lazily — only versions clients actually request land on disk.</p>
+        </div>
+        {% endif %}
     </div>
 
     <!-- Error toast -->

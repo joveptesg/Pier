@@ -183,6 +183,7 @@ always-auth=true</pre>
                     <label class="block text-xs text-gray-500 mb-1">Max cache size (MiB, 0 = unlimited)</label>
                     <input x-model.number="proxyMaxCacheMb" :disabled="!proxyEnabled" type="number" min="0"
                            class="w-full text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white disabled:opacity-50">
+                    <p class="text-[11px] text-gray-500 mt-1">Background GC drops oldest tarballs once the total exceeds this cap. Rough guide: a single <code>npm install next</code> needs ~100 MiB; a small team — 2–5 GiB; CI / shared mirror — 20+ GiB. Leave 0 for unlimited (recommended on hosts with plenty of disk).</p>
                 </div>
             </div>
 
@@ -336,11 +337,16 @@ function packagesPage() {
         proxyError: false,
         proxyPackages: [],
         proxyListLoading: false,
-        proxyPinnedOnly: false,
+        // Filter state persists across page reloads via localStorage so the
+        // operator's view (`Pinned only` on, default off) is sticky.
+        proxyPinnedOnly: (localStorage.getItem('pier.proxyPinnedOnly') === '1'),
 
         async init() {
             const hash = (location.hash || '').replace('#', '');
             if (['packages', 'tokens', 'proxy', 'mirror', 's3'].includes(hash)) this.tab = hash;
+            this.$watch('proxyPinnedOnly', v => {
+                localStorage.setItem('pier.proxyPinnedOnly', v ? '1' : '0');
+            });
             await Promise.all([this.loadTokens(), this.loadS3(), this.loadProxyPackages()]);
         },
 
