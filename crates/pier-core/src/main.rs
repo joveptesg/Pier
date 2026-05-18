@@ -572,6 +572,10 @@ async fn main() -> Result<()> {
     // Sweep expired `npm login --auth-type=web` sessions every 5 minutes.
     api::npm_web_login::spawn_sweep_task(state.clone());
 
+    // Upstream-proxy LRU GC. No-ops when proxy is disabled or
+    // `registry.proxy.max_cache_size_mb = 0` (unlimited).
+    registry::upstream::spawn_gc_task(state.clone());
+
     let app = ui::ui_router(state.clone())
         .merge(api::api_router(state.clone()))
         // Embedded npm-compatible registry. Lives outside `/api/v1/` because

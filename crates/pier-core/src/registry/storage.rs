@@ -44,6 +44,23 @@ fn tarball_path(state: &SharedState, package: &str, filename: &str) -> PathBuf {
     package_dir(state, package).join(filename)
 }
 
+/// Best-effort delete of a hot-tier tarball. Used by the proxy LRU GC to
+/// free disk while leaving the manifest row in place so the next request
+/// re-fetches from upstream. A missing file (already gone) returns Ok —
+/// the caller treats the eviction as complete either way.
+pub async fn delete_local_tarball(
+    state: &SharedState,
+    package: &str,
+    filename: &str,
+) -> Result<()> {
+    let path = tarball_path(state, package, filename);
+    match fs::remove_file(&path).await {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(anyhow!("remove {} failed: {e}", path.display())),
+    }
+}
+
 /// Compute sha512 of a byte buffer in the npm-canonical "base64" form
 /// (matches the `dist.integrity` field: `sha512-<base64>`).
 pub fn integrity(bytes: &[u8]) -> String {

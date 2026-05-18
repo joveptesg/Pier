@@ -20,7 +20,11 @@
 
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
+use std::sync::Arc;
 use std::time::Duration;
+
+use crate::registry::{db as regdb, storage};
+use crate::state::AppState;
 
 /// Settings key prefix — colocates all proxy knobs under one namespace so the
 /// future "/packages → Proxy" tab can list them with `WHERE key LIKE …`.
@@ -242,6 +246,101 @@ fn urlencode_pkg(name: &str) -> String {
         }
     }
     name.to_string()
+}
+
+/// Stats returned by `run_gc` — useful for tracing and a future
+/// "/api/v1/registry/proxy/stats" endpoint.
+#[derive(Debug, Clone, Default)]
+pub struct EvictionStats {
+    pub evicted_count: usize,
+    pub freed_bytes: i64,
+}
+
+/// Enforce `registry.proxy.max_cache_size_mb`. Picks the oldest cached
+/// tarballs (FIFO on published_at) and deletes them from the hot tier until
+/// the total fits inside the cap, then resets each version row's
+/// `tarball_size = 0` so the next request transparently re-fetches.
+///
+/// No-op when proxy is disabled or `max_cache_size_mb = 0` (unlimited).
+/// Errors on individual evictions are logged but never abort the sweep —
+/// a partially-completed GC is better than a stalled one.
+pub async fn run_gc(state: &Arc<AppState>) -> Result<EvictionStats> {
+    let cfg = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock for GC: {e}"))?;
+        load_config(&db)
+    };
+    if !cfg.enabled || cfg.max_cache_size_mb == 0 {
+        return Ok(EvictionStats::default());
+    }
+    let max_bytes = (cfg.max_cache_size_mb as i64).saturating_mul(1024 * 1024);
+
+    // Pick eviction targets via spawn_blocking so the tokio runtime isn't
+    // stalled by the JOIN+scan over npm_versions.
+    let state_for_pick = state.clone();
+    let targets: Vec<(String, String, String)> = tokio::task::spawn_blocking(move || {
+        let db = state_for_pick
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        regdb::pick_proxy_evictions(&db, max_bytes)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("spawn_blocking: {e}"))??;
+
+    let mut stats = EvictionStats::default();
+    for (package, version, filename) in targets {
+        if let Err(e) = storage::delete_local_tarball(state, &package, &filename).await {
+            tracing::warn!(%package, %version, "proxy GC: tarball delete failed: {e:#}");
+            // Fall through — still flip size=0 so the row stops being
+            // counted toward the cap on the next sweep.
+        }
+        let state_for_db = state.clone();
+        let pkg_owned = package.clone();
+        let ver_owned = version.clone();
+        let mark_res = tokio::task::spawn_blocking(move || {
+            let db = state_for_db
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            regdb::mark_proxy_evicted(&db, &pkg_owned, &ver_owned)
+        })
+        .await;
+        match mark_res {
+            Ok(Ok(())) => {
+                stats.evicted_count += 1;
+            }
+            Ok(Err(e)) => tracing::warn!(%package, %version, "proxy GC: mark_evicted failed: {e:#}"),
+            Err(e) => tracing::warn!("proxy GC: spawn_blocking join: {e}"),
+        }
+    }
+    if stats.evicted_count > 0 {
+        tracing::info!(
+            count = stats.evicted_count,
+            "proxy GC: evicted {} cached tarball(s)",
+            stats.evicted_count
+        );
+    }
+    Ok(stats)
+}
+
+/// Spawn the periodic proxy-cache GC loop. Idle when proxy disabled or
+/// `max_cache_size_mb = 0` — the loop still ticks but every iteration
+/// no-ops cheaply. Called once at startup from `main.rs`.
+pub fn spawn_gc_task(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        // First tick after 5 minutes — never block startup on a sweep,
+        // and let any boot-time misses cache up first.
+        tokio::time::sleep(Duration::from_secs(300)).await;
+        loop {
+            if let Err(e) = run_gc(&state).await {
+                tracing::warn!("proxy GC: sweep failed: {e:#}");
+            }
+            tokio::time::sleep(Duration::from_secs(600)).await;
+        }
+    });
 }
 
 #[cfg(test)]

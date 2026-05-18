@@ -10,6 +10,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use crate::registry::tarball_filename;
+
 /// Materialised `npm_packages` row plus its versions, ready to render as a
 /// packument response.
 ///
@@ -391,6 +393,72 @@ pub fn finalize_proxy_tarball(
                 tarball_sha512 = ?4
           WHERE package_name = ?1 AND version = ?2",
         params![package, version, size, sha512],
+    )?;
+    Ok(())
+}
+
+/// Pick proxy-cached versions to evict until the on-disk total fits inside
+/// `max_bytes`. Returns `(package, version, tarball_filename)` triples in
+/// eviction order (oldest first). Eviction is FIFO on `published_at` — for a
+/// proxy entry this is the time we first fetched the tarball, which is a
+/// good-enough LRU proxy without paying for a per-read update.
+///
+/// Returns an empty Vec when the cache already fits.
+pub fn pick_proxy_evictions(
+    conn: &Connection,
+    max_bytes: i64,
+) -> Result<Vec<(String, String, String)>> {
+    let current: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(v.tarball_size), 0)
+               FROM npm_versions v
+               JOIN npm_packages p ON p.name = v.package_name
+              WHERE p.is_proxy = 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if current <= max_bytes {
+        return Ok(Vec::new());
+    }
+    let need_to_free = current - max_bytes;
+
+    let mut stmt = conn.prepare(
+        "SELECT v.package_name, v.version, v.tarball_size
+           FROM npm_versions v
+           JOIN npm_packages p ON p.name = v.package_name
+          WHERE p.is_proxy = 1 AND v.tarball_size > 0
+          ORDER BY v.published_at ASC",
+    )?;
+    let mut freed = 0i64;
+    let mut out = Vec::new();
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (pkg, ver, size) = row?;
+        let file = tarball_filename(&pkg, &ver);
+        out.push((pkg, ver, file));
+        freed += size;
+        if freed >= need_to_free {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+/// Reset a proxy-cached version's on-disk metadata so the next read re-fetches
+/// from upstream. Keeps the manifest_json row — only the tarball bytes are gone.
+pub fn mark_proxy_evicted(conn: &Connection, package: &str, version: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE npm_versions
+            SET tarball_size = 0, s3_uploaded = 0
+          WHERE package_name = ?1 AND version = ?2",
+        params![package, version],
     )?;
     Ok(())
 }
