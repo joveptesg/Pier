@@ -646,9 +646,73 @@ async fn serve_tarball(
         regdb::lookup_tarball(db, &package_owned, &version_owned)
     })
     .await?;
-    let Some(meta) = meta else {
+    let Some(mut meta) = meta else {
         return Err(AppError::NotFound(format!("{package}-{version}")));
     };
+
+    // Proxy passthrough: a tarball_size of 0 means upsert_proxy_packument
+    // recorded the version (sub-PR 2) but never had the actual bytes. Fetch
+    // from upstream now, store, and update the row so subsequent reads hit
+    // the hot tier. Failures here pass through as 404 — the client gets a
+    // chance to retry; the operator gets a tracing warn.
+    if meta.size == 0 {
+        let package_owned = package.to_string();
+        let version_owned = version.clone();
+        let proxy_state = db_blocking(state, move |db| {
+            regdb::lookup_proxy_tarball_state(db, &package_owned, &version_owned)
+        })
+        .await?;
+        if let Some(ps) = proxy_state {
+            if ps.is_proxy {
+                let cfg =
+                    db_blocking(state, move |db| Ok(upstream::load_config(db))).await?;
+                if cfg.enabled {
+                    if let Some(url) = ps.upstream_tarball_url.as_deref() {
+                        tracing::debug!(%package, %version, %url, "proxy tarball miss → upstream fetch");
+                        match upstream::fetch_tarball(url).await {
+                            Ok(Some(resp)) => {
+                                let bytes = resp
+                                    .bytes()
+                                    .await
+                                    .map_err(|e| {
+                                        tracing::warn!(%package, "upstream tarball read failed: {e:#}");
+                                        AppError::NotFound(format!("{package}/{tarball}"))
+                                    })?;
+                                let body = bytes.to_vec();
+                                let new_sha =
+                                    storage::write_tarball(state, package, tarball, body)
+                                        .await?;
+                                let new_size = bytes.len() as i64;
+                                let package_owned = package.to_string();
+                                let version_owned = version.clone();
+                                let sha_owned = new_sha.clone();
+                                db_blocking(state, move |db| {
+                                    regdb::finalize_proxy_tarball(
+                                        db,
+                                        &package_owned,
+                                        &version_owned,
+                                        new_size,
+                                        &sha_owned,
+                                    )
+                                })
+                                .await?;
+                                meta.size = new_size;
+                                meta.sha512 = new_sha;
+                            }
+                            Ok(None) => {
+                                tracing::info!(%package, %version, "upstream 404 for tarball");
+                                return Err(AppError::NotFound(format!("{package}/{tarball}")));
+                            }
+                            Err(e) => {
+                                tracing::warn!(%package, "upstream tarball fetch failed: {e:#}");
+                                return Err(AppError::NotFound(format!("{package}/{tarball}")));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let etag = format!("\"{}\"", meta.sha512);
     // Conditional GET: the tarball is immutable per (package, version) so a

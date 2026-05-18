@@ -338,6 +338,63 @@ pub fn upsert_proxy_packument(
     Ok(())
 }
 
+/// Proxy-cache state for a single (package, version) — used by serve_tarball
+/// to decide whether to fetch from upstream on a hot-tier miss.
+#[derive(Debug, Clone)]
+pub struct ProxyTarballState {
+    pub is_proxy: bool,
+    pub upstream_tarball_url: Option<String>,
+}
+
+/// Read proxy metadata for one version. Returns `None` if the row doesn't
+/// exist (lookup_tarball already returned its own None — this is the second
+/// query, gated by `size == 0`).
+pub fn lookup_proxy_tarball_state(
+    conn: &Connection,
+    package: &str,
+    version: &str,
+) -> Result<Option<ProxyTarballState>> {
+    let row = conn
+        .query_row(
+            "SELECT p.is_proxy,
+                    json_extract(v.manifest_json, '$.dist.tarball')
+             FROM npm_versions v
+             JOIN npm_packages p ON p.name = v.package_name
+             WHERE v.package_name = ?1 AND v.version = ?2",
+            params![package, version],
+            |r| {
+                let is_proxy: i64 = r.get(0)?;
+                let url: Option<String> = r.get(1)?;
+                Ok(ProxyTarballState {
+                    is_proxy: is_proxy != 0,
+                    upstream_tarball_url: url,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row)
+}
+
+/// Update tarball_size + tarball_sha512 after a successful proxy fetch.
+/// Called by serve_tarball once the upstream bytes are persisted locally so
+/// subsequent reads short-circuit through the normal hot-tier path.
+pub fn finalize_proxy_tarball(
+    conn: &Connection,
+    package: &str,
+    version: &str,
+    size: i64,
+    sha512: &str,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE npm_versions
+            SET tarball_size = ?3,
+                tarball_sha512 = ?4
+          WHERE package_name = ?1 AND version = ?2",
+        params![package, version, size, sha512],
+    )?;
+    Ok(())
+}
+
 /// Mark a tarball as successfully uploaded to S3.
 pub fn mark_s3_uploaded(conn: &Connection, package: &str, version: &str) -> Result<()> {
     conn.execute(
