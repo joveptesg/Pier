@@ -53,7 +53,7 @@
                     <span x-show="s.source === 'peer'" x-text="'Synced: ' + formatAgo(s.fetched_at)"></span>
                 </p>
                 <!-- Local stacks: full mutation buttons. -->
-                <div class="flex items-center gap-2" x-show="s.source === 'local'">
+                <div class="flex items-center gap-2 flex-wrap" x-show="s.source === 'local'">
                     <button @click="deploy(s.id)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
                         Deploy
@@ -61,6 +61,12 @@
                     <button @click="down(s.id)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 transition-colors">
                         Down
+                    </button>
+                    <button x-show="migrationTargets.length > 0"
+                            @click="openMigrate(s)"
+                            class="px-3 py-1.5 text-xs rounded-lg bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 transition-colors"
+                            title="Move this stack to a paired peer (stateless only)">
+                        Move to…
                     </button>
                     <button @click="remove(s.id)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors ml-auto">
@@ -115,6 +121,85 @@
         <a href="/stacks/new" class="text-blue-400 hover:text-blue-300 text-sm">Create your first stack</a>
     </div>
 
+    <!-- Migrate modal — Move to... on a local stack.
+         Three states reflected in `migrate.phase`:
+           idle    — operator picks a target, sees domain warning
+           running — POST in flight, show spinner + status
+           done    — show result (success + domain advice OR error) -->
+    <div x-show="migrate.open" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
+         style="top:0;left:0" @click.self="migrate.phase === 'running' || closeMigrate()">
+        <div class="bg-gray-950 border border-gray-800 rounded-xl shadow-xl w-full max-w-lg p-5 space-y-4" @click.stop>
+            <h3 class="text-sm font-semibold text-white">
+                Move <span class="font-mono text-indigo-300" x-text="migrate.stackName"></span> to another server
+            </h3>
+
+            <template x-if="migrate.phase === 'idle'">
+                <div class="space-y-3">
+                    <p class="text-xs text-gray-400">
+                        Pier will recreate this stack on the chosen peer, then tear down the local copy.
+                        Stateful stacks (named volumes) are refused at the API.
+                    </p>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Target server</label>
+                        <select x-model="migrate.targetServerId"
+                                class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-100">
+                            <option value="">— select —</option>
+                            <template x-for="t in migrationTargets" :key="t.id">
+                                <option :value="t.id" x-text="t.label"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div class="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-[11px] text-amber-300">
+                        DNS A-records still point at this server. Update them after the move so users actually hit the new node.
+                    </div>
+                    <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-800">
+                        <button @click="closeMigrate()"
+                                class="px-3 py-1.5 text-sm rounded text-gray-400 hover:text-gray-200">Cancel</button>
+                        <button :disabled="!migrate.targetServerId"
+                                @click="confirmMigrate()"
+                                class="px-3 py-1.5 text-sm rounded bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60">
+                            Move it
+                        </button>
+                    </div>
+                </div>
+            </template>
+
+            <template x-if="migrate.phase === 'running'">
+                <div class="text-sm text-gray-300">
+                    <p x-text="migrate.status"></p>
+                </div>
+            </template>
+
+            <template x-if="migrate.phase === 'done'">
+                <div class="space-y-3">
+                    <div class="bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2 text-xs text-green-300"
+                         x-show="migrate.result && migrate.result.ok">
+                        Moved to <span class="font-mono" x-text="migrate.result?.moved_to"></span>.
+                        New stack id: <span class="font-mono" x-text="migrate.result?.new_stack_id"></span>
+                    </div>
+                    <div class="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-xs text-red-300"
+                         x-show="migrate.error" x-text="migrate.error"></div>
+                    <div x-show="migrate.result && (migrate.result.domain_advice || []).length > 0"
+                         class="text-xs text-gray-400 space-y-1">
+                        <p>Update DNS A-records for:</p>
+                        <ul class="font-mono text-amber-300 list-disc list-inside">
+                            <template x-for="d in (migrate.result?.domain_advice || [])" :key="d">
+                                <li x-text="d"></li>
+                            </template>
+                        </ul>
+                    </div>
+                    <div x-show="migrate.result && migrate.result.teardown_warning"
+                         class="text-[11px] text-amber-300"
+                         x-text="'Note: ' + (migrate.result?.teardown_warning || '')"></div>
+                    <div class="flex items-center justify-end pt-2 border-t border-gray-800">
+                        <button @click="closeMigrate()"
+                                class="px-3 py-1.5 text-sm rounded bg-gray-800 hover:bg-gray-700 text-gray-200">Close</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
     <!-- Logs modal for federated stacks.
          Two-phase: first GET /logs renders the snapshot, then we open
          WS to peer's URL using token returned by /logs/ws-info. The
@@ -153,6 +238,21 @@ function stacksData() {
         // Per-row busy flag, keyed by stack._key. Stops the operator
         // double-clicking Deploy while a peer call is still in flight.
         busy: {},
+        // Migration targets — paired peer servers we can hand a
+        // local stack to. Refreshed alongside the stack list so the
+        // Move-to dropdown reflects pairing changes without reload.
+        migrationTargets: [],
+        // Migrate modal state machine.
+        migrate: {
+            open: false,
+            phase: 'idle', // idle | running | done
+            status: '',
+            stackId: '',
+            stackName: '',
+            targetServerId: '',
+            result: null,
+            error: '',
+        },
         // Logs modal state. `_ws` holds the live WebSocket; `_stack`
         // is the snapshot of the federated row we opened so closing
         // the modal can tear down cleanly.
@@ -179,8 +279,50 @@ function stacksData() {
                     source: s.source || 'local',
                     _key: s.source === 'peer' ? (s.peer_server_id + ':' + s.id) : ('local:' + s.id),
                 }));
+                await this.refreshMigrationTargets();
             } catch (e) { /* silent */ }
             this.loading = false;
+        },
+        async refreshMigrationTargets() {
+            try {
+                const servers = await fetch('/api/v1/servers').then(r => r.ok ? r.json() : []);
+                this.migrationTargets = (servers || [])
+                    .filter(s => s.kind === 'peer' && !s.is_local && s.federation_paired)
+                    .map(s => ({ id: s.id, label: s.name }));
+            } catch (e) { this.migrationTargets = []; }
+        },
+        openMigrate(s) {
+            this.migrate = {
+                open: true,
+                phase: 'idle',
+                status: '',
+                stackId: s.id,
+                stackName: s.name,
+                targetServerId: '',
+                result: null,
+                error: '',
+            };
+        },
+        closeMigrate() {
+            this.migrate.open = false;
+        },
+        async confirmMigrate() {
+            const m = this.migrate;
+            m.phase = 'running';
+            m.status = 'Creating stack on target…';
+            try {
+                const resp = await api('/api/v1/stacks/' + encodeURIComponent(m.stackId) + '/migrate', {
+                    method: 'POST',
+                    body: JSON.stringify({ target_server_id: m.targetServerId }),
+                });
+                m.result = resp;
+                m.phase = 'done';
+                toast('Migration complete');
+                await this.refresh();
+            } catch (e) {
+                m.error = e.message || String(e);
+                m.phase = 'done';
+            }
         },
         peerHref(s) {
             const base = (s.peer_url || '').replace(/\/+$/, '');
