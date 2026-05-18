@@ -136,9 +136,17 @@
             </tbody>
         </table>
         {% if package.is_proxy and not versions %}
-        <div class="px-4 py-6 text-center text-xs text-gray-500">
+        <div class="px-4 py-6 text-center text-xs text-gray-500 space-y-3">
             <p>No tarballs cached locally yet.</p>
-            <p class="mt-1">Run <code class="font-mono">npm install {{ package.name }}</code> against this registry to fetch and cache a specific version. Tarballs are pulled lazily — only versions clients actually request land on disk.</p>
+            <div class="flex items-center justify-center gap-2">
+                <button type="button" @click="fetchLatest()" :disabled="fetching"
+                        class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50">
+                    <span x-text="fetching ? 'Fetching…' : ('Download latest ({{ package.latest_version }})')"></span>
+                </button>
+            </div>
+            <p>Or run <code class="font-mono">npm install {{ package.name }}</code> against this registry. Tarballs are pulled lazily — only versions clients actually request land on disk.</p>
+            <p x-show="fetchStatus" x-cloak class="font-mono"
+               :class="fetchError ? 'text-red-500' : 'text-green-600'" x-text="fetchStatus"></p>
         </div>
         {% endif %}
     </div>
@@ -154,8 +162,29 @@ function packageDetail({ name, isUnpublished }) {
     return {
         name, isUnpublished,
         err: '',
+        fetching: false,
+        fetchStatus: '',
+        fetchError: false,
 
         encodedName() { return encodeURIComponent(this.name); },
+
+        async fetchLatest() {
+            this.fetching = true; this.fetchStatus = ''; this.fetchError = false;
+            try {
+                const res = await fetch(`/api/v1/registry/proxy/packages/${this.encodedName()}/fetch`, { method: 'POST' });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || `fetch failed (${res.status})`);
+                }
+                this.fetchStatus = 'Downloaded — reloading…';
+                setTimeout(() => window.location.reload(), 800);
+            } catch (e) {
+                this.fetchStatus = e.message;
+                this.fetchError = true;
+            } finally {
+                this.fetching = false;
+            }
+        },
 
         async hit(method, path, body) {
             this.err = '';

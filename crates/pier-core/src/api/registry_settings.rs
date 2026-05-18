@@ -184,3 +184,91 @@ pub async fn proxy_pin_toggle(
         .map_err(|e| crate::error::AppError::BadRequest(format!("{e}")))?;
     Ok(Json(serde_json::json!({ "pinned": pinned })))
 }
+
+/// `POST /api/v1/registry/proxy/packages/{name}/fetch?version=X` — eagerly
+/// pull a tarball for a proxy-cached package via the same path
+/// `serve_tarball` takes on first request. Used by the UI "Download latest"
+/// button so an operator can pre-warm the cache without running
+/// `npm install` themselves.
+///
+/// When `?version=` is omitted, the `latest` dist-tag is used.
+pub async fn proxy_fetch_version(
+    State(state): State<SharedState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> AppResult<impl IntoResponse> {
+    use crate::error::AppError;
+    use crate::registry::{db as regdb, storage, tarball_filename, upstream};
+
+    // Resolve the version up front so the handler returns a sane error
+    // before any network I/O happens.
+    let version = match params.get("version").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        Some(v) => v.to_string(),
+        None => {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            let tags = regdb::load_dist_tags(&db, &name)?.unwrap_or_default();
+            tags.get("latest")
+                .cloned()
+                .ok_or_else(|| AppError::BadRequest("no 'latest' dist-tag for package".into()))?
+        }
+    };
+
+    // Look up the upstream URL from the cached blob (sub-PR 10) or the
+    // legacy per-version row.
+    let upstream_url = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        regdb::lookup_proxy_tarball_state(&db, &name, &version)?
+            .filter(|ps| ps.is_proxy)
+            .and_then(|ps| ps.upstream_tarball_url)
+            .ok_or_else(|| {
+                AppError::NotFound(format!("{name}@{version}: no upstream URL cached"))
+            })?
+    };
+
+    // Confirm proxy mode is enabled — otherwise we shouldn't be touching
+    // the network. Mirrors the gate in serve_tarball.
+    let cfg = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        upstream::load_config(&db)
+    };
+    if !cfg.enabled {
+        return Err(AppError::BadRequest(
+            "upstream proxy is disabled in settings".into(),
+        ));
+    }
+
+    let resp = upstream::fetch_tarball(&upstream_url)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("upstream fetch: {e}")))?
+        .ok_or_else(|| AppError::NotFound(format!("upstream 404 for {name}@{version}")))?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("upstream tarball read: {e}")))?;
+    let filename = tarball_filename(&name, &version);
+    let body = bytes.to_vec();
+    let new_size = bytes.len() as i64;
+    let new_sha = storage::write_tarball(&state, &name, &filename, body).await?;
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        regdb::finalize_proxy_tarball(&db, &name, &version, new_size, &new_sha)?;
+    }
+    tracing::info!(%name, %version, size = new_size, "proxy: ui-triggered tarball fetch");
+    Ok(Json(serde_json::json!({
+        "version": version,
+        "size": new_size,
+        "sha512": new_sha,
+    })))
+}

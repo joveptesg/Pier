@@ -452,6 +452,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             put(registry_settings::proxy_pin_toggle),
         )
         .route(
+            "/registry/proxy/packages/{name}/fetch",
+            post(registry_settings::proxy_fetch_version),
+        )
+        .route(
             "/registry/packages/{package}/dist-tags/{tag}",
             put(registry_admin::set_dist_tag).delete(registry_admin::remove_dist_tag),
         )
