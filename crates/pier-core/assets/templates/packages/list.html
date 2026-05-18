@@ -347,6 +347,9 @@ function packagesPage() {
             this.$watch('proxyPinnedOnly', v => {
                 localStorage.setItem('pier.proxyPinnedOnly', v ? '1' : '0');
             });
+            // Remember the last active tab so back-navigation from a
+            // package detail page lands the operator where they came from.
+            this.$watch('tab', v => sessionStorage.setItem('pier.packagesTab', v));
             await Promise.all([this.loadTokens(), this.loadS3(), this.loadProxyPackages()]);
         },
 
