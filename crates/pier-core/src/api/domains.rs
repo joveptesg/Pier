@@ -350,18 +350,28 @@ pub(crate) fn build_target_url(
         }
     });
 
+    // Resolution priority (must match the TCP path in proxy::sync_tcp_routes_for_service):
+    //   1. Explicit `container_name:` from compose YAML — user intent.
+    //   2. `services.container_id` from DB — post-deploy detection via
+    //      `detect_container_name` (`docker compose ps`). This is the only
+    //      source that knows Compose's actual `{project}-{service}-{replica}`
+    //      naming and stays correct across Compose version changes.
+    //   3. Synthesized `pier-{slug}` — last-resort fallback before the
+    //      first deploy finishes (container_id is still NULL).
     let container_name = if let Some(svc) = compose_svc_record.as_ref() {
-        if svc.container_name.is_empty() {
-            format!("pier-{}", svc.name.to_lowercase().replace(' ', "-"))
-        } else {
+        if !svc.container_name.is_empty() {
             svc.container_name.clone()
+        } else if let Some(cid) = container_id.as_deref().filter(|c| !c.is_empty()) {
+            cid.to_string()
+        } else {
+            format!("pier-{}", svc.name.to_lowercase().replace(' ', "-"))
         }
+    } else if let Some(cid) = container_id.as_deref().filter(|c| !c.is_empty()) {
+        cid.to_string()
     } else if let Some(name) = compose_service {
         format!("pier-{}", name.to_lowercase().replace(' ', "-"))
     } else {
-        container_id
-            .filter(|c| !c.is_empty())
-            .unwrap_or_else(|| format!("pier-{}", svc_name.to_lowercase().replace(' ', "-")))
+        format!("pier-{}", svc_name.to_lowercase().replace(' ', "-"))
     };
 
     // Port comes strictly from port_allocations — the same source of truth
