@@ -6,12 +6,10 @@
 //! matrix actionable on minimal hosts.
 
 use std::future::Future;
-use std::path::Path;
 use std::pin::Pin;
 use std::time::Instant;
 
 use tempfile::TempDir;
-use tokio::fs;
 
 use crate::clients::{self, Client};
 use crate::scenario::{Scenario, ScenarioCtx, ScenarioResult, Status};
@@ -118,7 +116,10 @@ async fn do_install(
             );
         }
     };
-    if let Err(e) = setup_workdir(workdir.path(), &ctx.registry_url, &ctx.token).await {
+    if let Err(e) = client
+        .write_config(workdir.path(), &ctx.registry_url, &ctx.token)
+        .await
+    {
         return ScenarioResult::fail(name, format!("setup: {e}"), started.elapsed().as_millis());
     }
     let output = match client
@@ -156,34 +157,6 @@ async fn do_install(
     } else {
         ScenarioResult::fail(name, format!("no node_modules/{package}"), ms)
     }
-}
-
-async fn setup_workdir(dir: &Path, registry_url: &str, token: &str) -> std::io::Result<()> {
-    let host = registry_url
-        .strip_prefix("http://")
-        .or_else(|| registry_url.strip_prefix("https://"))
-        .unwrap_or(registry_url)
-        .split('/')
-        .next()
-        .unwrap_or("");
-    let path = registry_url
-        .strip_prefix("http://")
-        .or_else(|| registry_url.strip_prefix("https://"))
-        .and_then(|s| s.split_once('/').map(|(_, p)| p))
-        .unwrap_or("");
-    let npmrc = format!(
-        "registry={registry_url}\n\
-         @pier-tests:registry={registry_url}\n\
-         //{host}/{path}:_authToken={token}\n\
-         always-auth=true\n"
-    );
-    fs::write(dir.join(".npmrc"), npmrc).await?;
-    fs::write(
-        dir.join("package.json"),
-        r#"{"name":"pier-tests-harness","version":"0.0.1","private":true}"#,
-    )
-    .await?;
-    Ok(())
 }
 
 /// Leak a `String` into a `'static str`. We register each scenario name once
