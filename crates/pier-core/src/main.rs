@@ -315,23 +315,44 @@ async fn main() -> Result<()> {
         let proxy_port = config.port;
         let proxy_tls_mode = config.tls_mode;
         tokio::spawn(async move {
-            // Auto-detect and cache public IP + geolocation
+            // Auto-detect public IPv4 + IPv6. The legacy
+            // `server.public_ip` setting still holds whichever address
+            // we'd historically have stored (currently v4) so callers
+            // that haven't migrated keep working. New code reads
+            // `server.public_ipv4` / `server.public_ipv6` for
+            // explicit handling — see install.rs and the peer-reg UI.
             let public_ip = match proxy::config::detect_public_ip().await {
                 Ok(ip) => {
-                    tracing::info!("Detected public IP: {ip}");
+                    tracing::info!("Detected public IPv4: {ip}");
                     if let Ok(db) = proxy_state.db.lock() {
                         let _ = db.execute(
                             "INSERT OR REPLACE INTO settings (key, value) VALUES ('server.public_ip', ?1)",
+                            [&ip],
+                        );
+                        let _ = db.execute(
+                            "INSERT OR REPLACE INTO settings (key, value) VALUES ('server.public_ipv4', ?1)",
                             [&ip],
                         );
                     }
                     Some(ip)
                 }
                 Err(e) => {
-                    tracing::warn!("Could not detect public IP: {e}");
+                    tracing::warn!("Could not detect public IPv4: {e}");
                     None
                 }
             };
+            // Best-effort v6 probe; absence is normal on v4-only hosts.
+            if let Some(v6) = proxy::config::detect_public_ipv6().await {
+                tracing::info!("Detected public IPv6: {v6}");
+                if let Ok(db) = proxy_state.db.lock() {
+                    let _ = db.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES ('server.public_ipv6', ?1)",
+                        [&v6],
+                    );
+                }
+            } else {
+                tracing::debug!("No public IPv6 detected (likely v4-only host)");
+            }
 
             // Ensure local server record exists + detect geolocation
             if let Some(ref ip) = public_ip {

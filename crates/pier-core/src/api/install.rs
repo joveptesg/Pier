@@ -50,6 +50,10 @@ pub async fn install_helper_script(State(state): State<SharedState>) -> Response
     let pier_port = state.config.port;
     let tls_enabled = state.config.tls_mode != crate::config::TlsMode::Off;
     let scheme = if tls_enabled { "https" } else { "http" };
+    // IPv6 literals need brackets in URL authority — the helper
+    // tolerates v4 / hostnames unchanged.
+    let server_authority =
+        crate::network::address::authority(&server_ip, pier_port.into());
 
     // Note: we don't bundle pier-core's self-signed cert here. The
     // helper download URL points at the public GitHub release, not at
@@ -75,7 +79,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-PIER_CORE_URL="{scheme}://{server_ip}:{pier_port}"
+PIER_CORE_URL="{scheme}://{server_authority}"
 HELPER_URL="https://github.com/joveptesg/Pier/releases/download/latest/pier-net-helper-linux-amd64"
 
 echo "=== Pier Network Helper Retrofit ==="

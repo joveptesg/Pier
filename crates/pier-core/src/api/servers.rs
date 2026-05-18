@@ -1277,20 +1277,43 @@ pub async fn install_script(
         return Err(AppError::BadRequest("id parameter required".into()));
     }
 
-    // Get Pier server's public IP and port
+    // Get Pier server's public IP and port. Prefers IPv4; falls back
+    // to IPv6 when v4 isn't known so a dual-stack core with a v4-only
+    // entry still gets a sensible install command. Brackets are
+    // applied by `network::address::authority` below.
     let server_ip = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.query_row(
-            "SELECT value FROM settings WHERE key = 'server.public_ip'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .unwrap_or_else(|_| "YOUR_PIER_SERVER_IP".to_string())
+        let v4: Option<String> = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'server.public_ipv4'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .or_else(|| {
+                db.query_row(
+                    "SELECT value FROM settings WHERE key = 'server.public_ip'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok()
+            });
+        v4.or_else(|| {
+            db.query_row(
+                "SELECT value FROM settings WHERE key = 'server.public_ipv6'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+        })
+        .unwrap_or_else(|| "YOUR_PIER_SERVER_IP".to_string())
     };
     let pier_port = state.config.port;
+    let server_authority =
+        crate::network::address::authority(&server_ip, pier_port.into());
 
     // Read pier-core's own cert so the agent can pin it via `curl --cacert`.
     // If the file is missing (e.g. TLS disabled at the env level), we degrade
@@ -1335,7 +1358,7 @@ set -euo pipefail
 # If pier-core regenerates its cert (e.g. operator deleted data/tls/cert.pem),
 # re-download this installer from the UI and re-run on the agent host.
 
-PIER_CORE_URL="{scheme}://{server_ip}:{pier_port}"
+PIER_CORE_URL="{scheme}://{server_authority}"
 SERVER_ID="{server_id}"
 BOOTSTRAP_TOKEN="{bootstrap_token}"
 AGENT_PORT=3001

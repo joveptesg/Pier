@@ -1084,13 +1084,19 @@ pub fn read_tcp_ports_from_config(data_dir: &Path) -> Vec<u16> {
     ports
 }
 
-/// Detect the public IP of this server.
+/// Detect the public IPv4 of this server. Kept for backward compat
+/// with callers that haven't migrated to the v4+v6 detector below.
 pub async fn detect_public_ip() -> Result<String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
+        // Force a v4 connection — `api.ipify.org` returns the address
+        // of whatever stack the request arrived on, so on a dual-stack
+        // host the bare hostname can return either v4 or v6 depending
+        // on getaddrinfo ordering. The v4-only endpoints below
+        // sidestep this; for the legacy detect_public_ip we just
+        // prefer v4 services first.
         .build()?;
 
-    // Try multiple services
     for url in &[
         "https://api.ipify.org",
         "https://ifconfig.me/ip",
@@ -1110,4 +1116,38 @@ pub async fn detect_public_ip() -> Result<String> {
     }
 
     Err(anyhow::anyhow!("Could not detect public IP"))
+}
+
+/// Detect the public IPv6 of this server. Returns `None` (not Err) on
+/// IPv4-only hosts so callers can record "no v6 known" without
+/// polluting logs with errors on every boot of a v4-only box. Talks
+/// only to v6-specific endpoints (`api6.ipify.org`, `ipv6.icanhazip
+/// .com`) so the answer is unambiguously v6.
+pub async fn detect_public_ipv6() -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+    for url in &[
+        "https://api6.ipify.org",
+        "https://ipv6.icanhazip.com",
+        "https://v6.ident.me",
+    ] {
+        if let Ok(resp) = client.get(*url).send().await {
+            if let Ok(ip) = resp.text().await {
+                let ip = ip.trim().to_string();
+                // Accept only strings that look like v6 — the v6-only
+                // endpoints sometimes go through a v4 proxy on
+                // mis-configured CDNs and we don't want to misfile a
+                // v4 answer as v6.
+                if !ip.is_empty()
+                    && ip.len() < 46
+                    && crate::network::address::is_ipv6_literal(&ip)
+                {
+                    return Some(ip);
+                }
+            }
+        }
+    }
+    None
 }
