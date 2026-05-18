@@ -97,13 +97,13 @@ pub fn list_peer_endpoints(state: &SharedState) -> Result<Vec<PeerEndpoint>> {
             // core's TLS still terminates on this socket — only the
             // transport network changed.
             let ip = mesh_ip.expect("mesh_active guarantees Some");
-            format!("https://{ip}:{port}")
+            format!("https://{}", crate::network::address::authority(&ip, port))
         } else if let Some(u) = url.filter(|s| !s.is_empty()) {
             normalize_peer_url(&u)
         } else {
             // Legacy rows with no url column populated — fall back to
             // (host, port) like the proxy handler did originally.
-            format!("https://{host}:{port}")
+            format!("https://{}", crate::network::address::authority(&host, port))
         };
         out.push(PeerEndpoint {
             id,
@@ -214,11 +214,11 @@ pub fn lookup_peer(state: &SharedState, id: &str) -> Result<Option<PeerEndpoint>
         && mesh_ip.is_some();
     let base_url = if mesh_active {
         let ip = mesh_ip.expect("mesh_active guarantees Some");
-        format!("https://{ip}:{port}")
+        format!("https://{}", crate::network::address::authority(&ip, port))
     } else if let Some(u) = url.filter(|s| !s.is_empty()) {
         normalize_peer_url(&u)
     } else {
-        format!("https://{host}:{port}")
+        format!("https://{}", crate::network::address::authority(&host, port))
     };
     Ok(Some(PeerEndpoint {
         id: id.to_string(),

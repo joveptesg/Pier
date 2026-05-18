@@ -2507,7 +2507,10 @@ pub async fn load_balance(
                 deploy_errors.push(format!("{}: {e}", slot.server_id));
             }
         } else {
-            let url = format!("http://{host}:{port}/api/v1/agent/deploy");
+            let url = format!(
+                "http://{}/api/v1/agent/deploy",
+                crate::network::address::authority(&host, port)
+            );
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .build()

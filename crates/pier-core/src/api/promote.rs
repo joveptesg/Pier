@@ -120,7 +120,10 @@ pub async fn trigger(
     };
 
     // 2. POST to the agent.
-    let url = format!("http://{host}:{port}/api/v1/agent/promote");
+    let url = format!(
+        "http://{}/api/v1/agent/promote",
+        crate::network::address::authority(&host, port)
+    );
     let payload = serde_json::json!({
         "bundle": bundle,
         "core_download_url": body.core_download_url,

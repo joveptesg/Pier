@@ -251,7 +251,10 @@ async fn call_agent_start(
     timeout_sec: i64,
     env: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<AgentStart> {
-    let url = format!("http://{host}:{port}/api/v1/agent/shell");
+    let url = format!(
+        "http://{}/api/v1/agent/shell",
+        crate::network::address::authority(host, port)
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()

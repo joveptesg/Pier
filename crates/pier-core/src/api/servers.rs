@@ -122,13 +122,15 @@ pub async fn create(
 
     match body.kind.as_str() {
         KIND_AGENT => {
+            // Strip [...] brackets so IPv6 literals enter the DB in
+            // the bare form. URL/endpoint formatters add brackets back
+            // at use time — see `crate::network::address`.
             let host = body
                 .host
                 .as_deref()
-                .map(|s| s.trim())
+                .map(crate::network::address::normalize_host)
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| AppError::BadRequest("host is required for agent".into()))?
-                .to_string();
+                .ok_or_else(|| AppError::BadRequest("host is required for agent".into()))?;
             // Issue a short-lived bootstrap token. The long-term agent_token is
             // minted by /handshake on first contact from the agent and is the
             // only credential that ever leaves the install command.
@@ -294,7 +296,10 @@ pub async fn rotate_token_internal(state: &SharedState, id: &str) -> AppResult<R
     // Push to the agent BEFORE we update the DB. If the agent never
     // sees the new token (network blip, agent down, helper rejected
     // the file write), we don't want core thinking it succeeded.
-    let url = format!("http://{host}:{port}/api/v1/agent/auth/rotate");
+    let url = format!(
+        "http://{}/api/v1/agent/auth/rotate",
+        crate::network::address::authority(&host, port)
+    );
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -501,7 +506,10 @@ pub async fn test_connection(
         }
         KIND_AGENT => {
             let (host, port, agent_token, _, _) = get_server_info(&state, &id)?;
-            let url = format!("http://{host}:{port}/health");
+            let url = format!(
+                "http://{}/health",
+                crate::network::address::authority(&host, port)
+            );
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
                 .build()

@@ -186,7 +186,10 @@ async fn call_remote_agent<P: Serialize>(
         ));
     }
 
-    let url = format!("http://{host}:{port}/api/v1/agent/mesh/{op}");
+    let url = format!(
+        "http://{}/api/v1/agent/mesh/{op}",
+        super::address::authority(host, port)
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(150)) // > helper's 120s op timeout
         .build()

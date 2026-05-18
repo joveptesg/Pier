@@ -95,7 +95,10 @@ async fn fetch_server_host_metric(
         .timeout(Duration::from_secs(5))
         .build()
         .ok()?;
-    let url = format!("http://{host}:{port}/metrics");
+    let url = format!(
+        "http://{}/metrics",
+        crate::network::address::authority(&host, port)
+    );
     let resp = client
         .get(&url)
         .header("Authorization", format!("Bearer {token}"))

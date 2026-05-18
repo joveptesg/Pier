@@ -7,5 +7,6 @@
 //!   nodes, hiding whether the underlying transport is a unix socket
 //!   (this host) or an HTTPS round-trip to `pier-agent` (remote host).
 
+pub mod address;
 pub mod mesh_call;
 pub mod wireguard;

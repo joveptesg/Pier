@@ -81,11 +81,11 @@ pub fn lookup_write_peer(state: &SharedState, server_id: &str) -> Result<Option<
         && mesh_ip.is_some();
     let base_url = if mesh_active {
         let ip = mesh_ip.expect("mesh_active guarantees Some");
-        format!("https://{ip}:{port}")
+        format!("https://{}", crate::network::address::authority(&ip, port))
     } else if let Some(u) = url.filter(|s| !s.is_empty()) {
         normalize_peer_url(&u)
     } else {
-        format!("https://{host}:{port}")
+        format!("https://{}", crate::network::address::authority(&host, port))
     };
 
     Ok(Some(WritePeer {

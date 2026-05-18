@@ -199,7 +199,10 @@ pub async fn enable_mesh(State(state): State<SharedState>) -> AppResult<impl Int
     for (server_id, host, _is_local) in &servers {
         let ip = allocate_ip(&subnet, &used).map_err(AppError::Internal)?;
         used.push(ip);
-        let endpoint = format!("{}:{}", host, cfg.listen_port);
+        // IPv6 hosts must be bracketed in the WireGuard `Endpoint =`
+        // directive (`[fe80::1]:51820`). The helper handles both v4
+        // and hostnames unchanged.
+        let endpoint = crate::network::address::authority(host, cfg.listen_port.into());
         tx.execute(
             "INSERT INTO wireguard_peers
                 (server_id, assigned_ip, endpoint, status, created_at)
