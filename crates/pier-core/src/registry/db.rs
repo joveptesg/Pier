@@ -67,6 +67,111 @@ pub struct PackageSummary {
     pub pinned: bool,
 }
 
+/// Order `dist-tags` for human display: `latest` pinned first, the rest
+/// sorted by their target version in descending order using a relaxed
+/// semver-style comparator (numeric segments compared numerically, prerelease
+/// suffixes ranked below their release counterpart). The BTreeMap iteration
+/// order — alphabetical by tag name — surfaces `backport, beta, canary, latest`
+/// in a way that buries the tag operators usually want to read.
+pub fn sort_dist_tags(tags: &BTreeMap<String, String>) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = tags
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    out.sort_by(|a, b| {
+        if a.0 == "latest" {
+            return std::cmp::Ordering::Less;
+        }
+        if b.0 == "latest" {
+            return std::cmp::Ordering::Greater;
+        }
+        // DESC by target version. Falls through to tag-name ASC on tie so
+        // related tracks (`next-15-2`, `next-15-3`) stay near each other.
+        match cmp_version(&b.1, &a.1) {
+            std::cmp::Ordering::Equal => a.0.cmp(&b.0),
+            other => other,
+        }
+    });
+    out
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum VersionPart {
+    /// Numeric segment — `15` in `15.3.9`.
+    Num(u64),
+    /// String segment (prerelease tag) — `beta` in `1.0.0-beta.0`.
+    Str(String),
+}
+
+impl Ord for VersionPart {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering::*;
+        use VersionPart::*;
+        match (self, other) {
+            (Num(a), Num(b)) => a.cmp(b),
+            (Str(a), Str(b)) => a.cmp(b),
+            // Per semver: a numeric identifier always has lower precedence
+            // than an alphanumeric one within a prerelease, but the prerelease
+            // as a whole has lower precedence than the release version. For
+            // our purposes (sorting dist-tag targets in a list), treat
+            // Num < Str so that the prerelease's extra string segment makes
+            // `1.0.0-beta.0` < `1.0.0`.
+            (Num(_), Str(_)) => Less,
+            (Str(_), Num(_)) => Greater,
+        }
+    }
+}
+
+impl PartialOrd for VersionPart {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn cmp_version(a: &str, b: &str) -> std::cmp::Ordering {
+    /// Split into (release, prerelease). Numeric segments at the front go
+    /// into release; the first non-numeric segment starts the prerelease
+    /// tail. Build-meta (`+...`) is stripped by `split` — for ordering it
+    /// shouldn't matter per semver anyway.
+    fn parts(v: &str) -> (Vec<u64>, Vec<VersionPart>) {
+        let mut release = Vec::new();
+        let mut prerelease = Vec::new();
+        let mut in_release = true;
+        for p in v
+            .split(['.', '-', '+'])
+            .filter(|s| !s.is_empty())
+        {
+            if in_release {
+                if let Ok(n) = p.parse::<u64>() {
+                    release.push(n);
+                    continue;
+                }
+                in_release = false;
+            }
+            prerelease.push(
+                p.parse::<u64>()
+                    .map(VersionPart::Num)
+                    .unwrap_or_else(|_| VersionPart::Str(p.to_string())),
+            );
+        }
+        (release, prerelease)
+    }
+    use std::cmp::Ordering::*;
+    let (ra, pa) = parts(a);
+    let (rb, pb) = parts(b);
+    match ra.cmp(&rb) {
+        Equal => match (pa.is_empty(), pb.is_empty()) {
+            // Release > prerelease (semver semantics): an empty prerelease
+            // suffix ranks higher than any non-empty one.
+            (true, true) => Equal,
+            (true, false) => Greater,
+            (false, true) => Less,
+            (false, false) => pa.cmp(&pb),
+        },
+        other => other,
+    }
+}
+
 /// Toggle `pinned` for a package. Returns the new value. Used by the
 /// PUT /api/v1/registry/proxy/packages/{name}/pin endpoint.
 pub fn toggle_pinned(conn: &Connection, package: &str) -> Result<bool> {
@@ -1195,6 +1300,52 @@ mod tests {
             value.get("is_proxy").is_none(),
             "is_proxy leaked into wire format: {value}"
         );
+    }
+
+    #[test]
+    fn sort_dist_tags_pins_latest_and_orders_by_version_desc() {
+        let mut tags = BTreeMap::new();
+        // The actual dist-tags the user saw on next@16.2.6, in alphabetical
+        // (BTreeMap) order — that's exactly the unhelpful order we're fixing.
+        for (k, v) in [
+            ("backport", "15.5.18"),
+            ("beta", "16.0.0-beta.0"),
+            ("canary", "16.3.0-canary.22"),
+            ("latest", "16.2.6"),
+            ("next-11", "11.1.4"),
+            ("next-12-2-6", "12.2.6"),
+            ("next-12-3-2", "12.3.7"),
+            ("next-13", "13.5.11"),
+            ("next-14", "14.2.35"),
+            ("next-14-1", "14.1.1"),
+            ("next-15-0", "15.1.12"),
+            ("next-15-0-0", "15.0.8"),
+            ("next-15-2", "15.2.9"),
+            ("next-15-3", "15.3.9"),
+            ("rc", "15.0.0-rc.1"),
+        ] {
+            tags.insert(k.to_string(), v.to_string());
+        }
+        let sorted = sort_dist_tags(&tags);
+        let names: Vec<&str> = sorted.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(names.first(), Some(&"latest"), "latest pinned first");
+        // The next bucket should be the actually-newest version across the
+        // remaining tags. `canary -> 16.3.0-canary.22` is the highest numeric.
+        assert_eq!(names.get(1), Some(&"canary"));
+        // 16.0.0-beta.0 < 16.2.6 so beta comes after latest+canary.
+        assert_eq!(names.get(2), Some(&"beta"));
+        // backport (15.5.18) > next-15-3 (15.3.9).
+        assert_eq!(names.get(3), Some(&"backport"));
+        assert_eq!(names.get(4), Some(&"next-15-3"));
+        // The 15.0.0 prerelease (`rc`) ranks below 15.0.8 release.
+        let rc_idx = names.iter().position(|n| *n == "rc").unwrap();
+        let n1500_idx = names.iter().position(|n| *n == "next-15-0-0").unwrap();
+        assert!(
+            n1500_idx < rc_idx,
+            "release 15.0.8 must come before prerelease 15.0.0-rc.1"
+        );
+        // 11.x is dead last.
+        assert_eq!(names.last(), Some(&"next-11"));
     }
 
     #[test]

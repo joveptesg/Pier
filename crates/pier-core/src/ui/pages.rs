@@ -497,7 +497,12 @@ pub async fn package_detail(
         } else {
             0
         };
-        let dist_tags = crate::registry::db::load_dist_tags(&db, &name)?.unwrap_or_default();
+        let dist_tags_map =
+            crate::registry::db::load_dist_tags(&db, &name)?.unwrap_or_default();
+        // The template iterates a Vec<(name, target)> sorted by `latest`-first
+        // + DESC by version. BTreeMap order (alphabetical) buries `latest`
+        // behind unhelpful entries like `backport`/`beta` for popular packages.
+        let dist_tags = crate::registry::db::sort_dist_tags(&dist_tags_map);
         let readme_md = crate::registry::db::load_readme(&db, &name)?;
         (summary, versions, manifest_only_count, dist_tags, readme_md)
     };

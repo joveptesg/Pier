@@ -32,11 +32,11 @@
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
         <p class="text-xs uppercase tracking-wider text-gray-500 mb-2">Dist-tags</p>
         <div class="flex flex-wrap gap-2">
-            {% for tag, version in dist_tags | items %}
+            {% for entry in dist_tags %}
             <span class="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                <span class="text-blue-600 dark:text-blue-400">{{ tag }}</span>
+                <span class="text-blue-600 dark:text-blue-400">{{ entry.0 }}</span>
                 <span class="text-gray-400">→</span>
-                <span>{{ version }}</span>
+                <span>{{ entry.1 }}</span>
             </span>
             {% endfor %}
         </div>
