@@ -1,11 +1,13 @@
 //! Settings for the embedded npm registry.
 //!
-//! Today this only exposes `s3_storage_id` — which row of `s3_storages`
-//! to mirror tarballs into. Empty/null = no cold-tier mirroring.
+//! Exposes:
+//! - `s3_storage_id` — which row of `s3_storages` to mirror tarballs into.
+//!   Empty/null = no cold-tier mirroring.
+//! - `proxy.*` — upstream proxy/mirror knobs (see registry/upstream.rs).
+//!   `enabled`, `upstream_url`, `ttl_seconds`, `max_cache_size_mb`.
 //!
-//! Stored in the generic `settings` key/value table under the
-//! `registry.s3_storage_id` key so we don't churn migrations every time
-//! a new toggle is added.
+//! Stored in the generic `settings` key/value table so we don't churn
+//! migrations every time a new toggle is added.
 
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -14,6 +16,7 @@ use rusqlite::params;
 use serde::Deserialize;
 
 use crate::error::AppResult;
+use crate::registry::upstream;
 use crate::state::SharedState;
 
 const KEY_S3_STORAGE_ID: &str = "registry.s3_storage_id";
@@ -21,6 +24,13 @@ const KEY_S3_STORAGE_ID: &str = "registry.s3_storage_id";
 #[derive(Deserialize)]
 pub struct UpdateRequest {
     pub s3_storage_id: Option<String>,
+    /// Upstream proxy/mirror settings. All fields are optional — only the
+    /// ones present in the request are touched. `proxy_enabled = false`
+    /// keeps the cached rows; flipping back on resumes from where we left.
+    pub proxy_enabled: Option<bool>,
+    pub proxy_upstream_url: Option<String>,
+    pub proxy_ttl_seconds: Option<u64>,
+    pub proxy_max_cache_size_mb: Option<u64>,
 }
 
 /// `GET /api/v1/registry/settings`.
@@ -39,8 +49,29 @@ pub async fn get(State(state): State<SharedState>) -> AppResult<impl IntoRespons
         .ok()
         .filter(|s| !s.is_empty());
 
+    let proxy_cfg = upstream::load_config(&db);
+    let (cached_packages, cached_size_bytes) = db
+        .query_row(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(v.tarball_size), 0)
+               FROM npm_packages p
+               LEFT JOIN npm_versions v ON v.package_name = p.name
+              WHERE p.is_proxy = 1",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+        )
+        .unwrap_or((0, 0));
+
     Ok(Json(serde_json::json!({
         "s3_storage_id": s3_id,
+        "proxy": {
+            "enabled": proxy_cfg.enabled,
+            "upstream_url": proxy_cfg.upstream_url,
+            "ttl_seconds": proxy_cfg.ttl_seconds,
+            "max_cache_size_mb": proxy_cfg.max_cache_size_mb,
+            "cached_packages": cached_packages,
+            "cached_size_bytes": cached_size_bytes,
+        }
     })))
 }
 
@@ -82,6 +113,40 @@ pub async fn update(
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
         params![KEY_S3_STORAGE_ID, value],
     )?;
+
+    // Proxy fields. Each is optional so partial PUTs work — useful for the
+    // UI which toggles `enabled` independently from the URL/TTL inputs.
+    if let Some(enabled) = body.proxy_enabled {
+        upstream::put_setting(
+            &db,
+            upstream::SETTING_ENABLED,
+            if enabled { "true" } else { "false" },
+        )?;
+    }
+    if let Some(url) = body.proxy_upstream_url.as_deref() {
+        let trimmed = url.trim().trim_end_matches('/');
+        if trimmed.is_empty() {
+            return Err(crate::error::AppError::BadRequest(
+                "proxy_upstream_url cannot be empty".into(),
+            ));
+        }
+        if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+            return Err(crate::error::AppError::BadRequest(
+                "proxy_upstream_url must start with http:// or https://".into(),
+            ));
+        }
+        upstream::put_setting(&db, upstream::SETTING_UPSTREAM_URL, trimmed)?;
+    }
+    if let Some(ttl) = body.proxy_ttl_seconds {
+        upstream::put_setting(&db, upstream::SETTING_TTL_SECONDS, &ttl.to_string())?;
+    }
+    if let Some(max_mb) = body.proxy_max_cache_size_mb {
+        upstream::put_setting(
+            &db,
+            upstream::SETTING_MAX_CACHE_SIZE_MB,
+            &max_mb.to_string(),
+        )?;
+    }
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }

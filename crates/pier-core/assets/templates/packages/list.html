@@ -154,6 +154,55 @@ always-auth=true</pre>
         </div>
     </div>
 
+    <!-- ── Tab: Upstream Proxy ─────────────────────────────── -->
+    <div x-show="tab === 'proxy'" x-cloak class="space-y-6">
+        <div>
+            <p class="text-sm text-gray-500 mb-1">Mirror public packages from an upstream registry.</p>
+            <p class="text-xs text-gray-500">When enabled, a request for a package not yet in this registry transparently fetches the packument from the upstream URL (defaults to <code>registry.npmjs.org</code>), caches it locally with <code>is_proxy = 1</code>, and lazily downloads tarballs on first access. Private publishes are unaffected — they always win over a proxy entry.</p>
+        </div>
+
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-4">
+            <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" x-model="proxyEnabled"
+                       class="w-4 h-4 rounded border-gray-300 dark:border-gray-700 text-blue-500 focus:ring-blue-500">
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Enable upstream proxy</span>
+            </label>
+
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">Upstream URL</label>
+                <input x-model="proxyUpstreamUrl" :disabled="!proxyEnabled" type="url"
+                       placeholder="https://registry.npmjs.org"
+                       class="w-full text-sm font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white disabled:opacity-50">
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Packument TTL (seconds)</label>
+                    <input x-model.number="proxyTtlSeconds" :disabled="!proxyEnabled" type="number" min="60" max="86400"
+                           class="w-full text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white disabled:opacity-50">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Max cache size (MiB, 0 = unlimited)</label>
+                    <input x-model.number="proxyMaxCacheMb" :disabled="!proxyEnabled" type="number" min="0"
+                           class="w-full text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white disabled:opacity-50">
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
+                <p class="text-xs text-gray-500">
+                    <span x-text="proxyCachedPackages"></span> cached package(s) ·
+                    <span x-text="formatBytes(proxyCachedSizeBytes)"></span> on disk
+                </p>
+                <button @click="saveProxy()" :disabled="proxySaving"
+                        class="px-3 py-2 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50">
+                    <span x-text="proxySaving ? 'Saving…' : 'Save'"></span>
+                </button>
+            </div>
+            <p x-show="proxyStatus" x-cloak class="text-xs"
+               :class="proxyError ? 'text-red-500' : 'text-green-500'" x-text="proxyStatus"></p>
+        </div>
+    </div>
+
     <!-- ── Tab: S3 Configure ───────────────────────────────── -->
     <div x-show="tab === 's3'" x-cloak class="space-y-6">
         <div>
@@ -192,6 +241,7 @@ function packagesPage() {
         tabs: [
             { id: 'packages', label: 'Packages' },
             { id: 'tokens', label: 'Manage tokens' },
+            { id: 'proxy', label: 'Upstream proxy' },
             { id: 's3', label: 'S3 configure' },
         ],
 
@@ -211,9 +261,20 @@ function packagesPage() {
         s3Status: '',
         s3Error: false,
 
+        // upstream proxy
+        proxyEnabled: false,
+        proxyUpstreamUrl: 'https://registry.npmjs.org',
+        proxyTtlSeconds: 600,
+        proxyMaxCacheMb: 0,
+        proxyCachedPackages: 0,
+        proxyCachedSizeBytes: 0,
+        proxySaving: false,
+        proxyStatus: '',
+        proxyError: false,
+
         async init() {
             const hash = (location.hash || '').replace('#', '');
-            if (['packages', 'tokens', 's3'].includes(hash)) this.tab = hash;
+            if (['packages', 'tokens', 'proxy', 's3'].includes(hash)) this.tab = hash;
             await Promise.all([this.loadTokens(), this.loadS3()]);
         },
 
@@ -262,7 +323,48 @@ function packagesPage() {
             if (settingsR.ok) {
                 const data = await settingsR.json();
                 this.s3SelectedId = data.s3_storage_id || '';
+                if (data.proxy) {
+                    this.proxyEnabled = !!data.proxy.enabled;
+                    this.proxyUpstreamUrl = data.proxy.upstream_url || 'https://registry.npmjs.org';
+                    this.proxyTtlSeconds = data.proxy.ttl_seconds || 600;
+                    this.proxyMaxCacheMb = data.proxy.max_cache_size_mb || 0;
+                    this.proxyCachedPackages = data.proxy.cached_packages || 0;
+                    this.proxyCachedSizeBytes = data.proxy.cached_size_bytes || 0;
+                }
             }
+        },
+
+        async saveProxy() {
+            this.proxySaving = true; this.proxyStatus = ''; this.proxyError = false;
+            try {
+                const r = await fetch('/api/v1/registry/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        proxy_enabled: this.proxyEnabled,
+                        proxy_upstream_url: this.proxyUpstreamUrl.trim() || 'https://registry.npmjs.org',
+                        proxy_ttl_seconds: this.proxyTtlSeconds,
+                        proxy_max_cache_size_mb: this.proxyMaxCacheMb,
+                    }),
+                });
+                if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'failed to save');
+                this.proxyStatus = 'Saved';
+                setTimeout(() => this.proxyStatus = '', 2000);
+                await this.loadS3(); // refresh stats
+            } catch (e) {
+                this.proxyStatus = e.message;
+                this.proxyError = true;
+            } finally {
+                this.proxySaving = false;
+            }
+        },
+
+        formatBytes(b) {
+            if (!b) return '0 B';
+            const u = ['B', 'KiB', 'MiB', 'GiB'];
+            let i = 0;
+            while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+            return b.toFixed(b < 10 && i > 0 ? 1 : 0) + ' ' + u[i];
         },
         async saveS3() {
             this.s3Saving = true; this.s3Status = ''; this.s3Error = false;
