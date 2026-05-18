@@ -201,6 +201,44 @@ always-auth=true</pre>
             <p x-show="proxyStatus" x-cloak class="text-xs"
                :class="proxyError ? 'text-red-500' : 'text-green-500'" x-text="proxyStatus"></p>
         </div>
+
+        <!-- Cached packages list -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Cached from upstream</p>
+                <button @click="loadProxyPackages()" :disabled="proxyListLoading"
+                        class="text-xs text-blue-500 hover:underline disabled:opacity-50">
+                    <span x-text="proxyListLoading ? 'Refreshing…' : 'Refresh'"></span>
+                </button>
+            </div>
+            <table x-show="proxyPackages.length" x-cloak class="min-w-full text-sm">
+                <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
+                    <tr>
+                        <th class="px-4 py-2 text-left font-medium">Package</th>
+                        <th class="px-4 py-2 text-left font-medium">Latest</th>
+                        <th class="px-4 py-2 text-left font-medium">Versions</th>
+                        <th class="px-4 py-2 text-left font-medium">Tarballs on disk</th>
+                        <th class="px-4 py-2 text-left font-medium">Last fetched</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                    <template x-for="p in proxyPackages" :key="p.name">
+                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                            <td class="px-4 py-2">
+                                <a :href="`/packages/${p.name}`" class="font-mono text-blue-600 dark:text-blue-400 hover:underline" x-text="p.name"></a>
+                            </td>
+                            <td class="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-400" x-text="p.latest_version || '—'"></td>
+                            <td class="px-4 py-2 text-gray-700 dark:text-gray-300" x-text="p.version_count"></td>
+                            <td class="px-4 py-2 text-gray-700 dark:text-gray-300" x-text="formatBytes(p.total_size)"></td>
+                            <td class="px-4 py-2 text-xs text-gray-500" x-text="formatDate(p.updated_at)"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+            <p x-show="!proxyPackages.length && !proxyListLoading" x-cloak class="px-5 py-6 text-xs text-gray-500 text-center">
+                No packages cached from upstream yet. Run <code class="font-mono">npm install &lt;pkg&gt;</code> against this registry to populate the cache.
+            </p>
+        </div>
     </div>
 
     <!-- ── Tab: S3 Configure ───────────────────────────────── -->
@@ -271,11 +309,13 @@ function packagesPage() {
         proxySaving: false,
         proxyStatus: '',
         proxyError: false,
+        proxyPackages: [],
+        proxyListLoading: false,
 
         async init() {
             const hash = (location.hash || '').replace('#', '');
             if (['packages', 'tokens', 'proxy', 's3'].includes(hash)) this.tab = hash;
-            await Promise.all([this.loadTokens(), this.loadS3()]);
+            await Promise.all([this.loadTokens(), this.loadS3(), this.loadProxyPackages()]);
         },
 
         async loadTokens() {
@@ -334,6 +374,15 @@ function packagesPage() {
             }
         },
 
+        async loadProxyPackages() {
+            this.proxyListLoading = true;
+            try {
+                const r = await fetch('/api/v1/registry/proxy/packages');
+                if (r.ok) this.proxyPackages = await r.json();
+            } catch (e) { /* silent — list is best-effort */ }
+            finally { this.proxyListLoading = false; }
+        },
+
         async saveProxy() {
             this.proxySaving = true; this.proxyStatus = ''; this.proxyError = false;
             try {
@@ -350,7 +399,7 @@ function packagesPage() {
                 if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'failed to save');
                 this.proxyStatus = 'Saved';
                 setTimeout(() => this.proxyStatus = '', 2000);
-                await this.loadS3(); // refresh stats
+                await Promise.all([this.loadS3(), this.loadProxyPackages()]);
             } catch (e) {
                 this.proxyStatus = e.message;
                 this.proxyError = true;

@@ -150,3 +150,20 @@ pub async fn update(
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
+
+/// `GET /api/v1/registry/proxy/packages` — list every package the cache
+/// pulled from upstream (`is_proxy = 1`). Used by the Upstream proxy UI tab
+/// so operators can see what's actually in the mirror without dropping to
+/// SQL. The list reuses `PackageSummary` (size/version count already
+/// aggregated) and adds nothing private — proxy entries only.
+pub async fn proxy_packages_list(
+    State(state): State<SharedState>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let all = crate::registry::db::list_packages(&db, false)?;
+    let proxy_only: Vec<_> = all.into_iter().filter(|p| p.is_proxy).collect();
+    Ok(Json(proxy_only))
+}
