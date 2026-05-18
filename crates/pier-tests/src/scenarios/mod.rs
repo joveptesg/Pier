@@ -6,6 +6,7 @@
 
 use crate::scenario::Scenario;
 
+mod install;
 mod mutations;
 mod packument;
 mod ping;
@@ -14,7 +15,7 @@ mod tarball;
 mod whoami;
 
 pub fn all() -> Vec<Box<dyn Scenario>> {
-    vec![
+    let mut s: Vec<Box<dyn Scenario>> = vec![
         // Protocol smoke
         Box::new(ping::Ping),
         Box::new(whoami::WhoamiAuth),
@@ -30,10 +31,14 @@ pub fn all() -> Vec<Box<dyn Scenario>> {
         Box::new(packument::EtagPackument),
         // Streaming
         Box::new(tarball::TarballStreaming),
-        // Mutations (must end with unpublish — drops the fixture)
+        // Mutations
         Box::new(mutations::DistTagAdd),
         Box::new(mutations::DistTagRm),
         Box::new(mutations::Deprecate),
-        Box::new(mutations::UnpublishSingle),
-    ]
+    ];
+    // Real-client install matrix (skipped per-client when binary absent)
+    s.extend(install::all());
+    // unpublish_single runs last — drops the fixture, breaking later scenarios.
+    s.push(Box::new(mutations::UnpublishSingle));
+    s
 }

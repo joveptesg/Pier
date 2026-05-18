@@ -26,3 +26,4 @@ tar = { workspace = true }
 flate2 = { workspace = true }
 sha2 = { workspace = true }
 urlencoding = { workspace = true }
+async-trait = "0.1"

@@ -3082,6 +3082,7 @@ name = "pier-tests"
 version = "1.0.2"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64",
  "chrono",
  "clap",

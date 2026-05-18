@@ -10,6 +10,7 @@
 //! Multi-client install matrix and JUnit output land in P2/P3.
 
 mod bootstrap;
+mod clients;
 mod fixture;
 mod pier_runner;
 mod report;
@@ -55,6 +56,17 @@ struct Args {
     /// Skip teardown — leaves the Pier data dir and process for debugging.
     #[arg(long)]
     keep: bool,
+
+    /// Run against an already-deployed Pier instead of spawning one. Pass the
+    /// panel base URL (e.g. `https://test1.devcom.app`). Requires
+    /// `--external-token`.
+    #[arg(long)]
+    external_url: Option<String>,
+
+    /// Bearer token for `--external-url` mode. Mint one in the panel under
+    /// Account → Tokens → New.
+    #[arg(long)]
+    external_token: Option<String>,
 }
 
 #[tokio::main]
@@ -68,25 +80,32 @@ async fn main() -> Result<()> {
     };
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    let pier_bin = resolve_pier_bin(args.pier_bin.as_deref())?;
-    tracing::info!(?pier_bin, "Using pier binary");
-
-    let mut runner = PierRunner::spawn(&pier_bin, args.port)
-        .await
-        .context("spawning Pier subprocess")?;
-    tracing::info!(port = args.port, "Pier subprocess up");
-
-    let result = run_matrix(&runner.base_url(), &mut runner).await;
-
-    if args.keep {
-        tracing::warn!(
-            data_dir = ?runner.data_dir(),
-            "--keep set: leaving Pier running. Kill manually when done."
-        );
-        std::mem::forget(runner);
-    }
-
-    let report = result?;
+    let report = match (args.external_url.as_deref(), args.external_token.as_deref()) {
+        (Some(url), Some(token)) => {
+            tracing::info!(%url, "Running against external Pier (no spawn)");
+            run_matrix_external(url.trim_end_matches('/'), token).await?
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            anyhow::bail!("--external-url and --external-token must be provided together");
+        }
+        (None, None) => {
+            let pier_bin = resolve_pier_bin(args.pier_bin.as_deref())?;
+            tracing::info!(?pier_bin, "Using pier binary");
+            let mut runner = PierRunner::spawn(&pier_bin, args.port)
+                .await
+                .context("spawning Pier subprocess")?;
+            tracing::info!(port = args.port, "Pier subprocess up");
+            let result = run_matrix(&runner.base_url(), &mut runner).await;
+            if args.keep {
+                tracing::warn!(
+                    data_dir = ?runner.data_dir(),
+                    "--keep set: leaving Pier running. Kill manually when done."
+                );
+                std::mem::forget(runner);
+            }
+            result?
+        }
+    };
 
     if let Some(path) = args.report_md.as_deref() {
         std::fs::write(path, report.to_markdown())?;
@@ -121,7 +140,47 @@ async fn run_matrix(base_url: &str, runner: &mut PierRunner) -> Result<Report> {
             .build()?,
     };
 
-    let mut report = Report::new("pier-tests P1", runner.pier_version().to_string());
+    let mut report = Report::new("pier-tests", runner.pier_version().to_string());
+    for scenario in scenarios::all() {
+        report.push(scenario.run(&ctx).await);
+    }
+    Ok(report)
+}
+
+async fn run_matrix_external(base_url: &str, token: &str) -> Result<Report> {
+    let ctx = ScenarioCtx {
+        base_url: base_url.to_string(),
+        registry_url: format!("{base_url}/registry/npm/"),
+        token: token.to_string(),
+        http: reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?,
+    };
+    // Probe `<base>/health` for the pier version. Best-effort — unknown is
+    // fine, the report stays useful without it.
+    let version = ctx
+        .http
+        .get(format!("{base_url}/health"))
+        .send()
+        .await
+        .ok()
+        .and_then(|r| {
+            if r.status().is_success() {
+                Some(r)
+            } else {
+                None
+            }
+        })
+        .map(|r| async move { r.json::<serde_json::Value>().await.ok() });
+    let version = match version {
+        Some(fut) => fut
+            .await
+            .and_then(|v| v.get("version").and_then(|s| s.as_str()).map(str::to_owned))
+            .unwrap_or_else(|| "unknown".to_string()),
+        None => "unknown".to_string(),
+    };
+
+    let mut report = Report::new("pier-tests (external)", version);
     for scenario in scenarios::all() {
         report.push(scenario.run(&ctx).await);
     }
