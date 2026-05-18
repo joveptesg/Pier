@@ -141,9 +141,8 @@
             {% if package.latest_version %}
             <div class="flex items-center justify-center gap-2">
                 <button type="button" @click="fetchLatest()" :disabled="fetching"
-                        class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50">
-                    <span x-show="!fetching">Download latest ({{ package.latest_version }})</span>
-                    <span x-show="fetching" x-cloak>Fetching…</span>
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50">
+                    Download latest ({{ package.latest_version }})
                 </button>
             </div>
             {% endif %}
