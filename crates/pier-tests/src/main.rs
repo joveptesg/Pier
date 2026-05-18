@@ -10,6 +10,7 @@
 //! Multi-client install matrix and JUnit output land in P2/P3.
 
 mod bootstrap;
+mod fixture;
 mod pier_runner;
 mod report;
 mod scenario;

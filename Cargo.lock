@@ -3082,15 +3082,20 @@ name = "pier-tests"
 version = "1.0.2"
 dependencies = [
  "anyhow",
+ "base64",
  "chrono",
  "clap",
+ "flate2",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
+ "tar",
  "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "urlencoding",
 ]
 
 [[package]]
