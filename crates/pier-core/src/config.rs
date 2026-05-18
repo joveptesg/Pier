@@ -70,7 +70,13 @@ impl PierConfig {
             .filter(|s| !s.is_empty());
 
         Self {
-            host: env_or("PIER_HOST", "0.0.0.0"),
+            // `::` binds both IPv4 and IPv6 on Linux by default
+            // (IPV6_V6ONLY=0). An IPv6-only peer can't reach a primary
+            // bound on `0.0.0.0`, so the safe default has to be the
+            // dual-stack wildcard. Operators who explicitly set
+            // `PIER_HOST=0.0.0.0` keep their v4-only listener
+            // unchanged.
+            host: env_or("PIER_HOST", "::"),
             port: env_or("PIER_PORT", "8443").parse().unwrap_or(8443),
             data_dir,
             db_path,
@@ -90,9 +96,18 @@ impl PierConfig {
         }
     }
 
-    /// Listen address string for binding.
+    /// Listen address string for binding. Brackets IPv6 wildcards
+    /// (`::` → `[::]:PORT`) and literals so `SocketAddr::parse` is
+    /// happy. v4 and hostnames pass through unchanged.
     pub fn listen_addr(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        let host = &self.host;
+        let needs_brackets =
+            host.contains("::") || (host.matches(':').count() >= 2 && !host.contains('.'));
+        if needs_brackets && !host.starts_with('[') {
+            format!("[{host}]:{}", self.port)
+        } else {
+            format!("{}:{}", host, self.port)
+        }
     }
 }
 

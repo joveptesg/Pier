@@ -793,7 +793,13 @@ async fn main() -> Result<()> {
         )
         .with_state(state);
 
-    let addr = format!("0.0.0.0:{port}");
+    // `[::]:PORT` binds both IPv4 and IPv6 on Linux by default
+    // (IPV6_V6ONLY=0). Without this, an IPv6-only host running this
+    // agent can't accept core's API calls — they'd never reach the
+    // listener. Operators who need v4-only can override with
+    // PIER_AGENT_BIND=0.0.0.0 below.
+    let bind_host = std::env::var("PIER_AGENT_BIND").unwrap_or_else(|_| "[::]".to_string());
+    let addr = format!("{bind_host}:{port}");
     tracing::info!("Pier Agent listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
