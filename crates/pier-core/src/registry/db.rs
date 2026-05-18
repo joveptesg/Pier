@@ -97,6 +97,16 @@ pub fn load_packument(conn: &Connection, name: &str) -> Result<Option<Packument>
         return Ok(None);
     }
 
+    // Proxy entries: read from the upstream packument blob (migration 57).
+    // Falls through to the per-row aggregation path if the blob is empty
+    // (e.g. a row carried over from before the migration whose first
+    // re-fetch hasn't happened yet — `serve_packument` will trigger one).
+    if is_proxy != 0 {
+        if let Some(p) = load_proxy_packument_from_blob(conn, name)? {
+            return Ok(Some(p));
+        }
+    }
+
     let dist_tags: BTreeMap<String, String> =
         serde_json::from_str(&dist_tags_json).unwrap_or_default();
 
@@ -147,6 +157,8 @@ pub fn load_version_manifest(
     if is_unpublished(conn, name)? {
         return Ok(None);
     }
+    // 1. Local row first — covers private publishes and proxy versions whose
+    // tarballs have been downloaded (finalize_proxy_tarball wrote a row).
     let row: Option<String> = conn
         .query_row(
             "SELECT manifest_json FROM npm_versions
@@ -155,7 +167,29 @@ pub fn load_version_manifest(
             |row| row.get(0),
         )
         .optional()?;
-    Ok(row.and_then(|m| serde_json::from_str(&m).ok()))
+    if let Some(m) = row {
+        return Ok(serde_json::from_str(&m).ok());
+    }
+    // 2. Proxy fallback: dig the version manifest out of the upstream blob.
+    // `npm view <pkg>@<ver>` hits this path for any package the cache has
+    // metadata for but no tarball download yet.
+    let blob: Option<String> = conn
+        .query_row(
+            "SELECT upstream_packument_json FROM npm_packages
+              WHERE name = ?1 AND is_proxy = 1 AND upstream_packument_json IS NOT NULL",
+            params![name],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    if let Some(blob) = blob {
+        if let Ok(body) = serde_json::from_str::<serde_json::Value>(&blob) {
+            if let Some(manifest) = body.pointer(&format!("/versions/{version}")) {
+                return Ok(Some(manifest.clone()));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Whether a package has been unpublished. Cheap — single-row lookup.
@@ -300,49 +334,106 @@ pub fn upsert_proxy_packument(
         .unwrap_or_else(|| serde_json::json!({}));
     let dist_tags_json = serde_json::to_string(&dist_tags_value)?;
 
-    let now = chrono::Utc::now().timestamp();
-    let tx = conn.unchecked_transaction()?;
+    // The full upstream body goes into a single blob column. Per-version
+    // rows in `npm_versions` are created lazily when a tarball is actually
+    // downloaded — see `finalize_proxy_tarball`. This keeps SQLite from
+    // bloating when popular packages (next: 3769 versions) get cached.
+    let packument_json = serde_json::to_string(upstream_body)?;
 
-    tx.execute(
+    let now = chrono::Utc::now().timestamp();
+    conn.execute(
         "INSERT INTO npm_packages
             (name, description, dist_tags_json, is_proxy,
-             upstream_etag, upstream_fetched_at, created_at, updated_at)
-         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?5, ?5)
+             upstream_etag, upstream_fetched_at, upstream_packument_json,
+             created_at, updated_at)
+         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?5, ?5)
          ON CONFLICT(name) DO UPDATE SET
-            description          = ?2,
-            dist_tags_json       = ?3,
-            is_proxy             = 1,
-            upstream_etag        = ?4,
-            upstream_fetched_at  = ?5,
-            unpublished_at       = NULL,
-            updated_at           = ?5",
-        params![package, description, dist_tags_json, etag, now],
+            description              = ?2,
+            dist_tags_json           = ?3,
+            is_proxy                 = 1,
+            upstream_etag            = ?4,
+            upstream_fetched_at      = ?5,
+            upstream_packument_json  = ?6,
+            unpublished_at           = NULL,
+            updated_at               = ?5",
+        params![
+            package,
+            description,
+            dist_tags_json,
+            etag,
+            now,
+            packument_json
+        ],
     )?;
+    Ok(())
+}
 
-    if let Some(versions) = upstream_body.get("versions").and_then(|v| v.as_object()) {
-        for (version, manifest) in versions {
-            let manifest_json = serde_json::to_string(manifest)?;
-            let integrity = manifest
-                .get("dist")
-                .and_then(|d| d.get("integrity"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            // INSERT OR IGNORE keeps already-cached versions (which may
-            // have the real tarball_size populated by a tarball fetch)
-            // untouched on a refresh.
-            tx.execute(
-                "INSERT OR IGNORE INTO npm_versions
-                    (package_name, version, manifest_json, tarball_size,
-                     tarball_sha512, s3_uploaded, published_by, published_at)
-                 VALUES (?1, ?2, ?3, 0, ?4, 0, NULL, ?5)",
-                params![package, version, manifest_json, integrity, now],
-            )?;
+/// Build a [`Packument`] from a proxy-cached upstream JSON blob. Versions are
+/// taken directly from `body.versions`; if any of them also has a downloaded
+/// `npm_versions` row (size > 0), the manifest's `dist.integrity` is preserved
+/// from upstream — Pier's locally-computed sha matches when the download
+/// passed integrity verification. Returns `None` if the row isn't a proxy
+/// entry or its blob is empty (e.g. carried over from before migration 57).
+pub fn load_proxy_packument_from_blob(
+    conn: &Connection,
+    package: &str,
+) -> Result<Option<Packument>> {
+    let row: Option<(String, String, i64, i64)> = conn
+        .query_row(
+            "SELECT description, COALESCE(upstream_packument_json, ''),
+                    created_at, updated_at
+               FROM npm_packages
+              WHERE name = ?1 AND is_proxy = 1 AND unpublished_at IS NULL
+                AND upstream_packument_json IS NOT NULL
+                AND upstream_packument_json <> ''",
+            params![package],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    let Some((description, blob, created_at, updated_at)) = row else {
+        return Ok(None);
+    };
+
+    let body: serde_json::Value = serde_json::from_str(&blob)?;
+    let dist_tags = body
+        .get("dist-tags")
+        .and_then(|v| v.as_object())
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect::<BTreeMap<String, String>>()
+        })
+        .unwrap_or_default();
+
+    let mut versions = BTreeMap::new();
+    let mut time = BTreeMap::new();
+    if let Some(vmap) = body.get("versions").and_then(|v| v.as_object()) {
+        for (ver, manifest) in vmap {
+            versions.insert(ver.clone(), manifest.clone());
         }
     }
+    if let Some(tmap) = body.get("time").and_then(|v| v.as_object()) {
+        for (k, v) in tmap {
+            if let Some(s) = v.as_str() {
+                time.insert(k.clone(), s.to_string());
+            }
+        }
+    }
+    // Always populate `created` / `modified` even if upstream omitted them
+    // (some packuments don't carry the time map at all).
+    time.entry("created".into())
+        .or_insert_with(|| ts_to_iso(created_at));
+    time.entry("modified".into())
+        .or_insert_with(|| ts_to_iso(updated_at));
 
-    tx.commit()?;
-    Ok(())
+    Ok(Some(Packument {
+        name: package.to_string(),
+        description,
+        dist_tags,
+        is_proxy: true,
+        versions,
+        time,
+    }))
 }
 
 /// Proxy-cache state for a single (package, version) — used by serve_tarball
@@ -400,30 +491,69 @@ pub fn lookup_proxy_tarball_state(
     package: &str,
     version: &str,
 ) -> Result<Option<ProxyTarballState>> {
-    let row = conn
+    // Package-level fields first (is_proxy + cached blob). The version may
+    // not have a row in npm_versions yet — that's exactly the case the
+    // proxy-tarball miss path needs to fill.
+    let pkg_row: Option<(i64, Option<String>)> = conn
         .query_row(
-            "SELECT p.is_proxy,
-                    json_extract(v.manifest_json, '$.dist.tarball')
-             FROM npm_versions v
-             JOIN npm_packages p ON p.name = v.package_name
-             WHERE v.package_name = ?1 AND v.version = ?2",
-            params![package, version],
-            |r| {
-                let is_proxy: i64 = r.get(0)?;
-                let url: Option<String> = r.get(1)?;
-                Ok(ProxyTarballState {
-                    is_proxy: is_proxy != 0,
-                    upstream_tarball_url: url,
-                })
-            },
+            "SELECT is_proxy, upstream_packument_json
+               FROM npm_packages WHERE name = ?1",
+            params![package],
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
-    Ok(row)
+    let Some((is_proxy_i, blob)) = pkg_row else {
+        return Ok(None);
+    };
+    let is_proxy = is_proxy_i != 0;
+
+    // First check the npm_versions row (legacy + post-download path).
+    let row_url: Option<String> = conn
+        .query_row(
+            "SELECT json_extract(manifest_json, '$.dist.tarball')
+               FROM npm_versions
+              WHERE package_name = ?1 AND version = ?2",
+            params![package, version],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    if let Some(url) = row_url {
+        return Ok(Some(ProxyTarballState {
+            is_proxy,
+            upstream_tarball_url: Some(url),
+        }));
+    }
+
+    // Fall back to the upstream packument blob — for proxy packages whose
+    // tarball hasn't been pulled yet, this is the only place the URL lives.
+    if is_proxy {
+        if let Some(blob) = blob {
+            if let Ok(body) = serde_json::from_str::<serde_json::Value>(&blob) {
+                let url = body
+                    .pointer(&format!("/versions/{version}/dist/tarball"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                if let Some(url) = url {
+                    return Ok(Some(ProxyTarballState {
+                        is_proxy: true,
+                        upstream_tarball_url: Some(url),
+                    }));
+                }
+            }
+        }
+    }
+
+    Ok(None)
 }
 
-/// Update tarball_size + tarball_sha512 after a successful proxy fetch.
-/// Called by serve_tarball once the upstream bytes are persisted locally so
-/// subsequent reads short-circuit through the normal hot-tier path.
+/// Persist a downloaded proxy tarball: inserts the npm_versions row when
+/// it's the first time we've materialised that version, or updates an
+/// existing row (legacy / private path).
+///
+/// `manifest_json` comes from the upstream packument blob — we copy it into
+/// the per-version row so `npm view <pkg>@<ver>` keeps working after the
+/// blob is replaced by a TTL refresh.
 pub fn finalize_proxy_tarball(
     conn: &Connection,
     package: &str,
@@ -431,12 +561,29 @@ pub fn finalize_proxy_tarball(
     size: i64,
     sha512: &str,
 ) -> Result<()> {
+    let manifest_json: String = conn
+        .query_row(
+            "SELECT json_extract(upstream_packument_json, '$.versions.' || ?2)
+               FROM npm_packages WHERE name = ?1",
+            params![package, version],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "{}".to_string());
+    let now = chrono::Utc::now().timestamp();
     conn.execute(
-        "UPDATE npm_versions
-            SET tarball_size = ?3,
-                tarball_sha512 = ?4
-          WHERE package_name = ?1 AND version = ?2",
-        params![package, version, size, sha512],
+        "INSERT INTO npm_versions
+            (package_name, version, manifest_json, tarball_size,
+             tarball_sha512, s3_uploaded, published_by, published_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL, ?6)
+         ON CONFLICT(package_name, version) DO UPDATE SET
+            tarball_size = ?4,
+            tarball_sha512 = ?5,
+            manifest_json = CASE WHEN excluded.manifest_json <> '{}' AND excluded.manifest_json <> ''
+                                 THEN excluded.manifest_json
+                                 ELSE npm_versions.manifest_json END",
+        params![package, version, manifest_json, size, sha512, now],
     )?;
     Ok(())
 }
@@ -528,16 +675,32 @@ pub fn list_packages(conn: &Connection, only_private: bool) -> Result<Vec<Packag
         "SELECT p.name, p.description, p.dist_tags_json, p.is_proxy, p.updated_at,
                 p.unpublished_at,
                 COALESCE(SUM(v.tarball_size), 0) AS total_size,
-                COUNT(v.version) AS version_count,
-                COALESCE(SUM(
-                    CASE WHEN json_extract(v.manifest_json, '$.deprecated') IS NOT NULL
-                         THEN 1 ELSE 0 END
-                ), 0) AS deprecated_count,
-                COALESCE(MAX(
-                    CASE WHEN v.version = json_extract(p.dist_tags_json, '$.latest')
-                              AND json_extract(v.manifest_json, '$.deprecated') IS NOT NULL
-                         THEN 1 ELSE 0 END
-                ), 0) AS latest_deprecated
+                /* version_count: for proxy entries, count from the upstream
+                   blob (npm_versions only carries downloaded rows post-
+                   migration 57). For private, count rows directly. */
+                CASE WHEN p.is_proxy = 1 AND p.upstream_packument_json IS NOT NULL
+                     THEN (SELECT COUNT(*) FROM json_each(p.upstream_packument_json, '$.versions'))
+                     ELSE COUNT(v.version)
+                END AS version_count,
+                /* deprecated_count: same idea — proxy reads from blob. */
+                CASE WHEN p.is_proxy = 1 AND p.upstream_packument_json IS NOT NULL
+                     THEN (SELECT COUNT(*) FROM json_each(p.upstream_packument_json, '$.versions') je
+                            WHERE json_extract(je.value, '$.deprecated') IS NOT NULL)
+                     ELSE COALESCE(SUM(
+                            CASE WHEN json_extract(v.manifest_json, '$.deprecated') IS NOT NULL
+                                 THEN 1 ELSE 0 END
+                        ), 0)
+                END AS deprecated_count,
+                CASE WHEN p.is_proxy = 1 AND p.upstream_packument_json IS NOT NULL
+                     THEN CASE WHEN json_extract(p.upstream_packument_json,
+                                    '$.versions.' || json_extract(p.dist_tags_json, '$.latest') || '.deprecated') IS NOT NULL
+                              THEN 1 ELSE 0 END
+                     ELSE COALESCE(MAX(
+                            CASE WHEN v.version = json_extract(p.dist_tags_json, '$.latest')
+                                      AND json_extract(v.manifest_json, '$.deprecated') IS NOT NULL
+                                 THEN 1 ELSE 0 END
+                        ), 0)
+                END AS latest_deprecated
          FROM npm_packages p
          LEFT JOIN npm_versions v ON v.package_name = p.name
          {where_clause}
@@ -641,18 +804,37 @@ pub fn list_versions_with_deprecation(
     Ok(rows)
 }
 
-/// Count manifest-only proxy versions (tarball_size = 0). Surfaced on the
-/// detail page as "+N more cached as metadata only" so operators see why
-/// the table is shorter than `version_count` suggests.
+/// Count proxy versions known from the upstream packument but not yet
+/// downloaded locally. Surfaced on the detail page as "+N more cached as
+/// metadata only" so operators see why the table is shorter than the
+/// upstream version count suggests.
+///
+/// Returns 0 for private packages (no blob).
 pub fn count_manifest_only_versions(conn: &Connection, package: &str) -> Result<i64> {
-    Ok(conn
+    let row: Option<(Option<String>, i64)> = conn
         .query_row(
-            "SELECT COUNT(*) FROM npm_versions
-              WHERE package_name = ?1 AND tarball_size = 0",
+            "SELECT upstream_packument_json,
+                    (SELECT COUNT(*) FROM npm_versions WHERE package_name = ?1)
+               FROM npm_packages WHERE name = ?1 AND is_proxy = 1",
             params![package],
-            |r| r.get::<_, i64>(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
-        .unwrap_or(0))
+        .optional()?;
+    let Some((blob, downloaded)) = row else {
+        return Ok(0);
+    };
+    let Some(blob) = blob else {
+        return Ok(0);
+    };
+    let Ok(body) = serde_json::from_str::<serde_json::Value>(&blob) else {
+        return Ok(0);
+    };
+    let upstream_total = body
+        .get("versions")
+        .and_then(|v| v.as_object())
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
+    Ok((upstream_total - downloaded).max(0))
 }
 
 /// Convert a unix timestamp to an ISO-8601 string for the npm `time` map.

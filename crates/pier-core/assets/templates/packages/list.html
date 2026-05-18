@@ -232,6 +232,7 @@ always-auth=true</pre>
                         <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/30">
                             <td class="px-4 py-2">
                                 <a :href="`/packages/${p.name}`" class="font-mono text-blue-600 dark:text-blue-400 hover:underline" x-text="p.name"></a>
+                                <p x-show="p.description" x-cloak class="text-[11px] text-gray-500 mt-0.5 truncate max-w-md" x-text="p.description"></p>
                             </td>
                             <td class="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-400" x-text="p.latest_version || '—'"></td>
                             <td class="px-4 py-2 text-gray-700 dark:text-gray-300" x-text="p.version_count"></td>

@@ -1321,6 +1321,24 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE services ADD COLUMN migration_in_progress INTEGER NOT NULL DEFAULT 0;
     "#,
+    // Migration 57: store upstream packument as a single JSON blob.
+    //
+    // The proxy mode used to fan an upstream packument into npm_versions —
+    // one row per historical version. For popular packages (next: 3769,
+    // @playwright/test: 3196, react: 2804) this bloated SQLite with rows
+    // whose only useful field was manifest_json. We now keep the raw
+    // upstream packument in `npm_packages.upstream_packument_json` and only
+    // create `npm_versions` rows when a tarball is actually downloaded.
+    //
+    // The DELETE drops the metadata-only rows left over from the old
+    // approach; downloaded versions (`tarball_size > 0`) survive and the
+    // next packument fetch from upstream repopulates the blob.
+    r#"
+    ALTER TABLE npm_packages ADD COLUMN upstream_packument_json TEXT;
+    DELETE FROM npm_versions
+     WHERE tarball_size = 0
+       AND package_name IN (SELECT name FROM npm_packages WHERE is_proxy = 1);
+    "#,
 ];
 
 /// Run all pending database migrations.

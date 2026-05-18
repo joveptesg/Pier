@@ -712,20 +712,23 @@ async fn serve_tarball(
     // streaming response headers.
     let package_owned = package.to_string();
     let version_owned = version.clone();
-    let meta = db_blocking(state, move |db| {
+    let initial_meta = db_blocking(state, move |db| {
         regdb::lookup_tarball(db, &package_owned, &version_owned)
     })
     .await?;
-    let Some(mut meta) = meta else {
-        return Err(AppError::NotFound(format!("{package}-{version}")));
-    };
 
-    // Proxy passthrough: a tarball_size of 0 means upsert_proxy_packument
-    // recorded the version (sub-PR 2) but never had the actual bytes. Fetch
-    // from upstream now, store, and update the row so subsequent reads hit
-    // the hot tier. Failures here pass through as 404 — the client gets a
-    // chance to retry; the operator gets a tracing warn.
-    if meta.size == 0 {
+    // Proxy passthrough: when the local DB has no row, or has a placeholder
+    // row with tarball_size=0 (legacy pre-migration-57 entry), check the
+    // upstream blob for the tarball URL and fetch it. Migration 57 keeps
+    // metadata in `npm_packages.upstream_packument_json` instead of fanning
+    // it into per-version rows, so the row may legitimately not exist yet
+    // for a proxy package whose tarball hasn't been pulled.
+    let needs_proxy_fetch = match &initial_meta {
+        None => true,
+        Some(m) => m.size == 0,
+    };
+    let mut meta = initial_meta;
+    if needs_proxy_fetch {
         let package_owned = package.to_string();
         let version_owned = version.clone();
         let proxy_state = db_blocking(state, move |db| {
@@ -766,8 +769,11 @@ async fn serve_tarball(
                                     )
                                 })
                                 .await?;
-                                meta.size = new_size;
-                                meta.sha512 = new_sha;
+                                meta = Some(regdb::TarballMeta {
+                                    size: new_size,
+                                    sha512: new_sha,
+                                    s3_uploaded: false,
+                                });
                             }
                             Ok(None) => {
                                 tracing::info!(%package, %version, "upstream 404 for tarball");
@@ -783,6 +789,10 @@ async fn serve_tarball(
             }
         }
     }
+
+    let Some(meta) = meta else {
+        return Err(AppError::NotFound(format!("{package}-{version}")));
+    };
 
     let etag = format!("\"{}\"", meta.sha512);
     // Conditional GET: the tarball is immutable per (package, version) so a
