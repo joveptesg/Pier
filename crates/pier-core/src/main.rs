@@ -437,6 +437,23 @@ async fn main() -> Result<()> {
                 .map(|db| proxy::read_acme_email(&db))
                 .unwrap_or_else(|| "admin@pier.local".to_string());
 
+            // Deploy Traefik FIRST so the new (port-less) static config takes
+            // over: this releases host TCP ports (e.g. :5432) that the old
+            // Traefik was holding as `tcp-NNNN` entryPoints. Without this
+            // ordering, the migration below would recreate service containers
+            // that try to bind those same host ports, hit a conflict with the
+            // still-live old Traefik, and end up EXITED — taking pier-net
+            // Docker DNS resolution (`getaddrinfo ENOTFOUND pier-<svc>`) down
+            // with them for every consumer in the network.
+            let traefik_result = proxy::deploy_traefik(
+                &proxy_state.docker,
+                &proxy_data_dir,
+                &acme_email,
+                proxy_dashboard,
+                &proxy_traefik_version,
+            )
+            .await;
+
             // One-time migration: services that were previously published via
             // Traefik TCP routing (entryPoints in static config) are now
             // exposed through direct Docker port bindings on the service
@@ -444,33 +461,23 @@ async fn main() -> Result<()> {
             // and purges legacy tcp-*.yml dynamic files. Idempotent on every
             // startup — re-running it is a no-op once stacks already have the
             // new compose ports.
-            //
-            // Order matters: migrate BEFORE deploy_traefik so the new
-            // (port-less) static config doesn't try to bind ports that the
-            // service containers will claim moments later. The migration
-            // itself doesn't depend on Traefik being up — it just runs
-            // `docker compose up -d` on each service stack.
-            match proxy::migrate_public_ports_to_direct_binding(&proxy_state).await {
-                Ok((migrated, removed)) => {
-                    if migrated > 0 || removed > 0 {
-                        tracing::info!(
-                            "Public-port migration: redeployed {migrated} service(s), removed {removed} legacy tcp-*.yml file(s)"
-                        );
+            if traefik_result.is_ok() {
+                match proxy::migrate_public_ports_to_direct_binding(&proxy_state).await {
+                    Ok((migrated, removed)) => {
+                        if migrated > 0 || removed > 0 {
+                            tracing::info!(
+                                "Public-port migration: redeployed {migrated} service(s), removed {removed} legacy tcp-*.yml file(s)"
+                            );
+                        }
                     }
+                    Err(e) => tracing::warn!("Public-port migration failed: {e}"),
                 }
-                Err(e) => tracing::warn!("Public-port migration failed: {e}"),
             }
 
-            // Deploy Traefik
-            match proxy::deploy_traefik(
-                &proxy_state.docker,
-                &proxy_data_dir,
-                &acme_email,
-                proxy_dashboard,
-                &proxy_traefik_version,
-            )
-            .await
-            {
+            // Handle the Traefik deploy outcome (status persistence + platform
+            // domain wiring) — must run regardless of migration so we don't
+            // lose error visibility on a deploy failure.
+            match traefik_result {
                 Ok(_) => {
                     tracing::info!("Proxy auto-started (Traefik)");
                     if let Ok(db) = proxy_state.db.lock() {
