@@ -454,23 +454,40 @@ async fn main() -> Result<()> {
             )
             .await;
 
-            // One-time migration: services that were previously published via
-            // Traefik TCP routing (entryPoints in static config) are now
-            // exposed through direct Docker port bindings on the service
-            // container itself. The migration redeploys each affected stack
-            // and purges legacy tcp-*.yml dynamic files. Idempotent on every
-            // startup — re-running it is a no-op once stacks already have the
-            // new compose ports.
+            // One-time migration: purges legacy `tcp-*.yml` files from
+            // `traefik/dynamic/` and logs which services still carry
+            // `is_public=1` so the operator knows their public binding will
+            // re-apply on the next deliberate redeploy. Does NOT recreate
+            // service containers — an earlier version did and caused a
+            // production outage when the regenerated catalog YAML didn't
+            // match real container names. See `reconcile_pier_managed_networks`
+            // below for the self-healing path that repairs containers
+            // detached from their networks by the previous buggy migration.
             if traefik_result.is_ok() {
                 match proxy::migrate_public_ports_to_direct_binding(&proxy_state).await {
-                    Ok((migrated, removed)) => {
-                        if migrated > 0 || removed > 0 {
+                    Ok((deferred, removed)) => {
+                        if removed > 0 {
                             tracing::info!(
-                                "Public-port migration: redeployed {migrated} service(s), removed {removed} legacy tcp-*.yml file(s)"
+                                "Public-port migration: removed {removed} legacy tcp-*.yml file(s); {deferred} service(s) carry is_public=1 (binding deferred until next redeploy)"
                             );
                         }
                     }
                     Err(e) => tracing::warn!("Public-port migration failed: {e}"),
+                }
+
+                // Self-healing network reconcile. For every pier-managed
+                // container (label pier.service.id), attach it to pier-net
+                // and (if any) its per-project network. Idempotent — no-op
+                // once each container is on its expected networks. Recovers
+                // services that lost their networks from the buggy migration
+                // that shipped in 0be7ecc / c2492cb.
+                match proxy::reconcile_pier_managed_networks(&proxy_state).await {
+                    Ok((attached, scanned)) => {
+                        tracing::info!(
+                            "Network reconcile: attached {attached} missing network(s) across {scanned} pier-managed container(s)"
+                        );
+                    }
+                    Err(e) => tracing::warn!("Network reconcile failed: {e}"),
                 }
             }
 

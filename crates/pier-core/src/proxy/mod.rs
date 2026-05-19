@@ -476,11 +476,27 @@ async fn detect_data_volume(docker: &Docker, data_dir: &Path) -> Result<String> 
 ///   - `docker compose up -d` is a no-op when nothing changed.
 ///   - Legacy `tcp-*.yml` deletion just confirms zero matches.
 ///
-/// Returns `(migrated_services, removed_tcp_files)`.
+/// Returns `(deferred_services, removed_tcp_files)` where `deferred_services`
+/// counts services that still carry `is_public=1` in DB but whose public
+/// binding will only re-materialize on the next deliberate redeploy.
+///
+/// **Critical:** this function does NOT recreate any service container. An
+/// earlier version did (`rebuild_and_redeploy_for_port_toggle` in a loop)
+/// and produced a production-wide outage when the regenerated catalog YAML
+/// didn't match the actual container_name on real deployments (e.g. servers
+/// using `pier-{svc}-srv0` naming): `docker compose up -d` detached the
+/// live container from every Docker network, breaking DNS for every
+/// consumer of that service. We now only purge dead Traefik TCP route
+/// files and rely on `reconcile_pier_managed_networks` (also on every
+/// startup) to repair any container that lost its networks.
 pub async fn migrate_public_ports_to_direct_binding(
     state: &crate::state::AppState,
 ) -> Result<(usize, usize)> {
-    // Snapshot affected service ids under one DB lock.
+    let removed = config::purge_legacy_tcp_route_files(&state.config.data_dir);
+    if removed > 0 {
+        tracing::info!("Migration: removed {removed} legacy tcp-*.yml file(s)");
+    }
+
     let service_ids: Vec<String> = {
         let db = state
             .db
@@ -497,34 +513,152 @@ pub async fn migrate_public_ports_to_direct_binding(
         rows
     };
 
-    let removed = config::purge_legacy_tcp_route_files(&state.config.data_dir);
-    if removed > 0 {
-        tracing::info!("Migration: removed {removed} legacy tcp-*.yml file(s)");
+    if !service_ids.is_empty() {
+        tracing::info!(
+            "Migration: {} service(s) carry is_public=1 in DB. Their public Docker port binding will be (re-)applied on the next operator-triggered redeploy of each service (UI Toggle off→on, or Redeploy). Affected: {:?}",
+            service_ids.len(),
+            service_ids
+        );
     }
 
-    if service_ids.is_empty() {
-        return Ok((0, removed));
-    }
+    Ok((service_ids.len(), removed))
+}
 
-    tracing::info!(
-        "Migration: re-deploying {} service(s) with public ports as direct Docker bindings",
-        service_ids.len()
-    );
+/// Reconcile Docker network attachments for every pier-managed container.
+///
+/// **Why this exists:** a buggy earlier version of `migrate_public_ports_to_direct_binding`
+/// recreated service stacks via `docker compose up -d` against a regenerated
+/// YAML that didn't match real-world container names. That detached running
+/// containers from `pier-net` and any per-project network they were on,
+/// breaking Docker DNS for every consumer (symptom:
+/// `getaddrinfo EAI_AGAIN pier-<service>`).
+///
+/// **What it does:** locates every container labelled `pier.service.id` (the
+/// label is emitted by `catalog::build_compose_yaml_scaled`, so every catalog
+/// service has it regardless of its container_name), computes the set of
+/// networks the container should be on (always `pier-net`, plus the
+/// per-project network from `services.network_id` if set), and reattaches
+/// missing networks. Idempotent — once a container is on its expected
+/// networks, calling this is a no-op (Docker returns "already in network",
+/// which we swallow).
+///
+/// Container-name agnostic on purpose: production servers use names like
+/// `pier-postgresql-srv0`, `pier-redis`, `foooh-back`, etc. — we never
+/// hardcode any of them.
+///
+/// Returns `(attached_count, scanned_count)` for the summary log line.
+pub async fn reconcile_pier_managed_networks(
+    state: &crate::state::AppState,
+) -> Result<(usize, usize)> {
+    use bollard::models::{EndpointSettings, NetworkConnectRequest};
+    use bollard::query_parameters::ListContainersOptions;
 
-    let mut migrated = 0usize;
-    for sid in &service_ids {
-        match crate::api::resources::rebuild_and_redeploy_for_port_toggle(state, sid).await {
-            Ok(()) => {
-                migrated += 1;
-                tracing::info!("Migration: redeployed {sid} with direct public port binding");
-            }
+    let containers = state
+        .docker
+        .list_containers(Some(ListContainersOptions {
+            all: false,
+            ..Default::default()
+        }))
+        .await?;
+
+    // Build (service_id -> project_network_name) lookup once.
+    let project_networks: std::collections::HashMap<String, String> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt = db.prepare(
+            "SELECT s.id, n.name FROM services s \
+             JOIN networks n ON n.id = s.network_id",
+        )?;
+        let rows: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows.into_iter().collect()
+    };
+
+    let mut attached = 0usize;
+    let mut scanned = 0usize;
+
+    for container in &containers {
+        // Extract pier.service.id label; skip non-pier containers (Traefik,
+        // user-deployed-outside-of-pier, etc.).
+        let labels = match container.labels.as_ref() {
+            Some(l) => l,
+            None => continue,
+        };
+        let service_id = match labels.get("pier.service.id") {
+            Some(s) if !s.is_empty() => s.clone(),
+            _ => continue,
+        };
+        let container_id = match container.id.as_ref() {
+            Some(id) => id.clone(),
+            None => continue,
+        };
+        let display_name = container
+            .names
+            .as_ref()
+            .and_then(|n| n.first())
+            .map(|s| s.trim_start_matches('/').to_string())
+            .unwrap_or_else(|| container_id.chars().take(12).collect());
+
+        scanned += 1;
+
+        // Current networks: list_containers gives a summary; we need
+        // inspect_container to see the full Networks map.
+        let info = match state.docker.inspect_container(&container_id, None).await {
+            Ok(i) => i,
             Err(e) => {
-                tracing::warn!(
-                    "Migration: failed to redeploy {sid} (will retry on next operator toggle): {e}"
-                );
+                tracing::warn!("Reconcile: inspect {display_name} failed: {e}");
+                continue;
+            }
+        };
+        let current: std::collections::HashSet<String> = info
+            .network_settings
+            .as_ref()
+            .and_then(|ns| ns.networks.as_ref())
+            .map(|nets| nets.keys().cloned().collect())
+            .unwrap_or_default();
+
+        // Expected networks: pier-net (always) + project network if any.
+        let mut expected: Vec<String> = vec![PIER_NETWORK.to_string()];
+        if let Some(proj) = project_networks.get(&service_id) {
+            if proj != PIER_NETWORK && !proj.is_empty() {
+                expected.push(proj.clone());
+            }
+        }
+
+        for net in expected {
+            if current.contains(&net) {
+                continue;
+            }
+            let req = NetworkConnectRequest {
+                container: container_id.clone(),
+                endpoint_config: Some(EndpointSettings::default()),
+            };
+            match state.docker.connect_network(&net, req).await {
+                Ok(()) => {
+                    attached += 1;
+                    tracing::info!(
+                        "Reconcile: attached {display_name} (service {service_id}) to network {net}"
+                    );
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    // Common benign errors when the container is already
+                    // attached (race with another reconciler / docker
+                    // compose). Swallow them — the goal state is already met.
+                    if msg.contains("already exists in network")
+                        || msg.contains("already attached to network")
+                    {
+                        continue;
+                    }
+                    tracing::warn!("Reconcile: failed to attach {display_name} to {net}: {msg}");
+                }
             }
         }
     }
 
-    Ok((migrated, removed))
+    Ok((attached, scanned))
 }

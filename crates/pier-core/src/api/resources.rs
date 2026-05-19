@@ -3125,6 +3125,56 @@ pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
 
     let stack_name = format!("pier-{}", snap.name.to_lowercase().replace(' ', "-"));
 
+    // Snapshot the existing container's network attachments BEFORE the
+    // recreate. We locate it by `pier.service.id` label, not by name —
+    // production deployments have container names like `pier-postgresql-srv0`
+    // that the catalog generator never produces, so name-based lookup is
+    // unreliable. After deploy_service_stack we reattach any network the
+    // old container had that the new one is missing.
+    let preexisting_networks: std::collections::HashSet<String> = {
+        use bollard::query_parameters::ListContainersOptions;
+        match state
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: false,
+                ..Default::default()
+            }))
+            .await
+        {
+            Ok(list) => {
+                let mut out = std::collections::HashSet::new();
+                for c in &list {
+                    let matches = c
+                        .labels
+                        .as_ref()
+                        .and_then(|l| l.get("pier.service.id"))
+                        .is_some_and(|s| s == service_id);
+                    if !matches {
+                        continue;
+                    }
+                    if let Some(id) = c.id.as_deref() {
+                        if let Ok(info) = state.docker.inspect_container(id, None).await {
+                            if let Some(networks) = info
+                                .network_settings
+                                .as_ref()
+                                .and_then(|ns| ns.networks.as_ref())
+                            {
+                                for net in networks.keys() {
+                                    out.insert(net.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                out
+            }
+            Err(e) => {
+                tracing::warn!("Port-toggle: failed to snapshot networks for {service_id}: {e}");
+                std::collections::HashSet::new()
+            }
+        }
+    };
+
     // Persist the rebuilt YAML so subsequent redeploys keep the new port lines.
     {
         let db = state
@@ -3138,6 +3188,69 @@ pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
     }
 
     crate::docker::deploy_service_stack(state, service_id, &stack_name, &yaml, None).await?;
+
+    // Post-deploy: reattach any network the old container had that the new
+    // one is missing. This catches operator-attached networks and per-project
+    // networks the catalog generator didn't put back into the YAML.
+    if !preexisting_networks.is_empty() {
+        use bollard::models::{EndpointSettings, NetworkConnectRequest};
+        use bollard::query_parameters::ListContainersOptions;
+        if let Ok(list) = state
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: false,
+                ..Default::default()
+            }))
+            .await
+        {
+            for c in &list {
+                let matches = c
+                    .labels
+                    .as_ref()
+                    .and_then(|l| l.get("pier.service.id"))
+                    .is_some_and(|s| s == service_id);
+                if !matches {
+                    continue;
+                }
+                let Some(container_id) = c.id.as_deref() else {
+                    continue;
+                };
+                let current: std::collections::HashSet<String> = state
+                    .docker
+                    .inspect_container(container_id, None)
+                    .await
+                    .ok()
+                    .and_then(|info| {
+                        info.network_settings
+                            .and_then(|ns| ns.networks)
+                            .map(|nets| nets.keys().cloned().collect())
+                    })
+                    .unwrap_or_default();
+                for net in preexisting_networks.difference(&current) {
+                    let req = NetworkConnectRequest {
+                        container: container_id.to_string(),
+                        endpoint_config: Some(EndpointSettings::default()),
+                    };
+                    match state.docker.connect_network(net, req).await {
+                        Ok(()) => tracing::info!(
+                            "Port-toggle: re-attached {service_id} container to network {net}"
+                        ),
+                        Err(e) => {
+                            let msg = e.to_string();
+                            if !msg.contains("already exists in network")
+                                && !msg.contains("already attached to network")
+                            {
+                                tracing::warn!(
+                                    "Port-toggle: failed to re-attach {service_id} to {net}: {msg}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
