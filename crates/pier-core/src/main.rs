@@ -437,15 +437,28 @@ async fn main() -> Result<()> {
                 .map(|db| proxy::read_acme_email(&db))
                 .unwrap_or_else(|| "admin@pier.local".to_string());
 
-            // Heal Traefik dynamic + static config from DB before the first
-            // deploy. Rewrites legacy pre-bridge-mode TCP route files (broken
-            // `:host_port` upstreams) with canonical `container:port` form and
-            // prunes orphan tcp-*.yml files whose entryPoints no longer exist.
-            // Idempotent — safe on every startup.
-            if let Err(e) =
-                proxy::reconcile_tcp_routes_from_db(&proxy_state, &acme_email, proxy_dashboard)
-            {
-                tracing::warn!("Startup TCP route reconciliation failed: {e}");
+            // One-time migration: services that were previously published via
+            // Traefik TCP routing (entryPoints in static config) are now
+            // exposed through direct Docker port bindings on the service
+            // container itself. The migration redeploys each affected stack
+            // and purges legacy tcp-*.yml dynamic files. Idempotent on every
+            // startup — re-running it is a no-op once stacks already have the
+            // new compose ports.
+            //
+            // Order matters: migrate BEFORE deploy_traefik so the new
+            // (port-less) static config doesn't try to bind ports that the
+            // service containers will claim moments later. The migration
+            // itself doesn't depend on Traefik being up — it just runs
+            // `docker compose up -d` on each service stack.
+            match proxy::migrate_public_ports_to_direct_binding(&proxy_state).await {
+                Ok((migrated, removed)) => {
+                    if migrated > 0 || removed > 0 {
+                        tracing::info!(
+                            "Public-port migration: redeployed {migrated} service(s), removed {removed} legacy tcp-*.yml file(s)"
+                        );
+                    }
+                }
+                Err(e) => tracing::warn!("Public-port migration failed: {e}"),
             }
 
             // Deploy Traefik

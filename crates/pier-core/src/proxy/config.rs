@@ -118,60 +118,17 @@ http:
 }
 
 /// Write the Traefik static config to disk.
+///
+/// Raw TCP exposure was removed in favour of direct Docker port bindings on
+/// the service containers themselves (Coolify-style), so the static config no
+/// longer carries `tcp-NNNN` entryPoints — Traefik handles only HTTP(S) and
+/// hot-reloads HTTP routes via the file provider.
 pub fn write_static_config(data_dir: &Path, acme_email: &str, dashboard: bool) -> Result<()> {
     let traefik_dir = data_dir.join("traefik");
     std::fs::create_dir_all(&traefik_dir)?;
     std::fs::create_dir_all(traefik_dir.join("dynamic"))?;
 
-    // Preserve existing TCP entryPoints from current config
-    let existing_tcp_ports = read_tcp_ports_from_config(data_dir);
-    let config = if existing_tcp_ports.is_empty() {
-        generate_static_config(acme_email, dashboard)
-    } else {
-        // Use regenerate_static_config_with_tcp to keep TCP ports
-        let mut tcp_entries = String::new();
-        for port in &existing_tcp_ports {
-            tcp_entries.push_str(&format!("  tcp-{port}:\n    address: \":{port}\"\n"));
-        }
-        let dashboard_section = if dashboard {
-            "api:\n  dashboard: true\n  insecure: true"
-        } else {
-            "api:\n  dashboard: false"
-        };
-        let cfg = format!(
-            r#"# Pier-managed Traefik configuration — do not edit manually
-{dashboard_section}
-
-entryPoints:
-  web:
-    address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-  websecure:
-    address: ":443"
-{tcp_entries}
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: "{acme_email}"
-      storage: /data/traefik/acme.json
-      httpChallenge:
-        entryPoint: web
-
-providers:
-  file:
-    directory: /data/traefik/dynamic
-    watch: true
-
-log:
-  level: WARN
-"#
-        );
-        cfg
-    };
+    let config = generate_static_config(acme_email, dashboard);
     std::fs::write(traefik_dir.join("traefik.yml"), config)?;
 
     // Ensure acme.json exists with correct permissions (600 required by Traefik)
@@ -899,189 +856,27 @@ mod platform_domain_config_tests {
     }
 }
 
-/// Write a Traefik TCP dynamic config for exposing a service port publicly.
-/// Each upstream is a raw `host:port` string (can be a Docker DNS name
-/// for local replicas or `ip:port` for remote replicas). Traefik's TCP
-/// provider distributes connections across all listed upstreams (WRR).
-///
-/// File name is `tcp-{service_id}-{public_port}.yml` so a single service can
-/// expose multiple raw TCP ports simultaneously (e.g. REST 4471 + MQTT 1883).
-/// Router/service names inside the YAML include the port for the same reason.
-pub fn write_tcp_route_lb(
-    data_dir: &Path,
-    service_id: &str,
-    public_port: u16,
-    upstreams: &[String],
-) -> Result<()> {
+/// Remove orphaned legacy TCP route files from `dynamic/`. The runtime no
+/// longer writes any `tcp-*.yml` (raw TCP exposure moved to direct Docker
+/// port bindings on service containers), but pre-migration installs may have
+/// these files lying around — they are harmless if the matching entryPoint
+/// is gone but clutter `ls`. Call once on startup migration.
+pub fn purge_legacy_tcp_route_files(data_dir: &Path) -> usize {
     let dynamic_dir = data_dir.join("traefik").join("dynamic");
-    std::fs::create_dir_all(&dynamic_dir)?;
-
-    let ep_name = format!("tcp-{public_port}");
-    let route_name = format!("tcp-{service_id}-{public_port}");
-    let servers_yaml: String = upstreams
-        .iter()
-        .map(|addr| format!("          - address: \"{addr}\"\n"))
-        .collect();
-    let config = format!(
-        r#"# TCP proxy for service {service_id} (public :{public_port} -> {} upstream(s))
-tcp:
-  routers:
-    {route_name}:
-      entryPoints:
-        - "{ep_name}"
-      rule: "HostSNI(`*`)"
-      service: "{route_name}"
-  services:
-    {route_name}:
-      loadBalancer:
-        servers:
-{servers_yaml}"#,
-        upstreams.len()
-    );
-
-    std::fs::write(dynamic_dir.join(format!("{route_name}.yml")), config)?;
-    Ok(())
-}
-
-/// Legacy single-upstream wrapper kept for callers that still deal with
-/// one container.
-#[allow(dead_code)]
-pub fn write_tcp_route(
-    data_dir: &Path,
-    service_id: &str,
-    public_port: u16,
-    container_name: &str,
-    container_port: u16,
-) -> Result<()> {
-    write_tcp_route_lb(
-        data_dir,
-        service_id,
-        public_port,
-        &[format!("{container_name}:{container_port}")],
-    )
-}
-
-/// Remove all TCP route configs for a service: both the legacy
-/// `tcp-{service_id}.yml` (single-port era) and the per-port files
-/// `tcp-{service_id}-{port}.yml`.
-pub fn remove_tcp_route(data_dir: &Path, service_id: &str) -> Result<()> {
-    let dynamic_dir = data_dir.join("traefik").join("dynamic");
-    // Legacy single-port file
-    let legacy = dynamic_dir.join(format!("tcp-{service_id}.yml"));
-    if legacy.exists() {
-        let _ = std::fs::remove_file(&legacy);
-    }
-    // Per-port files: tcp-{service_id}-{port}.yml
-    let prefix = format!("tcp-{service_id}-");
+    let mut removed = 0usize;
     if let Ok(entries) = std::fs::read_dir(&dynamic_dir) {
         for entry in entries.flatten() {
             let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with(&prefix) && name_str.ends_with(".yml") {
-                let _ = std::fs::remove_file(entry.path());
+            let name_str = name.to_string_lossy().to_string();
+            if name_str.starts_with("tcp-")
+                && name_str.ends_with(".yml")
+                && std::fs::remove_file(entry.path()).is_ok()
+            {
+                removed += 1;
             }
         }
     }
-    Ok(())
-}
-
-/// Remove the TCP route file for a single (service, port) pair, leaving
-/// other ports of the same service untouched.
-#[allow(dead_code)]
-pub fn remove_tcp_route_for_port(
-    data_dir: &Path,
-    service_id: &str,
-    public_port: u16,
-) -> Result<()> {
-    let path = data_dir
-        .join("traefik")
-        .join("dynamic")
-        .join(format!("tcp-{service_id}-{public_port}.yml"));
-    if path.exists() {
-        std::fs::remove_file(path)?;
-    }
-    Ok(())
-}
-
-/// Regenerate Traefik static config with additional TCP entryPoints.
-/// Reads all TCP ports from dynamic configs and adds them as entryPoints.
-pub fn regenerate_static_config_with_tcp(
-    data_dir: &Path,
-    acme_email: &str,
-    dashboard: bool,
-    tcp_ports: &[u16],
-) -> Result<()> {
-    let mut tcp_entries = String::new();
-    for port in tcp_ports {
-        tcp_entries.push_str(&format!("  tcp-{port}:\n    address: \":{port}\"\n"));
-    }
-
-    let dashboard_section = if dashboard {
-        "api:\n  dashboard: true\n  insecure: true"
-    } else {
-        "api:\n  dashboard: false"
-    };
-
-    let config = format!(
-        r#"# Pier-managed Traefik configuration — do not edit manually
-{dashboard_section}
-
-entryPoints:
-  web:
-    address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-  websecure:
-    address: ":443"
-{tcp_entries}
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: "{acme_email}"
-      storage: /data/traefik/acme.json
-      httpChallenge:
-        entryPoint: web
-
-providers:
-  file:
-    directory: /data/traefik/dynamic
-    watch: true
-
-log:
-  level: WARN
-"#
-    );
-
-    let traefik_dir = data_dir.join("traefik");
-    std::fs::create_dir_all(&traefik_dir)?;
-    std::fs::write(traefik_dir.join("traefik.yml"), config)?;
-    Ok(())
-}
-
-/// Read TCP port numbers from traefik.yml entryPoints (tcp-NNNN entries).
-#[allow(dead_code)]
-pub fn read_tcp_ports_from_config(data_dir: &Path) -> Vec<u16> {
-    let config_path = data_dir.join("traefik").join("traefik.yml");
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
-    let mut ports = Vec::new();
-    for line in content.lines() {
-        let trimmed = line.trim();
-        // Match lines like "tcp-5432:" under entryPoints
-        if let Some(rest) = trimmed.strip_prefix("tcp-") {
-            if let Some(port_str) = rest.strip_suffix(':') {
-                if let Ok(port) = port_str.parse::<u16>() {
-                    ports.push(port);
-                }
-            }
-        }
-    }
-    ports
+    removed
 }
 
 /// Detect the public IPv4 of this server. Kept for backward compat
@@ -1140,9 +935,7 @@ pub async fn detect_public_ipv6() -> Option<String> {
                 // endpoints sometimes go through a v4 proxy on
                 // mis-configured CDNs and we don't want to misfile a
                 // v4 answer as v6.
-                if !ip.is_empty()
-                    && ip.len() < 46
-                    && crate::network::address::is_ipv6_literal(&ip)
+                if !ip.is_empty() && ip.len() < 46 && crate::network::address::is_ipv6_literal(&ip)
                 {
                     return Some(ip);
                 }

@@ -100,8 +100,12 @@ pub async fn deploy_traefik(
     }
 
     // Bridge mode + pier-net: Traefik accesses services via Docker DNS (container names).
-    // Port bindings: 80, 443, + all active TCP public ports.
-    // When new TCP port is added, Traefik is recreated with updated port bindings.
+    // Port bindings: 80, 443 only (+ 8080 for dashboard). Raw TCP exposure
+    // for user services is done via direct Docker `-p` on the service
+    // container itself, so Traefik never needs to restart when an operator
+    // toggles "Make publicly available" — this is the whole point of the
+    // Coolify-style architecture: HTTP routes hot-reload via file provider,
+    // TCP doesn't touch Traefik at all.
     let mut port_bindings = std::collections::HashMap::new();
     port_bindings.insert(
         "80/tcp".to_string(),
@@ -125,20 +129,6 @@ pub async fn deploy_traefik(
                 host_port: Some("8080".to_string()),
             }]),
         );
-    }
-    // Add TCP port bindings from traefik.yml entryPoints (e.g., 5432 for PostgreSQL)
-    let tcp_ports = config::read_tcp_ports_from_config(data_dir);
-    for port in &tcp_ports {
-        port_bindings.insert(
-            format!("{port}/tcp"),
-            Some(vec![PortBinding {
-                host_ip: Some("0.0.0.0".to_string()),
-                host_port: Some(port.to_string()),
-            }]),
-        );
-    }
-    if !tcp_ports.is_empty() {
-        tracing::info!("Traefik TCP port bindings: {:?}", tcp_ports);
     }
 
     let host_config = HostConfig {
@@ -187,17 +177,9 @@ pub async fn deploy_traefik(
     // (and rollback if applicable).
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     let info = docker.inspect_container(TRAEFIK_CONTAINER, None).await?;
-    let running = info
-        .state
-        .as_ref()
-        .and_then(|s| s.running)
-        .unwrap_or(false);
+    let running = info.state.as_ref().and_then(|s| s.running).unwrap_or(false);
     if !running {
-        let exit_code = info
-            .state
-            .as_ref()
-            .and_then(|s| s.exit_code)
-            .unwrap_or(-1);
+        let exit_code = info.state.as_ref().and_then(|s| s.exit_code).unwrap_or(-1);
         let logs = crate::docker::logs::get_logs(docker, TRAEFIK_CONTAINER, 50, false)
             .await
             .unwrap_or_else(|_| Vec::new())
@@ -328,10 +310,7 @@ pub async fn pull_image_if_needed(
 /// image when Docker Hub rate-limits the host. Both serve the exact same
 /// layers as `docker.io/library/*` (read-only pull-through caches operated
 /// by Google Cloud and AWS respectively) — no modification, no auth needed.
-const TRAEFIK_MIRRORS: &[&str] = &[
-    "mirror.gcr.io/library",
-    "public.ecr.aws/docker/library",
-];
+const TRAEFIK_MIRRORS: &[&str] = &["mirror.gcr.io/library", "public.ecr.aws/docker/library"];
 
 fn is_rate_limit_error(msg: &str) -> bool {
     let m = msg.to_ascii_lowercase();
@@ -484,291 +463,68 @@ async fn detect_data_volume(docker: &Docker, data_dir: &Path) -> Result<String> 
     Ok(abs.to_string_lossy().to_string())
 }
 
-/// Reconcile Traefik configuration with the current `port_allocations` rows
-/// for a given service. Idempotent and safe to call after any change that
-/// affects `is_public` / `public_port` for the service:
+/// One-shot migration: for every service that previously had a Traefik TCP
+/// route (`port_allocations.is_public=1`), force-recreate its compose stack so
+/// the public port is now exposed via a direct Docker `-p` binding on the
+/// service container. Then purge all legacy `tcp-*.yml` files from
+/// `traefik/dynamic/` so Traefik no longer carries dead routes.
 ///
-/// - `set_port_public` toggle from the UI
-/// - `update_ports_from_compose` after a redeploy
-/// - manual DB edits
+/// Idempotent: if no public ports exist, returns 0 without touching anything.
+/// Safe on every startup — running it twice does no harm because:
+///   - The compose YAML already reflects the new public binding after the
+///     first migration (the catalog rebuild path always emits the same form).
+///   - `docker compose up -d` is a no-op when nothing changed.
+///   - Legacy `tcp-*.yml` deletion just confirms zero matches.
 ///
-/// Behavior:
-/// 1. Removes all stale `tcp-{service_id}-*.yml` dynamic configs whose port is
-///    no longer marked `is_public=1`.
-/// 2. Writes a fresh `tcp-{service_id}-{public_port}.yml` for each public port.
-/// 3. Regenerates the static config with the union of every public TCP port in
-///    the database (across all services) and recreates the Traefik container
-///    with matching host port bindings.
-///
-/// On a service with zero public ports, all per-service TCP files are deleted.
-pub async fn sync_tcp_routes_for_service(
+/// Returns `(migrated_services, removed_tcp_files)`.
+pub async fn migrate_public_ports_to_direct_binding(
     state: &crate::state::AppState,
-    service_id: &str,
-) -> Result<()> {
-    // Snapshot all DB state under one lock.
-    struct Snapshot {
-        public_ports: Vec<(u16, u16)>, // (public_port, container_port)
-        service_name: String,
-        container_name: Option<String>,
-        all_tcp_ports: Vec<u16>,
-        acme_email: String,
-        dashboard: bool,
-        traefik_version: String,
-    }
-
-    let snap = {
+) -> Result<(usize, usize)> {
+    // Snapshot affected service ids under one DB lock.
+    let service_ids: Vec<String> = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-
         let mut stmt = db.prepare(
-            "SELECT public_port, container_port FROM port_allocations \
-             WHERE service_id = ?1 AND is_public = 1 AND public_port IS NOT NULL \
-             ORDER BY port_name",
-        )?;
-        let public_ports: Vec<(u16, u16)> = stmt
-            .query_map([service_id], |row| {
-                Ok((row.get::<_, i64>(0)? as u16, row.get::<_, i64>(1)? as u16))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        let (service_name, container_name): (String, Option<String>) = db
-            .query_row(
-                "SELECT name, container_id FROM services WHERE id = ?1",
-                [service_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|_| anyhow::anyhow!("Service {service_id} not found"))?;
-
-        let mut s2 = db.prepare(
-            "SELECT DISTINCT public_port FROM port_allocations \
+            "SELECT DISTINCT service_id FROM port_allocations \
              WHERE is_public = 1 AND public_port IS NOT NULL",
         )?;
-        let all_tcp_ports: Vec<u16> = s2
-            .query_map([], |row| row.get::<_, i64>(0).map(|p| p as u16))?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        let acme_email = read_acme_email(&db);
-        let dashboard = db
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap_or_default()
-            == "true";
-        let traefik_version = db
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'proxy.traefik_version'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .ok()
-            .filter(|v: &String| !v.is_empty())
-            .unwrap_or_else(|| DEFAULT_TRAEFIK_VERSION.to_string());
-
-        Snapshot {
-            public_ports,
-            service_name,
-            container_name,
-            all_tcp_ports,
-            acme_email,
-            dashboard,
-            traefik_version,
-        }
-    };
-
-    // Resolve upstream Docker DNS name. Compose services with an explicit
-    // `container_name:` need that exact name; auto-named services fall back
-    // to `pier-{slug}`.
-    let upstream_host = snap
-        .container_name
-        .as_deref()
-        .filter(|c| !c.is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            format!(
-                "pier-{}",
-                snap.service_name.to_lowercase().replace(' ', "-")
-            )
-        });
-
-    // Wipe stale per-service TCP files whose port is no longer public, then
-    // re-emit a file per current public port.
-    let want_ports: std::collections::HashSet<u16> =
-        snap.public_ports.iter().map(|(p, _)| *p).collect();
-    let dynamic_dir = state.config.data_dir.join("traefik").join("dynamic");
-    if let Ok(entries) = std::fs::read_dir(&dynamic_dir) {
-        let prefix = format!("tcp-{service_id}-");
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with(&prefix) && name_str.ends_with(".yml") {
-                let port_str = &name_str[prefix.len()..name_str.len() - ".yml".len()];
-                if let Ok(p) = port_str.parse::<u16>() {
-                    if !want_ports.contains(&p) {
-                        let _ = std::fs::remove_file(entry.path());
-                    }
-                }
-            }
-        }
-    }
-    // Drop the legacy single-file tcp-{service_id}.yml — superseded by
-    // the per-port files even if the service has just one public port.
-    let legacy = dynamic_dir.join(format!("tcp-{service_id}.yml"));
-    if legacy.exists() {
-        let _ = std::fs::remove_file(&legacy);
-    }
-
-    for (public_port, container_port) in &snap.public_ports {
-        let upstreams = vec![format!("{upstream_host}:{container_port}")];
-        config::write_tcp_route_lb(&state.config.data_dir, service_id, *public_port, &upstreams)?;
-    }
-
-    config::regenerate_static_config_with_tcp(
-        &state.config.data_dir,
-        &snap.acme_email,
-        snap.dashboard,
-        &snap.all_tcp_ports,
-    )?;
-
-    deploy_traefik(
-        &state.docker,
-        &state.config.data_dir,
-        &snap.acme_email,
-        snap.dashboard,
-        &snap.traefik_version,
-    )
-    .await?;
-
-    tracing::info!(
-        "Synced TCP routes for {service_id}: ports {:?} → {upstream_host}",
-        snap.public_ports
-    );
-    Ok(())
-}
-
-/// One-shot startup reconciliation of Traefik TCP route files against the
-/// current database state. Idempotent and pure file I/O — does NOT deploy
-/// Traefik (caller is expected to deploy after).
-///
-/// Heals two classes of stale config inherited from older Pier versions:
-/// - Pre-bridge-mode files (`tcp-{sid}.yml` without port suffix) whose
-///   upstream was `address: ":{host_port}"` — broken once Traefik moved
-///   into the `pier-net` bridge network.
-/// - Orphan `tcp-{sid}-{port}.yml` files for services no longer marked
-///   public (or services that were deleted entirely), which surface as
-///   `EntryPoint doesn't exist` errors in Traefik logs.
-///
-/// Behavior:
-/// 1. Snapshots every public TCP port from `port_allocations` joined with
-///    `services` (for `container_id` / name fallback).
-/// 2. Removes every `tcp-*.yml` in `data/traefik/dynamic/` whose filename
-///    is not in the desired set `{tcp-{sid}-{port}.yml}`.
-/// 3. Writes a canonical per-port file via `write_tcp_route_lb` with
-///    upstream `{container_id | "pier-{slug}"}:{container_port}`.
-/// 4. Regenerates the static `traefik.yml` with the union of public ports
-///    so entryPoints stay in sync with reality.
-pub fn reconcile_tcp_routes_from_db(
-    state: &crate::state::AppState,
-    acme_email: &str,
-    dashboard: bool,
-) -> Result<()> {
-    use std::collections::HashSet;
-
-    // Snapshot (service_id, public_port, container_port, container_id, name)
-    // under one DB lock.
-    let public: Vec<(String, u16, u16, Option<String>, String)> = {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let mut stmt = db.prepare(
-            "SELECT pa.service_id, pa.public_port, pa.container_port, \
-                    s.container_id, s.name \
-             FROM port_allocations pa \
-             JOIN services s ON s.id = pa.service_id \
-             WHERE pa.is_public = 1 AND pa.public_port IS NOT NULL",
-        )?;
-        let rows: Vec<(String, u16, u16, Option<String>, String)> = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)? as u16,
-                    row.get::<_, i64>(2)? as u16,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })?
+        let rows: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
             .filter_map(|r| r.ok())
             .collect();
         rows
     };
 
-    let dynamic_dir = state.config.data_dir.join("traefik").join("dynamic");
+    let removed = config::purge_legacy_tcp_route_files(&state.config.data_dir);
+    if removed > 0 {
+        tracing::info!("Migration: removed {removed} legacy tcp-*.yml file(s)");
+    }
 
-    // Desired filename set: tcp-{sid}-{port}.yml for every active public port.
-    let desired: HashSet<String> = public
-        .iter()
-        .map(|(sid, port, _, _, _)| format!("tcp-{sid}-{port}.yml"))
-        .collect();
+    if service_ids.is_empty() {
+        return Ok((0, removed));
+    }
 
-    // GC: drop any tcp-*.yml not in desired set. Catches legacy
-    // tcp-{sid}.yml (no port suffix) and orphans of removed services.
-    if let Ok(entries) = std::fs::read_dir(&dynamic_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy().to_string();
-            if name_str.starts_with("tcp-")
-                && name_str.ends_with(".yml")
-                && !desired.contains(&name_str)
-            {
-                match std::fs::remove_file(entry.path()) {
-                    Ok(()) => {
-                        tracing::info!("Removed stale TCP route file: {name_str}")
-                    }
-                    Err(e) => tracing::warn!("Failed to remove stale TCP file {name_str}: {e}"),
-                }
+    tracing::info!(
+        "Migration: re-deploying {} service(s) with public ports as direct Docker bindings",
+        service_ids.len()
+    );
+
+    let mut migrated = 0usize;
+    for sid in &service_ids {
+        match crate::api::resources::rebuild_and_redeploy_for_port_toggle(state, sid).await {
+            Ok(()) => {
+                migrated += 1;
+                tracing::info!("Migration: redeployed {sid} with direct public port binding");
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Migration: failed to redeploy {sid} (will retry on next operator toggle): {e}"
+                );
             }
         }
     }
 
-    // Write canonical per-port files. Upstream host resolution mirrors
-    // `sync_tcp_routes_for_service` exactly so startup-heal and runtime
-    // paths can never diverge.
-    for (sid, public_port, container_port, container_id, service_name) in &public {
-        let upstream_host = container_id
-            .as_deref()
-            .filter(|c| !c.is_empty())
-            .map(String::from)
-            .unwrap_or_else(|| format!("pier-{}", service_name.to_lowercase().replace(' ', "-")));
-        let upstreams = vec![format!("{upstream_host}:{container_port}")];
-        if let Err(e) =
-            config::write_tcp_route_lb(&state.config.data_dir, sid, *public_port, &upstreams)
-        {
-            tracing::warn!("Failed to write TCP route for {sid}:{public_port}: {e}");
-        }
-    }
-
-    // Sync static traefik.yml entryPoints with current DB state.
-    let mut all_ports: Vec<u16> = {
-        let set: HashSet<u16> = public.iter().map(|(_, p, _, _, _)| *p).collect();
-        set.into_iter().collect()
-    };
-    all_ports.sort();
-    config::regenerate_static_config_with_tcp(
-        &state.config.data_dir,
-        acme_email,
-        dashboard,
-        &all_ports,
-    )?;
-
-    tracing::info!(
-        "Reconciled {} public TCP route(s) from DB on startup",
-        public.len()
-    );
-    Ok(())
+    Ok((migrated, removed))
 }

@@ -115,21 +115,32 @@ pub async fn update_env(
                 .as_ref()
                 .and_then(|cid| state.catalog.iter().find(|i| i.meta.id == *cid));
 
-            // Get ports
-            let ports: Vec<(String, u16, u16)> = {
+            // Get ports — include the public_port flag so the rebuilt compose
+            // YAML keeps the operator-toggled `0.0.0.0:{public}:{container}`
+            // mapping. Without this, an env-redeploy would silently drop the
+            // public Docker port binding.
+            let ports: Vec<crate::catalog::ReplicaPortMapping> = {
                 let db = state
                     .db
                     .lock()
                     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
                 let mut stmt = db.prepare(
-                    "SELECT port_name, host_port, container_port FROM port_allocations WHERE service_id = ?1"
+                    "SELECT port_name, host_port, container_port, is_public, public_port \
+                     FROM port_allocations WHERE service_id = ?1",
                 )?;
-                let result: Vec<(String, u16, u16)> = stmt
+                let result: Vec<crate::catalog::ReplicaPortMapping> = stmt
                     .query_map([&id], |row| {
+                        let is_public: i64 = row.get(3)?;
+                        let public_port: Option<i64> = row.get(4)?;
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, i64>(1)? as u16,
                             row.get::<_, i64>(2)? as u16,
+                            if is_public == 1 {
+                                public_port.map(|p| p as u16)
+                            } else {
+                                None
+                            },
                         ))
                     })?
                     .filter_map(|r| r.ok())

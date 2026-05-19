@@ -275,7 +275,7 @@ pub fn build_compose_yaml(
     service_id: &str,
     name: &str,
     env_vars: &HashMap<String, String>,
-    ports: &[(String, u16, u16)],
+    ports: &[ReplicaPortMapping],
     network_name: Option<&str>,
 ) -> String {
     build_compose_yaml_scaled(
@@ -289,8 +289,13 @@ pub fn build_compose_yaml(
     )
 }
 
-/// `(port_name, host_port, container_port)` — one published port of a replica.
-pub type ReplicaPortMapping = (String, u16, u16);
+/// `(port_name, host_port, container_port, public_port)` — one published port of a replica.
+///
+/// `public_port` is `Some(p)` when the operator toggled "Make publicly available"
+/// for this port; emitted as an extra `0.0.0.0:{p}:{container_port}` Docker port
+/// binding alongside the always-on `127.0.0.1:{host_port}:{container_port}` mapping.
+/// `None` means no public exposure (internal Docker network access only).
+pub type ReplicaPortMapping = (String, u16, u16, Option<u16>);
 
 /// `(replica_index, port_mappings)` — one scaled replica and its ports.
 pub type ReplicaSlot = (i64, Vec<ReplicaPortMapping>);
@@ -301,8 +306,11 @@ pub type ReplicaSlot = (i64, Vec<ReplicaPortMapping>);
 ///   one compose service. When `replicas.len() == 1`, the service key and
 ///   container name keep the legacy (no-suffix) form to preserve compatibility
 ///   with existing deployments.
-/// - `bind_public`: when `true`, ports bind to `0.0.0.0` (used on remote
-///   servers reached from the main Traefik); when `false`, `127.0.0.1`.
+/// - `bind_public`: when `true`, the **base** `host_port:container_port` mapping
+///   binds to `0.0.0.0` (used on remote servers reached from the main Traefik);
+///   when `false`, `127.0.0.1`. Independent of the per-port `public_port` flag —
+///   `public_port` always adds a separate `0.0.0.0:{public}:{container}` line
+///   so the operator-chosen public port is exposed even on local main-server.
 pub fn build_compose_yaml_scaled(
     item: &CatalogItem,
     service_id: &str,
@@ -355,8 +363,18 @@ pub fn build_compose_yaml_scaled(
 
         if !ports.is_empty() {
             yaml.push_str("    ports:\n");
-            for (_, host, container) in ports {
+            for (_, host, container, public) in ports {
                 yaml.push_str(&format!("      - \"{bind_addr}:{host}:{container}\"\n"));
+                // When the operator marked this port public, expose it on the
+                // requested public port on 0.0.0.0 directly via Docker — no
+                // Traefik TCP routing needed. Skip if it would duplicate the
+                // base binding (remote-server `0.0.0.0:host:container` with the
+                // same `public == host`).
+                if let Some(p) = public {
+                    if !(bind_public && *p == *host) {
+                        yaml.push_str(&format!("      - \"0.0.0.0:{p}:{container}\"\n"));
+                    }
+                }
             }
         }
 
@@ -420,45 +438,4 @@ pub fn build_compose_yaml_scaled(
 /// Build docker-compose.yml from a compose template (multi-container).
 pub fn build_from_template(template: &str, vars: &HashMap<String, String>) -> String {
     substitute(template, vars)
-}
-
-/// Regenerate port bindings in compose YAML (kept for backward compatibility).
-#[allow(dead_code)]
-/// Replaces `127.0.0.1:port:port` ↔ `port:port` (0.0.0.0) for all port lines.
-pub fn regenerate_compose_ports(yaml: &str, is_public: bool) -> String {
-    yaml.lines()
-        .map(|line| {
-            let trimmed = line.trim();
-            // Match port binding lines like: - "127.0.0.1:10000:5432" or - "10000:5432"
-            if trimmed.starts_with("- \"") && trimmed.contains(':') {
-                let content = trimmed.trim_start_matches("- \"").trim_end_matches('"');
-                let parts: Vec<&str> = content.split(':').collect();
-                let indent = line.len() - line.trim_start().len();
-                let spaces = &line[..indent];
-
-                match parts.len() {
-                    // "host_port:container_port" (currently public)
-                    2 => {
-                        if is_public {
-                            line.to_string()
-                        } else {
-                            format!("{spaces}- \"127.0.0.1:{}:{}\"", parts[0], parts[1])
-                        }
-                    }
-                    // "ip:host_port:container_port" (currently private or explicit IP)
-                    3 => {
-                        if is_public {
-                            format!("{spaces}- \"{}:{}\"", parts[1], parts[2])
-                        } else {
-                            format!("{spaces}- \"127.0.0.1:{}:{}\"", parts[1], parts[2])
-                        }
-                    }
-                    _ => line.to_string(),
-                }
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }

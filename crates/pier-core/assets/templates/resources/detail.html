@@ -207,7 +207,7 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Make it publicly available</span>
-                            <p class="text-xs text-gray-400 mt-0.5">Raw TCP exposure (e.g. DB clients). For HTTP access, use the Domains tab.</p>
+                            <p class="text-xs text-gray-400 mt-0.5">Raw TCP exposure (e.g. DB clients) via direct Docker port binding. Toggling recreates this service's container (~3 s downtime); the platform stays online. For HTTP access, use the Domains tab.</p>
                         </div>
                         <button @click="togglePublic()"
                                 :disabled="togglingPublic"
@@ -217,7 +217,7 @@
                                   :class="portIsPublic ? 'translate-x-5' : 'translate-x-0'"></span>
                         </button>
                     </div>
-                    <p x-show="togglingPublic" class="text-xs text-blue-500 mt-2">Updating Traefik proxy...</p>
+                    <p x-show="togglingPublic" class="text-xs text-blue-500 mt-2">Recreating service container with new port binding...</p>
                     <p x-show="!portTcpPublished && domains && domains.length > 0 && !togglingPublic"
                        class="text-xs text-gray-400 mt-2">
                         Public via <span x-text="domains.length"></span> domain<span x-show="domains.length > 1">s</span> (HTTP). Toggle off to remove all and make private.

@@ -149,21 +149,36 @@ pub fn generate_compose_for_image(
         })
         .unwrap_or(3000);
 
-    // Read container port from port_allocations
-    let container_port: u16 = state
+    // Read container port + public exposure flag from port_allocations.
+    // `public_port` (Some) → bind an extra `0.0.0.0:{public}:{container}` line
+    // so the operator-toggled public port is reachable from outside the host
+    // directly via Docker (no Traefik TCP routing).
+    let (container_port, public_port): (u16, Option<u16>) = state
         .db
         .lock()
         .ok()
         .and_then(|db| {
             db.query_row(
-                "SELECT container_port FROM port_allocations WHERE service_id = ?1 LIMIT 1",
+                "SELECT container_port, is_public, public_port \
+                 FROM port_allocations WHERE service_id = ?1 LIMIT 1",
                 [service_id],
-                |row| row.get::<_, i64>(0),
+                |row| {
+                    let cp: i64 = row.get(0)?;
+                    let is_pub: i64 = row.get(1)?;
+                    let pp: Option<i64> = row.get(2)?;
+                    Ok((
+                        cp as u16,
+                        if is_pub == 1 {
+                            pp.map(|p| p as u16)
+                        } else {
+                            None
+                        },
+                    ))
+                },
             )
             .ok()
-            .map(|p| p as u16)
         })
-        .unwrap_or(3000);
+        .unwrap_or((3000, None));
 
     // Read network for this service
     let network_name: String = state
@@ -180,6 +195,11 @@ pub fn generate_compose_for_image(
         })
         .unwrap_or_else(|| "pier-net".to_string());
 
+    let public_line = match public_port {
+        Some(p) if p != port => format!("\x20     - \"0.0.0.0:{p}:{container_port}\"\n"),
+        _ => String::new(),
+    };
+
     let mut yaml = format!(
         "services:\n\
          \x20 app:\n\
@@ -187,6 +207,7 @@ pub fn generate_compose_for_image(
          \x20   container_name: {stack_name}\n\
          \x20   ports:\n\
          \x20     - \"127.0.0.1:{port}:{container_port}\"\n\
+         {public_line}\
          \x20   env_file: .env\n\
          \x20   restart: unless-stopped\n\
          \x20   dns:\n\

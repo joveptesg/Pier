@@ -484,14 +484,16 @@ pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Resul
 }
 
 /// Re-read the live docker-compose.yml from git and re-sync the service's
-/// `port_allocations` + Traefik dynamic routes — without touching the running
-/// container. Returns the compose YAML on success so the UI can refresh its
-/// preview in one round-trip.
+/// `port_allocations` — without touching the running container. Returns the
+/// compose YAML on success so the UI can refresh its preview in one round-trip.
+///
+/// Public TCP exposure is owned by the compose file itself (Docker port
+/// bindings) since the Traefik TCP routing path was removed; no proxy sync
+/// needed here — the next `docker compose up` will pick up the new ports.
 pub async fn reload_compose_ports(state: &AppState, service_id: &str) -> Result<String> {
     let yaml = fetch_compose_from_git(state, service_id).await?;
     let yaml_stripped_version = strip_compose_version(&yaml);
     update_ports_from_compose(state, service_id, &yaml_stripped_version);
-    crate::proxy::sync_tcp_routes_for_service(state, service_id).await?;
     Ok(yaml)
 }
 
@@ -812,17 +814,14 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
     lines.join("\n")
 }
 
-/// Parse ports from compose YAML, update `port_allocations` in DB, and
-/// reconcile Traefik dynamic config to match.
+/// Parse ports from compose YAML and update `port_allocations` in DB.
 ///
 /// Handles formats: "5201:5201", "127.0.0.1:5201:5201", "3000:3000/tcp".
+/// Public TCP exposure now lives in the compose file's `ports:` lines (direct
+/// Docker port binding), so no Traefik sync is needed — `docker compose up`
+/// already applied any new bindings before this is called.
 async fn extract_and_save_ports(state: &AppState, service_id: &str, yaml: &str) {
     update_ports_from_compose(state, service_id, yaml);
-    if let Err(e) = crate::proxy::sync_tcp_routes_for_service(state, service_id).await {
-        // Don't fail the deploy on a Traefik hiccup — port_allocations is the
-        // source of truth and the next redeploy will re-converge.
-        tracing::warn!("Traefik TCP sync failed for {service_id}: {e}");
-    }
 }
 
 /// One compose `services:` entry, distilled to the bits Pier cares about

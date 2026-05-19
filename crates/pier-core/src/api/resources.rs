@@ -361,8 +361,10 @@ pub async fn create(
         )?)
     })?;
 
-    // Add allocated ports to vars
-    let port_mappings: Vec<(String, u16, u16)> = allocated_ports
+    // Add allocated ports to vars. New services start with is_public=0, so
+    // public_port slot stays None — `set_port_public` rebuilds the compose
+    // YAML with the public mapping later if the operator toggles it on.
+    let port_mappings: Vec<catalog::ReplicaPortMapping> = allocated_ports
         .iter()
         .map(|pa| {
             vars.insert(format!("port_{}", pa.port_name), pa.host_port.to_string());
@@ -370,6 +372,7 @@ pub async fn create(
                 pa.port_name.clone(),
                 pa.host_port as u16,
                 pa.container_port as u16,
+                None,
             )
         })
         .collect();
@@ -2049,67 +2052,6 @@ const LB_MAX_REPLICAS_PER_SERVICE: i64 = 10;
 const LB_PORT_RANGE_START: u16 = 10000;
 const LB_PORT_RANGE_END: u16 = 20000;
 
-/// Build Traefik TCP `loadBalancer.servers` addresses covering every
-/// replica across every server. Local replicas are reached via their
-/// Docker container name + internal `container_port`; remote replicas
-/// via `{server.host}:{host_port}`. When a server has a single local
-/// replica, the legacy un-suffixed container name is used to match
-/// what `build_compose_yaml_scaled` actually emits.
-fn build_tcp_upstreams(
-    db: &rusqlite::Connection,
-    service_id: &str,
-    container_port: u16,
-    service_name: &str,
-) -> Vec<String> {
-    let slug = service_name.to_lowercase().replace(' ', "-");
-    let mut stmt = match db.prepare(
-        "SELECT r.server_id, r.replica_idx, r.host_port,
-                COALESCE(s.host, ''), COALESCE(s.is_local, 0)
-         FROM service_replicas r
-         LEFT JOIN servers s ON s.id = r.server_id
-         WHERE r.service_id = ?1
-         ORDER BY r.server_id, r.replica_idx",
-    ) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    let rows: Vec<(Option<String>, i64, i64, String, i64)> = stmt
-        .query_map([service_id], |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, i64>(4)?,
-            ))
-        })
-        .map(|iter| iter.filter_map(|r| r.ok()).collect())
-        .unwrap_or_default();
-
-    let mut per_server_count: HashMap<String, usize> = HashMap::new();
-    for (sid, _, _, _, _) in &rows {
-        let key = sid.clone().unwrap_or_default();
-        *per_server_count.entry(key).or_insert(0) += 1;
-    }
-
-    rows.iter()
-        .map(|(sid, idx, host_port, host, is_local)| {
-            let key = sid.clone().unwrap_or_default();
-            let many = per_server_count.get(&key).copied().unwrap_or(1) > 1;
-            let local = *is_local != 0 || sid.as_deref().map(|s| s == "local").unwrap_or(false);
-            if local {
-                if many {
-                    format!("pier-{slug}-{idx}:{container_port}")
-                } else {
-                    format!("pier-{slug}:{container_port}")
-                }
-            } else {
-                format!("{host}:{host_port}")
-            }
-        })
-        .collect()
-}
-
 /// GET /api/v1/resources/{id}/load-balance — current LB config + distribution.
 pub async fn get_load_balance(
     State(state): State<SharedState>,
@@ -2478,7 +2420,13 @@ pub async fn load_balance(
 
     // ── Step 4. Build compose per server, then deploy ──────────────
     let mut deploy_errors: Vec<String> = Vec::new();
-    for (slot, replicas_for_server) in &per_server_plan {
+    let primary_public = public_snapshot.map(|p| p as u16);
+    // The kernel won't allow two containers to bind the same host port, so the
+    // public 0.0.0.0 mapping goes to the very first local replica only. HA
+    // across replicas for raw TCP needs a real LB, which is out of scope.
+    let mut public_pending = primary_public;
+    for (slot_idx, (slot, replicas_for_server)) in per_server_plan.iter().enumerate() {
+        let _ = slot_idx; // index reserved for future per-slot diagnostics
         let (host, port, agent_token, is_local) = server_info
             .get(&slot.server_id)
             .cloned()
@@ -2486,7 +2434,17 @@ pub async fn load_balance(
 
         let replicas_arg: Vec<crate::catalog::ReplicaSlot> = replicas_for_server
             .iter()
-            .map(|(idx, hp)| (*idx, vec![(primary_port_name.clone(), *hp, primary_port)]))
+            .map(|(idx, hp)| {
+                let pp = if is_local && public_pending.is_some() {
+                    public_pending.take()
+                } else {
+                    None
+                };
+                (
+                    *idx,
+                    vec![(primary_port_name.clone(), *hp, primary_port, pp)],
+                )
+            })
             .collect();
 
         let yaml = crate::catalog::build_compose_yaml_scaled(
@@ -2635,28 +2593,15 @@ pub async fn load_balance(
         }
     }
 
-    // Regenerate the public TCP route (if any) to cover all replicas across
-    // all servers. Without this, Traefik keeps pointing at the pre-scale
-    // container name and stops routing after Apply.
-    if let Some(pub_port) = public_snapshot {
-        let tcp_upstreams = {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            build_tcp_upstreams(&db, &id, primary_port, &name)
-        };
-        if tcp_upstreams.is_empty() {
-            let _ = crate::proxy::config::remove_tcp_route(&state.config.data_dir, &id);
-        } else if let Err(e) = crate::proxy::config::write_tcp_route_lb(
-            &state.config.data_dir,
-            &id,
-            pub_port as u16,
-            &tcp_upstreams,
-        ) {
-            tracing::warn!("Failed to regenerate TCP route: {e}");
-        }
-    }
+    // Public raw TCP (if any) now lives in each service container's compose
+    // `ports:` as a direct Docker binding — the per-replica redeploy above
+    // already published the operator-toggled public_port on the first local
+    // replica. No Traefik TCP route to regenerate.
+    //
+    // Caveat: with scaled replicas + raw TCP public, traffic to the public
+    // port hits only that one replica (kernel won't let two containers bind
+    // the same host port). HA for raw TCP across replicas needs a real LB
+    // and is out of scope for this migration.
 
     // ── Step 7. Log + respond ─────────────────────────────────────
     let output = if deploy_errors.is_empty() {
@@ -2857,8 +2802,15 @@ pub struct UpdateGitConfigRequest {
     pub webhook_secret: Option<String>,
 }
 
-/// PUT /api/v1/resources/{id}/port-public — toggle public port via Traefik TCP proxy.
-/// No container redeploy needed — only Traefik config update.
+/// PUT /api/v1/resources/{id}/port-public — toggle public port via direct
+/// Docker port binding on the service container.
+///
+/// Coolify-style architecture: the operator's "Make publicly available"
+/// rebuilds the service's docker-compose.yml with an extra
+/// `0.0.0.0:{public_port}:{container_port}` line and runs `docker compose up
+/// -d`. Traefik is untouched — it never knew about raw TCP routes after this
+/// migration. Trade-off: the service container is recreated (~3 s downtime
+/// for that service); the platform stays up.
 pub async fn set_port_public(
     State(state): State<SharedState>,
     axum::Extension(user): axum::Extension<AuthUser>,
@@ -2914,18 +2866,26 @@ pub async fn set_port_public(
         }
     }
 
-    // Get host_port, container_port, and service name from DB
-    let (host_port, container_port, service_name) = {
+    // Snapshot pre-toggle state so a docker-compose failure can roll back
+    // is_public/public_port instead of leaving the DB ahead of reality.
+    let (prev_is_public, prev_public_port, host_port, container_port, service_name): (
+        bool,
+        Option<u16>,
+        u16,
+        u16,
+        String,
+    ) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-        let (hp, cp): (i64, i64) = db
+        let (hp, cp, prev_pub, prev_pp): (i64, i64, i64, Option<i64>) = db
             .query_row(
-                "SELECT host_port, container_port FROM port_allocations WHERE service_id = ?1 LIMIT 1",
+                "SELECT host_port, container_port, is_public, public_port \
+                 FROM port_allocations WHERE service_id = ?1 LIMIT 1",
                 [&id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .map_err(|_| AppError::NotFound(format!("No ports for resource {id}")))?;
 
@@ -2935,7 +2895,6 @@ pub async fn set_port_public(
             })
             .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
 
-        // Update is_public and public_port
         if body.is_public {
             // Default to the container port (what user sees in "Internal Network"),
             // falling back to host_port only if container_port is somehow 0.
@@ -2973,7 +2932,13 @@ pub async fn set_port_public(
                 [&id],
             )?;
         }
-        (hp as u16, cp as u16, svc_name)
+        (
+            prev_pub == 1,
+            prev_pp.map(|p| p as u16),
+            hp as u16,
+            cp as u16,
+            svc_name,
+        )
     };
 
     let pp = if public_port > 0 {
@@ -2984,31 +2949,196 @@ pub async fn set_port_public(
         host_port
     };
 
-    // Drop the per-service TCP route file when disabling — sync_tcp_routes
-    // will not see the row anymore but it also won't notice deletions of
-    // ports that already left port_allocations.
-    if !body.is_public {
-        let _ = crate::proxy::config::remove_tcp_route(&state.config.data_dir, &id);
+    // Rebuild compose YAML with new public binding and redeploy via docker
+    // compose. Failure (e.g. host port already in use) bubbles up as an HTTP
+    // 5xx and the DB flip is rolled back so UI and reality stay consistent.
+    match rebuild_and_redeploy_for_port_toggle(&state, &id).await {
+        Ok(()) => {
+            if body.is_public {
+                tracing::info!(
+                    "Public Docker port {pp} enabled for {id} → {service_name}:{container_port}"
+                );
+            } else {
+                tracing::info!("Public Docker port disabled for {id}");
+            }
+            Ok(Json(serde_json::json!({
+                "ok": true,
+                "is_public": body.is_public,
+                "public_port": if body.is_public { Some(pp) } else { None },
+            })))
+        }
+        Err(e) => {
+            // Roll back the is_public flag — the compose stack is now in
+            // whatever state docker compose left it, but the DB should not
+            // claim a public binding that isn't actually live.
+            if let Ok(db) = state.db.lock() {
+                let _ = if prev_is_public {
+                    db.execute(
+                        "UPDATE port_allocations SET is_public = 1, public_port = ?1 \
+                         WHERE service_id = ?2",
+                        rusqlite::params![prev_public_port.map(|p| p as i64), id],
+                    )
+                } else {
+                    db.execute(
+                        "UPDATE port_allocations SET is_public = 0, public_port = NULL \
+                         WHERE service_id = ?1",
+                        [&id],
+                    )
+                };
+            }
+            tracing::error!("Port-public toggle for {id} failed; DB rolled back: {e}");
+            Err(AppError::Internal(anyhow::anyhow!(
+                "Failed to apply public port: {e}"
+            )))
+        }
+    }
+}
+
+/// Rebuild the service's docker-compose.yml from the current DB state (env +
+/// ports including the operator-toggled `public_port`) and run
+/// `docker compose up -d`. Compose detects the changed `ports:` lines and
+/// recreates the container automatically.
+///
+/// Catalog (template-based) services are rebuilt via `build_compose_yaml`;
+/// services with an explicit `compose` template come from the catalog as-is
+/// (those templates own their own port lines and the toggle is a no-op for
+/// them — the operator should set the public port inside the template); git
+/// services use `compose_content` already stored in the DB. We re-issue
+/// `docker compose up -d` against the saved YAML so Docker just re-applies it.
+pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
+    state: &crate::state::AppState,
+    service_id: &str,
+) -> anyhow::Result<()> {
+    use std::collections::HashMap;
+
+    // Snapshot everything we need under one DB lock to avoid TOCTOU between
+    // reads.
+    struct Snap {
+        name: String,
+        catalog_id: Option<String>,
+        compose_content: Option<String>,
+        env_json: Option<String>,
+        ports: Vec<crate::catalog::ReplicaPortMapping>,
+        network_name: Option<String>,
     }
 
-    crate::proxy::sync_tcp_routes_for_service(&state, &id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Sync TCP routes for {id} failed: {e}");
-            AppError::Internal(anyhow::anyhow!("Sync TCP routes: {e}"))
-        })?;
+    let snap = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-    if body.is_public {
-        tracing::info!("Public TCP port {pp} enabled for {id} → {service_name}:{container_port}");
+        let (name, catalog_id, compose_content, env_json): (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = db.query_row(
+            "SELECT name, catalog_id, compose_content, env_json \
+             FROM services WHERE id = ?1",
+            [service_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+
+        let mut stmt = db.prepare(
+            "SELECT port_name, host_port, container_port, is_public, public_port \
+             FROM port_allocations WHERE service_id = ?1",
+        )?;
+        let ports: Vec<crate::catalog::ReplicaPortMapping> = stmt
+            .query_map([service_id], |row| {
+                let is_pub: i64 = row.get(3)?;
+                let pp: Option<i64> = row.get(4)?;
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)? as u16,
+                    row.get::<_, i64>(2)? as u16,
+                    if is_pub == 1 {
+                        pp.map(|p| p as u16)
+                    } else {
+                        None
+                    },
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let network_name: Option<String> = db
+            .query_row(
+                "SELECT n.name FROM networks n \
+                 JOIN services s ON s.network_id = n.id WHERE s.id = ?1",
+                [service_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        Snap {
+            name,
+            catalog_id,
+            compose_content,
+            env_json,
+            ports,
+            network_name,
+        }
+    };
+
+    let env: HashMap<String, String> = {
+        let decrypted = crate::crypto::decrypt_env_json(snap.env_json.as_deref());
+        serde_json::from_str(&decrypted).unwrap_or_default()
+    };
+
+    let yaml = if let Some(catalog_id) = snap.catalog_id.as_deref() {
+        let item = state
+            .catalog
+            .iter()
+            .find(|i| i.meta.id == catalog_id)
+            .cloned();
+        match item {
+            Some(item) => {
+                if item.compose.is_some() {
+                    // Compose-template services: the template's `ports:` is
+                    // owned by the template. Toggling public on these requires
+                    // editing the template; we just re-up with the saved YAML.
+                    snap.compose_content
+                        .clone()
+                        .ok_or_else(|| anyhow::anyhow!("No compose_content for {service_id}"))?
+                } else {
+                    crate::catalog::build_compose_yaml(
+                        &item,
+                        service_id,
+                        &snap.name,
+                        &env,
+                        &snap.ports,
+                        snap.network_name.as_deref(),
+                    )
+                }
+            }
+            None => snap
+                .compose_content
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("Catalog item {catalog_id} not found"))?,
+        }
     } else {
-        tracing::info!("Public TCP port disabled for {id}");
+        snap.compose_content
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("No compose_content for {service_id}"))?
+    };
+
+    let stack_name = format!("pier-{}", snap.name.to_lowercase().replace(' ', "-"));
+
+    // Persist the rebuilt YAML so subsequent redeploys keep the new port lines.
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let _ = db.execute(
+            "UPDATE services SET compose_content = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![yaml, service_id],
+        );
     }
 
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "is_public": body.is_public,
-        "public_port": if body.is_public { Some(pp) } else { None },
-    })))
+    crate::docker::deploy_service_stack(state, service_id, &stack_name, &yaml, None).await?;
+    Ok(())
 }
 
 #[derive(Deserialize)]
