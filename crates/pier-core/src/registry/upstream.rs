@@ -347,7 +347,9 @@ pub async fn run_gc(state: &Arc<AppState>) -> Result<EvictionStats> {
             Ok(Ok(())) => {
                 stats.evicted_count += 1;
             }
-            Ok(Err(e)) => tracing::warn!(%package, %version, "proxy GC: mark_evicted failed: {e:#}"),
+            Ok(Err(e)) => {
+                tracing::warn!(%package, %version, "proxy GC: mark_evicted failed: {e:#}")
+            }
             Err(e) => tracing::warn!("proxy GC: spawn_blocking join: {e}"),
         }
     }

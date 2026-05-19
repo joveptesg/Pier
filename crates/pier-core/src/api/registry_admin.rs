@@ -189,7 +189,10 @@ async fn require_can_modify(
     package: &str,
     version: Option<&str>,
 ) -> Result<(), AppError> {
-    if user.global_role.at_least(crate::auth::rbac::GlobalRole::Admin) {
+    if user
+        .global_role
+        .at_least(crate::auth::rbac::GlobalRole::Admin)
+    {
         return Ok(());
     }
     let package_owned = package.to_string();

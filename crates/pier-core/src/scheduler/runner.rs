@@ -166,7 +166,12 @@ async fn run_one(state: &SharedState, row: &DueRow) {
 
     let (status, output, error, task_run_id) = match result {
         Ok(ar) => ("success".to_string(), ar.output, None, ar.task_run_id),
-        Err(e) => ("failed".to_string(), String::new(), Some(format!("{e:#}")), None),
+        Err(e) => (
+            "failed".to_string(),
+            String::new(),
+            Some(format!("{e:#}")),
+            None,
+        ),
     };
 
     if let Ok(db) = state.db.lock() {

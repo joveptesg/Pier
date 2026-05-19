@@ -265,9 +265,8 @@ pub async fn migrate_stack(
         // typically declare routing inline as Traefik labels. We
         // return whatever's there so the operator's DNS check is
         // complete.
-        let mut stmt = db.prepare(
-            "SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain")?;
         let domains: Vec<String> = stmt
             .query_map([&stack_id], |row| row.get::<_, String>(0))?
             .filter_map(|r| r.ok())
@@ -459,10 +458,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - ./config:/app/config
 ";
-        assert_eq!(
-            check_stack_stateless(yaml),
-            StatelessVerdict::Stateless
-        );
+        assert_eq!(check_stack_stateless(yaml), StatelessVerdict::Stateless);
     }
 
     #[test]
@@ -474,9 +470,6 @@ services:
     # volumes:
     #   - mydata:/data
 ";
-        assert_eq!(
-            check_stack_stateless(yaml),
-            StatelessVerdict::Stateless
-        );
+        assert_eq!(check_stack_stateless(yaml), StatelessVerdict::Stateless);
     }
 }

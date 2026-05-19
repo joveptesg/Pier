@@ -126,14 +126,7 @@ fn sync_unified_for_backup(
              enabled         = excluded.enabled,
              next_run_at     = excluded.next_run_at,
              updated_at      = datetime('now')",
-        rusqlite::params![
-            id,
-            label,
-            cron_expression,
-            config,
-            is_active as i64,
-            next,
-        ],
+        rusqlite::params![id, label, cron_expression, config, is_active as i64, next,],
     )?;
     Ok(())
 }

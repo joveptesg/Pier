@@ -576,10 +576,8 @@ async fn serve_packument(
                 })
                 .await?;
                 let package_owned = package.to_string();
-                packument = db_blocking(state, move |db| {
-                    regdb::load_packument(db, &package_owned)
-                })
-                .await?;
+                packument =
+                    db_blocking(state, move |db| regdb::load_packument(db, &package_owned)).await?;
             }
         }
     }
@@ -598,10 +596,8 @@ async fn serve_packument(
         let cfg = db_blocking(state, move |db| Ok(upstream::load_config(db))).await?;
         if cfg.enabled && cfg.ttl_seconds > 0 {
             let package_owned = package.to_string();
-            if let Some(pstate) = db_blocking(state, move |db| {
-                regdb::load_proxy_state(db, &package_owned)
-            })
-            .await?
+            if let Some(pstate) =
+                db_blocking(state, move |db| regdb::load_proxy_state(db, &package_owned)).await?
             {
                 let now = chrono::Utc::now().timestamp();
                 if pstate.fetched_at + cfg.ttl_seconds as i64 <= now {
@@ -737,24 +733,19 @@ async fn serve_tarball(
         .await?;
         if let Some(ps) = proxy_state {
             if ps.is_proxy {
-                let cfg =
-                    db_blocking(state, move |db| Ok(upstream::load_config(db))).await?;
+                let cfg = db_blocking(state, move |db| Ok(upstream::load_config(db))).await?;
                 if cfg.enabled {
                     if let Some(url) = ps.upstream_tarball_url.as_deref() {
                         tracing::debug!(%package, %version, %url, "proxy tarball miss → upstream fetch");
                         match upstream::fetch_tarball(url).await {
                             Ok(Some(resp)) => {
-                                let bytes = resp
-                                    .bytes()
-                                    .await
-                                    .map_err(|e| {
-                                        tracing::warn!(%package, "upstream tarball read failed: {e:#}");
-                                        AppError::NotFound(format!("{package}/{tarball}"))
-                                    })?;
+                                let bytes = resp.bytes().await.map_err(|e| {
+                                    tracing::warn!(%package, "upstream tarball read failed: {e:#}");
+                                    AppError::NotFound(format!("{package}/{tarball}"))
+                                })?;
                                 let body = bytes.to_vec();
                                 let new_sha =
-                                    storage::write_tarball(state, package, tarball, body)
-                                        .await?;
+                                    storage::write_tarball(state, package, tarball, body).await?;
                                 let new_size = bytes.len() as i64;
                                 let package_owned = package.to_string();
                                 let version_owned = version.clone();

@@ -37,9 +37,7 @@ pub struct UpdateTemplateRequest {
     pub default_env: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
-pub async fn templates_list(
-    State(state): State<SharedState>,
-) -> AppResult<impl IntoResponse> {
+pub async fn templates_list(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let db = state
         .db
         .lock()
@@ -86,8 +84,7 @@ pub async fn templates_create(
     )
     .map_err(|e| match e {
         rusqlite::Error::SqliteFailure(err, _)
-            if err.extended_code
-                == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+            if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
         {
             AppError::Conflict(format!("template named '{name}' already exists"))
         }
@@ -144,8 +141,7 @@ pub async fn templates_update(
         )?;
     }
     if let Some(env) = body.default_env {
-        let env_json =
-            serde_json::to_string(&env).unwrap_or_else(|_| "{}".to_string());
+        let env_json = serde_json::to_string(&env).unwrap_or_else(|_| "{}".to_string());
         db.execute(
             "UPDATE task_templates SET default_env_json=?1, updated_at=datetime('now') WHERE id=?2",
             params![env_json, id],
@@ -226,8 +222,8 @@ pub async fn runs_start(
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()?;
-            let (tmpl_cmd, env_str, tmpl_timeout) = tmpl
-                .ok_or_else(|| AppError::NotFound("template not found".into()))?;
+            let (tmpl_cmd, env_str, tmpl_timeout) =
+                tmpl.ok_or_else(|| AppError::NotFound("template not found".into()))?;
             let env_map: serde_json::Map<String, serde_json::Value> =
                 serde_json::from_str(&env_str).unwrap_or_default();
             (tmpl_cmd, env_map, tmpl_timeout)
@@ -239,7 +235,16 @@ pub async fn runs_start(
         let c = c.trim().to_string();
         if !c.is_empty() {
             // Caller-supplied command wins.
-            return run_with(&state, &user, body.server_id, body.template_id, c, body.env.unwrap_or(env_map), body.timeout_sec.unwrap_or(timeout)).await;
+            return run_with(
+                &state,
+                &user,
+                body.server_id,
+                body.template_id,
+                c,
+                body.env.unwrap_or(env_map),
+                body.timeout_sec.unwrap_or(timeout),
+            )
+            .await;
         }
     }
     if command.is_empty() {

@@ -110,9 +110,7 @@ pub async fn add(
             .optional()?
             .ok_or_else(|| AppError::NotFound("user with that email not found".into()))?
         } else {
-            return Err(AppError::BadRequest(
-                "user_id or email is required".into(),
-            ));
+            return Err(AppError::BadRequest("user_id or email is required".into()));
         }
     };
 

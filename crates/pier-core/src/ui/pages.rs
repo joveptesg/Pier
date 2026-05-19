@@ -490,15 +490,13 @@ pub async fn package_detail(
         // Private packages always have tarball_size > 0 so this is a no-op
         // for them.
         let is_proxy = summary.as_ref().map(|s| s.is_proxy).unwrap_or(false);
-        let versions =
-            crate::registry::db::list_versions_with_deprecation(&db, &name, is_proxy)?;
+        let versions = crate::registry::db::list_versions_with_deprecation(&db, &name, is_proxy)?;
         let manifest_only_count = if is_proxy {
             crate::registry::db::count_manifest_only_versions(&db, &name)?
         } else {
             0
         };
-        let dist_tags_map =
-            crate::registry::db::load_dist_tags(&db, &name)?.unwrap_or_default();
+        let dist_tags_map = crate::registry::db::load_dist_tags(&db, &name)?.unwrap_or_default();
         // The template iterates a Vec<(name, target)> sorted by `latest`-first
         // + DESC by version. BTreeMap order (alphabetical) buries `latest`
         // behind unhelpful entries like `backport`/`beta` for popular packages.

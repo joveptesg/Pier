@@ -74,10 +74,7 @@ pub struct PackageSummary {
 /// order — alphabetical by tag name — surfaces `backport, beta, canary, latest`
 /// in a way that buries the tag operators usually want to read.
 pub fn sort_dist_tags(tags: &BTreeMap<String, String>) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = tags
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let mut out: Vec<(String, String)> = tags.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     out.sort_by(|a, b| {
         if a.0 == "latest" {
             return std::cmp::Ordering::Less;
@@ -137,10 +134,7 @@ fn cmp_version(a: &str, b: &str) -> std::cmp::Ordering {
         let mut release = Vec::new();
         let mut prerelease = Vec::new();
         let mut in_release = true;
-        for p in v
-            .split(['.', '-', '+'])
-            .filter(|s| !s.is_empty())
-        {
+        for p in v.split(['.', '-', '+']).filter(|s| !s.is_empty()) {
             if in_release {
                 if let Ok(n) = p.parse::<u64>() {
                     release.push(n);

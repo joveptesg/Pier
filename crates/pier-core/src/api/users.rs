@@ -261,9 +261,7 @@ pub async fn remove(
             ));
         }
         if actor.global_role != GlobalRole::Owner {
-            return Err(AppError::Forbidden(
-                "only Owner can delete an Owner".into(),
-            ));
+            return Err(AppError::Forbidden("only Owner can delete an Owner".into()));
         }
     } else if target_role == GlobalRole::Admin && actor.global_role != GlobalRole::Owner {
         return Err(AppError::Forbidden(

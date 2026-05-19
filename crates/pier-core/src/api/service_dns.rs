@@ -124,7 +124,9 @@ pub async fn create(
             // a fresh row only reaches them after a redeploy. Kick that
             // in the background so the API call stays fast.
             crate::deploy::spawn_redeploy_all_compose(state.clone());
-            Ok(Json(serde_json::json!({"ok": true, "name": name, "redeploy": "queued"})))
+            Ok(Json(
+                serde_json::json!({"ok": true, "name": name, "redeploy": "queued"}),
+            ))
         }
         Err(rusqlite::Error::SqliteFailure(err, _))
             if err.code == rusqlite::ErrorCode::ConstraintViolation =>
@@ -232,14 +234,10 @@ pub fn validate_name(name: &str) -> AppResult<()> {
     let first = bytes[0];
     let last = bytes[bytes.len() - 1];
     if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
-        return Err(AppError::BadRequest(
-            "name must start with [a-z0-9]".into(),
-        ));
+        return Err(AppError::BadRequest("name must start with [a-z0-9]".into()));
     }
     if !last.is_ascii_lowercase() && !last.is_ascii_digit() {
-        return Err(AppError::BadRequest(
-            "name must end with [a-z0-9]".into(),
-        ));
+        return Err(AppError::BadRequest("name must end with [a-z0-9]".into()));
     }
     if !bytes
         .iter()

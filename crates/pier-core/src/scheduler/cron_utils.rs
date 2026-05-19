@@ -53,7 +53,12 @@ pub fn parse_tz(label: &str) -> Tz {
 /// Compute the next `count` fire times after `after` for the given
 /// expression, in the given timezone. Returns RFC3339 strings (UTC) for
 /// transport to the UI.
-pub fn preview(expr: &str, tz_label: &str, after: DateTime<Utc>, count: usize) -> Result<Vec<String>> {
+pub fn preview(
+    expr: &str,
+    tz_label: &str,
+    after: DateTime<Utc>,
+    count: usize,
+) -> Result<Vec<String>> {
     let schedule = parse(expr)?;
     let tz = parse_tz(tz_label);
     let after_tz = after.with_timezone(&tz);
@@ -66,11 +71,18 @@ pub fn preview(expr: &str, tz_label: &str, after: DateTime<Utc>, count: usize) -
 }
 
 /// Pick the next single fire time for storing in `schedules.next_run_at`.
-pub fn next_fire_utc(expr: &str, tz_label: &str, after: DateTime<Utc>) -> Result<Option<DateTime<Utc>>> {
+pub fn next_fire_utc(
+    expr: &str,
+    tz_label: &str,
+    after: DateTime<Utc>,
+) -> Result<Option<DateTime<Utc>>> {
     let schedule = parse(expr)?;
     let tz = parse_tz(tz_label);
     let after_tz = after.with_timezone(&tz);
-    Ok(schedule.after(&after_tz).next().map(|t| t.with_timezone(&Utc)))
+    Ok(schedule
+        .after(&after_tz)
+        .next()
+        .map(|t| t.with_timezone(&Utc)))
 }
 
 #[cfg(test)]

@@ -163,9 +163,7 @@ pub fn enforce_project_role(
 
     let role = membership::role_for(conn, &user.id, project_id)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("membership lookup: {e}")))?
-        .ok_or_else(|| {
-            AppError::Forbidden(format!("not a member of project {project_id}"))
-        })?;
+        .ok_or_else(|| AppError::Forbidden(format!("not a member of project {project_id}")))?;
 
     if !role.at_least(min) {
         return Err(AppError::Forbidden(format!(

@@ -216,10 +216,7 @@ pub async fn refresh_now(State(state): State<SharedState>) -> AppResult<impl Int
 // call write_client verb, map errors to 4xx so the UI can surface them.
 // ---------------------------------------------------------------------------
 
-async fn resolve_peer(
-    state: &SharedState,
-    server_id: &str,
-) -> AppResult<write_client::WritePeer> {
+async fn resolve_peer(state: &SharedState, server_id: &str) -> AppResult<write_client::WritePeer> {
     write_client::lookup_write_peer(state, server_id)
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
         .ok_or_else(|| {
@@ -316,7 +313,10 @@ pub async fn peer_stack_logs(
         .await
         .map_err(|e| AppError::BadRequest(format!("peer rejected logs: {e:#}")))?;
     Ok((
-        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
         body,
     ))
 }

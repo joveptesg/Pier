@@ -229,8 +229,8 @@ pub async fn update(
     }
     if let Some(c) = body.cron_expression {
         // Recompute next_run_at.
-        let tz: String = db
-            .query_row("SELECT timezone FROM schedules WHERE id = ?1", [&id], |r| {
+        let tz: String =
+            db.query_row("SELECT timezone FROM schedules WHERE id = ?1", [&id], |r| {
                 r.get(0)
             })?;
         let next = cron_utils::next_fire_utc(&c, &tz, chrono::Utc::now())
@@ -282,9 +282,11 @@ pub async fn remove(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let is_system: Option<bool> = db
-        .query_row("SELECT is_system FROM schedules WHERE id = ?1", [&id], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT is_system FROM schedules WHERE id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
         .optional()?;
     match is_system {
         None => return Err(AppError::NotFound("schedule not found".into())),
@@ -333,7 +335,12 @@ pub async fn run_now(
     let result = actions::dispatch(&state, &id, &action_type, &action_config, "manual").await;
     let (status, output, error, task_run_id) = match result {
         Ok(ar) => ("success".to_string(), ar.output, None, ar.task_run_id),
-        Err(e) => ("failed".to_string(), String::new(), Some(format!("{e:#}")), None),
+        Err(e) => (
+            "failed".to_string(),
+            String::new(),
+            Some(format!("{e:#}")),
+            None,
+        ),
     };
     if let Ok(db) = state.db.lock() {
         let _ = db.execute(
@@ -382,16 +389,9 @@ pub async fn disable(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-pub async fn validate_cron(
-    Json(body): Json<ValidateCronRequest>,
-) -> AppResult<impl IntoResponse> {
-    let preview = cron_utils::preview(
-        &body.cron_expression,
-        &body.timezone,
-        chrono::Utc::now(),
-        5,
-    )
-    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+pub async fn validate_cron(Json(body): Json<ValidateCronRequest>) -> AppResult<impl IntoResponse> {
+    let preview = cron_utils::preview(&body.cron_expression, &body.timezone, chrono::Utc::now(), 5)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
     Ok(Json(serde_json::json!({
         "ok": true,
         "next_runs": preview,

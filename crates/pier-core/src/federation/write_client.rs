@@ -85,7 +85,10 @@ pub fn lookup_write_peer(state: &SharedState, server_id: &str) -> Result<Option<
     } else if let Some(u) = url.filter(|s| !s.is_empty()) {
         normalize_peer_url(&u)
     } else {
-        format!("https://{}", crate::network::address::authority(&host, port))
+        format!(
+            "https://{}",
+            crate::network::address::authority(&host, port)
+        )
     };
 
     Ok(Some(WritePeer {
@@ -122,10 +125,7 @@ async fn post<B: Serialize>(peer: &WritePeer, path: &str, body: &B) -> Result<Va
     let url = format!("{}/api/v1/agent{}", peer.base_url, path);
     let resp = client()?
         .post(&url)
-        .header(
-            crate::auth::federation::FEDERATION_HEADER,
-            &peer.token,
-        )
+        .header(crate::auth::federation::FEDERATION_HEADER, &peer.token)
         .json(body)
         .send()
         .await
@@ -147,21 +147,14 @@ async fn get(peer: &WritePeer, path: &str) -> Result<Value> {
     let url = format!("{}/api/v1/agent{}", peer.base_url, path);
     let resp = client()?
         .get(&url)
-        .header(
-            crate::auth::federation::FEDERATION_HEADER,
-            &peer.token,
-        )
+        .header(crate::auth::federation::FEDERATION_HEADER, &peer.token)
         .send()
         .await
         .with_context(|| format!("GET {url}"))?;
     let status = resp.status();
     let payload: Value = resp.json().await.unwrap_or(Value::Null);
     if !status.is_success() {
-        return Err(anyhow!(
-            "peer {} returned {} for {path}",
-            peer.name,
-            status
-        ));
+        return Err(anyhow!("peer {} returned {} for {path}", peer.name, status));
     }
     Ok(payload)
 }
@@ -170,21 +163,14 @@ async fn delete(peer: &WritePeer, path: &str) -> Result<Value> {
     let url = format!("{}/api/v1/agent{}", peer.base_url, path);
     let resp = client()?
         .delete(&url)
-        .header(
-            crate::auth::federation::FEDERATION_HEADER,
-            &peer.token,
-        )
+        .header(crate::auth::federation::FEDERATION_HEADER, &peer.token)
         .send()
         .await
         .with_context(|| format!("DELETE {url}"))?;
     let status = resp.status();
     let payload: Value = resp.json().await.unwrap_or(Value::Null);
     if !status.is_success() {
-        return Err(anyhow!(
-            "peer {} returned {} for {path}",
-            peer.name,
-            status
-        ));
+        return Err(anyhow!("peer {} returned {} for {path}", peer.name, status));
     }
     Ok(payload)
 }
@@ -272,10 +258,7 @@ pub async fn stack_logs(peer: &WritePeer, stack_id: &str, tail: u64) -> Result<S
     );
     let resp = client()?
         .get(&url)
-        .header(
-            crate::auth::federation::FEDERATION_HEADER,
-            &peer.token,
-        )
+        .header(crate::auth::federation::FEDERATION_HEADER, &peer.token)
         .send()
         .await
         .with_context(|| format!("GET {url}"))?;

@@ -33,11 +33,7 @@ pub async fn install_helper_script(State(state): State<SharedState>) -> Response
         let db = match state.db.lock() {
             Ok(d) => d,
             Err(_) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "DB lock poisoned",
-                )
-                    .into_response()
+                return (StatusCode::INTERNAL_SERVER_ERROR, "DB lock poisoned").into_response()
             }
         };
         db.query_row(
@@ -52,8 +48,7 @@ pub async fn install_helper_script(State(state): State<SharedState>) -> Response
     let scheme = if tls_enabled { "https" } else { "http" };
     // IPv6 literals need brackets in URL authority — the helper
     // tolerates v4 / hostnames unchanged.
-    let server_authority =
-        crate::network::address::authority(&server_ip, pier_port.into());
+    let server_authority = crate::network::address::authority(&server_ip, pier_port.into());
 
     // Note: we don't bundle pier-core's self-signed cert here. The
     // helper download URL points at the public GitHub release, not at

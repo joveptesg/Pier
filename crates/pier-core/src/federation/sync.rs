@@ -30,17 +30,14 @@ pub fn start_scheduler(state: SharedState) {
         // we start hammering peers. Mirrors `alerts::start_scheduler`.
         tokio::time::sleep(Duration::from_secs(INITIAL_DELAY_SECS)).await;
 
-        let interval_secs =
-            read_interval_setting(&state).unwrap_or(DEFAULT_INTERVAL_SECS);
+        let interval_secs = read_interval_setting(&state).unwrap_or(DEFAULT_INTERVAL_SECS);
         let mut tick = interval(Duration::from_secs(interval_secs));
         loop {
             tick.tick().await;
             match run_sync_pass(&state).await {
                 Ok(count) => {
                     if count > 0 {
-                        tracing::debug!(
-                            "federation_sync: refreshed {count} peer(s)"
-                        );
+                        tracing::debug!("federation_sync: refreshed {count} peer(s)");
                     }
                 }
                 Err(e) => tracing::warn!("federation_sync pass failed: {e}"),
@@ -80,10 +77,8 @@ pub async fn run_sync_pass(state: &SharedState) -> Result<usize> {
 }
 
 async fn sync_one_peer(state: &SharedState, peer: &PeerEndpoint) -> Result<()> {
-    let (projects, stacks) = tokio::try_join!(
-        client::fetch_projects(peer),
-        client::fetch_stacks(peer),
-    )?;
+    let (projects, stacks) =
+        tokio::try_join!(client::fetch_projects(peer), client::fetch_stacks(peer),)?;
     upsert_peer_cache(state, &peer.id, &projects, &stacks)?;
     Ok(())
 }

@@ -353,7 +353,10 @@ pub async fn stack_logs(
     };
     let body = crate::docker::compose::get_stack_logs(&name, &state.config, params.tail).await?;
     Ok((
-        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
         body,
     ))
 }
@@ -447,7 +450,9 @@ pub async fn release_stack(
          WHERE id = ?1",
         [&id],
     )?;
-    Ok(Json(serde_json::json!({ "ok": true, "action": "released" })))
+    Ok(Json(
+        serde_json::json!({ "ok": true, "action": "released" }),
+    ))
 }
 
 /// Ownership guard. Returns:
@@ -461,11 +466,7 @@ pub async fn release_stack(
 /// token grants the primary the right to *create* and manage *its own*
 /// resources on this peer, not to seize whatever already happens to
 /// exist here.
-fn assert_owned(
-    db: &rusqlite::Connection,
-    stack_id: &str,
-    our_token_id: &str,
-) -> AppResult<()> {
+fn assert_owned(db: &rusqlite::Connection, stack_id: &str, our_token_id: &str) -> AppResult<()> {
     let owner: Option<Option<String>> = db
         .query_row(
             "SELECT owner_server_id FROM services \

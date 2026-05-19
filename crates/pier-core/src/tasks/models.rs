@@ -134,8 +134,10 @@ pub fn run_list(
     let limit_clamped = limit.clamp(1, 500);
     params_owned.push(limit_clamped.to_string());
 
-    let param_refs: Vec<&dyn rusqlite::ToSql> =
-        params_owned.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let param_refs: Vec<&dyn rusqlite::ToSql> = params_owned
+        .iter()
+        .map(|s| s as &dyn rusqlite::ToSql)
+        .collect();
 
     let mut stmt = conn.prepare(&sql)?;
     let rows: Vec<TaskRun> = stmt

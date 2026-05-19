@@ -156,9 +156,7 @@ pub async fn update(
 /// so operators can see what's actually in the mirror without dropping to
 /// SQL. The list reuses `PackageSummary` (size/version count already
 /// aggregated) and adds nothing private — proxy entries only.
-pub async fn proxy_packages_list(
-    State(state): State<SharedState>,
-) -> AppResult<impl IntoResponse> {
+pub async fn proxy_packages_list(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let db = state
         .db
         .lock()
@@ -202,7 +200,11 @@ pub async fn proxy_fetch_version(
 
     // Resolve the version up front so the handler returns a sane error
     // before any network I/O happens.
-    let version = match params.get("version").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    let version = match params
+        .get("version")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         Some(v) => v.to_string(),
         None => {
             let db = state

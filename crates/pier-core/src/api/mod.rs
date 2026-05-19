@@ -355,10 +355,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
     let admin_only = Router::new()
         .route("/users", get(users::list))
         .route("/users/invite", post(users::invite))
-        .route(
-            "/users/{id}",
-            put(users::update).delete(users::remove),
-        )
+        .route("/users/{id}", put(users::update).delete(users::remove))
         // Ad-hoc Tasks — admin only (in MVP). Future RBAC may scope by
         // server/project; for now they share the user-management gate.
         .route(
@@ -371,17 +368,11 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
                 .put(tasks::templates_update)
                 .delete(tasks::templates_delete),
         )
-        .route(
-            "/tasks/runs",
-            get(tasks::runs_list).post(tasks::runs_start),
-        )
+        .route("/tasks/runs", get(tasks::runs_list).post(tasks::runs_start))
         .route("/tasks/runs/{id}", get(tasks::runs_get))
         .route("/tasks/runs/{id}/cancel", post(tasks::runs_cancel))
         // User-defined cron schedules (Stage 3 of the Semaphore-inspired rollout).
-        .route(
-            "/schedules",
-            get(schedules::list).post(schedules::create),
-        )
+        .route("/schedules", get(schedules::list).post(schedules::create))
         .route(
             "/schedules/{id}",
             get(schedules::get)
@@ -508,10 +499,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/federation-tokens",
             get(federation_tokens::list).post(federation_tokens::create),
         )
-        .route(
-            "/federation-tokens/{id}",
-            delete(federation_tokens::revoke),
-        )
+        .route("/federation-tokens/{id}", delete(federation_tokens::revoke))
         .route("/servers/{id}/deploy", post(servers::deploy_to_server))
         .route("/servers/{id}/stop", post(servers::stop_on_server))
         .route("/servers/{id}/promote-bundle", get(promote::bundle))
@@ -654,13 +642,14 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/grants/{id}", delete(grants::revoke))
         .route_layer(axum::middleware::from_fn(require_global_owner));
 
-    let protected = protected
-        .merge(admin_only)
-        .merge(owner_only)
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            require_auth,
-        ));
+    let protected =
+        protected
+            .merge(admin_only)
+            .merge(owner_only)
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                require_auth,
+            ));
 
     // Write-federation surface — completely separate auth path
     // (X-Pier-Federation, not sessions/Bearer). Mounted at
@@ -685,14 +674,8 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             post(federation_agent::restart_stack),
         )
         .route("/stacks/{id}/logs", get(federation_agent::stack_logs))
-        .route(
-            "/stacks/{id}/logs/ws",
-            get(federation_agent::stack_logs_ws),
-        )
-        .route(
-            "/release/{stack_id}",
-            post(federation_agent::release_stack),
-        )
+        .route("/stacks/{id}/logs/ws", get(federation_agent::stack_logs_ws))
+        .route("/release/{stack_id}", post(federation_agent::release_stack))
         .route("/rotate-token", post(federation_agent::rotate_token))
         .layer(axum::middleware::from_fn_with_state(
             state,

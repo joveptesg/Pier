@@ -514,9 +514,8 @@ pub async fn peer_preflight(State(state): State<SharedState>) -> AppResult<impl 
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let mut stmt = db.prepare(
-            "SELECT id, name, kind, is_local FROM servers ORDER BY is_local DESC, name",
-        )?;
+        let mut stmt = db
+            .prepare("SELECT id, name, kind, is_local FROM servers ORDER BY is_local DESC, name")?;
         let rows = stmt
             .query_map([], |row| {
                 Ok((

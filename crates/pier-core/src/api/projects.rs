@@ -93,9 +93,7 @@ pub async fn create(
     Json(body): Json<CreateProjectRequest>,
 ) -> AppResult<impl IntoResponse> {
     if !user.is_peer && !user.global_role.at_least(GlobalRole::Admin) {
-        return Err(AppError::Forbidden(
-            "only Admin can create projects".into(),
-        ));
+        return Err(AppError::Forbidden("only Admin can create projects".into()));
     }
     if body.name.trim().is_empty() {
         return Err(AppError::BadRequest("Project name is required".into()));

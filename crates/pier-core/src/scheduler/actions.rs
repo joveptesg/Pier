@@ -66,10 +66,7 @@ async fn fire_task(
         .map_err(|e| anyhow!("invalid task action_config: {e}"))?;
 
     let tmpl = {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow!("DB lock: {e}"))?;
+        let db = state.db.lock().map_err(|e| anyhow!("DB lock: {e}"))?;
         models::template_get(&db, &cfg.template_id)?
             .ok_or_else(|| anyhow!("task template '{}' not found", cfg.template_id))?
     };
@@ -107,8 +104,7 @@ async fn fire_backup(state: &SharedState, action_config: &str) -> Result<ActionR
 }
 
 async fn fire_cleanup(state: &SharedState, action_config: &str) -> Result<ActionResult> {
-    let cfg: CleanupActionConfig =
-        serde_json::from_str(action_config).unwrap_or_default();
+    let cfg: CleanupActionConfig = serde_json::from_str(action_config).unwrap_or_default();
     let defaults = CleanupOptions::defaults();
     let opts = CleanupOptions {
         prune_images: cfg.prune_images.unwrap_or(defaults.prune_images),

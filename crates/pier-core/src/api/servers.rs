@@ -1312,8 +1312,7 @@ pub async fn install_script(
         .unwrap_or_else(|| "YOUR_PIER_SERVER_IP".to_string())
     };
     let pier_port = state.config.port;
-    let server_authority =
-        crate::network::address::authority(&server_ip, pier_port.into());
+    let server_authority = crate::network::address::authority(&server_ip, pier_port.into());
 
     // Read pier-core's own cert so the agent can pin it via `curl --cacert`.
     // If the file is missing (e.g. TLS disabled at the env level), we degrade

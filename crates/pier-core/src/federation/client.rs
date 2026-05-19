@@ -103,7 +103,10 @@ pub fn list_peer_endpoints(state: &SharedState) -> Result<Vec<PeerEndpoint>> {
         } else {
             // Legacy rows with no url column populated — fall back to
             // (host, port) like the proxy handler did originally.
-            format!("https://{}", crate::network::address::authority(&host, port))
+            format!(
+                "https://{}",
+                crate::network::address::authority(&host, port)
+            )
         };
         out.push(PeerEndpoint {
             id,
@@ -218,7 +221,10 @@ pub fn lookup_peer(state: &SharedState, id: &str) -> Result<Option<PeerEndpoint>
     } else if let Some(u) = url.filter(|s| !s.is_empty()) {
         normalize_peer_url(&u)
     } else {
-        format!("https://{}", crate::network::address::authority(&host, port))
+        format!(
+            "https://{}",
+            crate::network::address::authority(&host, port)
+        )
     };
     Ok(Some(PeerEndpoint {
         id: id.to_string(),

@@ -115,8 +115,10 @@ pub async fn require_federation(
                 q.split('&').find_map(|pair| {
                     let (k, v) = pair.split_once('=')?;
                     if k == "token" {
-                        let decoded =
-                            urlencoding::decode(v).ok().map(|c| c.into_owned()).unwrap_or_else(|| v.to_string());
+                        let decoded = urlencoding::decode(v)
+                            .ok()
+                            .map(|c| c.into_owned())
+                            .unwrap_or_else(|| v.to_string());
                         if decoded.is_empty() {
                             None
                         } else {
