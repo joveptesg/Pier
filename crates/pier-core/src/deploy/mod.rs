@@ -1047,115 +1047,89 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
     }
 
     if let Ok(db) = state.db.lock() {
-        // Compose `ports:` declarations describe what *exists*. The operator
-        // decides what's *public* via the UI toggle. So on redeploy we preserve
-        // any previously-set `is_public`/`public_port` for ports the operator
-        // had already published, keyed by `(compose_service, container_port)`.
-        // Newly-declared ports default to private — initial-deploy invariant
-        // "nothing is publicly exposed unless explicitly toggled."
-        let prev_state: std::collections::HashMap<(Option<String>, u16), (bool, Option<u16>)> = {
-            let mut prev = std::collections::HashMap::new();
-            if let Ok(mut stmt) = db.prepare(
-                "SELECT compose_service, container_port, is_public, public_port \
-                 FROM port_allocations WHERE service_id = ?1",
-            ) {
-                let rows = stmt.query_map([service_id], |row| {
-                    Ok((
-                        row.get::<_, Option<String>>(0)?,
-                        row.get::<_, i64>(1)? as u16,
-                        row.get::<_, i64>(2)? != 0,
-                        row.get::<_, Option<i64>>(3)?.map(|p| p as u16),
-                    ))
-                });
-                if let Ok(iter) = rows {
-                    for r in iter.flatten() {
-                        prev.insert((r.0, r.1), (r.2, r.3));
-                    }
-                }
-            }
-            prev
-        };
-
-        let _ = db.execute(
-            "DELETE FROM port_allocations WHERE service_id = ?1",
-            [service_id],
-        );
-
+        // Idempotent UPSERT by (service_id, port_name): we never DELETE rows
+        // and never skip ones already present. Compose declarations describe
+        // what *exists*; the operator's UI toggle decides what is *public*.
+        // Existing rows keep their is_public/public_port through every
+        // re-parse — that's what survives pipelines like
+        //   extract_and_save_ports(original) → strip+inject →
+        //   update_ports_from_compose(stack_file)
+        // where the stack-file pass sees a subset of the original ports
+        // (private ones aren't injected back). Earlier code used
+        // DELETE+INSERT and silently dropped any port absent from the yaml
+        // passed in — that's why port-1=1883 vanished from myhome-back on
+        // every redeploy.
         for (compose_svc, port_name, host_port, container_port) in &flat {
-            let id = uuid::Uuid::new_v4().to_string();
+            let existing: Option<String> = db
+                .query_row(
+                    "SELECT id FROM port_allocations \
+                     WHERE service_id = ?1 AND port_name = ?2",
+                    rusqlite::params![service_id, port_name],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok();
 
-            // Carry over the operator's previous toggle decision when this
-            // exact `(compose_service, container_port)` was already in the
-            // table. Anything not found → default private.
-            let key = (compose_svc.clone(), *container_port);
-            let (mut is_public_flag, mut pp_value): (bool, Option<u16>) =
-                prev_state.get(&key).copied().unwrap_or((false, None));
-
-            // If the carry-over public_port now collides with another
-            // service's public_port (e.g. user changed compose and freed
-            // the host port for someone else in between), revert to private
-            // and let the operator re-toggle once they pick a new value.
-            if is_public_flag {
-                if let Some(pp) = pp_value {
-                    let conflict: Option<String> = db
-                        .query_row(
-                            "SELECT service_id FROM port_allocations \
-                             WHERE is_public = 1 AND public_port = ?1 AND service_id != ?2 LIMIT 1",
-                            rusqlite::params![pp as i64, service_id],
-                            |row| row.get(0),
-                        )
-                        .ok();
-                    if let Some(other) = conflict {
-                        tracing::warn!(
-                            "Carry-over public port {pp} for {service_id}/{container_port} \
-                             conflicts with {other}; reverting to private"
+            match existing {
+                Some(row_id) => {
+                    // Refresh compose-side fields, preserve toggle state.
+                    if let Err(e) = db.execute(
+                        "UPDATE port_allocations \
+                         SET host_port = ?1, container_port = ?2, compose_service = ?3 \
+                         WHERE id = ?4",
+                        rusqlite::params![
+                            *host_port as i64,
+                            *container_port as i64,
+                            compose_svc,
+                            row_id,
+                        ],
+                    ) {
+                        tracing::error!(
+                            "port_allocations UPDATE for {service_id}/{port_name} \
+                             (host={host_port} container={container_port}) failed: {e}"
                         );
-                        is_public_flag = false;
-                        pp_value = None;
                     }
                 }
-            }
-
-            // `port_allocations.host_port` has a global UNIQUE constraint.
-            // If the INSERT fails, surface the cause so a missing-port-in-UI
-            // bug is one `journalctl` away. We do NOT silently fall back to a
-            // different host_port — that would hide the real source of the
-            // conflict (an orphan row, a stale service, or a host-side
-            // listener). Operator decides.
-            match db.execute(
-                "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', ?6, ?7, ?8)",
-                rusqlite::params![
-                    id,
-                    service_id,
-                    port_name,
-                    *host_port as i64,
-                    *container_port as i64,
-                    is_public_flag as i64,
-                    pp_value.map(|p| p as i64),
-                    compose_svc,
-                ],
-            ) {
-                Ok(_) => {}
-                Err(e) => {
-                    let holder: Option<String> = db
-                        .query_row(
-                            "SELECT service_id FROM port_allocations WHERE host_port = ?1 LIMIT 1",
-                            rusqlite::params![*host_port as i64],
-                            |row| row.get(0),
-                        )
-                        .ok();
-                    match holder {
-                        Some(other) if other != service_id => tracing::error!(
-                            "port_allocations INSERT for {service_id}/{port_name} \
-                             (host={host_port} container={container_port}) failed: {e}; \
-                             host_port {host_port} is held by service {other}. \
-                             Delete that service or change its port to free the slot."
-                        ),
-                        _ => tracing::error!(
-                            "port_allocations INSERT for {service_id}/{port_name} \
-                             (host={host_port} container={container_port}) failed: {e}"
-                        ),
+                None => {
+                    // Brand-new port for this service. Default private —
+                    // operator toggles it public via the UI.
+                    let id = uuid::Uuid::new_v4().to_string();
+                    match db.execute(
+                        "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', 0, NULL, ?6)",
+                        rusqlite::params![
+                            id,
+                            service_id,
+                            port_name,
+                            *host_port as i64,
+                            *container_port as i64,
+                            compose_svc,
+                        ],
+                    ) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            // `host_port` is globally UNIQUE. Surface who
+                            // really holds it so the operator can fix the
+                            // source — no auto-fallback to a random slot.
+                            let holder: Option<String> = db
+                                .query_row(
+                                    "SELECT service_id FROM port_allocations WHERE host_port = ?1 LIMIT 1",
+                                    rusqlite::params![*host_port as i64],
+                                    |row| row.get(0),
+                                )
+                                .ok();
+                            match holder {
+                                Some(other) if other != service_id => tracing::error!(
+                                    "port_allocations INSERT for {service_id}/{port_name} \
+                                     (host={host_port} container={container_port}) failed: {e}; \
+                                     host_port {host_port} is held by service {other}. \
+                                     Delete that service or change its port to free the slot."
+                                ),
+                                _ => tracing::error!(
+                                    "port_allocations INSERT for {service_id}/{port_name} \
+                                     (host={host_port} container={container_port}) failed: {e}"
+                                ),
+                            }
+                        }
                     }
                 }
             }
