@@ -2870,20 +2870,29 @@ pub async fn set_port_public(
                 }
             }
             None => {
-                let mut stmt = db.prepare(
-                    "SELECT id FROM port_allocations WHERE service_id = ?1 ORDER BY rowid",
-                )?;
-                let ids: Vec<String> = stmt
-                    .query_map([&id], |row| row.get::<_, String>(0))?
-                    .filter_map(|r| r.ok())
-                    .collect();
-                match ids.len() {
-                    0 => return Err(AppError::NotFound(format!("No ports for resource {id}"))),
-                    1 => ids.into_iter().next().unwrap(),
-                    _ => {
-                        return Err(AppError::BadRequest(
-                            "port_id is required for multi-port services".into(),
-                        ));
+                // Service-level UI (single Public Port input) → apply to the
+                // primary port. Multi-port services keep their secondary
+                // ports' state untouched; if the operator needs to toggle
+                // one of them, they'd hit a per-port API caller with port_id.
+                let primary: Option<String> = db
+                    .query_row(
+                        "SELECT id FROM port_allocations \
+                         WHERE service_id = ?1 AND port_name = 'primary' LIMIT 1",
+                        [&id],
+                        |row| row.get(0),
+                    )
+                    .ok();
+                match primary {
+                    Some(pid) => pid,
+                    None => {
+                        // No port named 'primary' — fall back to the lowest-rowid row.
+                        db.query_row(
+                            "SELECT id FROM port_allocations \
+                             WHERE service_id = ?1 ORDER BY rowid LIMIT 1",
+                            [&id],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .map_err(|_| AppError::NotFound(format!("No ports for resource {id}")))?
                     }
                 }
             }
