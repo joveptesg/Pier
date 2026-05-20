@@ -373,22 +373,24 @@ fn allocations_for_this_container<'a>(
 
 /// Build `HostConfig.PortBindings` for one container instance.
 ///
-/// Convention (mirrors what `build_compose_yaml_scaled` used to emit so the
-/// behavior of catalog services is byte-for-byte identical after recreate):
-///   - `is_public=1` → `0.0.0.0:public_port:container_port` (raw public TCP)
-///   - `is_public=0` → `127.0.0.1:host_port:container_port` (localhost-only,
-///     still reachable from the host for ops/debug)
+/// Only `is_public=1` rows produce a host binding (`0.0.0.0:public_port:container_port`).
+/// Private rows get nothing here — the container stays reachable through
+/// `pier-net` by service name without any host port published. This mirrors
+/// what `inject_ports_from_db` writes into the compose file and what Coolify's
+/// "Ports Mappings" feature does: a port is either explicitly published or
+/// it isn't, no hidden localhost binding in between.
 ///
-/// `container_port:0` or missing `public_port` rows are skipped (corrupt
-/// state — let the deploy carry on rather than blowing up the recreate).
+/// `container_port:0` or missing `public_port` on a public row → skip
+/// (corrupt state; let the recreate continue rather than blowing up).
 pub(crate) fn build_port_bindings_for_container(
     allocations: &[&PortAllocation],
 ) -> HashMap<String, Option<Vec<PortBinding>>> {
     let mut out: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
     for a in allocations {
-        if a.container_port <= 0 {
+        if a.container_port <= 0 || !a.is_public {
             continue;
         }
+        let Some(pp) = a.public_port else { continue };
         let proto = if a.protocol.is_empty() {
             "tcp"
         } else {
@@ -396,20 +398,12 @@ pub(crate) fn build_port_bindings_for_container(
         };
         let key = format!("{}/{}", a.container_port, proto);
 
-        let binding = if a.is_public {
-            let Some(pp) = a.public_port else { continue };
-            PortBinding {
-                host_ip: Some("0.0.0.0".to_string()),
-                host_port: Some(pp.to_string()),
-            }
-        } else {
-            PortBinding {
-                host_ip: Some("127.0.0.1".to_string()),
-                host_port: Some(a.host_port.to_string()),
-            }
+        let binding = PortBinding {
+            host_ip: Some("0.0.0.0".to_string()),
+            host_port: Some(pp.to_string()),
         };
-        out.entry(key).or_insert_with(|| Some(Vec::new()));
-        if let Some(list) = out.get_mut(&format!("{}/{}", a.container_port, proto)) {
+        out.entry(key.clone()).or_insert_with(|| Some(Vec::new()));
+        if let Some(list) = out.get_mut(&key) {
             if let Some(v) = list.as_mut() {
                 v.push(binding);
             }
@@ -492,18 +486,17 @@ mod tests {
     }
 
     #[test]
-    fn single_replica_single_private_port_binds_localhost() {
+    fn single_replica_single_private_port_emits_no_binding() {
+        // Private ports get no host binding at all — they stay reachable
+        // through pier-net by service name, no `-p` published. This matches
+        // what inject_ports_from_db writes into compose.
         let a = alloc("primary", 10042, 8080, false, None);
         let refs: Vec<&PortAllocation> = vec![&a];
         let b = build_port_bindings_for_container(&refs);
-        let entry = b
-            .get("8080/tcp")
-            .expect("8080/tcp present")
-            .as_ref()
-            .unwrap();
-        assert_eq!(entry.len(), 1);
-        assert_eq!(entry[0].host_ip.as_deref(), Some("127.0.0.1"));
-        assert_eq!(entry[0].host_port.as_deref(), Some("10042"));
+        assert!(
+            b.is_empty(),
+            "private port should produce no bindings: {b:?}"
+        );
     }
 
     #[test]
@@ -523,7 +516,9 @@ mod tests {
     }
 
     #[test]
-    fn one_public_one_private_separate_addresses() {
+    fn one_public_one_private_emits_only_public() {
+        // Public row → 0.0.0.0 binding. Private row → no binding (the
+        // 1883/tcp key shouldn't appear in the map at all).
         let pub_p = alloc("primary", 4471, 4471, true, Some(4471));
         let priv_p = alloc("port-1", 1883, 1883, false, None);
         let refs: Vec<&PortAllocation> = vec![&pub_p, &priv_p];
@@ -534,11 +529,9 @@ mod tests {
                 .as_deref(),
             Some("0.0.0.0")
         );
-        assert_eq!(
-            m.get("1883/tcp").unwrap().as_ref().unwrap()[0]
-                .host_ip
-                .as_deref(),
-            Some("127.0.0.1")
+        assert!(
+            !m.contains_key("1883/tcp"),
+            "private port leaked into bindings: {m:?}"
         );
     }
 

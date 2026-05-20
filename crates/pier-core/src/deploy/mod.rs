@@ -1219,11 +1219,17 @@ fn strip_compose_ports(yaml: &str) -> String {
 
 /// Re-emit every service's `ports:` block from `port_allocations` rows so
 /// `docker compose up` brings up the container already published exactly the
-/// way Pier wants. Private rows produce `127.0.0.1:host_port:container_port`
-/// (still reachable from the host for ops/debug); public rows produce an
-/// extra `0.0.0.0:public_port:container_port`. Multi-service compose stacks
-/// route rows by `port_allocations.compose_service`; single-service stacks
-/// (where compose_service is NULL) drop everything into the only block.
+/// way Pier wants.
+///
+/// Only `is_public=1` rows produce a host binding (`0.0.0.0:public_port:container_port`).
+/// Private rows stay reachable through `pier-net` by container name and need
+/// no host binding — mirroring how Coolify's "Ports Mappings" works (and
+/// avoiding the duplicate-bind crash that hits docker compose when both
+/// `127.0.0.1:N:N` and `0.0.0.0:N:N` are emitted for the same host port).
+///
+/// Multi-service compose stacks route rows by `port_allocations.compose_service`;
+/// single-service stacks (compose_service IS NULL) drop everything into the
+/// only block. Services with no public ports get no `ports:` block at all.
 ///
 /// Pair with `strip_compose_ports`: strip removes whatever the user wrote
 /// (it's no longer authoritative), this re-emits from the DB. The pair makes
@@ -1357,19 +1363,27 @@ fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> Strin
         let key_pad = " ".repeat(prop_indent);
         let item_pad = " ".repeat(prop_indent + 2);
 
-        let mut block = vec![format!("{key_pad}ports:")];
-        for (_, container_port, is_public, host_port, public_port) in &svc_rows {
-            // Private — bind to localhost so the host can still poke at it.
-            block.push(format!(
-                "{item_pad}- \"127.0.0.1:{host_port}:{container_port}\""
-            ));
-            // Public — extra 0.0.0.0 binding on the operator-chosen port.
-            if *is_public {
-                if let Some(pp) = public_port {
-                    block.push(format!("{item_pad}- \"0.0.0.0:{pp}:{container_port}\""));
-                }
+        // Public ports only — emit one `0.0.0.0:public:container` binding
+        // per is_public=1 row. Private ports get NO host binding (the
+        // container is reachable from `pier-net` by its service name, and
+        // a redundant `127.0.0.1:host:container` would collide with the
+        // 0.0.0.0 binding when public_port == host_port — that's exactly
+        // what blew up the redeploy with "address already in use").
+        let mut public_lines: Vec<String> = Vec::new();
+        for (_, container_port, is_public, _host_port, public_port) in &svc_rows {
+            if !*is_public {
+                continue;
             }
+            let Some(pp) = public_port else { continue };
+            public_lines.push(format!("{item_pad}- \"0.0.0.0:{pp}:{container_port}\""));
         }
+        if public_lines.is_empty() {
+            // No public ports for this service — skip emitting a `ports:`
+            // block altogether so the compose stays clean.
+            continue;
+        }
+        let mut block = vec![format!("{key_pad}ports:")];
+        block.extend(public_lines);
 
         // Insert just before any trailing blank lines at the end of the
         // service block, mirroring `inject_env_file_into_services`.
