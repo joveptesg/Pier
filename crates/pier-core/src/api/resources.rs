@@ -2819,6 +2819,19 @@ pub struct UpdateGitConfigRequest {
 /// and only triggers when this is the *last* public port of the service —
 /// i.e. the service is going fully private. While other public ports remain,
 /// domains stay untouched.
+/// Snapshot of a single `port_allocations` row used both as the target list
+/// for the upcoming UPDATE and as the rollback record when the container
+/// recreate fails. Captured before any mutation so we can put the DB back
+/// into the exact state Bollard last knew about.
+struct PortRowSnapshot {
+    id: String,
+    port_name: String,
+    host_port: u16,
+    container_port: u16,
+    prev_is_public: bool,
+    prev_public_port: Option<u16>,
+}
+
 pub async fn set_port_public(
     State(state): State<SharedState>,
     axum::Extension(user): axum::Extension<AuthUser>,
@@ -2826,19 +2839,18 @@ pub async fn set_port_public(
     Json(body): Json<SetPortPublicRequest>,
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
-    let public_port = body.public_port.unwrap_or(0) as u16;
+    let ui_public_port = body.public_port.unwrap_or(0) as u16;
 
-    // ─── Resolve the target port row ────────────────────────────────────
-    // We need port_id before the domain-cascade check so we can count the
-    // service's other public ports.
-    let (
-        resolved_port_id,
-        host_port,
-        container_port,
-        prev_is_public,
-        prev_public_port,
-        service_name,
-    ): (String, u16, u16, bool, Option<u16>, String) = {
+    // ─── Resolve target rows ─────────────────────────────────────────────
+    // Two paths:
+    //  • `port_id` provided  → operate on that single row (back-compat for
+    //    callers that want per-port control).
+    //  • `port_id` absent    → service-level toggle: every port of the
+    //    service is flipped together. The Public Port input in the UI
+    //    targets the *primary* row's public_port; secondary rows get
+    //    `public_port = host_port` (declared in compose), or carry over
+    //    their previous public_port if the operator had set one.
+    let (service_name, targets): (String, Vec<PortRowSnapshot>) = {
         let db = state
             .db
             .lock()
@@ -2850,7 +2862,26 @@ pub async fn set_port_public(
             })
             .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
 
-        let port_id: String = match body.port_id.as_deref() {
+        let load_row = |row_id: &str| -> AppResult<PortRowSnapshot> {
+            db.query_row(
+                "SELECT id, port_name, host_port, container_port, is_public, public_port \
+                 FROM port_allocations WHERE id = ?1",
+                [row_id],
+                |row| {
+                    Ok(PortRowSnapshot {
+                        id: row.get(0)?,
+                        port_name: row.get(1)?,
+                        host_port: row.get::<_, i64>(2)? as u16,
+                        container_port: row.get::<_, i64>(3)? as u16,
+                        prev_is_public: row.get::<_, i64>(4)? != 0,
+                        prev_public_port: row.get::<_, Option<i64>>(5)?.map(|p| p as u16),
+                    })
+                },
+            )
+            .map_err(|_| AppError::NotFound(format!("Port {row_id} not found")))
+        };
+
+        let rows: Vec<PortRowSnapshot> = match body.port_id.as_deref() {
             Some(pid) => {
                 let owner: Option<String> = db
                     .query_row(
@@ -2860,7 +2891,7 @@ pub async fn set_port_public(
                     )
                     .ok();
                 match owner {
-                    Some(svc) if svc == id => pid.to_string(),
+                    Some(svc) if svc == id => {}
                     Some(_) => {
                         return Err(AppError::BadRequest(
                             "port_id does not belong to this service".into(),
@@ -2868,74 +2899,91 @@ pub async fn set_port_public(
                     }
                     None => return Err(AppError::NotFound(format!("Port {pid} not found"))),
                 }
+                vec![load_row(pid)?]
             }
             None => {
-                // Service-level UI (single Public Port input) → apply to the
-                // primary port. Multi-port services keep their secondary
-                // ports' state untouched; if the operator needs to toggle
-                // one of them, they'd hit a per-port API caller with port_id.
-                let primary: Option<String> = db
-                    .query_row(
-                        "SELECT id FROM port_allocations \
-                         WHERE service_id = ?1 AND port_name = 'primary' LIMIT 1",
-                        [&id],
-                        |row| row.get(0),
-                    )
-                    .ok();
-                match primary {
-                    Some(pid) => pid,
-                    None => {
-                        // No port named 'primary' — fall back to the lowest-rowid row.
-                        db.query_row(
-                            "SELECT id FROM port_allocations \
-                             WHERE service_id = ?1 ORDER BY rowid LIMIT 1",
-                            [&id],
-                            |row| row.get::<_, String>(0),
-                        )
-                        .map_err(|_| AppError::NotFound(format!("No ports for resource {id}")))?
-                    }
+                let ids: Vec<String> = {
+                    let mut stmt = db.prepare(
+                        "SELECT id FROM port_allocations WHERE service_id = ?1 ORDER BY rowid",
+                    )?;
+                    let collected: Vec<String> = stmt
+                        .query_map([&id], |row| row.get::<_, String>(0))?
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    collected
+                };
+                if ids.is_empty() {
+                    return Err(AppError::NotFound(format!("No ports for resource {id}")));
                 }
+                let mut snapshots: Vec<PortRowSnapshot> = Vec::with_capacity(ids.len());
+                for pid in &ids {
+                    snapshots.push(load_row(pid)?);
+                }
+                snapshots
             }
         };
 
-        let (hp, cp, prev_pub, prev_pp): (i64, i64, i64, Option<i64>) = db
-            .query_row(
-                "SELECT host_port, container_port, is_public, public_port \
-                 FROM port_allocations WHERE id = ?1",
-                [&port_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .map_err(|_| AppError::NotFound(format!("Port {port_id} not found")))?;
-
-        (
-            port_id,
-            hp as u16,
-            cp as u16,
-            prev_pub == 1,
-            prev_pp.map(|p| p as u16),
-            svc_name,
-        )
+        (svc_name, rows)
     };
 
-    // ─── Per-port cascade-delete domain check ────────────────────────────
-    // Only when this toggle takes the LAST public port off. While any other
-    // public port remains, the service is still reachable and the domains
-    // (which point at compose_service:http_port, not at this specific port)
-    // are left in place.
+    let service_level = body.port_id.is_none();
+    let target_ids: Vec<String> = targets.iter().map(|r| r.id.clone()).collect();
+
+    // ─── Compute the desired (is_public, public_port) per row ────────────
+    // Service-level rule for is_public=true:
+    //   • primary  → ui_public_port if > 0 else host_port
+    //   • others   → prev_public_port if set else host_port
+    // is_public=false → all → (0, NULL).
+    let updates: Vec<(String, bool, Option<u16>)> = targets
+        .iter()
+        .map(|row| {
+            if !body.is_public {
+                return (row.id.clone(), false, None);
+            }
+            let target_pp = if service_level {
+                if row.port_name == "primary" && ui_public_port > 0 {
+                    ui_public_port
+                } else if row.port_name == "primary" {
+                    row.host_port
+                } else {
+                    row.prev_public_port.unwrap_or(row.host_port)
+                }
+            } else if ui_public_port > 0 {
+                ui_public_port
+            } else if row.container_port > 0 {
+                row.container_port
+            } else {
+                row.host_port
+            };
+            (row.id.clone(), true, Some(target_pp))
+        })
+        .collect();
+
+    // ─── Domain cascade check ────────────────────────────────────────────
+    // is_public=false: if this op would leave the service with zero public
+    // ports AND domains exist, demand explicit confirmation. For service-
+    // level toggles we're switching everything off → always check. For
+    // per-port toggles we only check when no other public port remains.
     if !body.is_public {
-        let other_publics: i64 = {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            db.query_row(
-                "SELECT COUNT(*) FROM port_allocations \
-                 WHERE service_id = ?1 AND is_public = 1 AND id != ?2",
-                rusqlite::params![id, resolved_port_id],
-                |row| row.get(0),
-            )?
+        let zero_publics_after: bool = if service_level {
+            true
+        } else {
+            let pid = &target_ids[0];
+            let other_publics: i64 = {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.query_row(
+                    "SELECT COUNT(*) FROM port_allocations \
+                     WHERE service_id = ?1 AND is_public = 1 AND id != ?2",
+                    rusqlite::params![id, pid],
+                    |row| row.get(0),
+                )?
+            };
+            other_publics == 0
         };
-        if other_publics == 0 {
+        if zero_publics_after {
             let domains: Vec<String> = {
                 let db = state
                     .db
@@ -2976,36 +3024,49 @@ pub async fn set_port_public(
             }
         } else {
             tracing::debug!(
-                "Port-public toggle off for {id}/{resolved_port_id}: \
-                 {other_publics} other public port(s) remain, leaving domains untouched"
+                "Port-public toggle off for {id}/{}: other public port(s) remain, \
+                 leaving domains untouched",
+                target_ids[0]
             );
         }
     }
 
-    // ─── Flip the DB row + conflict check ────────────────────────────────
-    let port_id = resolved_port_id;
-    let pp: u16 = if public_port > 0 {
-        public_port
-    } else if container_port > 0 {
-        container_port
-    } else {
-        host_port
-    };
-    {
+    // ─── Conflict check on every target public_port ──────────────────────
+    // Reject if any port outside our target set already publishes the same
+    // public_port. Two `0.0.0.0:N:*` bindings on the same N is exactly the
+    // "address already in use" Docker would throw at recreate time.
+    if body.is_public {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        if body.is_public {
-            // Reject if any other port (in this or any other service) already
-            // claims this public port — two host bindings on the same port
-            // would either fight or be silently merged by Docker.
-            let conflict: Option<(String, String)> = db
+        // Collect target_ids placeholders for the NOT-IN list. We keep this
+        // simple with a runtime-built SQL string; ids are uuids generated
+        // by us, not user input, so concatenation is safe here.
+        let placeholders: String = (0..target_ids.len())
+            .map(|i| format!("?{}", i + 2))
+            .collect::<Vec<_>>()
+            .join(",");
+        for (_, is_public, target_pp) in &updates {
+            if !*is_public {
+                continue;
+            }
+            let Some(pp) = *target_pp else { continue };
+            let sql = format!(
+                "SELECT service_id, id FROM port_allocations \
+                 WHERE is_public = 1 AND public_port = ?1 AND id NOT IN ({placeholders}) \
+                 LIMIT 1",
+            );
+            let mut stmt = db.prepare(&sql)?;
+            let mut params: Vec<Box<dyn rusqlite::ToSql>> =
+                Vec::with_capacity(target_ids.len() + 1);
+            params.push(Box::new(pp as i64));
+            for tid in &target_ids {
+                params.push(Box::new(tid.clone()));
+            }
+            let conflict: Option<(String, String)> = stmt
                 .query_row(
-                    "SELECT service_id, id FROM port_allocations \
-                     WHERE is_public = 1 AND public_port = ?1 AND id != ?2 \
-                     LIMIT 1",
-                    rusqlite::params![pp as i64, port_id],
+                    rusqlite::params_from_iter(params.iter().map(|p| &**p)),
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .ok();
@@ -3019,60 +3080,89 @@ pub async fn set_port_public(
                 };
                 return Err(AppError::Conflict(msg));
             }
-
-            db.execute(
-                "UPDATE port_allocations SET is_public = 1, public_port = ?1 WHERE id = ?2",
-                rusqlite::params![pp as i64, port_id],
-            )?;
-        } else {
-            db.execute(
-                "UPDATE port_allocations SET is_public = 0, public_port = NULL WHERE id = ?1",
-                [&port_id],
-            )?;
         }
     }
 
-    // ─── Recreate the container(s) via Bollard ───────────────────────────
+    // ─── Flip DB rows ────────────────────────────────────────────────────
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        for (pid, is_public, target_pp) in &updates {
+            if *is_public {
+                db.execute(
+                    "UPDATE port_allocations SET is_public = 1, public_port = ?1 WHERE id = ?2",
+                    rusqlite::params![target_pp.map(|p| p as i64), pid],
+                )?;
+            } else {
+                db.execute(
+                    "UPDATE port_allocations SET is_public = 0, public_port = NULL WHERE id = ?1",
+                    [pid],
+                )?;
+            }
+        }
+    }
+
+    // ─── Recreate the container via Bollard ──────────────────────────────
     // Reads the live ContainerConfig + HostConfig via inspect, swaps in new
     // PortBindings/ExposedPorts derived from the freshly updated
-    // port_allocations rows, then stop+remove+create+start. Universal across
-    // catalog / git+Dockerfile / git+compose / compose-template services
-    // because no docker-compose YAML is needed.
+    // port_allocations rows, then stop+remove+create+start.
     match crate::docker::recreate::recreate_with_port_bindings(&state, &id).await {
         Ok(()) => {
+            let primary_pp: Option<u16> = updates
+                .iter()
+                .zip(targets.iter())
+                .find_map(|((_, is_pub, pp), row)| {
+                    if *is_pub && row.port_name == "primary" {
+                        *pp
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| {
+                    updates
+                        .iter()
+                        .find_map(|(_, is_pub, pp)| if *is_pub { *pp } else { None })
+                });
             if body.is_public {
                 tracing::info!(
-                    "Public port {pp} enabled for {id} → {service_name}:{container_port}"
+                    "Public port(s) enabled for {id} ({service_name}): {} row(s) flipped on",
+                    updates.iter().filter(|(_, p, _)| *p).count()
                 );
             } else {
-                tracing::info!("Public port disabled for {id}/{port_id}");
+                tracing::info!(
+                    "Public port(s) disabled for {id} ({service_name}): {} row(s) flipped off",
+                    updates.len()
+                );
             }
             Ok(Json(serde_json::json!({
                 "ok": true,
                 "is_public": body.is_public,
-                "public_port": if body.is_public { Some(pp) } else { None },
+                "public_port": primary_pp,
             })))
         }
         Err(e) => {
-            // Recreate failed — the container is in whatever state Bollard
-            // left it (probably down). Roll the DB flag back so UI and
-            // reality stay in sync.
+            // Recreate failed — restore every target row to the snapshot
+            // we took before any UPDATE, so UI and reality stay in sync.
             if let Ok(db) = state.db.lock() {
-                let _ = if prev_is_public {
-                    db.execute(
-                        "UPDATE port_allocations SET is_public = 1, public_port = ?1 \
-                         WHERE id = ?2",
-                        rusqlite::params![prev_public_port.map(|p| p as i64), port_id],
-                    )
-                } else {
-                    db.execute(
-                        "UPDATE port_allocations SET is_public = 0, public_port = NULL \
-                         WHERE id = ?1",
-                        [&port_id],
-                    )
-                };
+                for row in &targets {
+                    let _ = if row.prev_is_public {
+                        db.execute(
+                            "UPDATE port_allocations SET is_public = 1, public_port = ?1 \
+                             WHERE id = ?2",
+                            rusqlite::params![row.prev_public_port.map(|p| p as i64), row.id],
+                        )
+                    } else {
+                        db.execute(
+                            "UPDATE port_allocations SET is_public = 0, public_port = NULL \
+                             WHERE id = ?1",
+                            [&row.id],
+                        )
+                    };
+                }
             }
-            tracing::error!("Port-public toggle for {id}/{port_id} failed; DB rolled back: {e}");
+            tracing::error!("Port-public toggle for {id} failed; DB rolled back: {e}");
             Err(AppError::Internal(anyhow::anyhow!(
                 "Failed to apply public port: {e}"
             )))
