@@ -1116,7 +1116,13 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
                 }
             }
 
-            let _ = db.execute(
+            // `port_allocations.host_port` has a global UNIQUE constraint.
+            // If the INSERT fails, surface the cause so a missing-port-in-UI
+            // bug is one `journalctl` away. We do NOT silently fall back to a
+            // different host_port — that would hide the real source of the
+            // conflict (an orphan row, a stale service, or a host-side
+            // listener). Operator decides.
+            match db.execute(
                 "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service) \
                  VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', ?6, ?7, ?8)",
                 rusqlite::params![
@@ -1129,7 +1135,30 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
                     pp_value.map(|p| p as i64),
                     compose_svc,
                 ],
-            );
+            ) {
+                Ok(_) => {}
+                Err(e) => {
+                    let holder: Option<String> = db
+                        .query_row(
+                            "SELECT service_id FROM port_allocations WHERE host_port = ?1 LIMIT 1",
+                            rusqlite::params![*host_port as i64],
+                            |row| row.get(0),
+                        )
+                        .ok();
+                    match holder {
+                        Some(other) if other != service_id => tracing::error!(
+                            "port_allocations INSERT for {service_id}/{port_name} \
+                             (host={host_port} container={container_port}) failed: {e}; \
+                             host_port {host_port} is held by service {other}. \
+                             Delete that service or change its port to free the slot."
+                        ),
+                        _ => tracing::error!(
+                            "port_allocations INSERT for {service_id}/{port_name} \
+                             (host={host_port} container={container_port}) failed: {e}"
+                        ),
+                    }
+                }
+            }
         }
 
         // Update services.port with the first host port (legacy single-port
