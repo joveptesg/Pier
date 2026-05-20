@@ -269,8 +269,7 @@ pub async fn start_run(
                 }
                 drop(s);
                 *h.finished_at_unix_ms.write().await = Some(now_unix_ms());
-                *h.error.write().await =
-                    Some(format!("exceeded timeout of {}s", h.timeout_sec));
+                *h.error.write().await = Some(format!("exceeded timeout of {}s", h.timeout_sec));
             }
             Some(Ok(status)) => {
                 *h.exit_code.write().await = status.code();
