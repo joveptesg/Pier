@@ -1596,7 +1596,13 @@ function resourceDetail(id) {
             { id: 'fuzzystrmatch',           label: 'fuzzystrmatch',           hint: 'soundex, levenshtein — fuzzy string matching' },
             { id: 'postgis_tiger_geocoder',  label: 'postgis_tiger_geocoder',  hint: 'US-only: address geocoder based on US Census TIGER data' },
         ],
-        get portIsPublic() { return (this.resource.ports?.[0]?.is_public || false) || (this.domains && this.domains.length > 0); },
+        // "Make publicly available" toggle reflects raw-TCP exposure only —
+        // attached domains (HTTP via Traefik) are a separate concern shown
+        // below the toggle. Previously this OR'd with domains.length, which
+        // made the toggle look ON even when port_allocations.is_public=0:
+        // operator then clicked, hit cascade-delete on the domain instead
+        // of publishing the TCP port they actually wanted.
+        get portIsPublic() { return this.resource.ports?.[0]?.is_public || false; },
         get portTcpPublished() { return this.resource.ports?.[0]?.is_public || false; },
         get logicalPorts() {
             const all = this.resource.ports || [];
