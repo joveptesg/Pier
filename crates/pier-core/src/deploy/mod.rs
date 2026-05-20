@@ -1116,77 +1116,20 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
                 }
             }
 
-            // `port_allocations.host_port` has a global UNIQUE constraint.
-            // If another service already holds our declared host_port, find a
-            // free fallback in the 10000-19999 pool so this row isn't silently
-            // dropped (which is exactly what hid port-1=1883 from the UI on
-            // myhome-backend after a redeploy). The container's internal
-            // container_port is unchanged; only the host-side allocation slot
-            // moves to a free slot.
-            let mut effective_host_port: u16 = *host_port;
-            let owner: Option<String> = db
-                .query_row(
-                    "SELECT service_id FROM port_allocations \
-                     WHERE host_port = ?1 AND service_id != ?2 LIMIT 1",
-                    rusqlite::params![effective_host_port as i64, service_id],
-                    |row| row.get(0),
-                )
-                .ok();
-            if let Some(other) = owner {
-                let fallback = (10000u16..20000u16).find(|p| {
-                    db.query_row(
-                        "SELECT 1 FROM port_allocations WHERE host_port = ?1 LIMIT 1",
-                        rusqlite::params![*p as i64],
-                        |row| row.get::<_, i64>(0),
-                    )
-                    .is_err()
-                });
-                match fallback {
-                    Some(p) => {
-                        tracing::warn!(
-                            "Host port {effective_host_port} (declared for {service_id}/\
-                             {port_name}=container:{container_port}) is held by service {other}; \
-                             allocating fallback host_port={p}. Container will still listen on \
-                             {container_port} internally; the UI will show :{p} as the host \
-                             alloc slot. Public-port toggle remains independent."
-                        );
-                        effective_host_port = p;
-                    }
-                    None => {
-                        tracing::error!(
-                            "Host port {effective_host_port} for {service_id}/{port_name} is \
-                             held by {other} and no free fallback in 10000-19999 — this port \
-                             will be missing from the UI."
-                        );
-                        continue;
-                    }
-                }
-            }
-
-            match db.execute(
+            let _ = db.execute(
                 "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service) \
                  VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', ?6, ?7, ?8)",
                 rusqlite::params![
                     id,
                     service_id,
                     port_name,
-                    effective_host_port as i64,
+                    *host_port as i64,
                     *container_port as i64,
                     is_public_flag as i64,
                     pp_value.map(|p| p as i64),
                     compose_svc,
                 ],
-            ) {
-                Ok(_) => {}
-                Err(e) => {
-                    // No more silent failures — surface the cause so the next
-                    // missing-port-in-UI bug is one journalctl away.
-                    tracing::error!(
-                        "port_allocations INSERT for {service_id}/{port_name} \
-                         (host={effective_host_port} container={container_port}) failed: {e}"
-                    );
-                }
-            }
+            );
         }
 
         // Update services.port with the first host port (legacy single-port
