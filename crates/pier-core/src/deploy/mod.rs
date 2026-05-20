@@ -264,8 +264,18 @@ pub async fn run_pipeline(
                     extract_and_save_ports(&state, &service_id, &yaml).await;
                     // Inject pier-net (and project network) so services can communicate across stacks
                     let yaml = inject_pier_networks(&state, &service_id, &yaml);
-                    // Remove host port bindings (Traefik handles public access via Docker network)
+                    // Strip what the user wrote in `ports:` — we authoritatively
+                    // re-emit it from `port_allocations` so the operator's
+                    // public/private toggle state survives `git pull`/redeploy.
                     let yaml = strip_compose_ports(&yaml);
+                    // Re-inject `ports:` from the DB. Each row becomes one
+                    // host binding: `0.0.0.0:public_port:container_port` if
+                    // toggled public, `127.0.0.1:host_port:container_port`
+                    // otherwise (so the host can still reach it for ops).
+                    // This means `docker compose up` brings up the container
+                    // already in its desired published state — no post-deploy
+                    // Bollard recreate needed.
+                    let yaml = inject_ports_from_db(&state, &service_id, &yaml);
                     // Auto-wire `.env` (which Pier writes from the UI's env_json) into
                     // every service so UI-defined vars reach the container by default.
                     // `environment:` in the user's compose still wins for explicit overrides.
@@ -1037,9 +1047,34 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
     }
 
     if let Ok(db) = state.db.lock() {
-        // Compose `ports:` declarations are the source of truth (Coolify-like behavior).
-        // Every redeploy enforces: each declared port → public on its host_port.
-        // To disable a port's public exposure, remove it from compose and redeploy.
+        // Compose `ports:` declarations describe what *exists*. The operator
+        // decides what's *public* via the UI toggle. So on redeploy we preserve
+        // any previously-set `is_public`/`public_port` for ports the operator
+        // had already published, keyed by `(compose_service, container_port)`.
+        // Newly-declared ports default to private — initial-deploy invariant
+        // "nothing is publicly exposed unless explicitly toggled."
+        let prev_state: std::collections::HashMap<(Option<String>, u16), (bool, Option<u16>)> = {
+            let mut prev = std::collections::HashMap::new();
+            if let Ok(mut stmt) = db.prepare(
+                "SELECT compose_service, container_port, is_public, public_port \
+                 FROM port_allocations WHERE service_id = ?1",
+            ) {
+                let rows = stmt.query_map([service_id], |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, i64>(1)? as u16,
+                        row.get::<_, i64>(2)? != 0,
+                        row.get::<_, Option<i64>>(3)?.map(|p| p as u16),
+                    ))
+                });
+                if let Ok(iter) = rows {
+                    for r in iter.flatten() {
+                        prev.insert((r.0, r.1), (r.2, r.3));
+                    }
+                }
+            }
+            prev
+        };
 
         let _ = db.execute(
             "DELETE FROM port_allocations WHERE service_id = ?1",
@@ -1049,25 +1084,37 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
         for (compose_svc, port_name, host_port, container_port) in &flat {
             let id = uuid::Uuid::new_v4().to_string();
 
-            // Refuse to claim a public host port already taken by another service.
-            // The port stays as Local (is_public=0) so Pier still shows it in the
-            // UI; the user can manually toggle once the conflict is resolved.
-            let conflict: Option<String> = db
-                .query_row(
-                    "SELECT service_id FROM port_allocations \
-                     WHERE is_public = 1 AND public_port = ?1 AND service_id != ?2 LIMIT 1",
-                    rusqlite::params![*host_port as i64, service_id],
-                    |row| row.get(0),
-                )
-                .ok();
-            let (is_public, public_port): (i64, Option<i64>) = if let Some(other) = conflict {
-                tracing::warn!(
-                    "Compose port {host_port} for {service_id} conflicts with public port already held by {other}; staying local"
-                );
-                (0, None)
-            } else {
-                (1, Some(*host_port as i64))
-            };
+            // Carry over the operator's previous toggle decision when this
+            // exact `(compose_service, container_port)` was already in the
+            // table. Anything not found → default private.
+            let key = (compose_svc.clone(), *container_port);
+            let (mut is_public_flag, mut pp_value): (bool, Option<u16>) =
+                prev_state.get(&key).copied().unwrap_or((false, None));
+
+            // If the carry-over public_port now collides with another
+            // service's public_port (e.g. user changed compose and freed
+            // the host port for someone else in between), revert to private
+            // and let the operator re-toggle once they pick a new value.
+            if is_public_flag {
+                if let Some(pp) = pp_value {
+                    let conflict: Option<String> = db
+                        .query_row(
+                            "SELECT service_id FROM port_allocations \
+                             WHERE is_public = 1 AND public_port = ?1 AND service_id != ?2 LIMIT 1",
+                            rusqlite::params![pp as i64, service_id],
+                            |row| row.get(0),
+                        )
+                        .ok();
+                    if let Some(other) = conflict {
+                        tracing::warn!(
+                            "Carry-over public port {pp} for {service_id}/{container_port} \
+                             conflicts with {other}; reverting to private"
+                        );
+                        is_public_flag = false;
+                        pp_value = None;
+                    }
+                }
+            }
 
             let _ = db.execute(
                 "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service) \
@@ -1078,8 +1125,8 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
                     port_name,
                     *host_port as i64,
                     *container_port as i64,
-                    is_public,
-                    public_port,
+                    is_public_flag as i64,
+                    pp_value.map(|p| p as i64),
                     compose_svc,
                 ],
             );
@@ -1168,6 +1215,176 @@ fn strip_compose_ports(yaml: &str) -> String {
     }
 
     result.join("\n")
+}
+
+/// Re-emit every service's `ports:` block from `port_allocations` rows so
+/// `docker compose up` brings up the container already published exactly the
+/// way Pier wants. Private rows produce `127.0.0.1:host_port:container_port`
+/// (still reachable from the host for ops/debug); public rows produce an
+/// extra `0.0.0.0:public_port:container_port`. Multi-service compose stacks
+/// route rows by `port_allocations.compose_service`; single-service stacks
+/// (where compose_service is NULL) drop everything into the only block.
+///
+/// Pair with `strip_compose_ports`: strip removes whatever the user wrote
+/// (it's no longer authoritative), this re-emits from the DB. The pair makes
+/// the operator's toggle state survive `git pull` + redeploy without a
+/// post-deploy Bollard recreate.
+fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> String {
+    // (compose_service, container_port, is_public, host_port, public_port)
+    type Row = (Option<String>, u16, bool, u16, Option<u16>);
+    let rows: Vec<Row> = {
+        let Ok(db) = state.db.lock() else {
+            return yaml.to_string();
+        };
+        let Ok(mut stmt) = db.prepare(
+            "SELECT compose_service, container_port, is_public, host_port, public_port \
+             FROM port_allocations WHERE service_id = ?1 ORDER BY rowid",
+        ) else {
+            return yaml.to_string();
+        };
+        let iter = stmt.query_map([service_id], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, i64>(1)? as u16,
+                row.get::<_, i64>(2)? != 0,
+                row.get::<_, i64>(3)? as u16,
+                row.get::<_, Option<i64>>(4)?.map(|p| p as u16),
+            ))
+        });
+        match iter {
+            Ok(it) => it.filter_map(|r| r.ok()).collect(),
+            Err(_) => return yaml.to_string(),
+        }
+    };
+
+    if rows.is_empty() {
+        return yaml.to_string();
+    }
+
+    let mut lines: Vec<String> = yaml.lines().map(|l| l.to_string()).collect();
+
+    // Locate top-level `services:`.
+    let services_idx = match lines
+        .iter()
+        .position(|l| l.trim() == "services:" && !l.starts_with(' ') && !l.starts_with('\t'))
+    {
+        Some(i) => i,
+        None => return yaml.to_string(),
+    };
+
+    // Service-name indent.
+    let service_indent = lines
+        .iter()
+        .skip(services_idx + 1)
+        .find_map(|line| {
+            if line.trim().is_empty() {
+                return None;
+            }
+            let indent = line.len() - line.trim_start().len();
+            if indent == 0 {
+                return Some(0);
+            }
+            Some(indent)
+        })
+        .unwrap_or(0);
+    if service_indent == 0 {
+        return yaml.to_string();
+    }
+
+    // Collect (name, start, end) for each service block.
+    let mut service_ranges: Vec<(String, usize, usize)> = Vec::new();
+    let mut current: Option<(String, usize)> = None;
+    for (i, line) in lines.iter().enumerate().skip(services_idx + 1) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if indent == 0 {
+            if let Some((n, s)) = current.take() {
+                service_ranges.push((n, s, i));
+            }
+            break;
+        }
+        if indent == service_indent && trimmed.ends_with(':') {
+            if let Some((n, s)) = current.take() {
+                service_ranges.push((n, s, i));
+            }
+            current = Some((trimmed.trim_end_matches(':').trim().to_string(), i));
+        }
+    }
+    if let Some((n, s)) = current.take() {
+        service_ranges.push((n, s, lines.len()));
+    }
+
+    if service_ranges.is_empty() {
+        return yaml.to_string();
+    }
+
+    let only_one_service = service_ranges.len() == 1;
+
+    // Walk services in reverse so earlier indices stay valid as we splice in
+    // the `ports:` block.
+    for (svc_name, start, end) in service_ranges.iter().rev() {
+        let svc_rows: Vec<&Row> = rows
+            .iter()
+            .filter(|(cs, _, _, _, _)| match cs {
+                Some(name) => name == svc_name,
+                None => only_one_service,
+            })
+            .collect();
+
+        if svc_rows.is_empty() {
+            continue;
+        }
+
+        // Property indent of this block.
+        let prop_indent = (start + 1..*end)
+            .find_map(|i| {
+                let line = &lines[i];
+                if line.trim().is_empty() {
+                    return None;
+                }
+                let ind = line.len() - line.trim_start().len();
+                if ind > service_indent {
+                    Some(ind)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(service_indent + 2);
+
+        let key_pad = " ".repeat(prop_indent);
+        let item_pad = " ".repeat(prop_indent + 2);
+
+        let mut block = vec![format!("{key_pad}ports:")];
+        for (_, container_port, is_public, host_port, public_port) in &svc_rows {
+            // Private — bind to localhost so the host can still poke at it.
+            block.push(format!(
+                "{item_pad}- \"127.0.0.1:{host_port}:{container_port}\""
+            ));
+            // Public — extra 0.0.0.0 binding on the operator-chosen port.
+            if *is_public {
+                if let Some(pp) = public_port {
+                    block.push(format!("{item_pad}- \"0.0.0.0:{pp}:{container_port}\""));
+                }
+            }
+        }
+
+        // Insert just before any trailing blank lines at the end of the
+        // service block, mirroring `inject_env_file_into_services`.
+        let mut insert_at = *end;
+        while insert_at > start + 1 && lines[insert_at - 1].trim().is_empty() {
+            insert_at -= 1;
+        }
+        let _: Vec<String> = lines.splice(insert_at..insert_at, block).collect();
+    }
+
+    let mut out = lines.join("\n");
+    if yaml.ends_with('\n') && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
 }
 
 /// Inject `env_file: - .env` into every service block of a docker-compose
