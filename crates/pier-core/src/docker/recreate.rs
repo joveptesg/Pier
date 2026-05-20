@@ -49,7 +49,8 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         }))
         .await?;
 
-    let targets: Vec<_> = containers_list
+    // Primary lookup: by `pier.service.id` label (catalog-managed services).
+    let mut target_ids: Vec<String> = containers_list
         .iter()
         .filter(|c| {
             c.labels
@@ -57,25 +58,62 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
                 .and_then(|l| l.get("pier.service.id"))
                 .is_some_and(|s| s == service_id)
         })
+        .filter_map(|c| c.id.clone())
         .collect();
 
-    if targets.is_empty() {
-        // No live container — nothing to recreate. Caller may have toggled
-        // the DB flag before the very first deploy; the next deploy will pick
-        // up the new allocations naturally.
+    // Fallback: git-deployed services and compose-template stacks built from a
+    // user-authored docker-compose.yml don't carry `pier.service.id` on their
+    // containers — Pier never gets a chance to inject the label, the operator
+    // wrote the compose. Use `services.container_id` from the DB (or the
+    // configured container_name) so the toggle works for those too. The new
+    // container created below will get the label injected so future toggles
+    // hit the fast path.
+    if target_ids.is_empty() {
+        let cid_or_name: Option<String> = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            db.query_row(
+                "SELECT container_id FROM services WHERE id = ?1",
+                [service_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten()
+        };
+        if let Some(cn) = cid_or_name {
+            if !cn.is_empty() {
+                if let Ok(info) = state.docker.inspect_container(&cn, None).await {
+                    if let Some(id) = info.id {
+                        tracing::info!(
+                            "recreate_with_port_bindings: located container for {service_id} via services.container_id={cn}"
+                        );
+                        target_ids.push(id);
+                    }
+                } else {
+                    tracing::warn!(
+                        "recreate_with_port_bindings: services.container_id={cn} for {service_id} but Docker has no such container"
+                    );
+                }
+            }
+        }
+    }
+
+    if target_ids.is_empty() {
+        // Truly no live container — caller may have toggled the DB flag
+        // before the first deploy; the next deploy will pick up the new
+        // allocations naturally.
         tracing::info!(
-            "recreate_with_port_bindings: no container with pier.service.id={service_id}; skipping"
+            "recreate_with_port_bindings: no container found for service_id={service_id} (no label, no DB container_id); skipping"
         );
         return Ok(());
     }
 
     let mut last_new_id: Option<String> = None;
 
-    for c in &targets {
-        let Some(cid) = c.id.as_deref() else {
-            continue;
-        };
-
+    for cid in &target_ids {
+        let cid = cid.as_str();
         let info = state.docker.inspect_container(cid, None).await?;
 
         let cfg = info
@@ -130,6 +168,16 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         let new_bindings = build_port_bindings_for_container(&my_allocs);
         let new_exposed = build_exposed_ports(&cfg.exposed_ports, &my_allocs);
 
+        // Inject `pier.service.id` (and the optional `pier.managed` marker)
+        // so the next toggle's primary label lookup hits this container
+        // directly — without needing the DB fallback. Git-deployed services
+        // that started out unlabelled get adopted after their first toggle.
+        let mut new_labels = cfg.labels.clone().unwrap_or_default();
+        new_labels.insert("pier.service.id".to_string(), service_id.to_string());
+        new_labels
+            .entry("pier.managed".to_string())
+            .or_insert_with(|| "true".to_string());
+
         let new_host_cfg = HostConfig {
             port_bindings: Some(new_bindings),
             binds: hc.binds.clone(),
@@ -171,7 +219,7 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
             cmd: cfg.cmd.clone(),
             entrypoint: cfg.entrypoint.clone(),
             working_dir: cfg.working_dir.clone(),
-            labels: cfg.labels.clone(),
+            labels: Some(new_labels),
             healthcheck: cfg.healthcheck.clone(),
             volumes: cfg.volumes.clone(),
             stop_signal: cfg.stop_signal.clone(),
