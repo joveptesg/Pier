@@ -110,7 +110,12 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         return Ok(());
     }
 
-    let mut last_new_id: Option<String> = None;
+    // `services.container_id` in Pier historically stores the **container
+    // name** (e.g. `myhome-backend`), not the 64-char Docker ID — the UI's
+    // "Internal Network" block displays this value as-is. Track the name we
+    // assigned at create-time and write that back; fall back to the Docker
+    // ID only when the container was created nameless (rare).
+    let mut last_name_or_id: Option<String> = None;
 
     for cid in &target_ids {
         let cid = cid.as_str();
@@ -289,21 +294,30 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         }
 
         containers::start_container(&state.docker, &new_id).await?;
-        last_new_id = Some(new_id);
+        // Prefer the container name we just (re)used at create-time — Pier's
+        // historical convention for services.container_id. Empty name means
+        // the create_container call passed None (very rare); fall back to
+        // the Docker ID so the row isn't left stale.
+        last_name_or_id = Some(if name.is_empty() {
+            new_id.clone()
+        } else {
+            name.clone()
+        });
     }
 
-    // Update services.container_id to the most recently created id so other
-    // single-container read paths keep working. For multi-replica services
-    // this is "any one of them"; production read paths that care should
-    // already be label-based, not id-based.
-    if let Some(new_id) = last_new_id {
+    // Update services.container_id (= container name) so the UI's
+    // "Internal Network" block keeps showing `<name>:<port>` instead of a
+    // 64-char SHA256. For multi-replica services this is "any one of
+    // them"; production read paths that need to be exact should use the
+    // `pier.service.id` label anyway.
+    if let Some(name_or_id) = last_name_or_id {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let _ = db.execute(
             "UPDATE services SET container_id = ?1, updated_at = datetime('now') WHERE id = ?2",
-            rusqlite::params![new_id, service_id],
+            rusqlite::params![name_or_id, service_id],
         );
     }
 
