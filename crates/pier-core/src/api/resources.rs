@@ -1339,6 +1339,7 @@ pub async fn get(
         .iter()
         .map(|pa| {
             serde_json::json!({
+                "id": pa.id,
                 "name": pa.port_name,
                 "host": pa.host_port,
                 "container": pa.container_port,
@@ -2868,7 +2869,10 @@ pub async fn set_port_public(
 
     // Snapshot pre-toggle state so a docker-compose failure can roll back
     // is_public/public_port instead of leaving the DB ahead of reality.
-    let (prev_is_public, prev_public_port, host_port, container_port, service_name): (
+    // Acts on exactly one port_allocations row: the one named by
+    // `body.port_id`, or the only port if the service has just one.
+    let (port_id, prev_is_public, prev_public_port, host_port, container_port, service_name): (
+        String,
         bool,
         Option<u16>,
         u16,
@@ -2880,20 +2884,66 @@ pub async fn set_port_public(
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-        let (hp, cp, prev_pub, prev_pp): (i64, i64, i64, Option<i64>) = db
-            .query_row(
-                "SELECT host_port, container_port, is_public, public_port \
-                 FROM port_allocations WHERE service_id = ?1 LIMIT 1",
-                [&id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )
-            .map_err(|_| AppError::NotFound(format!("No ports for resource {id}")))?;
-
         let svc_name: String = db
             .query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| {
                 row.get(0)
             })
             .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
+
+        // Resolve the target port row.
+        let resolved_port_id: String = match body.port_id.as_deref() {
+            Some(pid) => {
+                // Verify the port_id belongs to this service.
+                let owner: Option<String> = db
+                    .query_row(
+                        "SELECT service_id FROM port_allocations WHERE id = ?1",
+                        [pid],
+                        |row| row.get(0),
+                    )
+                    .ok();
+                match owner {
+                    Some(svc) if svc == id => pid.to_string(),
+                    Some(_) => {
+                        return Err(AppError::BadRequest(
+                            "port_id does not belong to this service".into(),
+                        ));
+                    }
+                    None => return Err(AppError::NotFound(format!("Port {pid} not found"))),
+                }
+            }
+            None => {
+                // No explicit port_id: only valid for single-port services so
+                // we don't accidentally flip the wrong port (the previous
+                // behavior, which silently fanned the toggle out across every
+                // port via `UPDATE ... WHERE service_id = ?`, was the source
+                // of the multi-port bug).
+                let mut stmt = db.prepare(
+                    "SELECT id FROM port_allocations WHERE service_id = ?1 ORDER BY rowid",
+                )?;
+                let ids: Vec<String> = stmt
+                    .query_map([&id], |row| row.get::<_, String>(0))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                match ids.len() {
+                    0 => return Err(AppError::NotFound(format!("No ports for resource {id}"))),
+                    1 => ids.into_iter().next().unwrap(),
+                    _ => {
+                        return Err(AppError::BadRequest(
+                            "port_id is required for multi-port services".into(),
+                        ));
+                    }
+                }
+            }
+        };
+
+        let (hp, cp, prev_pub, prev_pp): (i64, i64, i64, Option<i64>) = db
+            .query_row(
+                "SELECT host_port, container_port, is_public, public_port \
+                 FROM port_allocations WHERE id = ?1",
+                [&resolved_port_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .map_err(|_| AppError::NotFound(format!("Port {resolved_port_id} not found")))?;
 
         if body.is_public {
             // Default to the container port (what user sees in "Internal Network"),
@@ -2906,33 +2956,41 @@ pub async fn set_port_public(
                 hp as u16
             };
 
-            // Reject if another service already exposes this public port.
-            let conflict: Option<String> = db
+            // Reject if any other port (in this or any other service) already
+            // claims this public port — duplicate `0.0.0.0:p:*` bindings would
+            // either fight for the host port or be silently merged by Docker.
+            let conflict: Option<(String, String)> = db
                 .query_row(
-                    "SELECT service_id FROM port_allocations \
-                     WHERE is_public = 1 AND public_port = ?1 AND service_id != ?2 \
+                    "SELECT service_id, id FROM port_allocations \
+                     WHERE is_public = 1 AND public_port = ?1 AND id != ?2 \
                      LIMIT 1",
-                    rusqlite::params![pp as i64, id],
-                    |row| row.get(0),
+                    rusqlite::params![pp as i64, resolved_port_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .ok();
-            if let Some(other_id) = conflict {
-                return Err(AppError::Conflict(format!(
-                    "Port {pp} is already publicly exposed by another service ({other_id})"
-                )));
+            if let Some((other_svc, _)) = conflict {
+                let msg = if other_svc == id {
+                    format!("Port {pp} is already publicly exposed by another port of this service")
+                } else {
+                    format!(
+                        "Port {pp} is already publicly exposed by another service ({other_svc})"
+                    )
+                };
+                return Err(AppError::Conflict(msg));
             }
 
             db.execute(
-                "UPDATE port_allocations SET is_public = 1, public_port = ?1 WHERE service_id = ?2",
-                rusqlite::params![pp as i64, id],
+                "UPDATE port_allocations SET is_public = 1, public_port = ?1 WHERE id = ?2",
+                rusqlite::params![pp as i64, resolved_port_id],
             )?;
         } else {
             db.execute(
-                "UPDATE port_allocations SET is_public = 0, public_port = NULL WHERE service_id = ?1",
-                [&id],
+                "UPDATE port_allocations SET is_public = 0, public_port = NULL WHERE id = ?1",
+                [&resolved_port_id],
             )?;
         }
         (
+            resolved_port_id,
             prev_pub == 1,
             prev_pp.map(|p| p as u16),
             hp as u16,
@@ -2968,25 +3026,26 @@ pub async fn set_port_public(
             })))
         }
         Err(e) => {
-            // Roll back the is_public flag — the compose stack is now in
-            // whatever state docker compose left it, but the DB should not
-            // claim a public binding that isn't actually live.
+            // Roll back the is_public flag on exactly the port we flipped —
+            // the compose stack is now in whatever state docker compose left
+            // it, but the DB should not claim a public binding that isn't
+            // actually live.
             if let Ok(db) = state.db.lock() {
                 let _ = if prev_is_public {
                     db.execute(
                         "UPDATE port_allocations SET is_public = 1, public_port = ?1 \
-                         WHERE service_id = ?2",
-                        rusqlite::params![prev_public_port.map(|p| p as i64), id],
+                         WHERE id = ?2",
+                        rusqlite::params![prev_public_port.map(|p| p as i64), port_id],
                     )
                 } else {
                     db.execute(
                         "UPDATE port_allocations SET is_public = 0, public_port = NULL \
-                         WHERE service_id = ?1",
-                        [&id],
+                         WHERE id = ?1",
+                        [&port_id],
                     )
                 };
             }
-            tracing::error!("Port-public toggle for {id} failed; DB rolled back: {e}");
+            tracing::error!("Port-public toggle for {id}/{port_id} failed; DB rolled back: {e}");
             Err(AppError::Internal(anyhow::anyhow!(
                 "Failed to apply public port: {e}"
             )))
@@ -3019,6 +3078,10 @@ pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
         compose_content: Option<String>,
         env_json: Option<String>,
         ports: Vec<crate::catalog::ReplicaPortMapping>,
+        // (compose_service, public, container) for each port that is currently
+        // toggled public. Used by `inject_public_ports_into_compose` to splice
+        // 0.0.0.0:public:container into externally-supplied compose YAMLs.
+        public_bindings: Vec<crate::catalog::PublicBinding>,
         network_name: Option<String>,
     }
 
@@ -3041,10 +3104,11 @@ pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
         )?;
 
         let mut stmt = db.prepare(
-            "SELECT port_name, host_port, container_port, is_public, public_port \
+            "SELECT port_name, host_port, container_port, is_public, public_port, compose_service \
              FROM port_allocations WHERE service_id = ?1",
         )?;
-        let ports: Vec<crate::catalog::ReplicaPortMapping> = stmt
+        type PortRow = (String, u16, u16, bool, Option<u16>, Option<String>);
+        let rows: Vec<PortRow> = stmt
             .query_map([service_id], |row| {
                 let is_pub: i64 = row.get(3)?;
                 let pp: Option<i64> = row.get(4)?;
@@ -3052,14 +3116,35 @@ pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)? as u16,
                     row.get::<_, i64>(2)? as u16,
-                    if is_pub == 1 {
-                        pp.map(|p| p as u16)
-                    } else {
-                        None
-                    },
+                    is_pub == 1,
+                    pp.map(|p| p as u16),
+                    row.get::<_, Option<String>>(5)?,
                 ))
             })?
             .filter_map(|r| r.ok())
+            .collect();
+
+        let ports: Vec<crate::catalog::ReplicaPortMapping> = rows
+            .iter()
+            .map(|(name, host, container, is_pub, pp, _)| {
+                (
+                    name.clone(),
+                    *host,
+                    *container,
+                    if *is_pub { *pp } else { None },
+                )
+            })
+            .collect();
+
+        let public_bindings: Vec<crate::catalog::PublicBinding> = rows
+            .iter()
+            .filter_map(|(_, _, container, is_pub, pp, compose_service)| {
+                if *is_pub {
+                    pp.map(|p| (compose_service.clone(), p, *container))
+                } else {
+                    None
+                }
+            })
             .collect();
 
         let network_name: Option<String> = db
@@ -3077,6 +3162,7 @@ pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
             compose_content,
             env_json,
             ports,
+            public_bindings,
             network_name,
         }
     };
@@ -3093,34 +3179,36 @@ pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
             .find(|i| i.meta.id == catalog_id)
             .cloned();
         match item {
-            Some(item) => {
-                if item.compose.is_some() {
-                    // Compose-template services: the template's `ports:` is
-                    // owned by the template. Toggling public on these requires
-                    // editing the template; we just re-up with the saved YAML.
-                    snap.compose_content
-                        .clone()
-                        .ok_or_else(|| anyhow::anyhow!("No compose_content for {service_id}"))?
-                } else {
-                    crate::catalog::build_compose_yaml(
-                        &item,
-                        service_id,
-                        &snap.name,
-                        &env,
-                        &snap.ports,
-                        snap.network_name.as_deref(),
-                    )
-                }
+            Some(item) if item.compose.is_none() => crate::catalog::build_compose_yaml(
+                &item,
+                service_id,
+                &snap.name,
+                &env,
+                &snap.ports,
+                snap.network_name.as_deref(),
+            ),
+            _ => {
+                // Compose-template catalog item OR unknown catalog_id:
+                // splice public bindings into the saved YAML so the toggle
+                // actually emits `-p 0.0.0.0:public:container`. Previously
+                // these branches re-deployed the stored YAML verbatim and
+                // the toggle was a silent no-op for these services.
+                let base = snap
+                    .compose_content
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("No compose_content for {service_id}"))?;
+                crate::catalog::inject_public_ports_into_compose(&base, &snap.public_bindings)?
             }
-            None => snap
-                .compose_content
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("Catalog item {catalog_id} not found"))?,
         }
     } else {
-        snap.compose_content
+        // Git-deployed service: same fix as above — the saved YAML must be
+        // patched to include the public bindings before redeploy, otherwise
+        // `docker compose up -d` happily re-applies the private-only layout.
+        let base = snap
+            .compose_content
             .clone()
-            .ok_or_else(|| anyhow::anyhow!("No compose_content for {service_id}"))?
+            .ok_or_else(|| anyhow::anyhow!("No compose_content for {service_id}"))?;
+        crate::catalog::inject_public_ports_into_compose(&base, &snap.public_bindings)?
     };
 
     let stack_name = format!("pier-{}", snap.name.to_lowercase().replace(' ', "-"));
@@ -3174,6 +3262,69 @@ pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
             }
         }
     };
+
+    // Pre-flight: refuse to deploy if any *new* public port is already held
+    // on the host by something that isn't this service's existing container.
+    // Without this, docker compose up -d would fail with a low-level
+    // "bind: address already in use" deep in Bollard land, and the operator
+    // is left guessing whether the problem is Pier, Docker, or a rogue host
+    // process. Snapshot the set of ports the current container is already
+    // publishing so we don't false-positive on bindings we're just re-stating.
+    {
+        use bollard::query_parameters::ListContainersOptions;
+        let mut already_ours: std::collections::HashSet<u16> = std::collections::HashSet::new();
+        if let Ok(list) = state
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: false,
+                ..Default::default()
+            }))
+            .await
+        {
+            for c in &list {
+                let matches = c
+                    .labels
+                    .as_ref()
+                    .and_then(|l| l.get("pier.service.id"))
+                    .is_some_and(|s| s == service_id);
+                if !matches {
+                    continue;
+                }
+                if let Some(cid) = c.id.as_deref() {
+                    if let Ok(info) = state.docker.inspect_container(cid, None).await {
+                        if let Some(bindings) = info.host_config.and_then(|hc| hc.port_bindings) {
+                            for entries in bindings.into_values().flatten() {
+                                for entry in entries {
+                                    if let Some(hp) = entry.host_port.as_deref() {
+                                        if let Ok(p) = hp.parse::<u16>() {
+                                            already_ours.insert(p);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (_, public, _) in &snap.public_bindings {
+            if already_ours.contains(public) {
+                continue;
+            }
+            // Probe by trying to bind 0.0.0.0:<public>. Drop immediately —
+            // the listener exists only long enough to detect a conflict.
+            match std::net::TcpListener::bind(("0.0.0.0", *public)) {
+                Ok(l) => drop(l),
+                Err(e) => {
+                    anyhow::bail!(
+                        "Host port {public} is already in use by another process (not this container): {e}. \
+                         Free the port (e.g. `sudo ss -tlnp '( sport = :{public} )'`) and toggle again."
+                    );
+                }
+            }
+        }
+    }
 
     // Persist the rebuilt YAML so subsequent redeploys keep the new port lines.
     {
@@ -3264,6 +3415,11 @@ pub struct SetPortPublicRequest {
     /// the public TCP port is disabled.
     #[serde(default)]
     pub cascade_delete_domains: Option<bool>,
+    /// Target a specific `port_allocations.id`. Required for services with
+    /// more than one port; for single-port services it may be omitted and the
+    /// only port is used. Wrong service_id ⇒ 404; multi-port + missing ⇒ 400.
+    #[serde(default)]
+    pub port_id: Option<String>,
 }
 
 /// GET /api/v1/resources/{id}/git-compose — fetch the live docker-compose.yml

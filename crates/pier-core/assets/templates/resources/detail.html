@@ -164,65 +164,51 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Ports</h3>
-                <div x-show="logicalPorts.length > 0" class="space-y-2">
-                    <template x-for="(p, i) in logicalPorts" :key="(p.compose_service || '') + '-' + p.container + '-' + (p.is_public ? 'pub' : 'priv')">
-                        <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-500" x-text="p.compose_service || p.name"></span>
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs px-1.5 py-0.5 rounded"
-                                      :class="p.is_public ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'"
-                                      x-text="p.is_public ? 'Public' : 'Local'"></span>
-                                <span x-show="domainsForPort(p, i).length > 0"
-                                      class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
-                                      :title="domainsForPort(p, i).map(d => d.domain).join(', ')"
-                                      x-text="'+ ' + domainsForPort(p, i).length + ' domain' + (domainsForPort(p, i).length > 1 ? 's' : '')"></span>
-                                <code x-show="p.is_public"
-                                      class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
-                                      x-text="(resource.public_ip || '0.0.0.0') + ':' + p.public_port + ' \u2192 :' + p.container"></code>
-                                <code x-show="!p.is_public && replicaCount <= 1"
-                                      class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
-                                      x-text="'127.0.0.1:' + p.host + ' \u2192 :' + p.container"></code>
-                                <code x-show="!p.is_public && replicaCount > 1"
-                                      class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
-                                      x-text="'internal \u2192 :' + p.container"></code>
+                <p class="text-[11px] text-gray-400 mb-3">Toggle a port to expose it on the host via direct Docker port binding (raw TCP, e.g. DB clients, MQTT). Toggling recreates the container (~3 s downtime). For HTTP, use the Domains tab.</p>
+                <div x-show="logicalPorts.length > 0" class="space-y-3">
+                    <template x-for="(p, i) in logicalPorts" :key="p.toggle_id || ((p.compose_service || '') + '-' + p.container + '-' + i)">
+                        <div class="space-y-1">
+                            <div class="flex items-center justify-between text-sm gap-2">
+                                <span class="text-gray-500 truncate" x-text="p.compose_service || p.name"></span>
+                                <div class="flex items-center gap-2 flex-wrap justify-end">
+                                    <span class="text-xs px-1.5 py-0.5 rounded"
+                                          :class="p.is_public ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'"
+                                          x-text="p.is_public ? 'Public' : 'Local'"></span>
+                                    <span x-show="domainsForPort(p, i).length > 0"
+                                          class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
+                                          :title="domainsForPort(p, i).map(d => d.domain).join(', ')"
+                                          x-text="'+ ' + domainsForPort(p, i).length + ' domain' + (domainsForPort(p, i).length > 1 ? 's' : '')"></span>
+                                    <code x-show="p.is_public"
+                                          class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
+                                          x-text="(resource.public_ip || '0.0.0.0') + ':' + p.public_port + ' \u2192 :' + p.container"></code>
+                                    <code x-show="!p.is_public && replicaCount <= 1"
+                                          class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
+                                          x-text="'127.0.0.1:' + p.host + ' \u2192 :' + p.container"></code>
+                                    <code x-show="!p.is_public && replicaCount > 1"
+                                          class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
+                                          x-text="'internal \u2192 :' + p.container"></code>
+                                    <button @click="togglePortPublic(p)"
+                                            :disabled="togglingPortId === p.toggle_id || !p.toggle_id"
+                                            :title="p.toggle_id ? (p.is_public ? 'Disable public access for this port' : 'Expose this port on the host') : 'No port_id available'"
+                                            class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-50"
+                                            :class="p.is_public ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'">
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                                              :class="p.is_public ? 'translate-x-4' : 'translate-x-0'"></span>
+                                    </button>
+                                </div>
                             </div>
+                            <p x-show="togglingPortId === p.toggle_id" class="text-xs text-blue-500">Recreating container with new port binding...</p>
                         </div>
                     </template>
                     <p x-show="replicaCount > 1" class="text-xs text-gray-400 mt-1">
-                        × <span x-text="replicaCount"></span> replicas &mdash; Traefik load-balances internally
+                        &times; <span x-text="replicaCount"></span> replicas &mdash; Traefik load-balances internally
                     </p>
                 </div>
                 <p x-show="logicalPorts.length === 0" class="text-sm text-gray-400">No ports allocated</p>
-
-                <!-- Public access (via Traefik TCP proxy) -->
-                <div x-show="(resource.ports || []).length > 0" class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-800">
-                    <!-- Public port input (always visible) -->
-                    <div class="mb-3">
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Public Port</label>
-                        <input type="number" x-model.number="publicPort" min="1024" max="65535"
-                               class="w-28 px-2 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100"
-                               @change="if(portIsPublic) updatePublicPort()">
-                    </div>
-                    <!-- Toggle -->
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Make it publicly available</span>
-                            <p class="text-xs text-gray-400 mt-0.5">Raw TCP exposure (e.g. DB clients) via direct Docker port binding. Toggling recreates this service's container (~3 s downtime); the platform stays online. For HTTP access, use the Domains tab.</p>
-                        </div>
-                        <button @click="togglePublic()"
-                                :disabled="togglingPublic"
-                                class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                                :class="portIsPublic ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'">
-                            <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                                  :class="portIsPublic ? 'translate-x-5' : 'translate-x-0'"></span>
-                        </button>
-                    </div>
-                    <p x-show="togglingPublic" class="text-xs text-blue-500 mt-2">Recreating service container with new port binding...</p>
-                    <p x-show="!portTcpPublished && domains && domains.length > 0 && !togglingPublic"
-                       class="text-xs text-gray-400 mt-2">
-                        Public via <span x-text="domains.length"></span> domain<span x-show="domains.length > 1">s</span> (HTTP). Toggle off to remove all and make private.
-                    </p>
-                </div>
+                <p x-show="logicalPorts.length > 0 && !portTcpPublished && domains && domains.length > 0"
+                   class="text-xs text-gray-400 mt-3 pt-3 border-t border-gray-200 dark:border-gray-800">
+                    Public via <span x-text="domains.length"></span> domain<span x-show="domains.length > 1">s</span> (HTTP). Remove all in the Domains list to make this service fully private.
+                </p>
             </div>
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
                 <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Details</h3>
@@ -1578,6 +1564,7 @@ function resourceDetail(id) {
         gitSources: [], showWebhookSecret: false,
         ciDeployments: [], expandedLog: null, selectedDeploy: null, deploysPage: 1, deploysPerPage: 10, cancellingDeploy: false,
         togglingPublic: false,
+        togglingPortId: null,
         publicPort: 0,
         showPublicConfirm: false, publicConfirmDomains: [], publicConfirmPort: 0,
         changingNetwork: false,
@@ -1616,6 +1603,11 @@ function resourceDetail(id) {
                     is_public: p.is_public,
                     public_port: p.public_port,
                     compose_service: p.compose_service || null,
+                    // Per-port toggle target: id of the first underlying
+                    // port_allocations row (single-replica services have
+                    // exactly one; for replicas we toggle the first and
+                    // let the rebuild propagate via compose).
+                    toggle_id: p.id || null,
                 });
             }
             return Array.from(seen.values());
@@ -1705,6 +1697,49 @@ function resourceDetail(id) {
         get publicConnectionStringRaw() {
             const p = this._primaryPort(); if (!p || !this.resource.public_ip) return '';
             return this._buildConnStr(this.resource.public_ip, p.public_port || p.host, null, false);
+        },
+        async togglePortPublic(logicalPort) {
+            // Per-row toggle: targets exactly the underlying
+            // port_allocations row by id. Server validates and rebuilds
+            // the compose YAML to add/remove the 0.0.0.0:public:container
+            // binding, then docker compose up -d.
+            if (!logicalPort || !logicalPort.toggle_id) {
+                toast('No port_id available for this port', 'error');
+                return;
+            }
+            const newState = !logicalPort.is_public;
+            // Default the public port to the container port (what user
+            // sees in 'Internal Network'). The server falls back further
+            // to host_port if container_port is somehow 0.
+            const port = logicalPort.public_port || logicalPort.container || logicalPort.host || 0;
+            this.togglingPortId = logicalPort.toggle_id;
+            try {
+                const body = { is_public: newState, public_port: port, port_id: logicalPort.toggle_id };
+                const res = await fetch('/api/v1/resources/'+this.id+'/port-public', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                if (res.status === 409) {
+                    const d = await res.json().catch(() => ({}));
+                    if (d.code === 'domains_require_confirmation') {
+                        this.publicConfirmDomains = d.domains || [];
+                        this.publicConfirmPort = port;
+                        this.publicConfirmPortId = logicalPort.toggle_id;
+                        this.showPublicConfirm = true;
+                        return;
+                    }
+                    throw new Error(d.error || 'Conflict');
+                }
+                if (!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    throw new Error(d.error || ('HTTP '+res.status));
+                }
+                toast(newState ? ('Public access enabled (port ' + port + ')') : 'Public access disabled');
+                await this.refresh();
+                await this.loadDomains();
+            } catch(e) { toast(e.message, 'error'); }
+            this.togglingPortId = null;
         },
         async togglePublic() {
             const newState = !this.portIsPublic;
