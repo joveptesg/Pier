@@ -178,9 +178,18 @@
                                           class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
                                           :title="domainsForPort(p, i).map(d => d.domain).join(', ')"
                                           x-text="'+ ' + domainsForPort(p, i).length + ' domain' + (domainsForPort(p, i).length > 1 ? 's' : '')"></span>
-                                    <code x-show="p.is_public"
-                                          class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
-                                          x-text="(resource.public_ip || '0.0.0.0') + ':' + p.public_port + ' \u2192 :' + p.container"></code>
+                                    <span x-show="p.is_public" class="flex items-center gap-1 text-xs">
+                                        <span class="text-gray-500 font-mono" x-text="(resource.public_ip || '0.0.0.0') + ':'"></span>
+                                        <input type="number"
+                                               :value="p.public_port"
+                                               :disabled="togglingPortId === p.toggle_id || !p.toggle_id"
+                                               @change="updatePortPublicPort(p, $event.target.value)"
+                                               @keydown.enter="$event.target.blur()"
+                                               min="1024" max="65535"
+                                               title="Public port (host). Press Enter or click away to apply."
+                                               class="w-20 px-2 py-0.5 text-xs font-mono bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50">
+                                        <span class="text-gray-500 font-mono" x-text="' \u2192 :' + p.container"></span>
+                                    </span>
                                     <code x-show="!p.is_public && replicaCount <= 1"
                                           class="text-gray-900 dark:text-gray-100 font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded"
                                           x-text="'127.0.0.1:' + p.host + ' \u2192 :' + p.container"></code>
@@ -1739,6 +1748,44 @@ function resourceDetail(id) {
                 await this.refresh();
                 await this.loadDomains();
             } catch(e) { toast(e.message, 'error'); }
+            this.togglingPortId = null;
+        },
+        async updatePortPublicPort(logicalPort, newPort) {
+            // Per-row Public Port input: send the new public_port to the
+            // server for exactly this port_allocations row. Server validates
+            // conflict against other rows and recreates the container with
+            // the new HostConfig.PortBindings. The toggle stays ON.
+            const port = parseInt(newPort, 10);
+            if (!port || port < 1024 || port > 65535) {
+                toast('Invalid public port (1024-65535)', 'error');
+                await this.refresh();
+                return;
+            }
+            if (!logicalPort || !logicalPort.toggle_id) {
+                toast('No port_id available for this port', 'error');
+                return;
+            }
+            if (port === logicalPort.public_port) {
+                return; // no-op
+            }
+            this.togglingPortId = logicalPort.toggle_id;
+            try {
+                const body = { is_public: true, public_port: port, port_id: logicalPort.toggle_id };
+                const res = await fetch('/api/v1/resources/'+this.id+'/port-public', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    throw new Error(d.error || ('HTTP '+res.status));
+                }
+                toast('Public port updated to ' + port);
+                await this.refresh();
+            } catch(e) {
+                toast(e.message, 'error');
+                await this.refresh();
+            }
             this.togglingPortId = null;
         },
         async togglePublic() {
