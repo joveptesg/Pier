@@ -2803,15 +2803,22 @@ pub struct UpdateGitConfigRequest {
     pub webhook_secret: Option<String>,
 }
 
-/// PUT /api/v1/resources/{id}/port-public — toggle public port via direct
-/// Docker port binding on the service container.
+/// PUT /api/v1/resources/{id}/port-public — toggle public exposure of one
+/// service port via direct Bollard container recreate.
 ///
-/// Coolify-style architecture: the operator's "Make publicly available"
-/// rebuilds the service's docker-compose.yml with an extra
-/// `0.0.0.0:{public_port}:{container_port}` line and runs `docker compose up
-/// -d`. Traefik is untouched — it never knew about raw TCP routes after this
-/// migration. Trade-off: the service container is recreated (~3 s downtime
-/// for that service); the platform stays up.
+/// The tumbler no longer touches the docker-compose YAML. Phase 1 flips
+/// `port_allocations.is_public/public_port` for the one targeted row; phase 2
+/// asks `docker::recreate::recreate_with_port_bindings` to inspect every
+/// container labeled `pier.service.id == id`, rebuild `HostConfig.PortBindings`
+/// from the fresh DB state and recreate the container. Same ~3 s downtime as
+/// before, but works universally for catalog / git+Dockerfile / git+compose /
+/// compose-template services because the configuration is read from the live
+/// container, not from `compose_content` in the DB.
+///
+/// Cascade-delete of attached domains is opt-in (`cascade_delete_domains`)
+/// and only triggers when this is the *last* public port of the service —
+/// i.e. the service is going fully private. While other public ports remain,
+/// domains stay untouched.
 pub async fn set_port_public(
     State(state): State<SharedState>,
     axum::Extension(user): axum::Extension<AuthUser>,
@@ -2821,64 +2828,17 @@ pub async fn set_port_public(
     enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let public_port = body.public_port.unwrap_or(0) as u16;
 
-    // Disabling public access: if the service has domains attached, require
-    // explicit confirmation (the domains will be deleted as part of the master
-    // "make this service private" action).
-    if !body.is_public {
-        let domains: Vec<String> = {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            let mut stmt =
-                db.prepare("SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain")?;
-            let rows: Vec<String> = stmt
-                .query_map([&id], |row| row.get::<_, String>(0))?
-                .filter_map(|r| r.ok())
-                .collect();
-            rows
-        };
-        if !domains.is_empty() {
-            if body.cascade_delete_domains != Some(true) {
-                return Err(AppError::DomainsRequireConfirmation { domains });
-            }
-            // Cascade-delete: drop domains + tear down Traefik HTTP routes for this service.
-            {
-                let db = state
-                    .db
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-                db.execute("DELETE FROM domains WHERE service_id = ?1", [&id])?;
-            }
-            // Empty domain list deletes the per-service dynamic config file.
-            if let Err(e) = crate::proxy::config::regenerate_service_config(
-                &state.config.data_dir,
-                &id,
-                &[],
-                "",
-            ) {
-                tracing::warn!("Failed to remove Traefik config for {id}: {e}");
-            }
-            tracing::info!(
-                "Cascade-deleted {} domain(s) for {id}: {:?}",
-                domains.len(),
-                domains
-            );
-        }
-    }
-
-    // Snapshot pre-toggle state so a docker-compose failure can roll back
-    // is_public/public_port instead of leaving the DB ahead of reality.
-    // Acts on exactly one port_allocations row: the one named by
-    // `body.port_id`, or the only port if the service has just one.
-    let (port_id, prev_is_public, prev_public_port, host_port, container_port, service_name): (
-        String,
-        bool,
-        Option<u16>,
-        u16,
-        u16,
-        String,
-    ) = {
+    // ─── Resolve the target port row ────────────────────────────────────
+    // We need port_id before the domain-cascade check so we can count the
+    // service's other public ports.
+    let (
+        resolved_port_id,
+        host_port,
+        container_port,
+        prev_is_public,
+        prev_public_port,
+        service_name,
+    ): (String, u16, u16, bool, Option<u16>, String) = {
         let db = state
             .db
             .lock()
@@ -2890,10 +2850,8 @@ pub async fn set_port_public(
             })
             .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
 
-        // Resolve the target port row.
-        let resolved_port_id: String = match body.port_id.as_deref() {
+        let port_id: String = match body.port_id.as_deref() {
             Some(pid) => {
-                // Verify the port_id belongs to this service.
                 let owner: Option<String> = db
                     .query_row(
                         "SELECT service_id FROM port_allocations WHERE id = ?1",
@@ -2912,11 +2870,6 @@ pub async fn set_port_public(
                 }
             }
             None => {
-                // No explicit port_id: only valid for single-port services so
-                // we don't accidentally flip the wrong port (the previous
-                // behavior, which silently fanned the toggle out across every
-                // port via `UPDATE ... WHERE service_id = ?`, was the source
-                // of the multi-port bug).
                 let mut stmt = db.prepare(
                     "SELECT id FROM port_allocations WHERE service_id = ?1 ORDER BY rowid",
                 )?;
@@ -2940,31 +2893,110 @@ pub async fn set_port_public(
             .query_row(
                 "SELECT host_port, container_port, is_public, public_port \
                  FROM port_allocations WHERE id = ?1",
-                [&resolved_port_id],
+                [&port_id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
-            .map_err(|_| AppError::NotFound(format!("Port {resolved_port_id} not found")))?;
+            .map_err(|_| AppError::NotFound(format!("Port {port_id} not found")))?;
 
-        if body.is_public {
-            // Default to the container port (what user sees in "Internal Network"),
-            // falling back to host_port only if container_port is somehow 0.
-            let pp = if public_port > 0 {
-                public_port
-            } else if cp > 0 {
-                cp as u16
-            } else {
-                hp as u16
+        (
+            port_id,
+            hp as u16,
+            cp as u16,
+            prev_pub == 1,
+            prev_pp.map(|p| p as u16),
+            svc_name,
+        )
+    };
+
+    // ─── Per-port cascade-delete domain check ────────────────────────────
+    // Only when this toggle takes the LAST public port off. While any other
+    // public port remains, the service is still reachable and the domains
+    // (which point at compose_service:http_port, not at this specific port)
+    // are left in place.
+    if !body.is_public {
+        let other_publics: i64 = {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            db.query_row(
+                "SELECT COUNT(*) FROM port_allocations \
+                 WHERE service_id = ?1 AND is_public = 1 AND id != ?2",
+                rusqlite::params![id, resolved_port_id],
+                |row| row.get(0),
+            )?
+        };
+        if other_publics == 0 {
+            let domains: Vec<String> = {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                let mut stmt =
+                    db.prepare("SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain")?;
+                let rows: Vec<String> = stmt
+                    .query_map([&id], |row| row.get::<_, String>(0))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                rows
             };
+            if !domains.is_empty() {
+                if body.cascade_delete_domains != Some(true) {
+                    return Err(AppError::DomainsRequireConfirmation { domains });
+                }
+                {
+                    let db = state
+                        .db
+                        .lock()
+                        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                    db.execute("DELETE FROM domains WHERE service_id = ?1", [&id])?;
+                }
+                if let Err(e) = crate::proxy::config::regenerate_service_config(
+                    &state.config.data_dir,
+                    &id,
+                    &[],
+                    "",
+                ) {
+                    tracing::warn!("Failed to remove Traefik config for {id}: {e}");
+                }
+                tracing::info!(
+                    "Cascade-deleted {} domain(s) for {id}: {:?}",
+                    domains.len(),
+                    domains
+                );
+            }
+        } else {
+            tracing::debug!(
+                "Port-public toggle off for {id}/{resolved_port_id}: \
+                 {other_publics} other public port(s) remain, leaving domains untouched"
+            );
+        }
+    }
 
+    // ─── Flip the DB row + conflict check ────────────────────────────────
+    let port_id = resolved_port_id;
+    let pp: u16 = if public_port > 0 {
+        public_port
+    } else if container_port > 0 {
+        container_port
+    } else {
+        host_port
+    };
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        if body.is_public {
             // Reject if any other port (in this or any other service) already
-            // claims this public port — duplicate `0.0.0.0:p:*` bindings would
-            // either fight for the host port or be silently merged by Docker.
+            // claims this public port — two host bindings on the same port
+            // would either fight or be silently merged by Docker.
             let conflict: Option<(String, String)> = db
                 .query_row(
                     "SELECT service_id, id FROM port_allocations \
                      WHERE is_public = 1 AND public_port = ?1 AND id != ?2 \
                      LIMIT 1",
-                    rusqlite::params![pp as i64, resolved_port_id],
+                    rusqlite::params![pp as i64, port_id],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .ok();
@@ -2981,43 +3013,30 @@ pub async fn set_port_public(
 
             db.execute(
                 "UPDATE port_allocations SET is_public = 1, public_port = ?1 WHERE id = ?2",
-                rusqlite::params![pp as i64, resolved_port_id],
+                rusqlite::params![pp as i64, port_id],
             )?;
         } else {
             db.execute(
                 "UPDATE port_allocations SET is_public = 0, public_port = NULL WHERE id = ?1",
-                [&resolved_port_id],
+                [&port_id],
             )?;
         }
-        (
-            resolved_port_id,
-            prev_pub == 1,
-            prev_pp.map(|p| p as u16),
-            hp as u16,
-            cp as u16,
-            svc_name,
-        )
-    };
+    }
 
-    let pp = if public_port > 0 {
-        public_port
-    } else if container_port > 0 {
-        container_port
-    } else {
-        host_port
-    };
-
-    // Rebuild compose YAML with new public binding and redeploy via docker
-    // compose. Failure (e.g. host port already in use) bubbles up as an HTTP
-    // 5xx and the DB flip is rolled back so UI and reality stay consistent.
-    match rebuild_and_redeploy_for_port_toggle(&state, &id).await {
+    // ─── Recreate the container(s) via Bollard ───────────────────────────
+    // Reads the live ContainerConfig + HostConfig via inspect, swaps in new
+    // PortBindings/ExposedPorts derived from the freshly updated
+    // port_allocations rows, then stop+remove+create+start. Universal across
+    // catalog / git+Dockerfile / git+compose / compose-template services
+    // because no docker-compose YAML is needed.
+    match crate::docker::recreate::recreate_with_port_bindings(&state, &id).await {
         Ok(()) => {
             if body.is_public {
                 tracing::info!(
-                    "Public Docker port {pp} enabled for {id} → {service_name}:{container_port}"
+                    "Public port {pp} enabled for {id} → {service_name}:{container_port}"
                 );
             } else {
-                tracing::info!("Public Docker port disabled for {id}");
+                tracing::info!("Public port disabled for {id}/{port_id}");
             }
             Ok(Json(serde_json::json!({
                 "ok": true,
@@ -3026,10 +3045,9 @@ pub async fn set_port_public(
             })))
         }
         Err(e) => {
-            // Roll back the is_public flag on exactly the port we flipped —
-            // the compose stack is now in whatever state docker compose left
-            // it, but the DB should not claim a public binding that isn't
-            // actually live.
+            // Recreate failed — the container is in whatever state Bollard
+            // left it (probably down). Roll the DB flag back so UI and
+            // reality stay in sync.
             if let Ok(db) = state.db.lock() {
                 let _ = if prev_is_public {
                     db.execute(
@@ -3053,357 +3071,11 @@ pub async fn set_port_public(
     }
 }
 
-/// Rebuild the service's docker-compose.yml from the current DB state (env +
-/// ports including the operator-toggled `public_port`) and run
-/// `docker compose up -d`. Compose detects the changed `ports:` lines and
-/// recreates the container automatically.
-///
-/// Catalog (template-based) services are rebuilt via `build_compose_yaml`;
-/// services with an explicit `compose` template come from the catalog as-is
-/// (those templates own their own port lines and the toggle is a no-op for
-/// them — the operator should set the public port inside the template); git
-/// services use `compose_content` already stored in the DB. We re-issue
-/// `docker compose up -d` against the saved YAML so Docker just re-applies it.
-pub(crate) async fn rebuild_and_redeploy_for_port_toggle(
-    state: &crate::state::AppState,
-    service_id: &str,
-) -> anyhow::Result<()> {
-    use std::collections::HashMap;
-
-    // Snapshot everything we need under one DB lock to avoid TOCTOU between
-    // reads.
-    struct Snap {
-        name: String,
-        catalog_id: Option<String>,
-        compose_content: Option<String>,
-        env_json: Option<String>,
-        ports: Vec<crate::catalog::ReplicaPortMapping>,
-        // (compose_service, public, container) for each port that is currently
-        // toggled public. Used by `inject_public_ports_into_compose` to splice
-        // 0.0.0.0:public:container into externally-supplied compose YAMLs.
-        public_bindings: Vec<crate::catalog::PublicBinding>,
-        network_name: Option<String>,
-    }
-
-    let snap = {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-
-        let (name, catalog_id, compose_content, env_json): (
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        ) = db.query_row(
-            "SELECT name, catalog_id, compose_content, env_json \
-             FROM services WHERE id = ?1",
-            [service_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )?;
-
-        let mut stmt = db.prepare(
-            "SELECT port_name, host_port, container_port, is_public, public_port, compose_service \
-             FROM port_allocations WHERE service_id = ?1",
-        )?;
-        type PortRow = (String, u16, u16, bool, Option<u16>, Option<String>);
-        let rows: Vec<PortRow> = stmt
-            .query_map([service_id], |row| {
-                let is_pub: i64 = row.get(3)?;
-                let pp: Option<i64> = row.get(4)?;
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)? as u16,
-                    row.get::<_, i64>(2)? as u16,
-                    is_pub == 1,
-                    pp.map(|p| p as u16),
-                    row.get::<_, Option<String>>(5)?,
-                ))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        let ports: Vec<crate::catalog::ReplicaPortMapping> = rows
-            .iter()
-            .map(|(name, host, container, is_pub, pp, _)| {
-                (
-                    name.clone(),
-                    *host,
-                    *container,
-                    if *is_pub { *pp } else { None },
-                )
-            })
-            .collect();
-
-        let public_bindings: Vec<crate::catalog::PublicBinding> = rows
-            .iter()
-            .filter_map(|(_, _, container, is_pub, pp, compose_service)| {
-                if *is_pub {
-                    pp.map(|p| (compose_service.clone(), p, *container))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let network_name: Option<String> = db
-            .query_row(
-                "SELECT n.name FROM networks n \
-                 JOIN services s ON s.network_id = n.id WHERE s.id = ?1",
-                [service_id],
-                |row| row.get(0),
-            )
-            .ok();
-
-        Snap {
-            name,
-            catalog_id,
-            compose_content,
-            env_json,
-            ports,
-            public_bindings,
-            network_name,
-        }
-    };
-
-    let env: HashMap<String, String> = {
-        let decrypted = crate::crypto::decrypt_env_json(snap.env_json.as_deref());
-        serde_json::from_str(&decrypted).unwrap_or_default()
-    };
-
-    let yaml = if let Some(catalog_id) = snap.catalog_id.as_deref() {
-        let item = state
-            .catalog
-            .iter()
-            .find(|i| i.meta.id == catalog_id)
-            .cloned();
-        match item {
-            Some(item) if item.compose.is_none() => crate::catalog::build_compose_yaml(
-                &item,
-                service_id,
-                &snap.name,
-                &env,
-                &snap.ports,
-                snap.network_name.as_deref(),
-            ),
-            _ => {
-                // Compose-template catalog item OR unknown catalog_id:
-                // splice public bindings into the saved YAML so the toggle
-                // actually emits `-p 0.0.0.0:public:container`. Previously
-                // these branches re-deployed the stored YAML verbatim and
-                // the toggle was a silent no-op for these services.
-                let base = snap
-                    .compose_content
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("No compose_content for {service_id}"))?;
-                crate::catalog::inject_public_ports_into_compose(&base, &snap.public_bindings)?
-            }
-        }
-    } else {
-        // Git-deployed service: same fix as above — the saved YAML must be
-        // patched to include the public bindings before redeploy, otherwise
-        // `docker compose up -d` happily re-applies the private-only layout.
-        let base = snap
-            .compose_content
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("No compose_content for {service_id}"))?;
-        crate::catalog::inject_public_ports_into_compose(&base, &snap.public_bindings)?
-    };
-
-    let stack_name = format!("pier-{}", snap.name.to_lowercase().replace(' ', "-"));
-
-    // Snapshot the existing container's network attachments BEFORE the
-    // recreate. We locate it by `pier.service.id` label, not by name —
-    // production deployments have container names like `pier-postgresql-srv0`
-    // that the catalog generator never produces, so name-based lookup is
-    // unreliable. After deploy_service_stack we reattach any network the
-    // old container had that the new one is missing.
-    let preexisting_networks: std::collections::HashSet<String> = {
-        use bollard::query_parameters::ListContainersOptions;
-        match state
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: false,
-                ..Default::default()
-            }))
-            .await
-        {
-            Ok(list) => {
-                let mut out = std::collections::HashSet::new();
-                for c in &list {
-                    let matches = c
-                        .labels
-                        .as_ref()
-                        .and_then(|l| l.get("pier.service.id"))
-                        .is_some_and(|s| s == service_id);
-                    if !matches {
-                        continue;
-                    }
-                    if let Some(id) = c.id.as_deref() {
-                        if let Ok(info) = state.docker.inspect_container(id, None).await {
-                            if let Some(networks) = info
-                                .network_settings
-                                .as_ref()
-                                .and_then(|ns| ns.networks.as_ref())
-                            {
-                                for net in networks.keys() {
-                                    out.insert(net.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-                out
-            }
-            Err(e) => {
-                tracing::warn!("Port-toggle: failed to snapshot networks for {service_id}: {e}");
-                std::collections::HashSet::new()
-            }
-        }
-    };
-
-    // Pre-flight: refuse to deploy if any *new* public port is already held
-    // on the host by something that isn't this service's existing container.
-    // Without this, docker compose up -d would fail with a low-level
-    // "bind: address already in use" deep in Bollard land, and the operator
-    // is left guessing whether the problem is Pier, Docker, or a rogue host
-    // process. Snapshot the set of ports the current container is already
-    // publishing so we don't false-positive on bindings we're just re-stating.
-    {
-        use bollard::query_parameters::ListContainersOptions;
-        let mut already_ours: std::collections::HashSet<u16> = std::collections::HashSet::new();
-        if let Ok(list) = state
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: false,
-                ..Default::default()
-            }))
-            .await
-        {
-            for c in &list {
-                let matches = c
-                    .labels
-                    .as_ref()
-                    .and_then(|l| l.get("pier.service.id"))
-                    .is_some_and(|s| s == service_id);
-                if !matches {
-                    continue;
-                }
-                if let Some(cid) = c.id.as_deref() {
-                    if let Ok(info) = state.docker.inspect_container(cid, None).await {
-                        if let Some(bindings) = info.host_config.and_then(|hc| hc.port_bindings) {
-                            for entries in bindings.into_values().flatten() {
-                                for entry in entries {
-                                    if let Some(hp) = entry.host_port.as_deref() {
-                                        if let Ok(p) = hp.parse::<u16>() {
-                                            already_ours.insert(p);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        for (_, public, _) in &snap.public_bindings {
-            if already_ours.contains(public) {
-                continue;
-            }
-            // Probe by trying to bind 0.0.0.0:<public>. Drop immediately —
-            // the listener exists only long enough to detect a conflict.
-            match std::net::TcpListener::bind(("0.0.0.0", *public)) {
-                Ok(l) => drop(l),
-                Err(e) => {
-                    anyhow::bail!(
-                        "Host port {public} is already in use by another process (not this container): {e}. \
-                         Free the port (e.g. `sudo ss -tlnp '( sport = :{public} )'`) and toggle again."
-                    );
-                }
-            }
-        }
-    }
-
-    // Persist the rebuilt YAML so subsequent redeploys keep the new port lines.
-    {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let _ = db.execute(
-            "UPDATE services SET compose_content = ?1, updated_at = datetime('now') WHERE id = ?2",
-            rusqlite::params![yaml, service_id],
-        );
-    }
-
-    crate::docker::deploy_service_stack(state, service_id, &stack_name, &yaml, None).await?;
-
-    // Post-deploy: reattach any network the old container had that the new
-    // one is missing. This catches operator-attached networks and per-project
-    // networks the catalog generator didn't put back into the YAML.
-    if !preexisting_networks.is_empty() {
-        use bollard::models::{EndpointSettings, NetworkConnectRequest};
-        use bollard::query_parameters::ListContainersOptions;
-        if let Ok(list) = state
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: false,
-                ..Default::default()
-            }))
-            .await
-        {
-            for c in &list {
-                let matches = c
-                    .labels
-                    .as_ref()
-                    .and_then(|l| l.get("pier.service.id"))
-                    .is_some_and(|s| s == service_id);
-                if !matches {
-                    continue;
-                }
-                let Some(container_id) = c.id.as_deref() else {
-                    continue;
-                };
-                let current: std::collections::HashSet<String> = state
-                    .docker
-                    .inspect_container(container_id, None)
-                    .await
-                    .ok()
-                    .and_then(|info| {
-                        info.network_settings
-                            .and_then(|ns| ns.networks)
-                            .map(|nets| nets.keys().cloned().collect())
-                    })
-                    .unwrap_or_default();
-                for net in preexisting_networks.difference(&current) {
-                    let req = NetworkConnectRequest {
-                        container: container_id.to_string(),
-                        endpoint_config: Some(EndpointSettings::default()),
-                    };
-                    match state.docker.connect_network(net, req).await {
-                        Ok(()) => tracing::info!(
-                            "Port-toggle: re-attached {service_id} container to network {net}"
-                        ),
-                        Err(e) => {
-                            let msg = e.to_string();
-                            if !msg.contains("already exists in network")
-                                && !msg.contains("already attached to network")
-                            {
-                                tracing::warn!(
-                                    "Port-toggle: failed to re-attach {service_id} to {net}: {msg}"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
+// `rebuild_and_redeploy_for_port_toggle` was removed in favour of
+// `crate::docker::recreate::recreate_with_port_bindings` — the new path is
+// Engine-API-only (no docker compose), works universally regardless of
+// compose_content state in the DB, and was approved by the operator after
+// the four-iteration strip+inject saga.
 
 #[derive(Deserialize)]
 pub struct SetPortPublicRequest {
