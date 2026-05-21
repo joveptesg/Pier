@@ -5,6 +5,15 @@ description = "Community-developed fork of MySQL with enhanced features"
 category = "database"
 icon = "mariadb"
 tags = ["sql", "relational", "mysql-compatible"]
+long_description = """
+MariaDB is a community-developed fork of MySQL created by the original MySQL developers (led by Monty Widenius) after the Oracle acquisition. It's binary-compatible with MySQL through 5.x and remains drop-in for most MySQL 8.0 workloads, while adding storage engines (Aria, ColumnStore), Galera multi-master cluster, and a stronger open-source guarantee under the MariaDB Foundation.
+
+Wikipedia, Google, Mozilla, Red Hat, SUSE, and Booking.com all migrated from MySQL to MariaDB. Major Linux distributions (Debian, Fedora, Arch) ship MariaDB as their default "MySQL-compatible" database.
+
+Pier deploys the official mariadb Docker image with /var/lib/mysql mounted as the persistent volume. Default port is 3306/tcp; the wire protocol is MySQL so the connection string still uses mysql://. Strong root password is auto-generated.
+
+Cluster mode supports 2–5 nodes via the bitnami/mariadb image with Galera synchronous multi-master replication — write to any node, all nodes stay consistent.
+"""
 
 [docker]
 image = "mariadb:{{version}}"

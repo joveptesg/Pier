@@ -5,6 +5,15 @@ description = "Popular open-source relational database management system"
 category = "database"
 icon = "mysql"
 tags = ["sql", "relational"]
+long_description = """
+MySQL is the most-deployed relational database in the world — the default backend for WordPress, Drupal, Joomla, Magento, Laravel, Ruby on Rails, and most of the LAMP-stack ecosystem. MySQL 8+ ships modern SQL features like window functions, CTEs, JSON columns, and EXPLAIN ANALYZE.
+
+Pier deploys the official mysql Docker image. /var/lib/mysql is mounted as the persistent volume. A strong root password is generated automatically; default port is 3306/tcp on the internal Pier network.
+
+For high availability, the MySQL template supports clusters of 2–5 nodes (1 primary + N read replicas) via the bitnami/mysql image with InnoDB primary-replica replication. Backups run mysqldump --single-transaction on schedule and can upload to any S3-compatible storage.
+
+If you need a MySQL-compatible database with stronger open governance, consider the MariaDB template — it's binary-compatible through MySQL 5.x and adds Galera multi-master replication.
+"""
 
 [docker]
 image = "mysql:{{version}}"

@@ -5,6 +5,15 @@ description = "PostgreSQL with PostGIS spatial/geographic extensions"
 category = "database"
 icon = "postgis"
 tags = ["sql", "relational", "gis", "spatial", "postgresql"]
+long_description = """
+PostGIS is the gold-standard geospatial extension for PostgreSQL. It adds GEOMETRY and GEOGRAPHY types, 1000+ spatial functions (ST_Distance, ST_Within, ST_Intersects, ST_Buffer), R-tree GIST indexes, projection support, and topology. It's the database backing OpenStreetMap, national mapping agencies, and most modern GIS stacks.
+
+Pier deploys the official postgis/postgis Docker image (PostGIS pre-installed on PostgreSQL). When you create a new database through Pier's UI, you can tick which PostGIS extensions to install — postgis, postgis_topology, postgis_raster, fuzzystrmatch, postgis_tiger_geocoder — and Pier runs CREATE EXTENSION in dependency order.
+
+All standard PostgreSQL tooling works: pg_dump, psql, pgAdmin, every ORM. Pier's backup / restore / password rotation operate identically to the regular PostgreSQL template.
+
+Use this template if you know you'll need spatial functions. For non-spatial Postgres workloads, the regular PostgreSQL template is lighter.
+"""
 
 [docker]
 image = "postgis/postgis:{{version}}"

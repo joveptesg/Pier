@@ -5,6 +5,15 @@ description = "In-memory data store used as database, cache, and message broker"
 category = "database"
 icon = "redis"
 tags = ["cache", "nosql", "key-value"]
+long_description = """
+Redis is the de-facto in-memory key-value store of the modern web. Sub-millisecond reads and writes, rich data structures (strings, lists, sets, sorted sets, hashes, streams, pub/sub), atomic operations, Lua scripting, and per-key TTL make it the default choice for application caches, session stores, background job queues (Sidekiq, Celery, Bull, RQ), rate limiters, and real-time leaderboards.
+
+Pier deploys the official redis Docker image with requirepass authentication enabled by default. /data is mounted as the persistent volume; both RDB snapshots and AOF append-only file are stored there. Default port is 6379/tcp on the internal Pier network. A strong password (REDIS_PASSWORD) is auto-generated.
+
+As of March 2024, Redis is dual-licensed under SSPL/RSALv2 (source-available, not OSS by OSI definition). For a strict OSS path, use the Valkey template — a BSD-licensed Redis 7.2 fork maintained by the Linux Foundation that's API-compatible with Redis.
+
+Backups capture both RDB and AOF on schedule and can ship to S3.
+"""
 
 [docker]
 image = "redis:{{version}}"

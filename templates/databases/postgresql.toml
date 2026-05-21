@@ -5,6 +5,15 @@ description = "Advanced open-source relational database"
 category = "database"
 icon = "postgresql"
 tags = ["sql", "relational"]
+long_description = """
+PostgreSQL is a battle-tested, fully ACID-compliant open-source SQL database with 30+ years of development behind it. It's the default backend for new application projects across industries thanks to its rich type system (JSONB, arrays, ranges, UUID, geometric types), strict SQL standard compliance, and enormous extension ecosystem.
+
+Pier deploys the official postgres Docker image with /var/lib/postgresql mounted as the persistent volume. Strong root password is generated automatically and a default database is created on first boot. Default port is 5432/tcp on the internal Pier network.
+
+For high availability, the PostgreSQL template supports clusters of 2 to 5 nodes (1 primary + N read replicas) via the bitnami/postgresql image with streaming replication. Per-database and cluster-wide backups (pg_dump custom format) run on schedule with optional S3 upload.
+
+Need extensions? Use the PostGIS template for spatial data, TimescaleDB for time-series, or install pgvector / others manually via CREATE EXTENSION.
+"""
 
 [docker]
 image = "postgres:{{version}}"

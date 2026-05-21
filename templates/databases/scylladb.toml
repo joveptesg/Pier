@@ -5,6 +5,15 @@ description = "High-performance NoSQL database compatible with Cassandra"
 category = "database"
 icon = "scylladb"
 tags = ["nosql", "wide-column", "cassandra-compatible", "high-performance"]
+long_description = """
+ScyllaDB is a high-performance C++ rewrite of Apache Cassandra with a shared-nothing, shard-per-core architecture. Same CQL protocol, same drivers, same data model as Cassandra — but 10× lower p99 latency and often 60–70% fewer nodes for the same workload. Used at Discord (which migrated 177 Cassandra nodes to 72 Scylla nodes), AdTech firms, and gaming backends where tail latency matters.
+
+Pier deploys the official scylladb/scylla Docker image (Open Source edition, AGPL) with /var/lib/scylla mounted as the persistent volume. Default port 9042/tcp for CQL native protocol; 9180/tcp for the shard-aware protocol (modern drivers route to the right shard automatically).
+
+Cluster mode supports 2–5 nodes. Production deployments typically want 3+ nodes per datacenter for QUORUM reads/writes.
+
+Backups use snapshot tarballs (nodetool snapshot) on schedule and can ship to S3. Migration from Cassandra is straightforward via cqlsh DESCRIBE dumps and sstableloader — most apps don't change a line of code.
+"""
 
 [docker]
 image = "scylladb/scylla:{{version}}"

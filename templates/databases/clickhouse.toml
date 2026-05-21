@@ -5,6 +5,15 @@ description = "Fast open-source column-oriented OLAP database"
 category = "database"
 icon = "clickhouse"
 tags = ["analytics", "olap", "columnar"]
+long_description = """
+ClickHouse is a column-oriented OLAP database for real-time analytics. Columnar storage, aggressive compression (LZ4/ZSTD), vectorized SIMD execution, and parallel processing deliver sub-second queries over tables with hundreds of billions of rows. Used by Cloudflare, Uber, eBay, Bloomberg, Yandex, PostHog, Plausible, SigNoz, and most of the modern observability stack.
+
+Pier deploys the official clickhouse/clickhouse-server Docker image with /var/lib/clickhouse mounted as the persistent volume. Two ports are exposed — 8123/tcp for HTTP (JDBC, BI tools) and 9000/tcp for the native TCP protocol (clickhouse-client, official drivers).
+
+Cluster mode supports 2–5 nodes for read-scale and replication. Sharding via Distributed table engine requires manual macros + replicas configuration after the cluster is up.
+
+Backups use clickhouse-backup on schedule and can push to S3. Note: ClickHouse INSERTs are batch-optimized — many small INSERTs are pathologically slow; buffer client-side or use the Kafka/HTTP bulk endpoints.
+"""
 
 [docker]
 image = "clickhouse/clickhouse-server:{{version}}"

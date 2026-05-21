@@ -5,6 +5,15 @@ description = "Open-source in-memory data store (Redis fork, BSD-3 licensed)"
 category = "database"
 icon = "valkey"
 tags = ["cache", "nosql", "key-value", "redis-compatible"]
+long_description = """
+Valkey is a BSD-3-Clause licensed fork of Redis 7.2.4, created by the Linux Foundation in March 2024 after Redis Ltd. moved Redis to the source-available SSPL/RSALv2 license. Backed by AWS, Google, Oracle, Snap, Ericsson, Alibaba, and the original Redis contributor team, Valkey is API-compatible with Redis — same RESP protocol, same commands, same client libraries.
+
+For applications, Valkey is a drop-in replacement: every Redis driver (jedis, ioredis, redis-py, redis-rs, go-redis, lettuce, StackExchange.Redis) works unchanged. The connection string even uses the redis:// scheme.
+
+Pier deploys the official valkey/valkey Docker image with password authentication enabled. /data is mounted as the persistent volume. Default port is 6379/tcp; a strong password (VALKEY_PASSWORD) is auto-generated.
+
+Pick Valkey over Redis when license matters — government, regulated industries, OSS-strict environments, or anyone who plans to ship a managed-service product based on a key-value store. For everything else, both are functionally identical at the API level.
+"""
 
 [docker]
 image = "valkey/valkey:{{version}}"

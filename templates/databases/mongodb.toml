@@ -5,6 +5,17 @@ description = "Document-oriented NoSQL database for modern applications"
 category = "database"
 icon = "mongodb"
 tags = ["nosql", "document"]
+long_description = """
+MongoDB is the most-deployed document-oriented NoSQL database. It stores data as BSON (binary JSON) documents in collections, offers schema flexibility, a rich aggregation pipeline ($match, $group, $lookup, $facet, $unwind), 2dsphere geospatial indexes, change streams for CDC, and native sharding for horizontal scale.
+
+Pier deploys the official mongo Docker image with /data/db mounted as the persistent volume. Default port is 27017/tcp on the internal Pier network. Root credentials are auto-generated via MONGO_INITDB_ROOT_USERNAME and MONGO_INITDB_ROOT_PASSWORD.
+
+Single-node only in this template — replica sets need 3+ nodes with special initialization and aren't part of Pier's cluster mode yet. For replica sets, use a custom Docker template or MongoDB Atlas.
+
+Backups run mongodump --archive --gzip on schedule and can upload to S3. Per-database and full-instance backups are configurable.
+
+MongoDB's SSPL license restricts offering Mongo itself as a SaaS to third parties; using it as the database behind your own application is fine.
+"""
 
 [docker]
 image = "mongo:{{version}}"

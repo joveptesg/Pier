@@ -5,6 +5,15 @@ description = "Highly-scalable partitioned row store NoSQL database"
 category = "database"
 icon = "cassandra"
 tags = ["nosql", "wide-column", "distributed"]
+long_description = """
+Apache Cassandra is a distributed wide-column NoSQL database designed for high write throughput, linear horizontal scaling, and no single point of failure. Masterless architecture, tunable per-query consistency, CQL (SQL-like) query language, and multi-datacenter asynchronous replication make it the go-to choice when "the database must never go down" is a hard requirement. Used at Netflix, Apple, Discord (4 billion messages/day), Instagram, eBay, Uber.
+
+Pier deploys the official cassandra Docker image with /var/lib/cassandra mounted as the persistent volume. Default port 9042/tcp for CQL native protocol; 7000/tcp for inter-node gossip stays on the internal Pier network.
+
+Cluster mode supports 2–5 nodes — enough for evaluation and small deployments. Production typically wants 6+ nodes per datacenter with NetworkTopologyStrategy replication.
+
+Backups use nodetool snapshot tarballs on schedule and can ship to S3. The data model requires partition-key-aware modelling — design tables around your queries before going to production.
+"""
 
 [docker]
 image = "cassandra:{{version}}"
