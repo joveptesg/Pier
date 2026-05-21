@@ -1,0 +1,55 @@
+<!-- Catalog item info modal. Lives inside the catalog page x-data scope. -->
+<div x-show="infoItem"
+     x-cloak
+     x-transition.opacity
+     @keydown.escape.window="closeInfo()"
+     class="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50" @click="closeInfo()"></div>
+    <div class="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6"
+         @click.stop>
+        <button @click="closeInfo()"
+                class="absolute top-3 right-3 p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                aria-label="Close">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+        </button>
+
+        <div class="flex items-center gap-3 mb-4 pr-8">
+            <div class="w-12 h-12 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center shrink-0 p-2">
+                <img :src="'/static/icons/' + (infoItem?.icon || 'docker') + '.svg'" class="w-full h-full" :alt="infoItem?.name">
+            </div>
+            <div class="min-w-0">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="infoItem?.name"></h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5" x-text="infoItem?.description"></p>
+            </div>
+        </div>
+
+        <div class="space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+            <template x-for="(para, idx) in infoParagraphs" :key="idx">
+                <p x-text="para"></p>
+            </template>
+            <p x-show="infoParagraphs.length === 0" class="italic text-gray-500" x-text="'No extended description available for this template yet.'"></p>
+        </div>
+
+        <template x-if="infoItem?.tags?.length">
+            <div class="mt-5 flex flex-wrap gap-1.5">
+                <template x-for="tag in infoItem.tags" :key="tag">
+                    <span class="rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5 text-xs text-gray-500"
+                          x-text="'#' + tag"></span>
+                </template>
+            </div>
+        </template>
+
+        <div class="mt-6 flex items-center justify-end gap-2 border-t border-gray-200 dark:border-gray-800 pt-4">
+            <button @click="closeInfo()"
+                    class="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors">
+                Close
+            </button>
+            <a :href="'/resources/new/' + infoItem?.id + projectQuery"
+               class="px-3 py-1.5 text-sm font-medium bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-md hover:bg-gray-700 dark:hover:bg-gray-100 transition-colors">
+                Deploy this service →
+            </a>
+        </div>
+    </div>
+</div>

@@ -5,6 +5,15 @@ description = "PostgreSQL with TimescaleDB extension for time-series workloads"
 category = "database"
 icon = "timescaledb"
 tags = ["sql", "relational", "time-series", "timescale", "postgresql"]
+long_description = """
+TimescaleDB is a PostgreSQL extension that turns Postgres into a high-performance time-series database. It adds hypertables (tables auto-partitioned by time), columnar compression, continuous aggregates, and data retention policies — all without breaking SQL compatibility.
+
+Use it for application metrics, IoT sensor data, financial tick data, real-time analytics, or any workload where rows are mostly append-only and queried by time range. Because it speaks PostgreSQL on the wire, your existing ORMs, drivers, dashboards, and admin tooling (psql, pg_dump, pgBouncer) keep working unchanged.
+
+Default version on Pier: latest-pg17 (PostgreSQL 17 + TimescaleDB latest). The latest-pg18 build is also available. This is the single-node Community Edition; HA via the timescaledb-ha image is a separate variant.
+
+Connect on port 5432 using the standard postgresql:// URI. Pier creates the timescaledb extension automatically in the initial POSTGRES_DB; for additional databases created through the UI, run CREATE EXTENSION IF NOT EXISTS timescaledb; manually once.
+"""
 
 [docker]
 image = "timescale/timescaledb:{{version}}"

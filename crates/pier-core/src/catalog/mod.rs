@@ -37,6 +37,8 @@ pub struct CatalogMeta {
     pub icon: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub long_description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

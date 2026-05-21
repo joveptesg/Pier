@@ -49,7 +49,15 @@
                 <template x-for="item in filteredByCategory('git')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
                        class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
-                              hover:border-orange-300 dark:hover:border-orange-600/50 hover:shadow-sm transition-all block group">
+                              hover:border-orange-300 dark:hover:border-orange-600/50 hover:shadow-sm transition-all block group relative">
+                        <button
+                            @click.stop.prevent="openInfo(item)"
+                            class="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors z-10"
+                            :aria-label="'About ' + item.name">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </button>
                         <div class="flex items-center gap-3">
                             <div class="w-11 h-11 bg-orange-50 dark:bg-orange-600/10 rounded-lg flex items-center justify-center shrink-0 p-2">
                                 <img :src="'/static/icons/' + (item.icon || 'git') + '.svg'" class="w-full h-full" :alt="item.name">
@@ -71,7 +79,15 @@
                 <template x-for="item in filteredByCategory('application')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
                        class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
-                              hover:border-blue-300 dark:hover:border-blue-600/50 hover:shadow-sm transition-all block group">
+                              hover:border-blue-300 dark:hover:border-blue-600/50 hover:shadow-sm transition-all block group relative">
+                        <button
+                            @click.stop.prevent="openInfo(item)"
+                            class="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors z-10"
+                            :aria-label="'About ' + item.name">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </button>
                         <div class="flex items-center gap-3">
                             <div class="w-11 h-11 bg-blue-50 dark:bg-blue-600/10 rounded-lg flex items-center justify-center shrink-0 p-2">
                                 <img :src="'/static/icons/' + (item.icon || 'docker') + '.svg'" class="w-full h-full" :alt="item.name">
@@ -93,7 +109,15 @@
                 <template x-for="item in filteredByCategory('database')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
                        class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
-                              hover:border-gray-300 dark:hover:border-gray-600/50 hover:shadow-sm transition-all block group">
+                              hover:border-gray-300 dark:hover:border-gray-600/50 hover:shadow-sm transition-all block group relative">
+                        <button
+                            @click.stop.prevent="openInfo(item)"
+                            class="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors z-10"
+                            :aria-label="'About ' + item.name">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </button>
                         <div class="flex items-center gap-3">
                             <div class="w-11 h-11 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center shrink-0 p-2">
                                 <img :src="'/static/icons/' + (item.icon || 'docker') + '.svg'" class="w-full h-full" :alt="item.name">
@@ -115,7 +139,15 @@
                 <template x-for="item in filteredByCategory('service')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
                        class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4
-                              hover:border-purple-300 dark:hover:border-purple-600/50 hover:shadow-sm transition-all block group">
+                              hover:border-purple-300 dark:hover:border-purple-600/50 hover:shadow-sm transition-all block group relative">
+                        <button
+                            @click.stop.prevent="openInfo(item)"
+                            class="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors z-10"
+                            :aria-label="'About ' + item.name">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </button>
                         <div class="flex items-center gap-3">
                             <div class="w-11 h-11 bg-purple-50 dark:bg-purple-600/10 rounded-lg flex items-center justify-center shrink-0 p-2">
                                 <img :src="'/static/icons/' + (item.icon || 'docker') + '.svg'" class="w-full h-full" :alt="item.name">
@@ -141,6 +173,8 @@
             and use of them does not imply any affiliation or endorsement.
         </p>
     </div>
+
+    {% include "partials/catalog_info_modal.html" %}
 </div>
 
 <script>
@@ -152,6 +186,7 @@ function catalogData() {
         search: '',
         filter: '',
         projectQuery: projectId ? ('?project_id=' + encodeURIComponent(projectId)) : '',
+        infoItem: null,
         async init() {
             try {
                 this.items = await fetch('/api/v1/catalog').then(r => r.json());
@@ -174,6 +209,18 @@ function catalogData() {
         },
         filteredByCategory(cat) {
             return this.filtered().filter(i => i.category === cat);
+        },
+        openInfo(item) {
+            this.infoItem = item;
+            document.body.style.overflow = 'hidden';
+        },
+        closeInfo() {
+            this.infoItem = null;
+            document.body.style.overflow = '';
+        },
+        get infoParagraphs() {
+            const txt = this.infoItem?.long_description || '';
+            return txt.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
         }
     };
 }
