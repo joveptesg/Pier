@@ -5,6 +5,15 @@ description = "Open-source message broker with management UI"
 category = "service"
 icon = "rabbitmq"
 tags = ["message-broker", "amqp", "queue", "messaging", "pubsub"]
+long_description = """
+RabbitMQ is the most-deployed open-source message broker. It implements AMQP 0-9-1 as its primary protocol plus MQTT (IoT), STOMP (web messaging), and the RabbitMQ Streams protocol via plugins. Used at Mozilla, Reddit, Cisco, NASA, AT&T and tens of thousands of organizations for background jobs, microservice decoupling, fanout pub/sub, retries, and IoT bridging.
+
+Pier deploys the official rabbitmq Docker image with the :management tag — includes the web management UI plugin out of the box. Default ports are 5672/tcp (AMQP) and 15672/tcp (management UI). The data volume mounts at /var/lib/rabbitmq.
+
+Pier auto-generates the admin user password (RABBITMQ_DEFAULT_USER / RABBITMQ_DEFAULT_PASS). The connection string for client apps is shown on the service detail page as amqp://admin:password@host:5672/.
+
+Single-node only in this template. For HA, configure quorum queues (Raft-replicated) on the single node, or build a custom multi-node Docker template — proper clustering needs shared Erlang cookies + DNS-discoverable nodes.
+"""
 
 [docker]
 image = "rabbitmq:{{version}}"

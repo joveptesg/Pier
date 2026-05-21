@@ -5,6 +5,15 @@ description = "Distributed search and analytics engine"
 category = "service"
 icon = "elasticsearch"
 tags = ["search", "analytics", "logging", "elk", "full-text"]
+long_description = """
+Elasticsearch is a distributed, RESTful search and analytics engine built on Apache Lucene. It powers search bars, log aggregation (the E in ELK), product catalogs, security analytics (SIEM), and modern observability tooling at companies of every size. Recent versions add native dense-vector search for RAG and hybrid lexical+semantic queries.
+
+Pier deploys the official docker.elastic.co/elasticsearch/elasticsearch image as a single-node configuration. Default port is 9200/tcp on the internal Pier network. The data volume mounts at /usr/share/elasticsearch/data.
+
+Elasticsearch 8+ has HTTPS + basic auth enabled by default; Pier auto-generates the elastic user password and shows it on the service detail page. Memory is JVM-driven — set ES_JAVA_OPTS=-Xms2g -Xmx2g via Pier env settings to control heap.
+
+Single-node only in this template — suitable for dev, test, and small-to-medium production. For visualization, deploy the elasticsearch-kibana template which bundles ES + Kibana with the right env wiring.
+"""
 
 [docker]
 image = "elasticsearch:{{version}}"

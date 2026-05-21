@@ -5,6 +5,15 @@ description = "Open-source Firebase alternative with PostgreSQL, Auth, and Realt
 category = "service"
 icon = "supabase"
 tags = ["firebase", "postgresql", "auth", "realtime", "api", "baas"]
+long_description = """
+Supabase is the open-source Firebase alternative — a backend-as-a-service built on PostgreSQL. It bundles authentication (GoTrue), auto-generated REST + GraphQL APIs (PostgREST + pg_graphql), realtime subscriptions over WebSockets, S3-compatible storage, edge functions and pgvector — all using Postgres extensions and sidecars.
+
+Pier deploys the full multi-container Supabase Docker Compose stack. The gateway (Kong) sits in front; Postgres, GoTrue, PostgREST, Realtime, Storage and Studio (the admin UI) come up together. JWT secrets, anon and service-role keys are generated automatically and shown on the service detail page.
+
+Default API port is 8000/tcp on the internal Pier network; attach a domain for HTTPS via Traefik. Studio is reachable on its own path/port.
+
+Because every Supabase feature is a Postgres extension or sidecar, your data stays in plain PostgreSQL — pg_dump exports work, your existing ORM still queries the same tables, and you can leave Supabase at any time without a migration.
+"""
 
 [docker]
 image = "supabase/postgres:latest"

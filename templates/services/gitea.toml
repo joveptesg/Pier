@@ -5,6 +5,15 @@ description = "Lightweight self-hosted Git service"
 category = "service"
 icon = "gitea"
 tags = ["git", "repository", "ci", "devops", "code"]
+long_description = """
+Gitea is a community-developed, lightweight, self-hosted Git service written in Go. It looks and works like GitHub — repos, pull requests, issues, code review, releases, wikis, Actions (CI/CD), package registries — but runs as a single ~100 MB Docker container on a $5/month VPS.
+
+Pier deploys the official gitea/gitea Docker image with /data mounted as the persistent volume (holds the SQLite database, Git repositories, attachments and configuration). Default port is 3000/tcp for the web UI; SSH (22) is internal-only by default. The admin user is created on first visit.
+
+For HTTPS, attach a domain in Pier's Domains tab and Gitea's ROOT_URL is set automatically from the X-Forwarded headers Traefik sends. For Actions CI, spawn the gitea/act_runner container separately and register it with a token.
+
+For heavier deployments with a PostgreSQL backend instead of SQLite, use the gitea-postgresql template which bundles Gitea + Postgres in one Docker Compose stack.
+"""
 
 [docker]
 image = "gitea/gitea:{{version}}"

@@ -5,6 +5,15 @@ description = "Lightweight Docker management UI"
 category = "service"
 icon = "portainer"
 tags = ["docker", "management", "ui", "containers", "devops"]
+long_description = """
+Portainer is the world's most popular web UI for Docker, Docker Swarm and Kubernetes. It gives developers and ops teams a polished GUI for inspecting running containers, viewing real-time logs, managing volumes and networks, deploying Docker Compose stacks, and managing users via RBAC — without memorizing every docker / kubectl flag.
+
+Pier deploys the official portainer/portainer-ce Docker image (Community Edition). The container mounts /var/run/docker.sock from the host so Portainer can see and manage all containers on the same Docker engine. /data is mounted as a persistent volume for Portainer's config + user database + endpoint definitions.
+
+Default ports are 9000/tcp (HTTP UI) and 9443/tcp (built-in HTTPS). The admin user is created on first visit via the UI prompt. For clean HTTPS, attach a domain in Pier — Traefik handles TLS termination and proxies to the internal 9000.
+
+Portainer can also manage remote Docker hosts and Kubernetes clusters (kubeconfig upload) from the same UI — useful when you have several Docker boxes plus a small K8s cluster.
+"""
 
 [docker]
 image = "portainer/portainer-ce:{{version}}"

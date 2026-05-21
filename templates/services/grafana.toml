@@ -5,6 +5,15 @@ description = "Open-source analytics and monitoring dashboards"
 category = "service"
 icon = "grafana"
 tags = ["monitoring", "dashboards", "analytics", "metrics", "visualization"]
+long_description = """
+Grafana is the world's most-deployed open-source observability platform. It connects to 50+ data sources — Prometheus, Loki, Tempo, InfluxDB, PostgreSQL, MySQL, ClickHouse, Elasticsearch, CloudWatch, BigQuery and more — to render unified dashboards, alerts and Explore views.
+
+Pier deploys the official grafana/grafana Docker image with /var/lib/grafana mounted as the persistent volume (holds the SQLite metadata DB, plugins and dashboard files). Default port is 3000/tcp on the internal Pier network. A strong GF_SECURITY_ADMIN_PASSWORD is auto-generated; the username is admin.
+
+For HTTPS, attach a domain — Traefik issues a Let's Encrypt certificate and Grafana's root URL is inferred from the X-Forwarded headers automatically. Plug it into other Pier services via the data-sources UI; the grafana-postgresql template pre-wires a PostgreSQL source for you.
+
+Pier ships the OSS edition (Apache 2.0). Upgrade to Grafana Enterprise separately if you need SAML auth or fine-grained RBAC.
+"""
 
 [docker]
 image = "grafana/grafana:{{version}}"

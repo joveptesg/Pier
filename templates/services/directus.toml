@@ -5,6 +5,15 @@ description = "Open-source headless CMS with REST and GraphQL API"
 category = "service"
 icon = "directus"
 tags = ["cms", "headless", "api", "graphql", "rest", "content"]
+long_description = """
+Directus is an open-source headless CMS and data platform that wraps any existing SQL database (PostgreSQL, MySQL, SQLite, MSSQL, OracleDB) with a beautiful admin UI, instant REST + GraphQL APIs, granular role/field/row permissions, asset management with image transformations, flows (no-code workflows), and webhooks.
+
+Pier deploys the official directus/directus Docker image. Default port is 8055/tcp on the internal Pier network. The basic template uses SQLite for simplicity; for production use the directus-postgresql template which provisions Directus + a dedicated PostgreSQL container.
+
+Pier auto-generates the admin email and password on first start (visible on the service detail page). For HTTPS, attach a domain — Traefik handles cert issuance and Directus's PUBLIC_URL is inferred automatically.
+
+To use S3-compatible asset storage (MinIO, Backblaze B2, Cloudflare R2 or AWS S3), set the standard Directus storage env vars via Pier's service settings UI — no rebuild required.
+"""
 
 [docker]
 image = "directus/directus:{{version}}"

@@ -5,6 +5,15 @@ description = "High-performance vector similarity search engine"
 category = "service"
 icon = "qdrant"
 tags = ["vector", "search", "ai", "embeddings", "similarity"]
+long_description = """
+Qdrant is a high-performance vector similarity search engine written in Rust. It stores high-dimensional embeddings (from OpenAI, Cohere, Voyage, BGE etc.) and serves nearest-neighbour queries via memory-mapped HNSW indexes — fast enough for production RAG, semantic search, recommendations and anomaly detection.
+
+Pier deploys the official qdrant/qdrant Docker image. Default ports are 6333/tcp (REST API + Dashboard UI) and 6334/tcp (gRPC, faster for high-QPS workloads). The data volume mounts at /qdrant/storage.
+
+Pier auto-generates an API key (set via QDRANT__SERVICE__API_KEY) and shows it on the service detail page. Send the value as the api-key header on every request. The built-in Dashboard UI is at /dashboard on port 6333; attach a domain in Pier for HTTPS.
+
+Qdrant doesn't generate embeddings — you do, client-side. Pair it with OpenAI text-embedding-3-small, Voyage, or local models (BGE, all-MiniLM). Scalar/product/binary quantization reduces index size 4-32x when you need to fit billion-vector indexes on commodity VMs.
+"""
 
 [docker]
 image = "qdrant/qdrant:v{{version}}"
