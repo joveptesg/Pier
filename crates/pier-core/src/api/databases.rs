@@ -63,7 +63,7 @@ pub async fn list_databases(
     let catalog = catalog_id.unwrap_or_default();
 
     let output = match catalog.as_str() {
-        "postgresql" | "postgis" => {
+        "postgresql" | "postgis" | "timescaledb" => {
             exec_in_container(
                 &state.docker,
                 &container,
@@ -218,7 +218,7 @@ pub async fn create_database(
     let catalog = catalog_id.unwrap_or_default();
 
     match catalog.as_str() {
-        "postgresql" | "postgis" => {
+        "postgresql" | "postgis" | "timescaledb" => {
             // Validate requested PostGIS extensions before touching the DB.
             // Silently drop unknown names (the UI shouldn't ever send any),
             // and ignore the field entirely on plain `postgresql`.
@@ -431,7 +431,7 @@ pub async fn delete_database(
     let catalog = catalog_id.unwrap_or_default();
 
     match catalog.as_str() {
-        "postgresql" | "postgis" => {
+        "postgresql" | "postgis" | "timescaledb" => {
             // Get owner before dropping
             let owner_output = exec_in_container(
                 &state.docker,
@@ -622,7 +622,7 @@ pub async fn change_password(
     // If no stored username, get it from the database engine
     let username = if username.is_empty() {
         match catalog.as_str() {
-            "postgresql" | "postgis" => {
+            "postgresql" | "postgis" | "timescaledb" => {
                 let output = exec_in_container(&state.docker, &container, &[
                     "psql", "-U", "postgres", "-t", "-A", "-c",
                     &format!("SELECT r.rolname FROM pg_database d JOIN pg_roles r ON d.datdba = r.oid WHERE d.datname = '{dbname}'"),
@@ -642,7 +642,7 @@ pub async fn change_password(
     }
 
     match catalog.as_str() {
-        "postgresql" | "postgis" => {
+        "postgresql" | "postgis" | "timescaledb" => {
             let sql = format!("ALTER USER {username} WITH PASSWORD '{password}'");
             exec_in_container(
                 &state.docker,

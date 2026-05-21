@@ -196,6 +196,7 @@ pub fn load_catalog() -> Vec<CatalogItem> {
             "clickhouse" => 6,
             "cassandra" => 7,
             "scylladb" => 8,
+            "timescaledb" => 9,
             _ => 99,
         };
         cat_order(&a.meta.category)

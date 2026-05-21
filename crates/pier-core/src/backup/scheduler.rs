@@ -372,7 +372,7 @@ pub fn build_s3_key(
 ) -> String {
     let filename = match (database_name, catalog_id) {
         (Some(db), "mongodb") => format!("db_{db}_{timestamp}.archive.gz"),
-        (Some(db), "postgresql" | "postgis") => format!("db_{db}_{timestamp}.dump"),
+        (Some(db), "postgresql" | "postgis" | "timescaledb") => format!("db_{db}_{timestamp}.dump"),
         (Some(db), _) => format!("db_{db}_{timestamp}.sql.gz"),
         (None, "mongodb") => format!("mongodb_{timestamp}.archive.gz"),
         (None, _) => format!("_cluster_{timestamp}.tar.gz"),

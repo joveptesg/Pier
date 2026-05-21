@@ -1635,12 +1635,12 @@ function resourceDetail(id) {
             return (this.scaleInfo?.replicas) || this.resource.replicas || 1;
         },
         get catalogId() { return this.resource.catalog_id || ''; },
-        get supportsBackup() { return ['postgresql','postgis','mysql','mariadb','mongodb'].includes(this.catalogId); },
+        get supportsBackup() { return ['postgresql','postgis','timescaledb','mysql','mariadb','mongodb'].includes(this.catalogId); },
         get supportsScaling() {
-            const stateful = ['postgresql','postgis','mysql','mariadb','mongodb','redis','valkey','rabbitmq','clickhouse','cassandra','scylladb'];
+            const stateful = ['postgresql','postgis','timescaledb','mysql','mariadb','mongodb','redis','valkey','rabbitmq','clickhouse','cassandra','scylladb'];
             return !stateful.includes(this.catalogId);
         },
-        get supportsPerDbBackup() { return ['postgresql','postgis','mysql','mariadb','mongodb'].includes(this.catalogId); },
+        get supportsPerDbBackup() { return ['postgresql','postgis','timescaledb','mysql','mariadb','mongodb'].includes(this.catalogId); },
         get clusterSchedule() { return this.schedules.find(s => !s.database_name) || null; },
         get perDbSchedules() { return this.schedules.filter(s => !!s.database_name); },
         get backupGroups() {
@@ -1671,7 +1671,7 @@ function resourceDetail(id) {
             let envObj = {}; try { envObj = JSON.parse(this.resource.env_json || '{}'); } catch {}
             const hide = (pw) => masked ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : pw;
             switch (this.resource.catalog_id) {
-                case 'postgresql': case 'postgis': { const u=envObj.POSTGRES_USER||'postgres',pw=envObj.POSTGRES_PASSWORD||'',d=envObj.POSTGRES_DB||'postgres'; return `postgresql://${u}:${hide(pw)}@${host}:${p}/${d}`; }
+                case 'postgresql': case 'postgis': case 'timescaledb': { const u=envObj.POSTGRES_USER||'postgres',pw=envObj.POSTGRES_PASSWORD||'',d=envObj.POSTGRES_DB||'postgres'; return `postgresql://${u}:${hide(pw)}@${host}:${p}/${d}`; }
                 case 'mysql': case 'mariadb': { const pw=envObj.MYSQL_ROOT_PASSWORD||envObj.MARIADB_ROOT_PASSWORD||'',d=envObj.MYSQL_DATABASE||envObj.MARIADB_DATABASE||''; return `mysql://root:${hide(pw)}@${host}:${p}/${d}`; }
                 case 'mongodb': { const u=envObj.MONGO_INITDB_ROOT_USERNAME||'root',pw=envObj.MONGO_INITDB_ROOT_PASSWORD||''; return `mongodb://${u}:${hide(pw)}@${host}:${p}`; }
                 case 'redis': { const pw=envObj.REDIS_PASSWORD||''; return pw ? `redis://:${hide(pw)}@${host}:${p}` : `redis://${host}:${p}`; }

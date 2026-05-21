@@ -43,7 +43,7 @@ pub enum PerDbDumpFormat {
 /// or `None` if the catalog doesn't support per-DB backup at all.
 pub fn per_db_dump_format(catalog_id: &str) -> Option<PerDbDumpFormat> {
     match catalog_id {
-        "postgresql" | "postgis" => Some(PerDbDumpFormat::PgCustom),
+        "postgresql" | "postgis" | "timescaledb" => Some(PerDbDumpFormat::PgCustom),
         "mysql" | "mariadb" => Some(PerDbDumpFormat::SqlGzipped),
         "mongodb" => Some(PerDbDumpFormat::MongoArchive),
         _ => None,
@@ -66,7 +66,7 @@ fn per_db_dump_args(
     db_name: &str,
 ) -> Option<Vec<String>> {
     match catalog_id {
-        "postgresql" | "postgis" => {
+        "postgresql" | "postgis" | "timescaledb" => {
             // Always dump as the cluster superuser (POSTGRES_USER, default
             // `postgres`). Per-DB owner credentials cannot read PostGIS
             // reference schemas (`tiger`, `tiger_data`, `topology`) which
@@ -170,7 +170,7 @@ fn mongo_dump_args(env_vars: &HashMap<String, String>) -> Vec<String> {
 pub fn supports_backup(catalog_id: &str) -> bool {
     matches!(
         catalog_id,
-        "postgresql" | "postgis" | "mysql" | "mariadb" | "mongodb"
+        "postgresql" | "postgis" | "timescaledb" | "mysql" | "mariadb" | "mongodb"
     )
 }
 
@@ -178,7 +178,7 @@ pub fn supports_backup(catalog_id: &str) -> bool {
 pub fn supports_per_db_backup(catalog_id: &str) -> bool {
     matches!(
         catalog_id,
-        "postgresql" | "postgis" | "mysql" | "mariadb" | "mongodb"
+        "postgresql" | "postgis" | "timescaledb" | "mysql" | "mariadb" | "mongodb"
     )
 }
 

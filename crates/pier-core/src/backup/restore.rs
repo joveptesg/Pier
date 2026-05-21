@@ -106,7 +106,7 @@ pub async fn execute_restore(
     }
 
     match catalog_id {
-        "postgresql" | "postgis" => {
+        "postgresql" | "postgis" | "timescaledb" => {
             if is_pg_custom {
                 restore_postgres_custom(container_name, env_vars, target_db, owner, dump_bytes)
                     .await

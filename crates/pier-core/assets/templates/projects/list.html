@@ -215,7 +215,7 @@
 function formatCatalogName(id) {
     if (!id) return '';
     // Known names
-    const names = { postgresql: 'PostgreSQL', mysql: 'MySQL', mariadb: 'MariaDB', mongodb: 'MongoDB', redis: 'Redis', rabbitmq: 'RabbitMQ', elasticsearch: 'Elasticsearch', scylladb: 'ScyllaDB' };
+    const names = { postgresql: 'PostgreSQL', postgis: 'PostGIS', timescaledb: 'TimescaleDB', mysql: 'MySQL', mariadb: 'MariaDB', mongodb: 'MongoDB', redis: 'Redis', rabbitmq: 'RabbitMQ', elasticsearch: 'Elasticsearch', scylladb: 'ScyllaDB' };
     if (names[id]) return names[id];
     // Generic: capitalize words, handle hyphens
     return id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
