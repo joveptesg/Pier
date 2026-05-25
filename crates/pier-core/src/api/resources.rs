@@ -1290,6 +1290,37 @@ pub async fn list(
     Ok(Json(resources))
 }
 
+/// Order `port_allocations` rows by the position of their `compose_service`
+/// in the docker-compose YAML. Rows without a matching service in the YAML
+/// (NULL `compose_service`, single-container catalog services, parse errors)
+/// keep the order they came in — stable sort. No-op when `compose_yaml` is
+/// `None` or empty.
+fn sort_ports_by_compose_order(
+    mut ports: Vec<crate::db::models::PortAllocation>,
+    compose_yaml: Option<&str>,
+) -> Vec<crate::db::models::PortAllocation> {
+    let Some(yaml) = compose_yaml.filter(|s| !s.is_empty()) else {
+        return ports;
+    };
+    let services = crate::deploy::parse_compose_services(yaml, &std::collections::HashMap::new());
+    if services.is_empty() {
+        return ports;
+    }
+    let order: std::collections::HashMap<String, usize> = services
+        .iter()
+        .enumerate()
+        .map(|(idx, s)| (s.name.clone(), idx))
+        .collect();
+    let sentinel = ports.len();
+    ports.sort_by_key(|p| {
+        p.compose_service
+            .as_deref()
+            .and_then(|cs| order.get(cs).copied())
+            .unwrap_or(sentinel)
+    });
+    ports
+}
+
 /// GET /api/v1/resources/{id} — get resource details with ports.
 pub async fn get(
     State(state): State<SharedState>,
@@ -1335,6 +1366,15 @@ pub async fn get(
         .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?;
 
     let port_allocs = ports::get_ports(&db, &id)?;
+    // Re-sort the Ports list so the UI matches the operator's compose YAML
+    // declaration order — `get_ports` alphabetises by `compose_service`, which
+    // is stable but doesn't reflect intent for stacks like `web/db/worker`
+    // where the YAML order is meaningful. No-op when there's no compose
+    // content (catalog services) or the rows have NULL compose_service.
+    let port_allocs = sort_ports_by_compose_order(
+        port_allocs,
+        resource["compose_content"].as_str(),
+    );
     let ports_json: Vec<serde_json::Value> = port_allocs
         .iter()
         .map(|pa| {

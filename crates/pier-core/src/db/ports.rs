@@ -97,10 +97,21 @@ pub fn free_ports(conn: &Connection, service_id: &str) -> Result<()> {
 }
 
 /// Get all port allocations for a service.
+///
+/// Rows are returned in a deterministic order: by `compose_service` (NULLs
+/// first — single-service catalog deployments) then by `port_name`. Without
+/// the ORDER BY clause SQLite returns rows in `rowid` order, and after
+/// commit b84aa79 (UPSERT keyed by `compose_service`) the rowid of existing
+/// multi-service compose stacks no longer matches the order they appear in
+/// `docker-compose.yml` — the UI's Ports list visibly reshuffled between
+/// loads. Alphabetical by compose_service is stable and good enough for the
+/// common case; callers that need YAML-declaration order should re-sort
+/// against `services.compose_content` after the fact.
 pub fn get_ports(conn: &Connection, service_id: &str) -> Result<Vec<PortAllocation>> {
     let mut stmt = conn.prepare(
         "SELECT id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, created_at, compose_service
-         FROM port_allocations WHERE service_id = ?1",
+         FROM port_allocations WHERE service_id = ?1
+         ORDER BY compose_service IS NULL DESC, compose_service ASC, port_name ASC",
     )?;
 
     let ports = stmt
@@ -132,4 +143,68 @@ pub fn set_ports_public(conn: &Connection, service_id: &str, is_public: bool) ->
         rusqlite::params![is_public as i64, service_id],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::schema;
+
+    fn test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        schema::run_migrations(&conn).expect("migrations");
+        conn.execute(
+            "INSERT INTO services (id, name, service_type) VALUES ('svc-1', 'flowfin', 'compose')",
+            [],
+        )
+        .expect("seed service");
+        conn
+    }
+
+    fn insert_alloc(
+        conn: &Connection,
+        id: &str,
+        port_name: &str,
+        host: i64,
+        compose_service: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO port_allocations \
+             (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service) \
+             VALUES (?1, 'svc-1', ?2, ?3, ?3, 'tcp', 0, NULL, ?4)",
+            rusqlite::params![id, port_name, host, compose_service],
+        )
+        .expect("insert alloc");
+    }
+
+    #[test]
+    fn get_ports_stable_alphabetical_order_by_compose_service() {
+        let conn = test_conn();
+        // Insert in REVERSE order so naive rowid-sort would put max-bot first.
+        // The ORDER BY in get_ports must override that and return api first.
+        insert_alloc(&conn, "p2", "primary", 3054, Some("max-bot"));
+        insert_alloc(&conn, "p1", "primary", 3050, Some("api"));
+
+        let rows = get_ports(&conn, "svc-1").expect("get_ports");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].compose_service.as_deref(), Some("api"));
+        assert_eq!(rows[0].host_port, 3050);
+        assert_eq!(rows[1].compose_service.as_deref(), Some("max-bot"));
+        assert_eq!(rows[1].host_port, 3054);
+    }
+
+    #[test]
+    fn get_ports_legacy_null_compose_service_sorted_by_port_name() {
+        let conn = test_conn();
+        // Single-container service (catalog or pre-b84aa79): every row has
+        // compose_service = NULL. Fall back to port_name for stable order.
+        insert_alloc(&conn, "p1", "primary", 4471, None);
+        insert_alloc(&conn, "p2", "port-1", 1883, None);
+
+        let rows = get_ports(&conn, "svc-1").expect("get_ports");
+        assert_eq!(rows.len(), 2);
+        // "port-1" sorts before "primary" alphabetically.
+        assert_eq!(rows[0].port_name, "port-1");
+        assert_eq!(rows[1].port_name, "primary");
+    }
 }
