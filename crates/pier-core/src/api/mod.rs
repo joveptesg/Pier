@@ -324,6 +324,8 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // project membership.
         .route("/domains", get(domains::list).post(domains::create))
         .route("/domains/{id}", delete(domains::remove))
+        .route("/domains/{id}/activate", post(domains::activate))
+        .route("/domains/{id}/deactivate", post(domains::deactivate))
         .route("/resources/{id}/domains", get(domains::list_for_service))
         // Proxy read-only — anyone can see status. Mutating ops moved to
         // admin_only.

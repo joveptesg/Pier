@@ -3163,6 +3163,15 @@ pub async fn set_port_public(
     // port_allocations rows, then stop+remove+create+start.
     match crate::docker::recreate::recreate_with_port_bindings(&state, &id).await {
         Ok(()) => {
+            // Sync the on-disk + DB-stored compose YAML to match the new
+            // is_public state. Idempotent (deploy::inject_ports_into_yaml
+            // strips any existing `ports:` block before re-injecting), so
+            // safe to run for catalog AND git/compose services. Failure
+            // here is non-fatal — the container is already recreated with
+            // the right bindings; only the YAML drift gets logged.
+            if let Err(e) = sync_compose_after_port_toggle(&state, &id).await {
+                tracing::warn!("post-toggle compose sync failed for {id}: {e}");
+            }
             let primary_pp: Option<u16> = updates
                 .iter()
                 .zip(targets.iter())
@@ -3221,6 +3230,97 @@ pub async fn set_port_public(
             )))
         }
     }
+}
+
+/// Re-inject ports into the stored compose YAML so the source of truth on
+/// disk (and in `services.compose_content`) matches what the live container
+/// is publishing after a public-toggle. Without this, the next deploy would
+/// undo the toggle: `inject_ports_from_db` runs at deploy time but the
+/// operator-authored ports block in YAML survived previous toggles and
+/// `docker compose up` was non-deterministic about which block to honour.
+///
+/// For services without `compose_content` (rare) or where the rewrite is a
+/// no-op, this returns Ok without touching anything. On-disk write is
+/// best-effort — a missing stacks dir or write failure logs at warn and
+/// doesn't propagate (the DB row carries the canonical YAML for the next
+/// deploy anyway).
+async fn sync_compose_after_port_toggle(
+    state: &SharedState,
+    service_id: &str,
+) -> anyhow::Result<()> {
+    let (compose_content_opt, svc_name): (Option<String>, String) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT compose_content, name FROM services WHERE id = ?1",
+            [service_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?
+    };
+
+    let Some(compose_content) = compose_content_opt.filter(|s| !s.is_empty()) else {
+        return Ok(()); // No compose stored — nothing to sync.
+    };
+
+    let rows: Vec<crate::deploy::PortRow> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt = db.prepare(
+            "SELECT compose_service, container_port, is_public, host_port, public_port \
+             FROM port_allocations WHERE service_id = ?1 ORDER BY rowid",
+        )?;
+        let iter = stmt.query_map([service_id], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, i64>(1)? as u16,
+                row.get::<_, i64>(2)? != 0,
+                row.get::<_, i64>(3)? as u16,
+                row.get::<_, Option<i64>>(4)?.map(|p| p as u16),
+            ))
+        })?;
+        let out: Vec<crate::deploy::PortRow> = iter.filter_map(|r| r.ok()).collect();
+        out
+    };
+
+    let new_yaml = crate::deploy::inject_ports_into_yaml(&compose_content, &rows);
+    if new_yaml == compose_content {
+        return Ok(()); // No-op — DB and inject already agree.
+    }
+
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "UPDATE services SET compose_content = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![new_yaml, service_id],
+        )?;
+    }
+
+    // Mirror to the on-disk stacks file (where `docker compose up` reads
+    // from). Pier's convention: stacks/pier-{slug}/docker-compose.yml.
+    let stack_name = format!("pier-{}", svc_name.to_lowercase().replace(' ', "-"));
+    let compose_path = state
+        .config
+        .data_dir
+        .join("stacks")
+        .join(&stack_name)
+        .join("docker-compose.yml");
+    if compose_path.exists() {
+        if let Err(e) = std::fs::write(&compose_path, &new_yaml) {
+            tracing::warn!("compose sync: write to {compose_path:?} failed: {e}");
+        }
+    }
+
+    tracing::info!(
+        "post-toggle compose sync: rewrote ports: block for {service_id} ({svc_name})"
+    );
+    Ok(())
 }
 
 // `rebuild_and_redeploy_for_port_toggle` was removed in favour of
