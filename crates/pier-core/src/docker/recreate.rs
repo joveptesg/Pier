@@ -207,6 +207,15 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         // not already own), make sure no other host process is sitting on it.
         // Avoids deep Bollard errors and the "leftover Traefik / mosquitto"
         // foot-gun that bit srv1.
+        //
+        // Defensive: `current_host_ports` only sees what bollard returns in
+        // `HostConfig.PortBindings`, which can be empty for compose-managed
+        // containers in private mode even when docker-proxy is publishing on
+        // 0.0.0.0 (the published binding comes from the YAML compose-up, not
+        // from Pier). If the bind probe fails, fall back to scanning
+        // `containers_list` — when the port owner is one of our own
+        // `target_ids`, stop+remove below will free it, so skip. Only bail
+        // when a *foreign* container or process owns the port.
         for a in &my_allocs {
             if !a.is_public {
                 continue;
@@ -217,9 +226,18 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
                 continue;
             }
             if let Err(e) = std::net::TcpListener::bind(("0.0.0.0", pp)) {
-                anyhow::bail!(
-                    "Host port {pp} is already in use by another process (not this container): {e}. \
-                     Free the port (e.g. `sudo ss -tlnp '( sport = :{pp} )'`) and toggle again."
+                let owner_id = find_port_owner_id(&containers_list, pp);
+                let is_our_target = owner_id
+                    .as_ref()
+                    .is_some_and(|id| target_ids.iter().any(|t| t == id));
+                if !is_our_target {
+                    anyhow::bail!(
+                        "Host port {pp} is already in use by another process (not this container): {e}. \
+                         Free the port (e.g. `sudo ss -tlnp '( sport = :{pp} )'`) and toggle again."
+                    );
+                }
+                tracing::info!(
+                    "pre-flight: port {pp} held by our own target container {owner_id:?}; will release on stop+remove"
                 );
             }
         }
@@ -454,6 +472,26 @@ fn allocations_for_this_container<'a>(
     }
 
     Vec::new()
+}
+
+/// Find which container in `containers_list` is publishing host port `pp`
+/// (i.e. which container's `Ports` entry has `public_port == Some(pp)`).
+/// Returns its id when known. Used by pre-flight to distinguish a port held
+/// by our own to-be-recreated container from a port held by an unrelated
+/// process — the former we can release by stop+remove, the latter is a real
+/// foot-gun and we should bail.
+fn find_port_owner_id(
+    containers_list: &[bollard::models::ContainerSummary],
+    pp: u16,
+) -> Option<String> {
+    containers_list
+        .iter()
+        .find(|c| {
+            c.ports
+                .as_ref()
+                .is_some_and(|ps| ps.iter().any(|p| p.public_port == Some(pp)))
+        })
+        .and_then(|c| c.id.clone())
 }
 
 /// Build `HostConfig.PortBindings` for one container instance.
@@ -728,6 +766,78 @@ mod tests {
             allocations_for_this_container(&allocs, &HashSet::new(), Some("1"), Some("db-replica"));
         assert_eq!(mine.len(), 1);
         assert_eq!(mine[0].compose_service.as_deref(), Some("db-replica"));
+    }
+
+    fn container_summary(id: &str, host_published_ports: &[u16]) -> bollard::models::ContainerSummary {
+        let ports: Vec<bollard::models::PortSummary> = host_published_ports
+            .iter()
+            .map(|&hp| bollard::models::PortSummary {
+                ip: Some("0.0.0.0".to_string()),
+                private_port: hp,
+                public_port: Some(hp),
+                typ: None,
+            })
+            .collect();
+        bollard::models::ContainerSummary {
+            id: Some(id.to_string()),
+            ports: Some(ports),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn find_port_owner_returns_id_when_container_publishes_port() {
+        let list = vec![
+            container_summary("c-api", &[3050]),
+            container_summary("c-bot", &[3054]),
+        ];
+        assert_eq!(find_port_owner_id(&list, 3050), Some("c-api".to_string()));
+        assert_eq!(find_port_owner_id(&list, 3054), Some("c-bot".to_string()));
+    }
+
+    #[test]
+    fn find_port_owner_returns_none_when_no_container_publishes_port() {
+        let list = vec![container_summary("c-api", &[3050])];
+        assert_eq!(find_port_owner_id(&list, 9999), None);
+    }
+
+    #[test]
+    fn preflight_is_our_target_when_owner_is_in_target_ids() {
+        // Regression for the flowfin "port already allocated" loop: the
+        // port is held by our own to-be-recreated container — pre-flight
+        // must not bail, stop+remove below will release it.
+        let list = vec![container_summary("c-api", &[3050])];
+        let target_ids = ["c-api".to_string(), "c-bot".to_string()];
+        let owner_id = find_port_owner_id(&list, 3050);
+        let is_our_target = owner_id
+            .as_ref()
+            .is_some_and(|id| target_ids.iter().any(|t| t == id));
+        assert!(is_our_target);
+    }
+
+    #[test]
+    fn preflight_is_not_our_target_when_owner_is_stranger() {
+        // Leftover Traefik / mosquitto foot-gun: a container holds the
+        // port but is not in our target set — pre-flight must bail.
+        let list = vec![container_summary("c-traefik-zombie", &[3050])];
+        let target_ids = ["c-api".to_string()];
+        let owner_id = find_port_owner_id(&list, 3050);
+        let is_our_target = owner_id
+            .as_ref()
+            .is_some_and(|id| target_ids.iter().any(|t| t == id));
+        assert!(!is_our_target);
+    }
+
+    #[test]
+    fn preflight_is_not_our_target_when_owner_unknown() {
+        // Port held by a non-Docker process (random host service). Bail.
+        let list: Vec<bollard::models::ContainerSummary> = vec![];
+        let target_ids = ["c-api".to_string()];
+        let owner_id = find_port_owner_id(&list, 3050);
+        let is_our_target = owner_id
+            .as_ref()
+            .is_some_and(|id| target_ids.iter().any(|t| t == id));
+        assert!(!is_our_target);
     }
 
     #[test]
