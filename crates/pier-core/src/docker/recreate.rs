@@ -41,6 +41,19 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         crate::db::ports::get_ports(&db, service_id)?
     };
 
+    // Set of host ports this service legitimately claims via its
+    // port_allocations rows. Pre-flight uses it as the first-line check: a
+    // bind probe on one of "our" ports must never bail — the port is held
+    // by either our current container (which stop+remove releases) or a
+    // sibling we're recreating. pier::db::ports::allocate_ports refuses
+    // already-used ports, so a row here means pier saw the port as free at
+    // allocation time. A foreign process can't sneak in later without us
+    // noticing on a prior recreate or sync.
+    let our_host_ports: HashSet<u16> = allocations
+        .iter()
+        .map(|a| a.host_port as u16)
+        .collect();
+
     let containers_list = state
         .docker
         .list_containers(Some(ListContainersOptions {
@@ -223,6 +236,12 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
             let Some(pp) = a.public_port else { continue };
             let pp = pp as u16;
             if current_host_ports.contains(&pp) {
+                continue;
+            }
+            if our_host_ports.contains(&pp) {
+                // Port is in our own port_allocations — whoever holds it on
+                // the host is part of this service. stop+remove below will
+                // free it, or it's already free because we own the slot.
                 continue;
             }
             if let Err(e) = std::net::TcpListener::bind(("0.0.0.0", pp)) {
@@ -826,6 +845,21 @@ mod tests {
             .as_ref()
             .is_some_and(|id| target_ids.iter().any(|t| t == id));
         assert!(!is_our_target);
+    }
+
+    #[test]
+    fn our_host_ports_collected_from_allocations() {
+        // The set used by pre-flight to skip self-owned ports. Built from
+        // ALL allocations of the service (not just my_allocs of the current
+        // container) so any sibling-held port also skips.
+        let api = alloc_with_compose("primary", 3050, 3050, true, Some(3050), "api");
+        let bot = alloc_with_compose("primary", 3054, 3054, false, None, "max-bot");
+        let allocs = [api, bot];
+        let our: std::collections::HashSet<u16> =
+            allocs.iter().map(|a| a.host_port as u16).collect();
+        assert!(our.contains(&3050), "api's 3050 must be in our_host_ports");
+        assert!(our.contains(&3054), "max-bot's 3054 must be in our_host_ports");
+        assert!(!our.contains(&9999), "unrelated port must NOT be in set");
     }
 
     #[test]
