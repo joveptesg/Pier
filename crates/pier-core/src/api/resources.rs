@@ -1328,6 +1328,19 @@ pub async fn get(
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
+
+    // Reconcile DB <-> Docker reality BEFORE reading. Pier's compose parser
+    // ignores the host-IP portion of ports: entries, so an operator-authored
+    // "0.0.0.0:3050:3050" makes the container public on the host without
+    // ever flipping is_public in the DB. Result: the UI toggle renders OFF
+    // over a publicly-bound container, and the next toggle press crashes
+    // pre-flight on its own docker-proxy. sync_ports_from_docker reads
+    // HostConfig.PortBindings and UPDATEs the DB. Best-effort — Docker
+    // unreachable / inspect failure is logged at warn and swallowed.
+    if let Err(e) = crate::docker::port_sync::sync_ports_from_docker(&state, &id).await {
+        tracing::warn!("get resource {id}: port sync skipped: {e}");
+    }
+
     let db = state
         .db
         .lock()
