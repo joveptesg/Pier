@@ -56,14 +56,15 @@ pub async fn list(
             "created_at": row.get::<_, String>(7)?,
             "compose_service": row.get::<_, Option<String>>(8)?,
             "strip_prefix": row.get::<_, i32>(9)? != 0,
-            "service_name": row.get::<_, Option<String>>(10)?,
+            "is_active": row.get::<_, i32>(10)? != 0,
+            "service_name": row.get::<_, Option<String>>(11)?,
         }))
     };
     let items: Vec<serde_json::Value> = if see_all {
         let mut stmt = db.prepare(
             "SELECT d.id, d.domain, d.service_id, d.ssl_status, d.ssl_expires_at,
                     d.ssl_provider, d.is_generated, d.created_at, d.compose_service,
-                    d.strip_prefix, s.name as service_name
+                    d.strip_prefix, d.is_active, s.name as service_name
              FROM domains d
              LEFT JOIN services s ON d.service_id = s.id
              ORDER BY d.created_at DESC",
@@ -77,7 +78,7 @@ pub async fn list(
         let mut stmt = db.prepare(
             "SELECT d.id, d.domain, d.service_id, d.ssl_status, d.ssl_expires_at,
                     d.ssl_provider, d.is_generated, d.created_at, d.compose_service,
-                    d.strip_prefix, s.name as service_name
+                    d.strip_prefix, d.is_active, s.name as service_name
              FROM domains d
              JOIN services s ON d.service_id = s.id
              JOIN project_members pm ON pm.project_id = s.project_id
@@ -228,6 +229,104 @@ pub async fn create(
     })))
 }
 
+/// POST /api/v1/domains/{id}/activate
+///
+/// Flip a draft (or previously deactivated) domain into the live Traefik
+/// dynamic config. Triggers Let's Encrypt cert issuance via the SSL monitor.
+/// Idempotent: calling on an already-active domain just re-emits the config.
+pub async fn activate(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let service_id: String = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT service_id FROM domains WHERE id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?
+    };
+    enforce_resource_role(&state, &user, &service_id, ProjectRole::Editor)?;
+
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "UPDATE domains SET is_active = 1, ssl_status = 'provisioning' WHERE id = ?1",
+            [&id],
+        )?;
+    }
+
+    regenerate_for_service(&state, &service_id)?;
+
+    // Same staggered notify pattern as create — gives Traefik a moment to
+    // pick up the new dynamic config before we ask the SSL monitor to
+    // check status.
+    {
+        let notify = state.ssl_notify.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            notify.notify_one();
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            notify.notify_one();
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            notify.notify_one();
+        });
+    }
+
+    Ok(Json(serde_json::json!({"ok": true, "id": id, "is_active": true})))
+}
+
+/// POST /api/v1/domains/{id}/deactivate
+///
+/// Pull the domain out of the live Traefik dynamic config — Traefik stops
+/// routing it within seconds. The DB row stays (status: inactive) and the
+/// Let's Encrypt cert remains in `acme.json` so reactivation is instant.
+/// To purge the row entirely, use `DELETE /api/v1/domains/{id}`.
+pub async fn deactivate(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    let service_id: String = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT service_id FROM domains WHERE id = ?1",
+            [&id],
+            |row| row.get(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?
+    };
+    enforce_resource_role(&state, &user, &service_id, ProjectRole::Editor)?;
+
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.execute(
+            "UPDATE domains SET is_active = 0 WHERE id = ?1",
+            [&id],
+        )?;
+    }
+
+    if let Err(e) = regenerate_for_service(&state, &service_id) {
+        tracing::warn!("Failed to regenerate Traefik config for {service_id} after deactivate: {e}");
+    }
+
+    Ok(Json(serde_json::json!({"ok": true, "id": id, "is_active": false})))
+}
+
 /// DELETE /api/v1/domains/{id}
 pub async fn remove(
     State(state): State<SharedState>,
@@ -284,7 +383,7 @@ pub async fn list_for_service(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let mut stmt = db.prepare(
-        "SELECT id, domain, ssl_status, ssl_expires_at, ssl_provider, is_generated, created_at, compose_service, strip_prefix
+        "SELECT id, domain, ssl_status, ssl_expires_at, ssl_provider, is_generated, created_at, compose_service, strip_prefix, is_active
          FROM domains WHERE service_id = ?1
          ORDER BY is_generated DESC, created_at ASC",
     )?;
@@ -300,6 +399,7 @@ pub async fn list_for_service(
                 "created_at": row.get::<_, String>(6)?,
                 "compose_service": row.get::<_, Option<String>>(7)?,
                 "strip_prefix": row.get::<_, i32>(8)? != 0,
+                "is_active": row.get::<_, i32>(9)? != 0,
             }))
         })?
         .filter_map(|r| r.ok())
@@ -451,9 +551,13 @@ pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppR
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        // Only ACTIVE domains end up in the Traefik dynamic config.
+        // Inactive rows (is_active = 0) are stored as drafts: no route,
+        // no SSL issuance. Activating one writes the route + kicks the
+        // SSL monitor; deactivating drops the route but keeps the cert.
         let mut stmt = db.prepare(
             "SELECT domain, COALESCE(path_prefix, ''), compose_service, strip_prefix \
-             FROM domains WHERE service_id = ?1",
+             FROM domains WHERE service_id = ?1 AND is_active = 1",
         )?;
         let rows: Vec<(String, String, Option<String>, bool)> = stmt
             .query_map([service_id], |row| {
@@ -489,12 +593,34 @@ pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppR
             url_cache.insert(key.clone(), u.clone());
             u
         };
-        // domain stored already includes path; if path_prefix is also a column,
-        // the combined value is what's in `domain`. The legacy column kept the
-        // path duplicated — prefer the `domain` value as-is.
-        let _ = path_prefix; // intentionally unused — legacy column
+
+        // Reconstruct the routed domain from hostname + path_prefix column.
+        // After migration 60 these are guaranteed consistent for legacy
+        // rows; for fresh rows add_domain writes them in sync. If they
+        // still disagree (operator-edited path_prefix without updating
+        // domain — supported workflow for in-place path fixes), the
+        // path_prefix column wins. That guarantees the StripPrefix
+        // middleware (which uses the path part of `domain` in the
+        // generator) matches what the operator actually intends.
+        let hostname = match domain.find('/') {
+            Some(pos) => &domain[..pos],
+            None => domain.as_str(),
+        };
+        let domain_for_router = if path_prefix.is_empty() {
+            hostname.to_string()
+        } else {
+            format!("{hostname}{path_prefix}")
+        };
+        if domain != &domain_for_router {
+            tracing::warn!(
+                "regenerate_for_service: domain/path_prefix mismatch for {service_id}: \
+                 domain={domain:?} path_prefix={path_prefix:?} → using {domain_for_router:?}. \
+                 Fix the DB row to align both columns."
+            );
+        }
+
         targets.push(DomainTarget {
-            domain: domain.clone(),
+            domain: domain_for_router,
             use_tls: true,
             compose_service: compose_svc.clone(),
             target_url: url,
