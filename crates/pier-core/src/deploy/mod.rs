@@ -1256,10 +1256,12 @@ fn strip_compose_ports(yaml: &str) -> String {
 /// (it's no longer authoritative), this re-emits from the DB. The pair makes
 /// the operator's toggle state survive `git pull` + redeploy without a
 /// post-deploy Bollard recreate.
+/// One `port_allocations` row distilled to the bits inject needs.
+/// `(compose_service, container_port, is_public, host_port, public_port)`
+pub(crate) type PortRow = (Option<String>, u16, bool, u16, Option<u16>);
+
 fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> String {
-    // (compose_service, container_port, is_public, host_port, public_port)
-    type Row = (Option<String>, u16, bool, u16, Option<u16>);
-    let rows: Vec<Row> = {
+    let rows: Vec<PortRow> = {
         let Ok(db) = state.db.lock() else {
             return yaml.to_string();
         };
@@ -1288,6 +1290,65 @@ fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> Strin
         return yaml.to_string();
     }
 
+    inject_ports_into_yaml(yaml, &rows)
+}
+
+/// Locate an existing `ports:` dash-list block under a service in
+/// `lines[search_start..search_end]` at indent `prop_indent`. Returns
+/// `(ports_start, ports_end)` exclusive — suitable for `lines.drain(...)`.
+/// Inline form `ports: ["3050:3050"]` is intentionally NOT matched; Pier's
+/// compose parser doesn't support it either, so the rare inline-using
+/// operator gets unchanged behavior (and an opportunity to migrate).
+fn find_dash_list_ports_block(
+    lines: &[String],
+    search_start: usize,
+    search_end: usize,
+    prop_indent: usize,
+) -> Option<(usize, usize)> {
+    let ports_start = (search_start..search_end).find(|&i| {
+        let line = &lines[i];
+        if line.trim() != "ports:" {
+            return false;
+        }
+        let indent = line.len() - line.trim_start().len();
+        indent == prop_indent
+    })?;
+
+    // Block extends through any deeper-indented or blank lines after
+    // `ports:`. Stop at the first sibling property (indent <= prop_indent
+    // AND non-blank). Trim trailing blanks so we don't eat the cosmetic
+    // separator between service blocks.
+    let mut ports_end = ports_start + 1;
+    while ports_end < search_end {
+        let line = &lines[ports_end];
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            let indent = line.len() - line.trim_start().len();
+            if indent <= prop_indent {
+                break;
+            }
+        }
+        ports_end += 1;
+    }
+    while ports_end > ports_start + 1 && lines[ports_end - 1].trim().is_empty() {
+        ports_end -= 1;
+    }
+
+    Some((ports_start, ports_end))
+}
+
+/// Pure rewriter: take a docker-compose YAML and a set of `port_allocations`
+/// rows, return the YAML with each service's `ports:` block dropped and
+/// reinjected to reflect the rows. **Removes** existing `ports:` blocks
+/// before injecting so the output is idempotent across repeated calls and
+/// has no chance of producing the dual-`ports:` YAML hazard (which broke
+/// the mqtt server: operator wrote `ports: - "1883:1883"` and Pier appended
+/// its own block — `docker compose up` then picked one non-deterministically).
+///
+/// Private rows produce no host binding — the container stays reachable
+/// through the compose project network by service name. A row with
+/// `is_public=false` is effectively "remove from compose".
+pub(crate) fn inject_ports_into_yaml(yaml: &str, rows: &[PortRow]) -> String {
     let mut lines: Vec<String> = yaml.lines().map(|l| l.to_string()).collect();
 
     // Locate top-level `services:`.
@@ -1351,9 +1412,15 @@ fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> Strin
     let only_one_service = service_ranges.len() == 1;
 
     // Walk services in reverse so earlier indices stay valid as we splice in
-    // the `ports:` block.
+    // the `ports:` block. For each service we (1) remove any existing `ports:`
+    // block — operator-authored OR previously injected — and (2) write a fresh
+    // block based on current is_public state. This makes inject idempotent
+    // and prevents the dual-block YAML hazard that bit the mqtt server: if
+    // the operator wrote `ports: - "1883:1883"` AND Pier appended its own
+    // `ports: - "0.0.0.0:1883:1883"`, `docker compose up` had to pick one
+    // and the result was non-deterministic.
     for (svc_name, start, end) in service_ranges.iter().rev() {
-        let svc_rows: Vec<&Row> = rows
+        let svc_rows: Vec<&PortRow> = rows
             .iter()
             .filter(|(cs, _, _, _, _)| match cs {
                 Some(name) => name == svc_name,
@@ -1362,6 +1429,9 @@ fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> Strin
             .collect();
 
         if svc_rows.is_empty() {
+            // No port_allocations claim this compose service — leave its
+            // ports: block (if any) alone. The operator may be managing it
+            // outside Pier's port_allocations registry.
             continue;
         }
 
@@ -1381,6 +1451,20 @@ fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> Strin
             })
             .unwrap_or(service_indent + 2);
 
+        // Strip any pre-existing `ports:` block in this service's range.
+        // Only matches the dash-list form (`ports:\n  - "..."`); the rare
+        // inline form (`ports: ["3050:3050"]`) is not supported by Pier's
+        // compose parser and is left intact — if encountered, the operator
+        // gets a dual-block YAML and we'd want a separate issue for it.
+        let mut svc_end = *end;
+        if let Some((ports_start, ports_end)) =
+            find_dash_list_ports_block(&lines, *start + 1, svc_end, prop_indent)
+        {
+            let removed = ports_end - ports_start;
+            lines.drain(ports_start..ports_end);
+            svc_end -= removed;
+        }
+
         let key_pad = " ".repeat(prop_indent);
         let item_pad = " ".repeat(prop_indent + 2);
 
@@ -1388,8 +1472,7 @@ fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> Strin
         // per is_public=1 row. Private ports get NO host binding (the
         // container is reachable from `pier-net` by its service name, and
         // a redundant `127.0.0.1:host:container` would collide with the
-        // 0.0.0.0 binding when public_port == host_port — that's exactly
-        // what blew up the redeploy with "address already in use").
+        // 0.0.0.0 binding when public_port == host_port).
         let mut public_lines: Vec<String> = Vec::new();
         for (_, container_port, is_public, _host_port, public_port) in &svc_rows {
             if !*is_public {
@@ -1399,16 +1482,17 @@ fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> Strin
             public_lines.push(format!("{item_pad}- \"0.0.0.0:{pp}:{container_port}\""));
         }
         if public_lines.is_empty() {
-            // No public ports for this service — skip emitting a `ports:`
-            // block altogether so the compose stays clean.
+            // No public ports — leave the service without a `ports:` block.
+            // The old block (if any) was already removed above.
             continue;
         }
         let mut block = vec![format!("{key_pad}ports:")];
         block.extend(public_lines);
 
         // Insert just before any trailing blank lines at the end of the
-        // service block, mirroring `inject_env_file_into_services`.
-        let mut insert_at = *end;
+        // (possibly shortened) service block, mirroring
+        // `inject_env_file_into_services`.
+        let mut insert_at = svc_end;
         while insert_at > start + 1 && lines[insert_at - 1].trim().is_empty() {
             insert_at -= 1;
         }
@@ -2083,9 +2167,9 @@ struct ServiceInfo {
 #[cfg(test)]
 mod tests {
     use super::{
-        env_json_to_env_content, inject_env_file_into_services,
+        env_json_to_env_content, inject_env_file_into_services, inject_ports_into_yaml,
         inject_mesh_extra_hosts_into_services, normalize_mesh_hostname,
-        upsert_port_rows,
+        upsert_port_rows, PortRow,
     };
     use crate::crypto::encrypt_env_json;
 
@@ -2447,5 +2531,139 @@ mod tests {
     fn corrupted_ciphertext_yields_empty_not_panic() {
         let out = env_json_to_env_content(Some("ENC:notbase64:alsonotbase64"));
         assert!(out.is_empty());
+    }
+
+    // ─── inject_ports_into_yaml: idempotence + dedup ────────────────────
+
+    fn row(cs: Option<&str>, cp: u16, is_public: bool, pp: Option<u16>) -> PortRow {
+        (cs.map(String::from), cp, is_public, cp, pp)
+    }
+
+    #[test]
+    fn inject_ports_idempotent_across_repeated_calls() {
+        // Calling inject twice in a row must produce the same YAML — a single
+        // `ports:` block per service, no dual-block hazard. Regression for
+        // the mqtt-server scenario where operator-authored ports + Pier-
+        // injected ports doubled up after the b84aa79 sync.
+        let yaml = "\
+services:
+  api:
+    image: api:latest
+";
+        let rows = vec![row(Some("api"), 3050, true, Some(3050))];
+        let once = inject_ports_into_yaml(yaml, &rows);
+        let twice = inject_ports_into_yaml(&once, &rows);
+        assert_eq!(once, twice, "second inject must be a no-op");
+        assert_eq!(
+            once.matches("ports:").count(),
+            1,
+            "must have exactly one ports: block, got: {once}"
+        );
+        assert!(once.contains("- \"0.0.0.0:3050:3050\""), "yaml = {once}");
+    }
+
+    #[test]
+    fn inject_ports_replaces_operator_authored_block() {
+        // Operator wrote `ports: - "3050:3050"` in their compose. Pier's
+        // toggle says "go public on 0.0.0.0:3050". After inject the
+        // operator-authored block must be GONE and replaced with the new
+        // canonical form, NOT appended.
+        let yaml = "\
+services:
+  api:
+    image: api:latest
+    ports:
+      - \"3050:3050\"
+    environment:
+      - FOO=bar
+";
+        let rows = vec![row(Some("api"), 3050, true, Some(3050))];
+        let out = inject_ports_into_yaml(yaml, &rows);
+        assert_eq!(
+            out.matches("ports:").count(),
+            1,
+            "exactly one ports: block expected, got: {out}"
+        );
+        assert!(out.contains("- \"0.0.0.0:3050:3050\""), "yaml = {out}");
+        assert!(
+            !out.contains("- \"3050:3050\""),
+            "old operator block must be gone, yaml = {out}"
+        );
+        assert!(
+            out.contains("FOO=bar"),
+            "sibling environment block must be preserved, yaml = {out}"
+        );
+    }
+
+    #[test]
+    fn inject_ports_removes_block_when_going_private() {
+        // is_public=false → no `ports:` block in output, even if one was
+        // present before. Container becomes pier-net-only.
+        let yaml = "\
+services:
+  api:
+    image: api:latest
+    ports:
+      - \"3050:3050\"
+";
+        let rows = vec![row(Some("api"), 3050, false, None)];
+        let out = inject_ports_into_yaml(yaml, &rows);
+        assert!(
+            !out.contains("ports:"),
+            "private mode must strip ports: block, yaml = {out}"
+        );
+        assert!(out.contains("image: api:latest"));
+    }
+
+    #[test]
+    fn inject_ports_preserves_other_service_blocks() {
+        // Multi-service compose: inject must only touch the service it has
+        // rows for. Sibling service's ports block (if any) untouched.
+        let yaml = "\
+services:
+  api:
+    image: api:latest
+  worker:
+    image: worker:latest
+    ports:
+      - \"5000:5000\"
+";
+        let rows = vec![row(Some("api"), 3050, true, Some(3050))];
+        let out = inject_ports_into_yaml(yaml, &rows);
+        // worker's ports block must survive unchanged
+        assert!(
+            out.contains("- \"5000:5000\""),
+            "worker ports must be preserved, yaml = {out}"
+        );
+        // api gets its new block
+        assert!(
+            out.contains("- \"0.0.0.0:3050:3050\""),
+            "api must have new public ports block, yaml = {out}"
+        );
+    }
+
+    #[test]
+    fn inject_ports_handles_multi_service_with_mixed_public_private() {
+        // flowfin-style: api public, max-bot private. Output:
+        // - api gets `ports: - "0.0.0.0:3050:3050"`
+        // - max-bot gets NO ports: block (was none before either)
+        let yaml = "\
+services:
+  api:
+    image: api:latest
+  max-bot:
+    image: bot:latest
+";
+        let rows = vec![
+            row(Some("api"), 3050, true, Some(3050)),
+            row(Some("max-bot"), 3054, false, None),
+        ];
+        let out = inject_ports_into_yaml(yaml, &rows);
+        assert_eq!(
+            out.matches("ports:").count(),
+            1,
+            "only api should have ports block, yaml = {out}"
+        );
+        assert!(out.contains("- \"0.0.0.0:3050:3050\""));
     }
 }
