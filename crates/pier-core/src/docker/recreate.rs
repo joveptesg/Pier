@@ -110,6 +110,51 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         return Ok(());
     }
 
+    // Multi-service docker-compose stack: if the container(s) we just found
+    // carry a `com.docker.compose.project` label, pull in every sibling in
+    // the same compose project so the service-level public-toggle recreates
+    // *all* compose services together (api + max-bot for flowfin, not just
+    // one of them). Without this, the fallback above only picks the single
+    // container stored in `services.container_id` and silblings keep their
+    // previous bindings — half the toggle silently no-ops. Catalog services
+    // and standalone git-Dockerfile services don't get the compose project
+    // label, so this is a no-op for them.
+    {
+        let project_label: Option<String> = containers_list
+            .iter()
+            .find(|c| c.id.as_deref() == Some(target_ids[0].as_str()))
+            .and_then(|c| c.labels.as_ref())
+            .and_then(|l| l.get("com.docker.compose.project"))
+            .cloned();
+        if let Some(project) = project_label {
+            let existing: HashSet<String> = target_ids.iter().cloned().collect();
+            let siblings: Vec<String> = containers_list
+                .iter()
+                .filter(|c| {
+                    c.labels
+                        .as_ref()
+                        .and_then(|l| l.get("com.docker.compose.project"))
+                        == Some(&project)
+                })
+                .filter(|c| {
+                    c.labels
+                        .as_ref()
+                        .and_then(|l| l.get("com.docker.compose.service"))
+                        .is_some()
+                })
+                .filter_map(|c| c.id.clone())
+                .filter(|id| !existing.contains(id))
+                .collect();
+            if !siblings.is_empty() {
+                tracing::info!(
+                    "recreate_with_port_bindings: also found {} compose siblings for project {project}",
+                    siblings.len()
+                );
+                target_ids.extend(siblings);
+            }
+        }
+    }
+
     // `services.container_id` in Pier historically stores the **container
     // name** (e.g. `myhome-backend`), not the 64-char Docker ID — the UI's
     // "Internal Network" block displays this value as-is. Track the name we
@@ -145,9 +190,18 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
             .as_ref()
             .and_then(|m| m.get("pier.replica.idx"))
             .map(|s| s.as_str());
+        let compose_service_label = cfg
+            .labels
+            .as_ref()
+            .and_then(|m| m.get("com.docker.compose.service"))
+            .map(|s| s.as_str());
 
-        let my_allocs: Vec<&PortAllocation> =
-            allocations_for_this_container(&allocations, &current_host_ports, replica_idx_label);
+        let my_allocs: Vec<&PortAllocation> = allocations_for_this_container(
+            &allocations,
+            &current_host_ports,
+            replica_idx_label,
+            compose_service_label,
+        );
 
         // Pre-flight: for every NEW public host port (one this container did
         // not already own), make sure no other host process is sitting on it.
@@ -347,6 +401,15 @@ fn collect_host_ports(hc: &HostConfig) -> HashSet<u16> {
 /// Pick the subset of `port_allocations` rows that belong to this specific
 /// container instance.
 ///
+/// Multi-service docker-compose stacks (flowfin: `api` + `max-bot`): each
+/// container carries the Compose-injected label
+/// `com.docker.compose.service` whose value matches one
+/// `port_allocations.compose_service`. When that label is present we
+/// partition by it — otherwise the recreate of `flowfin-api` would inherit
+/// max-bot's `0.0.0.0:3054` binding and collide with the still-live sibling.
+/// This branch takes precedence over the replica logic below; multi-service
+/// stacks never share host ports between siblings by construction.
+///
 /// Single-replica multi-port services (myhome-backend: `primary` + `port-1`):
 /// every container is "the only one", returns all rows.
 ///
@@ -358,7 +421,15 @@ fn allocations_for_this_container<'a>(
     allocations: &'a [PortAllocation],
     current_host_ports: &HashSet<u16>,
     replica_idx_label: Option<&str>,
+    container_compose_service: Option<&str>,
 ) -> Vec<&'a PortAllocation> {
+    if let Some(cs) = container_compose_service {
+        return allocations
+            .iter()
+            .filter(|a| a.compose_service.as_deref() == Some(cs))
+            .collect();
+    }
+
     let is_multi_replica = allocations
         .iter()
         .any(|a| a.port_name.starts_with("replica_") || a.port_name.starts_with("replica-"));
@@ -571,7 +642,7 @@ mod tests {
         let a = alloc("primary", 4471, 4471, true, Some(4471));
         let b = alloc("port-1", 1883, 1883, true, Some(1883));
         let allocs = vec![a, b];
-        let mine = allocations_for_this_container(&allocs, &HashSet::new(), None);
+        let mine = allocations_for_this_container(&allocs, &HashSet::new(), None, None);
         assert_eq!(mine.len(), 2);
     }
 
@@ -583,7 +654,7 @@ mod tests {
         let allocs = vec![a, b, c];
         let mut mine_hp = HashSet::new();
         mine_hp.insert(7001u16);
-        let mine = allocations_for_this_container(&allocs, &mine_hp, None);
+        let mine = allocations_for_this_container(&allocs, &mine_hp, None, None);
         assert_eq!(mine.len(), 1);
         assert_eq!(mine[0].port_name, "replica_2");
     }
@@ -594,9 +665,85 @@ mod tests {
         let b = alloc("replica_2", 7001, 5432, false, None);
         let allocs = vec![a, b];
         // current_host_ports empty (container had no publish), fall back to label.
-        let mine = allocations_for_this_container(&allocs, &HashSet::new(), Some("2"));
+        let mine = allocations_for_this_container(&allocs, &HashSet::new(), Some("2"), None);
         assert_eq!(mine.len(), 1);
         assert_eq!(mine[0].port_name, "replica_2");
+    }
+
+    fn alloc_with_compose(
+        name: &str,
+        host: i64,
+        container: i64,
+        is_public: bool,
+        public_port: Option<i64>,
+        compose_service: &str,
+    ) -> PortAllocation {
+        let mut a = alloc(name, host, container, is_public, public_port);
+        a.compose_service = Some(compose_service.to_string());
+        a
+    }
+
+    #[test]
+    fn allocations_filter_multi_service_compose_partitions_by_compose_service() {
+        // flowfin: two compose services (api, max-bot), each with one port
+        // named "primary". Recreating `flowfin-api` must NOT pull in
+        // max-bot's 3054 — that's the bug that caused the
+        // "port is already allocated" 500.
+        let api = alloc_with_compose("primary", 3050, 3050, false, None, "api");
+        let bot = alloc_with_compose("primary", 3054, 3054, false, None, "max-bot");
+        let allocs = vec![api, bot];
+
+        let mut current = HashSet::new();
+        current.insert(3050u16);
+        let mine =
+            allocations_for_this_container(&allocs, &current, None, Some("api"));
+        assert_eq!(mine.len(), 1, "api container must get only its own row, got {mine:?}");
+        assert_eq!(mine[0].host_port, 3050);
+        assert_eq!(mine[0].compose_service.as_deref(), Some("api"));
+    }
+
+    #[test]
+    fn allocations_filter_legacy_null_compose_service_returns_all() {
+        // Single-container catalog services (or pre-b84aa79 deployments) have
+        // compose_service = NULL on every row, and the container has no
+        // com.docker.compose.service label. Behavior must match the old code:
+        // return everything.
+        let a = alloc("primary", 4471, 4471, true, Some(4471));
+        let b = alloc("port-1", 1883, 1883, true, Some(1883));
+        let allocs = vec![a, b];
+        let mine = allocations_for_this_container(&allocs, &HashSet::new(), None, None);
+        assert_eq!(mine.len(), 2);
+    }
+
+    #[test]
+    fn allocations_filter_compose_branch_takes_precedence_over_replica() {
+        // Defensive: even if the rows happen to look replica-like, the
+        // compose-service label (Docker's source of truth for which container
+        // we're touching) wins. Prevents the partition logic from falling
+        // through to the `replica_*` branch and matching by host_port.
+        let a = alloc_with_compose("replica_1", 7000, 5432, false, None, "db-primary");
+        let b = alloc_with_compose("replica_2", 7001, 5432, false, None, "db-replica");
+        let allocs = vec![a, b];
+        let mine =
+            allocations_for_this_container(&allocs, &HashSet::new(), Some("1"), Some("db-replica"));
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].compose_service.as_deref(), Some("db-replica"));
+    }
+
+    #[test]
+    fn build_port_bindings_for_container_with_partitioned_allocations_yields_single_binding() {
+        // End-to-end of the fix: after compose-service partitioning, the
+        // bindings HashMap fed into Docker create has exactly one entry per
+        // sibling — no chance of accidentally republishing a neighbour's port.
+        let api = alloc_with_compose("primary", 3050, 3050, true, Some(3050), "api");
+        let bot = alloc_with_compose("primary", 3054, 3054, true, Some(3054), "max-bot");
+        let allocs = vec![api, bot];
+        let mine =
+            allocations_for_this_container(&allocs, &HashSet::new(), None, Some("api"));
+        let b = build_port_bindings_for_container(&mine);
+        assert_eq!(b.len(), 1, "expected one binding for api container, got {b:?}");
+        assert!(b.contains_key("3050/tcp"));
+        assert!(!b.contains_key("3054/tcp"), "max-bot's port leaked: {b:?}");
     }
 
     #[test]
