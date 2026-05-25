@@ -1351,6 +1351,34 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE npm_packages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
     CREATE INDEX IF NOT EXISTS idx_npm_packages_pinned ON npm_packages(pinned);
     "#,
+    // Migration 59: Backfill proxy.acme_email from owner email on legacy installs.
+    //
+    // The /setup handler started seeding settings.proxy.acme_email from the
+    // first admin email, but installs older than that commit have no row in
+    // `settings` for this key. The UI reads the raw value and shows an empty
+    // field with the "Not loaded — save to apply" warning, while the runtime
+    // falls back to the owner email via proxy::read_acme_email() — so LE
+    // actually issues certs but the operator sees a misconfiguration.
+    //
+    // We pick global_role='owner' (set by migrations 44/55) for determinism
+    // on multi-admin installs. The SELECT yields zero rows on a fresh DB
+    // before /setup ran, so the migration is a no-op then.
+    //
+    // The WHERE clause only fires when the existing value is missing or an
+    // empty string — an operator-chosen non-empty value is preserved.
+    r#"
+    INSERT OR REPLACE INTO settings (key, value, updated_at)
+    SELECT 'proxy.acme_email', u.email, datetime('now')
+      FROM users u
+     WHERE u.global_role = 'owner'
+       AND u.email IS NOT NULL
+       AND u.email != ''
+       AND (
+           NOT EXISTS (SELECT 1 FROM settings WHERE key = 'proxy.acme_email')
+           OR (SELECT value FROM settings WHERE key = 'proxy.acme_email') = ''
+       )
+     LIMIT 1;
+    "#,
 ];
 
 /// Run all pending database migrations.
