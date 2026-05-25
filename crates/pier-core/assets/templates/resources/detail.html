@@ -307,19 +307,21 @@
                                     <span x-show="d.is_active === false" class="text-[10px] text-gray-400">—</span>
                                 </td>
                                 <td class="px-5 py-2.5 text-right whitespace-nowrap">
-                                    <button x-show="d.is_active === false"
-                                            @click="activateDomain(d.id)"
-                                            class="text-[10px] px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors mr-1"
-                                            title="Activate domain — write Traefik route + issue SSL">Activate</button>
-                                    <button x-show="d.is_active !== false"
-                                            @click="deactivateDomain(d.id)"
-                                            class="text-[10px] px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors mr-1"
-                                            title="Deactivate — remove Traefik route, keep cert in cache">Deactivate</button>
-                                    <button @click="removeDomain(d.id)"
-                                            class="text-gray-400 hover:text-red-500 p-1 align-middle"
-                                            title="Remove domain (destructive)">
-                                        <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                                    </button>
+                                    <div class="inline-flex items-center gap-2 align-middle">
+                                        <button @click="d.is_active === false ? activateDomain(d.id) : deactivateDomainConfirm(d.id, d.domain)"
+                                                :class="d.is_active === false ? 'bg-gray-300 dark:bg-gray-700' : 'bg-blue-600'"
+                                                class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                                                :title="d.is_active === false ? 'Activate domain' : 'Deactivate domain'">
+                                            <span :class="d.is_active === false ? 'translate-x-1' : 'translate-x-5'"
+                                                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"></span>
+                                        </button>
+                                        <button @click="openEditDomain(d)" class="text-gray-400 hover:text-blue-500 p-1" title="Edit (path, strip prefix)">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                        </button>
+                                        <button @click="removeDomain(d.id)" class="text-gray-400 hover:text-red-500 p-1" title="Remove domain (destructive)">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
@@ -721,11 +723,21 @@ NODE_ENV=production"></textarea>
                                     <span x-show="d.is_active === false" class="text-[10px] text-gray-400">—</span>
                                 </td>
                                 <td class="px-5 py-2.5 text-right whitespace-nowrap">
-                                    <button x-show="d.is_active === false" @click="activateDomain(d.id)"
-                                            class="text-[10px] px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors mr-1">Activate</button>
-                                    <button x-show="d.is_active !== false" @click="deactivateDomain(d.id)"
-                                            class="text-[10px] px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors mr-1">Deactivate</button>
-                                    <button @click="removeDomain(d.id)" class="text-xs text-red-500 hover:text-red-700">Delete</button>
+                                    <div class="inline-flex items-center gap-2 align-middle">
+                                        <button @click="d.is_active === false ? activateDomain(d.id) : deactivateDomainConfirm(d.id, d.domain)"
+                                                :class="d.is_active === false ? 'bg-gray-300 dark:bg-gray-700' : 'bg-blue-600'"
+                                                class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                                                :title="d.is_active === false ? 'Activate' : 'Deactivate'">
+                                            <span :class="d.is_active === false ? 'translate-x-1' : 'translate-x-5'"
+                                                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"></span>
+                                        </button>
+                                        <button @click="openEditDomain(d)" class="text-gray-400 hover:text-blue-500 p-1" title="Edit">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                        </button>
+                                        <button @click="removeDomain(d.id)" class="text-gray-400 hover:text-red-500 p-1" title="Delete">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
@@ -757,31 +769,59 @@ NODE_ENV=production"></textarea>
                     <template x-if="domainsForService(cs.name).length === 0">
                         <p class="text-sm text-gray-400 text-center py-3">No domains for this service</p>
                     </template>
-                    <div class="space-y-2">
-                        <template x-for="d in domainsForService(cs.name)" :key="d.id">
-                            <div class="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-800 pb-2 last:border-0 last:pb-0"
-                                 :class="d.is_active === false ? 'opacity-60' : ''">
-                                <div class="flex items-center gap-2">
-                                    <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
-                                    <a :href="'https://' + d.domain" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline" x-text="d.domain"></a>
-                                    <span x-show="d.is_generated" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">auto</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full"
-                                          :class="d.is_active === false ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-green-100 dark:bg-green-500/10 text-green-600'"
-                                          x-text="d.is_active === false ? 'inactive' : 'active'"></span>
-                                    <span x-show="d.is_active !== false"
-                                          class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
-                                          :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
-                                          x-text="d.ssl_status"></span>
-                                    <button x-show="d.is_active === false" @click="activateDomain(d.id)"
-                                            class="text-[10px] px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30">Activate</button>
-                                    <button x-show="d.is_active !== false" @click="deactivateDomain(d.id)"
-                                            class="text-[10px] px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">Deactivate</button>
-                                    <button @click="removeDomain(d.id)" class="text-xs text-red-500 hover:text-red-700">Delete</button>
-                                </div>
-                            </div>
-                        </template>
+                    <div x-show="domainsForService(cs.name).length > 0" class="overflow-x-auto -mx-5">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-800">
+                                    <th class="text-left font-medium px-5 py-2">Domain</th>
+                                    <th class="text-left font-medium px-3 py-2">Status</th>
+                                    <th class="text-left font-medium px-3 py-2">SSL</th>
+                                    <th class="text-right font-medium px-5 py-2 w-px whitespace-nowrap">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
+                                <template x-for="d in domainsForService(cs.name)" :key="d.id">
+                                    <tr :class="d.is_active === false ? 'opacity-60' : ''">
+                                        <td class="px-5 py-2.5">
+                                            <div class="flex items-center gap-2">
+                                                <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                                                <a :href="'https://' + d.domain" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline font-mono text-xs" x-text="d.domain"></a>
+                                                <span x-show="d.is_generated" class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">auto</span>
+                                            </div>
+                                        </td>
+                                        <td class="px-3 py-2.5">
+                                            <span class="text-[10px] px-1.5 py-0.5 rounded-full"
+                                                  :class="d.is_active === false ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-green-100 dark:bg-green-500/10 text-green-600'"
+                                                  x-text="d.is_active === false ? 'inactive' : 'active'"></span>
+                                        </td>
+                                        <td class="px-3 py-2.5">
+                                            <span x-show="d.is_active !== false"
+                                                  class="text-[10px] px-1.5 py-0.5 rounded-full"
+                                                  :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
+                                                  x-text="d.ssl_status"></span>
+                                            <span x-show="d.is_active === false" class="text-[10px] text-gray-400">—</span>
+                                        </td>
+                                        <td class="px-5 py-2.5 text-right whitespace-nowrap">
+                                            <div class="inline-flex items-center gap-2 align-middle">
+                                                <button @click="d.is_active === false ? activateDomain(d.id) : deactivateDomainConfirm(d.id, d.domain)"
+                                                        :class="d.is_active === false ? 'bg-gray-300 dark:bg-gray-700' : 'bg-blue-600'"
+                                                        class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                                                        :title="d.is_active === false ? 'Activate' : 'Deactivate'">
+                                                    <span :class="d.is_active === false ? 'translate-x-1' : 'translate-x-5'"
+                                                          class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"></span>
+                                                </button>
+                                                <button @click="openEditDomain(d)" class="text-gray-400 hover:text-blue-500 p-1" title="Edit">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                                </button>
+                                                <button @click="removeDomain(d.id)" class="text-gray-400 hover:text-red-500 p-1" title="Delete">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </template>
@@ -1392,6 +1432,36 @@ NODE_ENV=production"></textarea>
         </div>
     </div>
 
+    <!-- Edit Domain Modal -->
+    <div x-show="showEditDomain" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" @click.self="showEditDomain = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                Edit Domain <span class="text-sm font-normal text-gray-500 font-mono" x-text="editingDomain && editingDomain.domain"></span>
+            </h3>
+            <div>
+                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Path prefix</label>
+                <input type="text" x-model="editPathPrefix" placeholder="/api/v1 (or empty)"
+                       class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white font-mono">
+                <p class="text-xs text-gray-400 mt-1">Routes only requests matching this path. Empty = whole host.</p>
+            </div>
+            <div x-show="editPathPrefix && editPathPrefix !== '/'" class="pt-1 border-t border-gray-100 dark:border-gray-800">
+                <label class="flex items-start gap-2 cursor-pointer pt-3">
+                    <input type="checkbox" x-model="editStripPrefix"
+                           class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm text-gray-700 dark:text-gray-300">Strip path prefix before forwarding</span>
+                </label>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-6 leading-relaxed">
+                    <strong class="text-gray-700 dark:text-gray-300">Checked:</strong> backend receives requests at <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800">/</code> (prefix stripped).
+                    <strong class="text-gray-700 dark:text-gray-300">Unchecked:</strong> backend receives the full path as-is (e.g. <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800" x-text="editPathPrefix + '/health'"></code>) — use for Telegram-style webhooks whose router already includes the prefix.
+                </p>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button @click="showEditDomain = false" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
+                <button @click="saveDomainEdit()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Delete Confirmation Modal -->
     <div x-show="showDeleteModal" x-cloak
          class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
@@ -1639,6 +1709,7 @@ function resourceDetail(id) {
         clusterInfo: null,
         scaleInfo: null, scaleApplying: false, availableServers: [],
         domains: [], showAddDomain: false, newDomainName: '', newDomainComposeService: '', newDomainStripPrefix: true,
+        showEditDomain: false, editingDomain: null, editPathPrefix: '', editStripPrefix: true,
         composeServices: [],
         selectedComposeService: '',
         containerLogs: '', deploymentLogs: [], logLines: 100, logFontSize: parseInt(localStorage.getItem('pierLogFontSize') || '12'),
@@ -2468,9 +2539,32 @@ function resourceDetail(id) {
             catch(e){ toast(e.message,'error'); }
         },
         async deactivateDomain(domainId) {
-            if(!confirm('Deactivate this domain? Traefik route will be removed but the SSL cert stays cached for instant reactivation.'))return;
             try { await api('/api/v1/domains/'+domainId+'/deactivate', {method:'POST'}); toast('Domain deactivated'); await this.loadDomains(); }
             catch(e){ toast(e.message,'error'); }
+        },
+        async deactivateDomainConfirm(domainId, domainName) {
+            if(!confirm('Deactivate ' + domainName + '? Traefik route is removed but the SSL cert stays cached for instant reactivation.'))return;
+            await this.deactivateDomain(domainId);
+        },
+        openEditDomain(d) {
+            this.editingDomain = d;
+            this.editPathPrefix = d.path_prefix || (d.domain.includes('/') ? '/' + d.domain.split('/').slice(1).join('/') : '');
+            this.editStripPrefix = d.strip_prefix !== false;
+            this.showEditDomain = true;
+        },
+        async saveDomainEdit() {
+            if (!this.editingDomain) return;
+            const body = {
+                path_prefix: this.editPathPrefix || '',
+                strip_prefix: this.editStripPrefix,
+            };
+            try {
+                await api('/api/v1/domains/'+this.editingDomain.id, {method:'PUT', body: JSON.stringify(body)});
+                toast('Domain updated');
+                this.showEditDomain = false;
+                this.editingDomain = null;
+                await this.loadDomains();
+            } catch(e){ toast(e.message, 'error'); }
         },
         async loadComposeServices() {
             try { this.composeServices = await fetch('/api/v1/resources/'+this.id+'/compose-services').then(r=>r.ok?r.json():[]); } catch { this.composeServices = []; }
