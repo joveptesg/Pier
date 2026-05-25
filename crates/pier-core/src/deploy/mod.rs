@@ -1047,93 +1047,7 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
     }
 
     if let Ok(db) = state.db.lock() {
-        // Idempotent UPSERT by (service_id, port_name): we never DELETE rows
-        // and never skip ones already present. Compose declarations describe
-        // what *exists*; the operator's UI toggle decides what is *public*.
-        // Existing rows keep their is_public/public_port through every
-        // re-parse — that's what survives pipelines like
-        //   extract_and_save_ports(original) → strip+inject →
-        //   update_ports_from_compose(stack_file)
-        // where the stack-file pass sees a subset of the original ports
-        // (private ones aren't injected back). Earlier code used
-        // DELETE+INSERT and silently dropped any port absent from the yaml
-        // passed in — that's why port-1=1883 vanished from myhome-back on
-        // every redeploy.
-        for (compose_svc, port_name, host_port, container_port) in &flat {
-            let existing: Option<String> = db
-                .query_row(
-                    "SELECT id FROM port_allocations \
-                     WHERE service_id = ?1 AND port_name = ?2",
-                    rusqlite::params![service_id, port_name],
-                    |row| row.get::<_, String>(0),
-                )
-                .ok();
-
-            match existing {
-                Some(row_id) => {
-                    // Refresh compose-side fields, preserve toggle state.
-                    if let Err(e) = db.execute(
-                        "UPDATE port_allocations \
-                         SET host_port = ?1, container_port = ?2, compose_service = ?3 \
-                         WHERE id = ?4",
-                        rusqlite::params![
-                            *host_port as i64,
-                            *container_port as i64,
-                            compose_svc,
-                            row_id,
-                        ],
-                    ) {
-                        tracing::error!(
-                            "port_allocations UPDATE for {service_id}/{port_name} \
-                             (host={host_port} container={container_port}) failed: {e}"
-                        );
-                    }
-                }
-                None => {
-                    // Brand-new port for this service. Default private —
-                    // operator toggles it public via the UI.
-                    let id = uuid::Uuid::new_v4().to_string();
-                    match db.execute(
-                        "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service) \
-                         VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', 0, NULL, ?6)",
-                        rusqlite::params![
-                            id,
-                            service_id,
-                            port_name,
-                            *host_port as i64,
-                            *container_port as i64,
-                            compose_svc,
-                        ],
-                    ) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            // `host_port` is globally UNIQUE. Surface who
-                            // really holds it so the operator can fix the
-                            // source — no auto-fallback to a random slot.
-                            let holder: Option<String> = db
-                                .query_row(
-                                    "SELECT service_id FROM port_allocations WHERE host_port = ?1 LIMIT 1",
-                                    rusqlite::params![*host_port as i64],
-                                    |row| row.get(0),
-                                )
-                                .ok();
-                            match holder {
-                                Some(other) if other != service_id => tracing::error!(
-                                    "port_allocations INSERT for {service_id}/{port_name} \
-                                     (host={host_port} container={container_port}) failed: {e}; \
-                                     host_port {host_port} is held by service {other}. \
-                                     Delete that service or change its port to free the slot."
-                                ),
-                                _ => tracing::error!(
-                                    "port_allocations INSERT for {service_id}/{port_name} \
-                                     (host={host_port} container={container_port}) failed: {e}"
-                                ),
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        upsert_port_rows(&db, service_id, &flat);
 
         // Update services.port with the first host port (legacy single-port
         // field; UI prefers port_allocations now, but other code paths still
@@ -1150,6 +1064,110 @@ fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
             .map(|(svc, _, h, c)| (svc.as_deref(), *h, *c))
             .collect();
         tracing::info!("Updated ports from compose for {service_id}: {summary:?}");
+    }
+}
+
+/// Idempotent UPSERT of `port_allocations` for a parsed compose declaration.
+///
+/// Lookup key is `(service_id, port_name, compose_service)` so multi-service
+/// composes never collide on the shared `"primary"` port_name (every compose
+/// service's first port gets `port_name = "primary"`, and the bug we fixed
+/// was that an earlier lookup keyed only on `(service_id, port_name)`
+/// overwrote one service's row with the next service's data).
+///
+/// NULL `compose_service` is treated as a distinct, matchable value via
+/// `COALESCE(..., '')` so single-service legacy composes (which store NULL)
+/// still match their own row on redeploy. Empty string can never be a real
+/// compose-service name (YAML keys can't be empty), so no collision risk.
+///
+/// We never DELETE rows here. Compose declarations describe what *exists*;
+/// the operator's UI toggle decides what is *public*. Existing rows keep
+/// their `is_public`/`public_port` across redeploys — that's what survives
+/// pipelines like:
+///   extract_and_save_ports(original) → strip+inject →
+///   update_ports_from_compose(stack_file)
+/// where the stack-file pass sees a subset of the original ports (private
+/// ones aren't injected back). Earlier code used DELETE+INSERT and silently
+/// dropped any port absent from the yaml passed in — that's why port-1=1883
+/// vanished from myhome-back on every redeploy.
+fn upsert_port_rows(
+    db: &rusqlite::Connection,
+    service_id: &str,
+    flat: &[(Option<String>, String, u16, u16)],
+) {
+    for (compose_svc, port_name, host_port, container_port) in flat {
+        let existing: Option<String> = db
+            .query_row(
+                "SELECT id FROM port_allocations \
+                 WHERE service_id = ?1 \
+                   AND port_name = ?2 \
+                   AND COALESCE(compose_service, '') = COALESCE(?3, '')",
+                rusqlite::params![service_id, port_name, compose_svc],
+                |row| row.get::<_, String>(0),
+            )
+            .ok();
+
+        match existing {
+            Some(row_id) => {
+                if let Err(e) = db.execute(
+                    "UPDATE port_allocations \
+                     SET host_port = ?1, container_port = ?2, compose_service = ?3 \
+                     WHERE id = ?4",
+                    rusqlite::params![
+                        *host_port as i64,
+                        *container_port as i64,
+                        compose_svc,
+                        row_id,
+                    ],
+                ) {
+                    tracing::error!(
+                        "port_allocations UPDATE for {service_id}/{port_name} \
+                         (host={host_port} container={container_port}) failed: {e}"
+                    );
+                }
+            }
+            None => {
+                let id = uuid::Uuid::new_v4().to_string();
+                match db.execute(
+                    "INSERT INTO port_allocations (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, 'tcp', 0, NULL, ?6)",
+                    rusqlite::params![
+                        id,
+                        service_id,
+                        port_name,
+                        *host_port as i64,
+                        *container_port as i64,
+                        compose_svc,
+                    ],
+                ) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        // `host_port` is globally UNIQUE. Surface who really
+                        // holds it so the operator can fix the source — no
+                        // auto-fallback to a random slot.
+                        let holder: Option<String> = db
+                            .query_row(
+                                "SELECT service_id FROM port_allocations WHERE host_port = ?1 LIMIT 1",
+                                rusqlite::params![*host_port as i64],
+                                |row| row.get(0),
+                            )
+                            .ok();
+                        match holder {
+                            Some(other) if other != service_id => tracing::error!(
+                                "port_allocations INSERT for {service_id}/{port_name} \
+                                 (host={host_port} container={container_port}) failed: {e}; \
+                                 host_port {host_port} is held by service {other}. \
+                                 Delete that service or change its port to free the slot."
+                            ),
+                            _ => tracing::error!(
+                                "port_allocations INSERT for {service_id}/{port_name} \
+                                 (host={host_port} container={container_port}) failed: {e}"
+                            ),
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2067,8 +2085,174 @@ mod tests {
     use super::{
         env_json_to_env_content, inject_env_file_into_services,
         inject_mesh_extra_hosts_into_services, normalize_mesh_hostname,
+        upsert_port_rows,
     };
     use crate::crypto::encrypt_env_json;
+
+    /// Bare-bones `port_allocations` schema mirroring migrations 2/10/15/32.
+    /// We keep it inline so the test doesn't depend on the full migration
+    /// runner — the only invariants `upsert_port_rows` relies on are the
+    /// column set and the UNIQUE on `host_port`.
+    fn fresh_ports_db() -> rusqlite::Connection {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE port_allocations (
+                 id              TEXT PRIMARY KEY NOT NULL,
+                 service_id      TEXT NOT NULL,
+                 port_name       TEXT NOT NULL,
+                 host_port       INTEGER NOT NULL UNIQUE,
+                 container_port  INTEGER NOT NULL,
+                 protocol        TEXT NOT NULL DEFAULT 'tcp',
+                 is_public       INTEGER NOT NULL DEFAULT 0,
+                 public_port     INTEGER,
+                 compose_service TEXT,
+                 created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+             );",
+        )
+        .unwrap();
+        db
+    }
+
+    fn dump_ports(db: &rusqlite::Connection, service_id: &str) -> Vec<(Option<String>, String, i64, i64)> {
+        let mut stmt = db
+            .prepare(
+                "SELECT compose_service, port_name, host_port, container_port \
+                 FROM port_allocations WHERE service_id = ?1 \
+                 ORDER BY compose_service, port_name",
+            )
+            .unwrap();
+        stmt.query_map([service_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
+    }
+
+    #[test]
+    fn upsert_port_rows_keeps_distinct_compose_services_under_same_port_name() {
+        // Regression: two compose services both have port_name="primary" for
+        // their first port; the buggy SELECT keyed only on
+        // (service_id, port_name) and let max-bot overwrite api's row.
+        let db = fresh_ports_db();
+        let flat = vec![
+            (Some("api".to_string()),     "primary".to_string(), 3050u16, 3050u16),
+            (Some("max-bot".to_string()), "primary".to_string(), 3054u16, 3054u16),
+        ];
+
+        upsert_port_rows(&db, "svc-flowfin", &flat);
+
+        let rows = dump_ports(&db, "svc-flowfin");
+        assert_eq!(rows.len(), 2, "both compose services must keep their own row: {rows:?}");
+        assert_eq!(rows[0], (Some("api".into()),     "primary".into(), 3050, 3050));
+        assert_eq!(rows[1], (Some("max-bot".into()), "primary".into(), 3054, 3054));
+    }
+
+    #[test]
+    fn upsert_port_rows_handles_n_ports_per_service_across_multi_service_compose() {
+        // svc-A has 2 ports, svc-B has 3 ports — verifies the fix scales to
+        // any N because port_name is unique within a compose service and
+        // compose_service disambiguates across services.
+        let db = fresh_ports_db();
+        let flat = vec![
+            (Some("svc-A".to_string()), "primary".to_string(), 3050u16, 3050u16),
+            (Some("svc-A".to_string()), "port-1".to_string(),  9090u16, 9090u16),
+            (Some("svc-B".to_string()), "primary".to_string(), 3054u16, 3054u16),
+            (Some("svc-B".to_string()), "port-1".to_string(),  4001u16, 4001u16),
+            (Some("svc-B".to_string()), "port-2".to_string(),  4002u16, 4002u16),
+        ];
+
+        upsert_port_rows(&db, "svc-multi", &flat);
+
+        let rows = dump_ports(&db, "svc-multi");
+        assert_eq!(rows.len(), 5, "all 5 (compose_service, port_name) slots must persist: {rows:?}");
+        assert_eq!(rows[0], (Some("svc-A".into()), "port-1".into(),  9090, 9090));
+        assert_eq!(rows[1], (Some("svc-A".into()), "primary".into(), 3050, 3050));
+        assert_eq!(rows[2], (Some("svc-B".into()), "port-1".into(),  4001, 4001));
+        assert_eq!(rows[3], (Some("svc-B".into()), "port-2".into(),  4002, 4002));
+        assert_eq!(rows[4], (Some("svc-B".into()), "primary".into(), 3054, 3054));
+    }
+
+    #[test]
+    fn upsert_port_rows_self_heals_existing_broken_row() {
+        // Pre-fix DB state: only max-bot survived (its row overwrote api).
+        // After the fix, a redeploy must INSERT the missing api row and
+        // UPDATE the existing max-bot row in place — no UNIQUE collision on
+        // host_port (3050 is free, 3054 stays on its row via UPDATE).
+        let db = fresh_ports_db();
+        db.execute(
+            "INSERT INTO port_allocations \
+             (id, service_id, port_name, host_port, container_port, compose_service) \
+             VALUES ('old', 'svc-flowfin', 'primary', 3054, 3054, 'max-bot')",
+            [],
+        )
+        .unwrap();
+
+        let flat = vec![
+            (Some("api".to_string()),     "primary".to_string(), 3050u16, 3050u16),
+            (Some("max-bot".to_string()), "primary".to_string(), 3054u16, 3054u16),
+        ];
+
+        upsert_port_rows(&db, "svc-flowfin", &flat);
+
+        let rows = dump_ports(&db, "svc-flowfin");
+        assert_eq!(rows.len(), 2, "redeploy must heal the missing api row: {rows:?}");
+        assert_eq!(rows[0], (Some("api".into()),     "primary".into(), 3050, 3050));
+        assert_eq!(rows[1], (Some("max-bot".into()), "primary".into(), 3054, 3054));
+    }
+
+    #[test]
+    fn upsert_port_rows_handles_single_service_null_compose() {
+        // Single-service composes store compose_service = NULL. The
+        // COALESCE(..., '') matching must treat NULL = NULL as equal so
+        // repeated redeploys UPDATE the same row instead of trying to
+        // INSERT a duplicate (which would trip the UNIQUE on host_port).
+        let db = fresh_ports_db();
+        let flat = vec![(None, "primary".to_string(), 8080u16, 8080u16)];
+
+        upsert_port_rows(&db, "svc-single", &flat);
+        upsert_port_rows(&db, "svc-single", &flat);
+
+        let rows = dump_ports(&db, "svc-single");
+        assert_eq!(rows.len(), 1, "second call must UPDATE, not INSERT: {rows:?}");
+        assert_eq!(rows[0], (None, "primary".into(), 8080, 8080));
+    }
+
+    #[test]
+    fn upsert_port_rows_preserves_is_public_across_redeploy() {
+        // The whole reason this code is a UPSERT (not DELETE+INSERT) is to
+        // keep the operator's is_public/public_port toggles across redeploys.
+        // Verify the UPDATE branch leaves them untouched.
+        let db = fresh_ports_db();
+        let flat = vec![
+            (Some("api".to_string()), "primary".to_string(), 3050u16, 3050u16),
+        ];
+
+        upsert_port_rows(&db, "svc-x", &flat);
+
+        // Operator flips is_public + assigns a public_port via the UI.
+        db.execute(
+            "UPDATE port_allocations \
+             SET is_public = 1, public_port = 9999 \
+             WHERE service_id = 'svc-x' AND port_name = 'primary'",
+            [],
+        )
+        .unwrap();
+
+        // Redeploy with the same compose declaration.
+        upsert_port_rows(&db, "svc-x", &flat);
+
+        let (is_public, public_port): (i64, Option<i64>) = db
+            .query_row(
+                "SELECT is_public, public_port FROM port_allocations \
+                 WHERE service_id = 'svc-x' AND port_name = 'primary'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(is_public, 1, "is_public toggle must survive redeploy");
+        assert_eq!(public_port, Some(9999), "public_port must survive redeploy");
+    }
 
     fn hosts() -> Vec<(String, String)> {
         vec![
