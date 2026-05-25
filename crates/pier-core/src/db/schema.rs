@@ -1379,6 +1379,48 @@ const MIGRATIONS: &[&str] = &[
        )
      LIMIT 1;
     "#,
+    // Migration 60: Backfill domains.path_prefix from domains.domain for
+    // legacy rows where they disagree.
+    //
+    // An early version of the domain parser walked `domain` looking for the
+    // LAST `/` instead of the FIRST, so `api.flow-fin.ru/api/v1` was saved
+    // as `path_prefix='/v1'` while the actual matched path inside `domain`
+    // ended up `/v1` too — and the operator's intended `/api/v1` was lost.
+    // The Traefik StripPrefix middleware then strips `/v1`, which doesn't
+    // match the incoming `/api/v1/...` and the upstream sees the full path
+    // → 404 on every request.
+    //
+    // This migration restores internal consistency: for any row where
+    // `domain` contains a `/`, `path_prefix` is rewritten to the substring
+    // from the first `/` onward. It does NOT recover the operator's
+    // original intent if `domain` itself lost its path segments — those
+    // rows need manual SQL or UI re-add. But after this migration, code
+    // can rely on `path_prefix` matching what `domain.find('/')` yields,
+    // and we can safely make `path_prefix` the source of truth.
+    r#"
+    UPDATE domains
+       SET path_prefix = substr(domain, instr(domain, '/'))
+     WHERE instr(domain, '/') > 0
+       AND COALESCE(path_prefix, '') != substr(domain, instr(domain, '/'));
+    "#,
+    // Migration 61: Per-domain active flag (Coolify-style activate/deactivate).
+    //
+    // Adding a domain used to immediately request a Let's Encrypt cert and
+    // write a Traefik dynamic config — destructive: deleting the row tore
+    // down the route and lost the cert with it. New model decouples the two:
+    //
+    //   * add_domain → INSERT with is_active=0 (no SSL, no Traefik route)
+    //   * activate   → set is_active=1, write Traefik config, kick SSL monitor
+    //   * deactivate → set is_active=0, remove Traefik config, keep cert in
+    //                  acme.json cache so re-activation is instant
+    //   * delete     → only on explicit Remove (with confirmation in UI)
+    //
+    // DEFAULT 1 keeps every pre-existing domain active so this migration is
+    // a pure no-op for live installs — old rows continue to render their
+    // Traefik configs and serve traffic exactly as before.
+    r#"
+    ALTER TABLE domains ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;
+    "#,
 ];
 
 /// Run all pending database migrations.
