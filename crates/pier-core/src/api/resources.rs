@@ -3037,43 +3037,50 @@ pub async fn set_port_public(
             other_publics == 0
         };
         if zero_publics_after {
-            let domains: Vec<String> = {
-                let db = state
-                    .db
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-                let mut stmt =
-                    db.prepare("SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain")?;
-                let rows: Vec<String> = stmt
-                    .query_map([&id], |row| row.get::<_, String>(0))?
-                    .filter_map(|r| r.ok())
-                    .collect();
-                rows
-            };
-            if !domains.is_empty() {
-                if body.cascade_delete_domains != Some(true) {
-                    return Err(AppError::DomainsRequireConfirmation { domains });
-                }
-                {
+            // Domains and raw TCP exposure are now independent layers (Coolify
+            // model): turning TCP off no longer touches HTTPS routes. The
+            // service stays reachable via its domains through Traefik. The
+            // cascade_delete_domains flag is kept on the request for back-
+            // compat with older clients, but is honoured only when explicitly
+            // set — never via 409 prompt. Operators wanting to also tear down
+            // domains do so explicitly in the Domains section (deactivate
+            // keeps the cert, delete removes the row).
+            if body.cascade_delete_domains == Some(true) {
+                let domains: Vec<String> = {
                     let db = state
                         .db
                         .lock()
                         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-                    db.execute("DELETE FROM domains WHERE service_id = ?1", [&id])?;
+                    let mut stmt = db
+                        .prepare("SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain")?;
+                    let rows: Vec<String> = stmt
+                        .query_map([&id], |row| row.get::<_, String>(0))?
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    rows
+                };
+                if !domains.is_empty() {
+                    {
+                        let db = state
+                            .db
+                            .lock()
+                            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                        db.execute("DELETE FROM domains WHERE service_id = ?1", [&id])?;
+                    }
+                    if let Err(e) = crate::proxy::config::regenerate_service_config(
+                        &state.config.data_dir,
+                        &id,
+                        &[],
+                        "",
+                    ) {
+                        tracing::warn!("Failed to remove Traefik config for {id}: {e}");
+                    }
+                    tracing::info!(
+                        "Cascade-deleted {} domain(s) for {id}: {:?}",
+                        domains.len(),
+                        domains
+                    );
                 }
-                if let Err(e) = crate::proxy::config::regenerate_service_config(
-                    &state.config.data_dir,
-                    &id,
-                    &[],
-                    "",
-                ) {
-                    tracing::warn!("Failed to remove Traefik config for {id}: {e}");
-                }
-                tracing::info!(
-                    "Cascade-deleted {} domain(s) for {id}: {:?}",
-                    domains.len(),
-                    domains
-                );
             }
         } else {
             tracing::debug!(

@@ -23,6 +23,7 @@ pub enum AppError {
     ResourceNameConflict { name: String, existing_id: String },
 
     #[error("Service has {} domain(s) — confirmation required", .domains.len())]
+    #[allow(dead_code)] // Retained for back-compat after Coolify-style refactor.
     DomainsRequireConfirmation { domains: Vec<String> },
 
     #[error("Docker error: {0}")]
