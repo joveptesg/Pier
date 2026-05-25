@@ -140,7 +140,12 @@ pub async fn create(
 
     let id = uuid::Uuid::new_v4().to_string();
 
-    // Insert into DB.
+    // Insert as DRAFT: is_active = 0 (default in migration 61 is 1 for
+    // back-compat with existing rows; new rows go in inactive). No Traefik
+    // route is written and no SSL is requested until the operator explicitly
+    // toggles the activate switch in the UI. This matches the Coolify model
+    // and prevents an Add-Domain click from immediately consuming an LE
+    // certificate slot for a domain the operator might still be configuring.
     {
         let db = state
             .db
@@ -152,8 +157,8 @@ pub async fn create(
             format!("{domain}{path_prefix}")
         };
         db.execute(
-            "INSERT INTO domains (id, domain, service_id, ssl_provider, path_prefix, compose_service, strip_prefix)
-             VALUES (?1, ?2, ?3, 'letsencrypt', ?4, ?5, ?6)",
+            "INSERT INTO domains (id, domain, service_id, ssl_provider, path_prefix, compose_service, strip_prefix, is_active)
+             VALUES (?1, ?2, ?3, 'letsencrypt', ?4, ?5, ?6, 0)",
             rusqlite::params![
                 id,
                 domain_with_path,
@@ -174,59 +179,138 @@ pub async fn create(
         })?;
     }
 
-    // Re-emit the dynamic config covering EVERY domain of this service. Each
-    // domain may target a different compose-service, hence the multi-target
-    // builder.
-    if let Err(e) = regenerate_for_service(&state, &body.service_id) {
-        tracing::error!("Failed to write Traefik config for {domain}: {e}");
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let _ = db.execute("DELETE FROM domains WHERE id = ?1", [&id]);
-        return Err(AppError::Internal(anyhow::anyhow!(
-            "Failed to configure proxy for {domain}: {e}"
-        )));
-    }
-
-    // Traefik config written — SSL will be provisioned by Let's Encrypt (background monitor will update status)
-    {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let _ = db.execute(
-            "UPDATE domains SET ssl_status = 'provisioning' WHERE id = ?1",
-            [&id],
-        );
-    }
-
-    // Poke the SSL monitor shortly after Traefik picks up the new config so
-    // `ssl_status` flips to `active` within seconds, not the next polling tick.
-    {
-        let notify = state.ssl_notify.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            notify.notify_one();
-            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-            notify.notify_one();
-            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-            notify.notify_one();
-        });
-    }
+    // Pre-validate routing without writing any Traefik file: build_target_url
+    // already ran above (line 138) and returned Ok, so we know the upstream
+    // resolves. Fail-fast on a bad compose_service here, before the operator
+    // even sees the draft row.
+    let _ = target_url;
 
     let svc_tag = body
         .compose_service
         .as_deref()
         .map(|s| format!(" / {s}"))
         .unwrap_or_default();
-    tracing::info!("Domain {domain} → service {service_name}{svc_tag} ({target_url})");
+    tracing::info!("Domain draft created: {domain} → service {service_name}{svc_tag} (inactive, awaiting activate)");
 
     Ok(Json(serde_json::json!({
         "ok": true,
         "id": id,
         "domain": domain,
+        "is_active": false,
     })))
+}
+
+/// PUT /api/v1/domains/{id}
+///
+/// Edit fields of an existing domain: `path_prefix`, `strip_prefix`,
+/// `compose_service`. The `domain` host itself is NOT mutable here
+/// (UNIQUE constraint + Traefik file path naming would require additional
+/// migration; do Delete + Add for that). If the domain is currently active,
+/// regenerate its Traefik config so the change takes effect immediately.
+pub async fn update(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateDomainRequest>,
+) -> AppResult<impl IntoResponse> {
+    let (service_id, current_domain, is_active): (String, String, bool) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT service_id, domain, is_active FROM domains WHERE id = ?1",
+            [&id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i32>(2)? != 0,
+                ))
+            },
+        )
+        .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?
+    };
+    enforce_resource_role(&state, &user, &service_id, ProjectRole::Editor)?;
+
+    // Apply update only to fields the operator actually sent. path_prefix
+    // also rewrites the stored `domain` so the hostname-portion is preserved
+    // and the path part is kept in sync (Migration 60 invariant).
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+        if let Some(ref new_path) = body.path_prefix {
+            // Normalize: leading slash unless empty.
+            let normalized = if new_path.is_empty() || new_path.starts_with('/') {
+                new_path.clone()
+            } else {
+                format!("/{new_path}")
+            };
+            let hostname = match current_domain.find('/') {
+                Some(pos) => &current_domain[..pos],
+                None => current_domain.as_str(),
+            };
+            let new_domain_with_path = if normalized.is_empty() {
+                hostname.to_string()
+            } else {
+                format!("{hostname}{normalized}")
+            };
+            db.execute(
+                "UPDATE domains SET path_prefix = ?1, domain = ?2 WHERE id = ?3",
+                rusqlite::params![normalized, new_domain_with_path, id],
+            )
+            .map_err(|e| {
+                if e.to_string().contains("UNIQUE") {
+                    AppError::Conflict(format!(
+                        "Another domain row already uses {new_domain_with_path}"
+                    ))
+                } else {
+                    AppError::Database(e)
+                }
+            })?;
+        }
+        if let Some(strip) = body.strip_prefix {
+            db.execute(
+                "UPDATE domains SET strip_prefix = ?1 WHERE id = ?2",
+                rusqlite::params![strip as i64, id],
+            )?;
+        }
+        if let Some(ref cs) = body.compose_service {
+            let cs_opt: Option<String> = if cs.is_empty() { None } else { Some(cs.clone()) };
+            db.execute(
+                "UPDATE domains SET compose_service = ?1 WHERE id = ?2",
+                rusqlite::params![cs_opt, id],
+            )?;
+        }
+    }
+
+    // Live-apply the change only if the domain is currently active. Drafts
+    // stay quiet — regenerate_for_service filters by is_active anyway, so a
+    // call would be a no-op for inactive rows; we just save the round-trip.
+    if is_active {
+        regenerate_for_service(&state, &service_id)?;
+    }
+
+    Ok(Json(serde_json::json!({"ok": true, "id": id})))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateDomainRequest {
+    /// New path prefix (e.g. "/api/v1" or "" to drop the path). When sent,
+    /// the row's `domain` column is also rewritten so hostname + path stay
+    /// in sync (Migration 60 invariant).
+    #[serde(default)]
+    pub path_prefix: Option<String>,
+    /// Toggle whether Traefik strips the prefix before forwarding.
+    #[serde(default)]
+    pub strip_prefix: Option<bool>,
+    /// Empty string clears the compose_service binding (single-service /
+    /// shared-target mode); any non-empty value sets it.
+    #[serde(default)]
+    pub compose_service: Option<String>,
 }
 
 /// POST /api/v1/domains/{id}/activate
@@ -383,7 +467,7 @@ pub async fn list_for_service(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let mut stmt = db.prepare(
-        "SELECT id, domain, ssl_status, ssl_expires_at, ssl_provider, is_generated, created_at, compose_service, strip_prefix, is_active
+        "SELECT id, domain, ssl_status, ssl_expires_at, ssl_provider, is_generated, created_at, compose_service, strip_prefix, is_active, COALESCE(path_prefix, '')
          FROM domains WHERE service_id = ?1
          ORDER BY is_generated DESC, created_at ASC",
     )?;
@@ -400,6 +484,7 @@ pub async fn list_for_service(
                 "compose_service": row.get::<_, Option<String>>(7)?,
                 "strip_prefix": row.get::<_, i32>(8)? != 0,
                 "is_active": row.get::<_, i32>(9)? != 0,
+                "path_prefix": row.get::<_, String>(10)?,
             }))
         })?
         .filter_map(|r| r.ok())
