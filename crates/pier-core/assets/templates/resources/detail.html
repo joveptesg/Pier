@@ -1860,12 +1860,14 @@ function resourceDetail(id) {
         },
         async togglePublic() {
             const newState = !this.portIsPublic;
-            // Always prefer the container port from compose (what UI shows in "Internal Network")
-            // over any stale publicPort state.
+            // Default to the allocated host_port (from the project's port
+            // range) so toggling public keeps the connection URL stable
+            // and two same-catalog services across projects don't fight
+            // over the catalog's standard port (e.g. 6379 for Redis).
             if (newState && (!this.publicPort || this.publicPort < 1024)) {
-                this.publicPort = this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
+                this.publicPort = this.resource.ports?.[0]?.host || this.resource.ports?.[0]?.container || 0;
             }
-            const port = this.publicPort || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
+            const port = this.publicPort || this.resource.ports?.[0]?.host || this.resource.ports?.[0]?.container || 0;
             await this._applyPublic(newState, port, false);
         },
         async _applyPublic(newState, port, cascade) {
@@ -1896,7 +1898,7 @@ function resourceDetail(id) {
                 toast(newState ? 'Public access enabled (port ' + port + ')' : 'Public access disabled');
                 await this.refresh();
                 await this.loadDomains();
-                this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
+                this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.host || this.resource.ports?.[0]?.container || 0;
             } catch(e) { toast(e.message, 'error'); }
             this.togglingPublic = false;
         },
@@ -2040,7 +2042,7 @@ function resourceDetail(id) {
             this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
-            this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.container || this.resource.ports?.[0]?.host || 0;
+            this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.host || this.resource.ports?.[0]?.container || 0;
             // Background polling: check for status changes + new deployments every 5s
             this._bgInterval = setInterval(async () => {
                 const oldStatus = this.resource.status;

@@ -3071,9 +3071,44 @@ struct PortRowSnapshot {
     id: String,
     port_name: String,
     host_port: u16,
-    container_port: u16,
     prev_is_public: bool,
     prev_public_port: Option<u16>,
+}
+
+/// Compute the `public_port` to write when toggling `is_public` ON.
+///
+/// Default is the row's `host_port` (the port we allocated from the project's
+/// pool), so a public toggle keeps the service reachable on the same port
+/// everywhere — internal `127.0.0.1:host_port`, public `0.0.0.0:host_port`.
+///
+/// The previous behavior in per-port mode fell back to `container_port`,
+/// which silently rebound the service to the catalog's standard port
+/// (e.g. 6379 for Redis). That broke the project-range invariant and made
+/// two same-catalog services across two projects fight over the same public
+/// port. `host_port` is the correct fallback in every branch.
+///
+/// Explicit `ui_public_port > 0` always wins — that's the operator deliberately
+/// overriding the default (e.g. publishing on the catalog standard).
+fn compute_public_port(
+    service_level: bool,
+    port_name: &str,
+    host_port: u16,
+    prev_public_port: Option<u16>,
+    ui_public_port: u16,
+) -> u16 {
+    if service_level {
+        if port_name == "primary" && ui_public_port > 0 {
+            ui_public_port
+        } else if port_name == "primary" {
+            host_port
+        } else {
+            prev_public_port.unwrap_or(host_port)
+        }
+    } else if ui_public_port > 0 {
+        ui_public_port
+    } else {
+        host_port
+    }
 }
 
 pub async fn set_port_public(
@@ -3108,7 +3143,7 @@ pub async fn set_port_public(
 
         let load_row = |row_id: &str| -> AppResult<PortRowSnapshot> {
             db.query_row(
-                "SELECT id, port_name, host_port, container_port, is_public, public_port \
+                "SELECT id, port_name, host_port, is_public, public_port \
                  FROM port_allocations WHERE id = ?1",
                 [row_id],
                 |row| {
@@ -3116,9 +3151,8 @@ pub async fn set_port_public(
                         id: row.get(0)?,
                         port_name: row.get(1)?,
                         host_port: row.get::<_, i64>(2)? as u16,
-                        container_port: row.get::<_, i64>(3)? as u16,
-                        prev_is_public: row.get::<_, i64>(4)? != 0,
-                        prev_public_port: row.get::<_, Option<i64>>(5)?.map(|p| p as u16),
+                        prev_is_public: row.get::<_, i64>(3)? != 0,
+                        prev_public_port: row.get::<_, Option<i64>>(4)?.map(|p| p as u16),
                     })
                 },
             )
@@ -3174,31 +3208,20 @@ pub async fn set_port_public(
     let target_ids: Vec<String> = targets.iter().map(|r| r.id.clone()).collect();
 
     // ─── Compute the desired (is_public, public_port) per row ────────────
-    // Service-level rule for is_public=true:
-    //   • primary  → ui_public_port if > 0 else host_port
-    //   • others   → prev_public_port if set else host_port
-    // is_public=false → all → (0, NULL).
+    // See `compute_public_port` for the rule. is_public=false → all → (0, NULL).
     let updates: Vec<(String, bool, Option<u16>)> = targets
         .iter()
         .map(|row| {
             if !body.is_public {
                 return (row.id.clone(), false, None);
             }
-            let target_pp = if service_level {
-                if row.port_name == "primary" && ui_public_port > 0 {
-                    ui_public_port
-                } else if row.port_name == "primary" {
-                    row.host_port
-                } else {
-                    row.prev_public_port.unwrap_or(row.host_port)
-                }
-            } else if ui_public_port > 0 {
-                ui_public_port
-            } else if row.container_port > 0 {
-                row.container_port
-            } else {
-                row.host_port
-            };
+            let target_pp = compute_public_port(
+                service_level,
+                &row.port_name,
+                row.host_port,
+                row.prev_public_port,
+                ui_public_port,
+            );
             (row.id.clone(), true, Some(target_pp))
         })
         .collect();
@@ -3947,4 +3970,66 @@ pub async fn rename(
     }
 
     Ok(Json(serde_json::json!({"ok": true, "name": new_name})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_public_port;
+
+    // Per-port toggle with no UI public port specified must default to the
+    // allocated host_port — not to the container's standard port. This is
+    // the regression test for the redis-stuck-on-6379 bug.
+    #[test]
+    fn per_port_no_ui_public_defaults_to_host_port() {
+        let pp = compute_public_port(false, "primary", 3051, None, 0);
+        assert_eq!(pp, 3051);
+    }
+
+    #[test]
+    fn per_port_with_ui_public_uses_ui_value() {
+        let pp = compute_public_port(false, "primary", 3051, None, 8080);
+        assert_eq!(pp, 8080);
+    }
+
+    #[test]
+    fn per_port_ignores_prev_public_port() {
+        // Per-port mode rewrites whatever is asked for; prev value is not
+        // a fallback because the caller is targeting this row explicitly.
+        let pp = compute_public_port(false, "secondary", 3051, Some(9999), 0);
+        assert_eq!(pp, 3051);
+    }
+
+    #[test]
+    fn service_level_primary_no_ui_uses_host_port() {
+        let pp = compute_public_port(true, "primary", 3051, None, 0);
+        assert_eq!(pp, 3051);
+    }
+
+    #[test]
+    fn service_level_primary_with_ui_uses_ui_value() {
+        let pp = compute_public_port(true, "primary", 3051, None, 6379);
+        assert_eq!(pp, 6379);
+    }
+
+    #[test]
+    fn service_level_secondary_uses_prev_public_port() {
+        // Carry over a previously-set value so multi-port stacks don't lose
+        // their per-port public ports when the operator flips service-level.
+        let pp = compute_public_port(true, "api", 3052, Some(8080), 0);
+        assert_eq!(pp, 8080);
+    }
+
+    #[test]
+    fn service_level_secondary_no_prev_uses_host_port() {
+        let pp = compute_public_port(true, "api", 3052, None, 0);
+        assert_eq!(pp, 3052);
+    }
+
+    #[test]
+    fn service_level_secondary_ignores_ui_public_port() {
+        // The UI "Public Port" input targets the primary row only;
+        // secondary rows are unaffected by it at service-level scope.
+        let pp = compute_public_port(true, "api", 3052, Some(8080), 9000);
+        assert_eq!(pp, 8080);
+    }
 }
