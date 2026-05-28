@@ -17,6 +17,30 @@ use crate::state::SharedState;
 use super::domains;
 use super::security::{self, DeleteRequest};
 
+/// Resolve the host-port allocation range for a deploy.
+///
+/// If `project_id` is set and that project has a configured port range, use it.
+/// Otherwise fall back to the global config range. All four deploy paths
+/// (catalog/dockerfile/git/deferred-git) must route through this so the
+/// project's declared range is honored consistently.
+fn resolve_port_range(
+    state: &SharedState,
+    db: &rusqlite::Connection,
+    project_id: Option<&str>,
+) -> (u16, u16) {
+    if let Some(pid) = project_id {
+        let range = db.query_row(
+            "SELECT port_range_start, port_range_end FROM projects WHERE id = ?1",
+            [pid],
+            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+        );
+        if let Ok((Some(s), Some(e))) = range {
+            return (s as u16, e as u16);
+        }
+    }
+    (state.config.port_range_start, state.config.port_range_end)
+}
+
 /// Pick the best port for HTTP proxy from a list of allocated ports.
 /// Prefers ports named "management", "http", "web", "ui"; falls back to first port.
 fn pick_http_port(ports: &[crate::db::models::PortAllocation]) -> Option<i64> {
@@ -282,21 +306,9 @@ pub async fn create(
         vars.insert(k, v);
     }
 
-    // Determine port pool
+    // Determine port pool — uses project's range if set, otherwise global.
     let (port_start, port_end) = with_db(&state, |db| {
-        if let Some(pid) = &body.project_id {
-            let range = db.query_row(
-                "SELECT port_range_start, port_range_end FROM projects WHERE id = ?1",
-                [pid],
-                |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
-            );
-            match range {
-                Ok((Some(s), Some(e))) => Ok((s as u16, e as u16)),
-                _ => Ok((state.config.port_range_start, state.config.port_range_end)),
-            }
-        } else {
-            Ok((state.config.port_range_start, state.config.port_range_end))
-        }
+        Ok(resolve_port_range(&state, db, body.project_id.as_deref()))
     })?;
 
     // Allocate ports
@@ -631,12 +643,48 @@ async fn create_compose(
         Err(e) => format!("{e}"),
     };
     let sid = service_id.clone();
+    let project_id = body.project_id.clone();
     with_db(state, |db| {
         let _ = db.execute(
             "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
             rusqlite::params![status, sid],
         );
         record_deployment_log(db, &sid, "deploy", status, &log_output);
+
+        // After port_sync has materialized actual host bindings into
+        // port_allocations, surface a warning log entry for any host_port
+        // that falls outside the project's declared range. We do NOT block
+        // the deploy — explicit YAML is the user's intent. The warning gives
+        // them a paper trail in the deployment logs UI.
+        if status == "running" {
+            let (range_start, range_end) = resolve_port_range(state, db, project_id.as_deref());
+            let mut stmt = db.prepare(
+                "SELECT compose_service, host_port FROM port_allocations
+                 WHERE service_id = ?1 AND (host_port < ?2 OR host_port > ?3)
+                 ORDER BY host_port",
+            )?;
+            let offending: Vec<(Option<String>, i64)> = stmt
+                .query_map(
+                    rusqlite::params![&sid, range_start as i64, range_end as i64],
+                    |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?)),
+                )?
+                .filter_map(|r| r.ok())
+                .collect();
+            if !offending.is_empty() {
+                let summary = offending
+                    .iter()
+                    .map(|(svc, p)| match svc {
+                        Some(s) => format!("{s}:{p}"),
+                        None => p.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let msg = format!(
+                    "Compose published host ports outside project range {range_start}-{range_end}: {summary}"
+                );
+                record_deployment_log(db, &sid, "warning", "warning", &msg);
+            }
+        }
         Ok(())
     })?;
 
@@ -687,12 +735,13 @@ async fn create_dockerfile(
             ],
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
+        let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
         Ok(ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
-            state.config.port_range_start,
-            state.config.port_range_end,
+            port_start,
+            port_end,
         )?)
     })?;
 
@@ -836,12 +885,13 @@ async fn create_git_deploy(
             ],
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
+        let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
         Ok(ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
-            state.config.port_range_start,
-            state.config.port_range_end,
+            port_start,
+            port_end,
         )?)
     })?;
 
@@ -1179,12 +1229,13 @@ async fn create_git_deploy_github_app(
             ],
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
+        let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
         Ok(ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
-            state.config.port_range_start,
-            state.config.port_range_end,
+            port_start,
+            port_end,
         )?)
     })?;
 
@@ -1384,10 +1435,8 @@ pub async fn get(
     // is stable but doesn't reflect intent for stacks like `web/db/worker`
     // where the YAML order is meaningful. No-op when there's no compose
     // content (catalog services) or the rows have NULL compose_service.
-    let port_allocs = sort_ports_by_compose_order(
-        port_allocs,
-        resource["compose_content"].as_str(),
-    );
+    let port_allocs =
+        sort_ports_by_compose_order(port_allocs, resource["compose_content"].as_str());
     let ports_json: Vec<serde_json::Value> = port_allocs
         .iter()
         .map(|pa| {
@@ -3051,8 +3100,9 @@ pub async fn set_port_public(
                         .db
                         .lock()
                         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-                    let mut stmt = db
-                        .prepare("SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain")?;
+                    let mut stmt = db.prepare(
+                        "SELECT domain FROM domains WHERE service_id = ?1 ORDER BY domain",
+                    )?;
                     let rows: Vec<String> = stmt
                         .query_map([&id], |row| row.get::<_, String>(0))?
                         .filter_map(|r| r.ok())
@@ -3324,9 +3374,7 @@ async fn sync_compose_after_port_toggle(
         }
     }
 
-    tracing::info!(
-        "post-toggle compose sync: rewrote ports: block for {service_id} ({svc_name})"
-    );
+    tracing::info!("post-toggle compose sync: rewrote ports: block for {service_id} ({svc_name})");
     Ok(())
 }
 

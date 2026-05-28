@@ -81,6 +81,74 @@ fn project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
     }))
 }
 
+/// Validate a project port range and reject overlaps with existing projects.
+///
+/// - `None`/`None` means "no range" and is always accepted (services fall back
+///   to the global config range).
+/// - One side set without the other is rejected: a half-open range is almost
+///   always a UI typo.
+/// - Range bounds are inclusive; two projects with `[5000,5099]` and
+///   `[5100,5199]` are considered non-overlapping.
+/// - `exclude_project_id` lets the update handler skip the row being edited.
+fn validate_port_range(
+    db: &rusqlite::Connection,
+    start: Option<i64>,
+    end: Option<i64>,
+    exclude_project_id: Option<&str>,
+) -> Result<(), AppError> {
+    let (start, end) = match (start, end) {
+        (None, None) => return Ok(()),
+        (Some(s), Some(e)) => (s, e),
+        _ => {
+            return Err(AppError::BadRequest(
+                "port_range_start and port_range_end must be set together".into(),
+            ));
+        }
+    };
+
+    if !(1024..=65535).contains(&start) || !(1024..=65535).contains(&end) {
+        return Err(AppError::BadRequest(format!(
+            "Port range must be within 1024-65535 (got {start}-{end})"
+        )));
+    }
+    if start > end {
+        return Err(AppError::BadRequest(format!(
+            "Port range start must be <= end (got {start}-{end})"
+        )));
+    }
+
+    let mut stmt = db.prepare(
+        "SELECT id, name, port_range_start, port_range_end
+         FROM projects
+         WHERE port_range_start IS NOT NULL AND port_range_end IS NOT NULL",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?;
+
+    for row in rows {
+        let (id, name, other_start, other_end) = row?;
+        if let Some(skip_id) = exclude_project_id {
+            if id == skip_id {
+                continue;
+            }
+        }
+        // Inclusive overlap: not (end < other_start OR start > other_end)
+        if !(end < other_start || start > other_end) {
+            return Err(AppError::Conflict(format!(
+                "Port range {start}-{end} overlaps with project '{name}' ({other_start}-{other_end})"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 /// POST /api/v1/projects
 ///
 /// Only global Admin+ can create projects; once the project exists, its
@@ -104,6 +172,8 @@ pub async fn create(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    validate_port_range(&db, body.port_range_start, body.port_range_end, None)?;
 
     db.execute(
         "INSERT INTO projects (id, name, description, port_range_start, port_range_end)
@@ -200,6 +270,54 @@ pub async fn update(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     enforce_project_role(&user, &id, ProjectRole::Admin, &db)?;
 
+    // Resolve effective new port range = body value if set, otherwise the
+    // project's existing value. We need both sides to do the overlap and
+    // narrow-conflict checks.
+    let (current_start, current_end): (Option<i64>, Option<i64>) = db
+        .query_row(
+            "SELECT port_range_start, port_range_end FROM projects WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| AppError::NotFound(format!("Project {id} not found")))?;
+    let new_start = body.port_range_start.or(current_start);
+    let new_end = body.port_range_end.or(current_end);
+
+    if body.port_range_start.is_some() || body.port_range_end.is_some() {
+        validate_port_range(&db, new_start, new_end, Some(&id))?;
+
+        // If the new range actually changed and is fully specified, refuse to
+        // shrink it past existing allocations — narrowing a range that's
+        // already in use would silently desync the project's invariant.
+        if let (Some(ns), Some(ne)) = (new_start, new_end) {
+            if (new_start, new_end) != (current_start, current_end) {
+                let mut stmt = db.prepare(
+                    "SELECT s.name, pa.host_port
+                     FROM port_allocations pa
+                     JOIN services s ON s.id = pa.service_id
+                     WHERE s.project_id = ?1 AND (pa.host_port < ?2 OR pa.host_port > ?3)
+                     ORDER BY pa.host_port",
+                )?;
+                let offending: Vec<(String, i64)> = stmt
+                    .query_map(rusqlite::params![&id, ns, ne], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                if !offending.is_empty() {
+                    let summary = offending
+                        .iter()
+                        .map(|(n, p)| format!("{n}:{p}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(AppError::Conflict(format!(
+                        "Cannot narrow port range to {ns}-{ne}: services using ports outside new range [{summary}]"
+                    )));
+                }
+            }
+        }
+    }
+
     // Build dynamic update
     let mut sets = vec!["updated_at = datetime('now')".to_string()];
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -284,4 +402,138 @@ pub async fn delete(
     }
 
     Ok(Json(serde_json::json!({"ok": true, "action": "deleted"})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn test_db() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE projects (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL DEFAULT '',
+                port_range_start INTEGER,
+                port_range_end INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .expect("create projects table");
+        conn
+    }
+
+    fn insert_project(
+        conn: &Connection,
+        id: &str,
+        name: &str,
+        start: Option<i64>,
+        end: Option<i64>,
+    ) {
+        conn.execute(
+            "INSERT INTO projects (id, name, port_range_start, port_range_end) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![id, name, start, end],
+        )
+        .expect("insert project");
+    }
+
+    #[test]
+    fn allows_both_none() {
+        let conn = test_db();
+        assert!(validate_port_range(&conn, None, None, None).is_ok());
+    }
+
+    #[test]
+    fn rejects_only_one_side_set() {
+        let conn = test_db();
+        let err = validate_port_range(&conn, Some(5000), None, None).unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+        let err = validate_port_range(&conn, None, Some(5100), None).unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    }
+
+    #[test]
+    fn rejects_inverted_range() {
+        let conn = test_db();
+        let err = validate_port_range(&conn, Some(6000), Some(5000), None).unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    }
+
+    #[test]
+    fn rejects_out_of_bounds() {
+        let conn = test_db();
+        let err = validate_port_range(&conn, Some(80), Some(443), None).unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+        let err = validate_port_range(&conn, Some(60000), Some(70000), None).unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    }
+
+    #[test]
+    fn rejects_overlap() {
+        let conn = test_db();
+        insert_project(&conn, "a", "alpha", Some(5000), Some(5100));
+        let err = validate_port_range(&conn, Some(5050), Some(5150), None).unwrap_err();
+        match err {
+            AppError::Conflict(msg) => assert!(msg.contains("alpha")),
+            other => panic!("expected Conflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn allows_adjacent_ranges() {
+        let conn = test_db();
+        insert_project(&conn, "a", "alpha", Some(5000), Some(5099));
+        // [5100, 5199] starts exactly where [5000, 5099] ends + 1 → no overlap.
+        assert!(validate_port_range(&conn, Some(5100), Some(5199), None).is_ok());
+    }
+
+    #[test]
+    fn allows_exact_boundary_outside() {
+        let conn = test_db();
+        insert_project(&conn, "a", "alpha", Some(5000), Some(5100));
+        // 5101 starts after 5100; 4999 ends before 5000 — both OK.
+        assert!(validate_port_range(&conn, Some(5101), Some(5200), None).is_ok());
+        assert!(validate_port_range(&conn, Some(4900), Some(4999), None).is_ok());
+    }
+
+    #[test]
+    fn detects_containment_either_way() {
+        let conn = test_db();
+        insert_project(&conn, "a", "alpha", Some(5000), Some(5100));
+        // New range contained in existing
+        assert!(matches!(
+            validate_port_range(&conn, Some(5040), Some(5060), None).unwrap_err(),
+            AppError::Conflict(_)
+        ));
+        // New range contains existing
+        assert!(matches!(
+            validate_port_range(&conn, Some(4900), Some(5200), None).unwrap_err(),
+            AppError::Conflict(_)
+        ));
+    }
+
+    #[test]
+    fn excludes_self_on_update() {
+        let conn = test_db();
+        insert_project(&conn, "a", "alpha", Some(5000), Some(5100));
+        // Editing "alpha" to a range that overlaps only with itself must succeed.
+        assert!(validate_port_range(&conn, Some(5000), Some(5100), Some("a")).is_ok());
+        // But still rejects overlap with other projects.
+        insert_project(&conn, "b", "beta", Some(6000), Some(6100));
+        assert!(matches!(
+            validate_port_range(&conn, Some(6050), Some(6200), Some("a")).unwrap_err(),
+            AppError::Conflict(_)
+        ));
+    }
+
+    #[test]
+    fn ignores_projects_without_range() {
+        let conn = test_db();
+        insert_project(&conn, "a", "alpha", None, None);
+        // No existing range → no overlap possible.
+        assert!(validate_port_range(&conn, Some(5000), Some(5100), None).is_ok());
+    }
 }
