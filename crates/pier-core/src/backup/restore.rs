@@ -218,6 +218,11 @@ async fn drop_and_recreate_pg_db(
 /// defensively if it does (see `build_role_sync_sql`).
 const ROLE_SYNC_DOLLAR_TAG: &str = "pier_role_sync";
 
+/// Tag used to dollar-quote the body of the post-restore ownership-fix DO
+/// block. Distinct from `ROLE_SYNC_DOLLAR_TAG` so log/error output makes it
+/// obvious which step ran.
+const OWNER_FIX_DOLLAR_TAG: &str = "pier_owner_fix";
+
 /// Build the DO block that creates the owner role if missing or resets its
 /// password if it already exists. Both branches set LOGIN privilege.
 ///
@@ -259,6 +264,106 @@ fn escape_pg_str_lit(s: &str) -> String {
     s.replace('\'', "''")
 }
 
+/// Build the post-restore ownership-fix SQL.
+///
+/// Context: `pg_restore` (and the legacy `psql` plain-SQL path) is run as the
+/// cluster superuser so it can recreate any objects in the dump regardless of
+/// the original owner. The side effect is that every restored object —
+/// schemas, tables, sequences, views, functions, types — ends up owned by the
+/// superuser, NOT by the per-DB owner. `CREATE DATABASE ... OWNER x` sets the
+/// DB-level owner, but ownership does not cascade to the objects inside.
+///
+/// Without this fix the application role connects to "its own" database and
+/// cannot see any tables — symptom is "DB is alive but `<owner>` sees no
+/// tables / no permissions" after restore.
+///
+/// The DO block reassigns ownership of every object whose current owner is
+/// `current_user` (the superuser running this block, post-restore) over to
+/// the target role, across all user schemas. We exclude only the genuine
+/// system catalog schemas (`pg_catalog`, `information_schema`, `pg_toast`,
+/// and the per-session `pg_temp_*` / `pg_toast_temp_*`); PostGIS / TimescaleDB
+/// extension schemas (`tiger`, `topology`, `postgis`, …) are intentionally
+/// included — they are ordinary user schemas created via `CREATE EXTENSION`
+/// and should belong to the DB owner for the same reason as `public`.
+///
+/// The role name is interpolated once as a SQL string literal into the DO
+/// block's local variable, and each inner `EXECUTE format(... %I ...)` uses
+/// Postgres' own identifier quoting — so identifiers with quotes/spaces are
+/// handled correctly without us building each ALTER statement on the Rust
+/// side. The DO body is dollar-quoted with `$pier_owner_fix$`; we refuse
+/// owner names containing that exact tag (defense in depth — usernames are
+/// validated upstream to `[A-Za-z0-9_]`, but the check costs nothing).
+fn build_owner_reassignment_sql(owner: &str) -> Result<String> {
+    let dollar_tag = format!("${OWNER_FIX_DOLLAR_TAG}$");
+    if owner.contains(&dollar_tag) {
+        anyhow::bail!(
+            "owner role name contains the reserved sequence '{dollar_tag}' — \
+             refusing to build ownership-fix SQL."
+        );
+    }
+    let owner_lit = escape_pg_str_lit(owner);
+    Ok(format!(
+        "DO {tag}\n\
+         DECLARE\n\
+             target_role text := '{owner_lit}';\n\
+             rec record;\n\
+         BEGIN\n\
+             FOR rec IN\n\
+                 SELECT n.nspname\n\
+                 FROM pg_namespace n\n\
+                 JOIN pg_roles r ON n.nspowner = r.oid\n\
+                 WHERE r.rolname = current_user\n\
+                   AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast')\n\
+                   AND n.nspname NOT LIKE 'pg_temp_%'\n\
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'\n\
+             LOOP\n\
+                 EXECUTE format('ALTER SCHEMA %I OWNER TO %I', rec.nspname, target_role);\n\
+             END LOOP;\n\
+             FOR rec IN\n\
+                 SELECT n.nspname, c.relname\n\
+                 FROM pg_class c\n\
+                 JOIN pg_namespace n ON c.relnamespace = n.oid\n\
+                 JOIN pg_roles r ON c.relowner = r.oid\n\
+                 WHERE r.rolname = current_user\n\
+                   AND c.relkind IN ('r','v','m','S','f','p')\n\
+                   AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast')\n\
+                   AND n.nspname NOT LIKE 'pg_temp_%'\n\
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'\n\
+             LOOP\n\
+                 EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', rec.nspname, rec.relname, target_role);\n\
+             END LOOP;\n\
+             FOR rec IN\n\
+                 SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args\n\
+                 FROM pg_proc p\n\
+                 JOIN pg_namespace n ON p.pronamespace = n.oid\n\
+                 JOIN pg_roles r ON p.proowner = r.oid\n\
+                 WHERE r.rolname = current_user\n\
+                   AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast')\n\
+                   AND n.nspname NOT LIKE 'pg_temp_%'\n\
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'\n\
+             LOOP\n\
+                 EXECUTE format('ALTER FUNCTION %I.%I(%s) OWNER TO %I', rec.nspname, rec.proname, rec.args, target_role);\n\
+             END LOOP;\n\
+             FOR rec IN\n\
+                 SELECT n.nspname, t.typname\n\
+                 FROM pg_type t\n\
+                 JOIN pg_namespace n ON t.typnamespace = n.oid\n\
+                 JOIN pg_roles r ON t.typowner = r.oid\n\
+                 WHERE r.rolname = current_user\n\
+                   AND t.typtype IN ('c','e','d')\n\
+                   AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast')\n\
+                   AND n.nspname NOT LIKE 'pg_temp_%'\n\
+                   AND n.nspname NOT LIKE 'pg_toast_temp_%'\n\
+                   AND NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid)\n\
+             LOOP\n\
+                 EXECUTE format('ALTER TYPE %I.%I OWNER TO %I', rec.nspname, rec.typname, target_role);\n\
+             END LOOP;\n\
+         END\n\
+         {tag};",
+        tag = dollar_tag,
+    ))
+}
+
 /// Restore from a plain-SQL dump (legacy `.sql.gz` PostgreSQL backups). Drops
 /// and recreates the target DB, then streams the SQL into `psql` as the owner.
 async fn restore_postgres(
@@ -281,6 +386,7 @@ async fn restore_postgres(
         sql_bytes,
     )
     .await?;
+    fix_object_ownership(container_name, &root_user, &root_pass, target_db, owner).await?;
     Ok(())
 }
 
@@ -317,14 +423,38 @@ async fn restore_postgres_custom(
         format!("PGPASSWORD={root_pass}"),
         "pg_restore".to_string(),
         "-U".to_string(),
-        root_user,
+        root_user.clone(),
         "-d".to_string(),
         target_db.to_string(),
         "--no-owner".to_string(),
         "--no-privileges".to_string(),
         "--exit-on-error".to_string(),
     ];
-    pipe_to_docker(&args, dump_bytes).await
+    pipe_to_docker(&args, dump_bytes).await?;
+    fix_object_ownership(container_name, &root_user, &root_pass, target_db, owner).await
+}
+
+/// Connect to the freshly-restored target DB as the cluster superuser and run
+/// the ownership-fix DO block (see [`build_owner_reassignment_sql`]). Must be
+/// called AFTER the dump has been loaded — at that point all restored objects
+/// are owned by the superuser, and this step transfers them to the per-DB
+/// owner role that owns the database itself.
+async fn fix_object_ownership(
+    container_name: &str,
+    root_user: &str,
+    root_pass: &str,
+    target_db: &str,
+    owner: &DbCredential,
+) -> Result<()> {
+    let fix_sql = build_owner_reassignment_sql(&owner.username)?;
+    run_psql(
+        container_name,
+        root_user,
+        root_pass,
+        Some(target_db),
+        fix_sql.into_bytes(),
+    )
+    .await
 }
 
 /// Resolve the cluster superuser credentials from the service env. Default
@@ -569,6 +699,71 @@ mod tests {
         let err = build_role_sync_sql("u", "abc$pier_role_sync$xyz").unwrap_err();
         assert!(
             err.to_string().contains("$pier_role_sync$"),
+            "error should mention the reserved sequence: {err}"
+        );
+    }
+
+    #[test]
+    fn owner_reassignment_sql_handles_schemas_relations_funcs_types() {
+        let sql = build_owner_reassignment_sql("flowfinadm").unwrap();
+        // All four ALTER forms must be present — each fixes a different class
+        // of object that the superuser-driven restore left owned by postgres.
+        assert!(sql.contains("ALTER SCHEMA %I OWNER TO %I"));
+        assert!(sql.contains("ALTER TABLE %I.%I OWNER TO %I"));
+        assert!(sql.contains("ALTER FUNCTION %I.%I(%s) OWNER TO %I"));
+        assert!(sql.contains("ALTER TYPE %I.%I OWNER TO %I"));
+        // Wrapped in the dedicated dollar-quoted DO block.
+        assert!(sql.starts_with("DO $pier_owner_fix$"));
+        assert!(sql.trim_end().ends_with("$pier_owner_fix$;"));
+        // Role name interpolated once into the local variable.
+        assert!(sql.contains("target_role text := 'flowfinadm';"));
+        // Filter on current_user — i.e. the role that just ran pg_restore.
+        assert!(sql.contains("WHERE r.rolname = current_user"));
+        // Relkind covers tables, views, matviews, sequences, foreign tables,
+        // partitioned tables. Drop any of these and restore breaks silently
+        // for that object kind.
+        assert!(sql.contains("c.relkind IN ('r','v','m','S','f','p')"));
+        // Types filter: composite/enum/domain only, and skip implicit row
+        // types whose ownership flows from their table.
+        assert!(sql.contains("t.typtype IN ('c','e','d')"));
+        assert!(sql.contains("NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid)"));
+    }
+
+    #[test]
+    fn owner_reassignment_sql_excludes_only_real_system_schemas() {
+        let sql = build_owner_reassignment_sql("appuser").unwrap();
+        // Genuine system catalog schemas — never reassign.
+        assert!(sql.contains("'pg_catalog','information_schema','pg_toast'"));
+        assert!(sql.contains("NOT LIKE 'pg_temp_%'"));
+        assert!(sql.contains("NOT LIKE 'pg_toast_temp_%'"));
+        // PostGIS / TimescaleDB extension schemas are ordinary user schemas
+        // created via CREATE EXTENSION. They MUST be reassigned to the DB
+        // owner so the app role can use the extension without GRANTs.
+        // Belt-and-suspenders: assert these aren't smuggled into the exclude
+        // list by a future "safety" edit.
+        assert!(!sql.contains("'tiger'"));
+        assert!(!sql.contains("'topology'"));
+        assert!(!sql.contains("'postgis'"));
+    }
+
+    #[test]
+    fn owner_reassignment_sql_escapes_single_quote_in_username() {
+        // Usernames are validated to [A-Za-z0-9_] upstream, but the SQL
+        // builder must still be string-literal-safe — otherwise a future
+        // username relaxation silently turns into SQL injection.
+        let sql = build_owner_reassignment_sql("o'brien").unwrap();
+        assert!(sql.contains("target_role text := 'o''brien';"));
+        assert!(!sql.contains("target_role text := 'o'brien';"));
+    }
+
+    #[test]
+    fn owner_reassignment_sql_rejects_username_with_dollar_tag() {
+        // Defense-in-depth, symmetric with build_role_sync_sql: a username
+        // containing the dollar tag would terminate the dollar-quoted DO
+        // block prematurely.
+        let err = build_owner_reassignment_sql("abc$pier_owner_fix$xyz").unwrap_err();
+        assert!(
+            err.to_string().contains("$pier_owner_fix$"),
             "error should mention the reserved sequence: {err}"
         );
     }
