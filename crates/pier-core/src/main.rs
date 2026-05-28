@@ -290,6 +290,43 @@ async fn main() -> Result<()> {
     auth::rotation::start_scheduler(state.clone());
     tracing::info!("Token rotation scheduler started");
 
+    // Daily BuildKit cache prune (Railpack auto-build only). The buildkit
+    // container ships its own `buildctl`, so we exec into it — no extra
+    // host binary required. Bounds disk usage at ~10 GB / 7 days; tolerates
+    // the container being absent (e.g. installs that opted out via
+    // PIER_SKIP_RAILPACK=1) because the docker exec just fails harmlessly.
+    tokio::spawn(async {
+        // Wait an hour after boot so a freshly-restarted core doesn't
+        // disrupt an in-flight build.
+        tokio::time::sleep(std::time::Duration::from_secs(60 * 60)).await;
+        let day = std::time::Duration::from_secs(24 * 60 * 60);
+        loop {
+            let res = tokio::process::Command::new("docker")
+                .args([
+                    "exec",
+                    "buildkit",
+                    "buildctl",
+                    "prune",
+                    "--keep-storage",
+                    "10737418240", // 10 GB in bytes
+                    "--keep-duration",
+                    "168h", // 7 days
+                ])
+                .output()
+                .await;
+            match res {
+                Ok(o) if o.status.success() => tracing::debug!("buildkit prune ok"),
+                Ok(o) => tracing::debug!(
+                    "buildkit prune skipped (container absent or exec failed): {}",
+                    String::from_utf8_lossy(&o.stderr).trim()
+                ),
+                Err(e) => tracing::debug!("buildkit prune spawn failed: {e}"),
+            }
+            tokio::time::sleep(day).await;
+        }
+    });
+    tracing::info!("BuildKit prune scheduler started");
+
     // Cleanup invalid domains (with https:// prefix) and their Traefik configs
     {
         if let Ok(db) = state.db.lock() {

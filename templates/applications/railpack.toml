@@ -1,0 +1,41 @@
+[meta]
+id = "railpack"
+name = "Auto-build (Railpack)"
+description = "Push code without writing a Dockerfile — Railpack detects the language and builds automatically"
+category = "application"
+icon = "wand"
+tags = ["auto", "buildpack", "railpack", "git"]
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-app"
+
+[ui.fields.git_url]
+type = "text"
+label = "Git Repository URL"
+required = true
+placeholder = "https://github.com/user/repo.git"
+
+[ui.fields.branch]
+type = "text"
+label = "Branch"
+default = "main"
+placeholder = "main"
+
+[ui.fields.port]
+type = "number"
+label = "Container Port"
+default = "3000"
+placeholder = "3000"
+
+[ui.fields.start_cmd]
+type = "text"
+label = "Start Command (optional)"
+placeholder = "Leave empty for Railpack auto-detection"
+
+[ui.fields.env_vars]
+type = "textarea"
+label = "Build-time environment variables (optional)"
+placeholder = "NODE_ENV=production\nFOO=bar"

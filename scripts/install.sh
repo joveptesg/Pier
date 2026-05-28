@@ -87,6 +87,57 @@ fi
 
 info "All prerequisites OK: Docker $(docker --version | grep -oP '\d+\.\d+\.\d+'), Compose $(docker compose version --short), git $(git --version | grep -oP '\d+\.\d+\.\d+')"
 
+# ── Railpack auto-build (optional) ───────────────────────────────────────────
+# Provisions the railpack CLI + a moby/buildkit daemon container so that the
+# "Auto-build (Railpack)" application source in the UI can build images
+# directly from source without a Dockerfile. Skip with PIER_SKIP_RAILPACK=1
+# on hosts where you don't need the feature (saves ~150MB RAM idle).
+#
+# Resource cap: the buildkit container is launched with --memory=$BUILDKIT_MEM
+# (default 4g) to keep multi-GB Node/Python/Rust builds from OOM-killing
+# the host. Override via PIER_BUILDKIT_MEMORY=... before re-running install.sh.
+
+if [[ "${PIER_SKIP_RAILPACK:-0}" != "1" ]]; then
+    if ! command -v railpack &>/dev/null; then
+        info "Installing railpack CLI (Railway's zero-config builder)..."
+        # Pull the latest release tag from GitHub then download the matching
+        # linux-amd64 binary. Failure is non-fatal — Pier still works for
+        # Dockerfile / Compose / Docker Image deploys, only the "Auto-build"
+        # catalog item will be unusable.
+        RAILPACK_TAG=$(curl -fsSL https://api.github.com/repos/railwayapp/railpack/releases/latest 2>/dev/null \
+            | grep -oP '"tag_name":\s*"\K[^"]+' | head -n1)
+        if [[ -n "$RAILPACK_TAG" ]]; then
+            if curl -fsSL -o /usr/local/bin/railpack \
+                "https://github.com/railwayapp/railpack/releases/download/${RAILPACK_TAG}/railpack-linux-amd64" 2>/dev/null; then
+                chmod +x /usr/local/bin/railpack
+                info "Installed railpack $RAILPACK_TAG"
+            else
+                warn "Failed to download railpack binary — Auto-build will be unavailable"
+            fi
+        else
+            warn "Could not query GitHub for the latest railpack release — Auto-build will be unavailable"
+        fi
+    else
+        info "railpack already installed: $(railpack --version 2>/dev/null | head -n1)"
+    fi
+
+    if command -v railpack &>/dev/null; then
+        BUILDKIT_MEM="${PIER_BUILDKIT_MEMORY:-4g}"
+        if ! docker ps --format '{{.Names}}' | grep -q '^buildkit$'; then
+            info "Starting moby/buildkit container (memory cap: $BUILDKIT_MEM)..."
+            docker run -d --name buildkit \
+                --privileged \
+                --restart=unless-stopped \
+                --memory="$BUILDKIT_MEM" \
+                --memory-swap="$BUILDKIT_MEM" \
+                moby/buildkit:latest >/dev/null 2>&1 \
+                || warn "Failed to start buildkit container — Auto-build will be unavailable until manual fix"
+        else
+            info "buildkit container already running"
+        fi
+    fi
+fi
+
 # ── Check if upgrading ───────────────────────────────────────────────────────
 
 UPGRADE=false
@@ -285,6 +336,7 @@ BindReadOnlyPaths=-/root/.docker:${PIER_DIR}/host-docker
 Environment=HOME=${PIER_DIR}
 Environment=DOCKER_CONFIG=${PIER_DIR}/.docker
 Environment=GIT_CONFIG_NOSYSTEM=1
+Environment=BUILDKIT_HOST=docker-container://buildkit
 
 # Logging
 StandardOutput=journal

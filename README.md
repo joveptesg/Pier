@@ -60,6 +60,7 @@ Deploy containers, Docker Compose stacks, and Git repositories with automatic SS
 **Git & Deployments**
 - 🔄 Git-to-deploy pipeline with GitHub & GitLab webhooks
 - 🛠 Build from Dockerfile, Docker image, or Compose
+- ✨ **Auto-build (Railpack)** — zero-config builds from source for Node, Python, Go, PHP, Java, Ruby, Rust, Vite/Astro/CRA and more, no Dockerfile required
 - ⏪ Deployment history with rollback
 
 **Networking & SSL**
@@ -178,6 +179,16 @@ docker run -d \
 Then open `http://YOUR_SERVER_IP:8443/setup` to create your admin account.
 
 > For detailed server setup (security hardening, firewall, Docker installation), see [INSTALL.md](INSTALL.md).
+
+### Auto-build (Railpack) — additional requirements
+
+The base install footprint (512 MB RAM, 1 vCPU) covers Dockerfile / Compose / Docker-image deploys. The **Auto-build** source compiles user code on the host via [Railpack](https://github.com/railwayapp/railpack) + a [moby/buildkit](https://github.com/moby/buildkit) daemon. Both are provisioned automatically by `install.sh`, but the build process itself is heavier than just running a container:
+
+- **Minimum RAM**: 4 GB (Node/Python compilations peak at 1–3 GB; Rust can hit 8 GB)
+- **Disk**: 40+ GB free — BuildKit cache grows with use; pier-core prunes it daily back to ~10 GB / 7 days retention
+- **Parallel builds**: capped at 1 by default to keep multi-GB compilations from OOM-killing the host. Override with `PIER_RAILPACK_MAX_PARALLEL_BUILDS=2` (or higher) at process start if your host has spare capacity.
+- **BuildKit memory cap**: set with `PIER_BUILDKIT_MEMORY=4g` before running `install.sh` (default 4 GB).
+- **Skip**: pass `PIER_SKIP_RAILPACK=1` to `install.sh` to skip provisioning. The feature card stays in the UI but builds will fail with a clear "railpack binary not found" message.
 
 ## Tech Stack
 

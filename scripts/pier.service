@@ -33,6 +33,10 @@ BindReadOnlyPaths=-/root/.docker:/opt/pier/host-docker
 Environment=HOME=/opt/pier
 Environment=DOCKER_CONFIG=/opt/pier/.docker
 Environment=GIT_CONFIG_NOSYSTEM=1
+# Points the `railpack` CLI at the moby/buildkit container provisioned by
+# install.sh. Harmless when the container is absent — only the Auto-build
+# (Railpack) source needs it; Dockerfile/Compose/Docker-Image paths ignore it.
+Environment=BUILDKIT_HOST=docker-container://buildkit
 
 # Logging
 StandardOutput=journal
