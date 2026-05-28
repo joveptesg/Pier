@@ -241,6 +241,11 @@ pub async fn create(
         return create_git_deploy_github_app(&state, &body, &name, &stack_name, &item).await;
     }
 
+    // ── Railpack auto-build (zero-config builder, public git) ──
+    if body.catalog_id == "railpack" {
+        return create_railpack_app(&state, &body, &name, &stack_name, &item).await;
+    }
+
     // ── Standard catalog deploy ──────────────────────────────
     let service_id = uuid::Uuid::new_v4().to_string();
 
@@ -1265,6 +1270,143 @@ async fn create_git_deploy_github_app(
         "id": service_id,
         "name": name,
         "status": "created",
+        "ports": ports_json,
+    })))
+}
+
+/// Deploy from a public git repo via Railpack auto-build (no Dockerfile required).
+///
+/// Stores the build inputs (git url/branch, optional start_cmd and
+/// build_env_vars) on the service row and kicks off `deploy::run_pipeline`
+/// in a background task. The pipeline's `"railpack"` branch handles the
+/// clone, build and run; the UI polls the `deployments` row for live logs
+/// — same UX as auto_deploy redeploys from a webhook.
+async fn create_railpack_app(
+    state: &SharedState,
+    body: &CreateResourceRequest,
+    name: &str,
+    _stack_name: &str,
+    item: &catalog::CatalogItem,
+) -> AppResult<Json<serde_json::Value>> {
+    let git_url = body.config.get("git_url").cloned().unwrap_or_default();
+    if git_url.trim().is_empty() {
+        return Err(AppError::BadRequest("Repository URL is required".into()));
+    }
+    let branch = body
+        .config
+        .get("branch")
+        .cloned()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "main".to_string());
+    let container_port: u16 = body
+        .config
+        .get("port")
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3000);
+    let start_cmd = body
+        .config
+        .get("start_cmd")
+        .cloned()
+        .filter(|s| !s.trim().is_empty());
+    let build_env_vars = body
+        .config
+        .get("env_vars")
+        .cloned()
+        .filter(|s| !s.trim().is_empty());
+
+    let service_id = uuid::Uuid::new_v4().to_string();
+
+    let network_id = body.network_id.clone().or_else(|| {
+        state.db.lock().ok().and_then(|db| {
+            db.query_row(
+                "SELECT id FROM networks WHERE is_default = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
+        })
+    });
+
+    // Insert + allocate port atomically. status='deploying' so the UI shows
+    // a build-in-progress card immediately.
+    let allocated_ports = with_db(state, |db| {
+        db.execute(
+            "INSERT INTO services
+                 (id, project_id, network_id, name, service_type, status, catalog_id, category,
+                  image, git_repo_url, git_branch, build_strategy, start_cmd, build_env_vars)
+             VALUES (?1, ?2, ?3, ?4, 'compose', 'deploying', ?5, ?6, ?7, ?8, ?9, 'railpack', ?10, ?11)",
+            rusqlite::params![
+                service_id,
+                body.project_id,
+                network_id,
+                name,
+                body.catalog_id,
+                item.meta.category,
+                format!("railpack: {}", git_url),
+                git_url,
+                branch,
+                start_cmd,
+                build_env_vars,
+            ],
+        )?;
+        let port_specs = vec![("primary".to_string(), container_port)];
+        let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
+        Ok(ports::allocate_ports(
+            db,
+            &service_id,
+            &port_specs,
+            port_start,
+            port_end,
+        )?)
+    })?;
+
+    let host_port = allocated_ports
+        .first()
+        .map(|p| p.host_port as u16)
+        .unwrap_or(container_port);
+
+    let sid = service_id.clone();
+    with_db(state, |db| {
+        let _ = db.execute(
+            "UPDATE services SET port = ?1 WHERE id = ?2",
+            rusqlite::params![host_port as i64, sid],
+        );
+        Ok(())
+    })?;
+
+    // Kick off the first build asynchronously. The pipeline does its own
+    // git clone, so we don't pre-clone here — keeps create_railpack_app
+    // fast (returns within ~10ms) and lets the long-running build show up
+    // as a normal deployment record with live build_log streaming.
+    let state_clone = state.clone();
+    let sid = service_id.clone();
+    let commit = crate::deploy::CommitInfo {
+        sha: format!("manual-{}", &uuid::Uuid::new_v4().to_string()[..8]),
+        message: "Initial Railpack deployment".to_string(),
+        branch: branch.clone(),
+    };
+    tokio::spawn(async move {
+        crate::deploy::run_pipeline(state_clone, sid, commit, "manual").await;
+    });
+
+    let ports_json: Vec<serde_json::Value> = allocated_ports
+        .iter()
+        .map(|pa| {
+            serde_json::json!({
+                "name": pa.port_name,
+                "host": pa.host_port,
+                "container": pa.container_port,
+            })
+        })
+        .collect();
+
+    tracing::info!("Created railpack resource '{name}' — pipeline started");
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "id": service_id,
+        "name": name,
+        "status": "deploying",
         "ports": ports_json,
     })))
 }

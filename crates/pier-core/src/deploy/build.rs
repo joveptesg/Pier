@@ -237,10 +237,6 @@ pub fn generate_compose_for_image(
 /// Lines that are blank or have no `=` are skipped. Whitespace around the
 /// key is trimmed; values are kept verbatim (including embedded `=` signs
 /// and trailing whitespace, since some configs legitimately need spaces).
-// Wired into the railpack branch of deploy::run_pipeline in a later commit
-// of this feature; suppressed until then so the zero-warnings gate stays
-// green between intermediate commits.
-#[allow(dead_code)]
 pub fn parse_kv_lines(blob: Option<&str>) -> Vec<(String, String)> {
     let Some(blob) = blob else {
         return Vec::new();
@@ -279,10 +275,6 @@ pub fn parse_kv_lines(blob: Option<&str>) -> Vec<(String, String)> {
 ///                  expected to batch writes into the `deployments.build_log`
 ///                  column (same flush-every-N-lines pattern as the
 ///                  docker-compose branch in `deploy::run_pipeline`).
-// Wired into the railpack branch of deploy::run_pipeline in a later commit
-// of this feature; suppressed until then so the zero-warnings gate stays
-// green between intermediate commits.
-#[allow(dead_code)]
 pub async fn railpack_build(
     repo_dir: &Path,
     image_tag: &str,

@@ -42,7 +42,7 @@ pub async fn run_pipeline(
             }
         };
         db.query_row(
-            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image
+            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars
              FROM services WHERE id = ?1",
             [&service_id],
             |row| {
@@ -54,6 +54,8 @@ pub async fn run_pipeline(
                     build_strategy: row.get(4)?,
                     compose_content: row.get(5)?,
                     current_image: row.get(6)?,
+                    start_cmd: row.get(7)?,
+                    build_env_vars: row.get(8)?,
                 })
             },
         )
@@ -396,6 +398,82 @@ pub async fn run_pipeline(
                 }
             }
         }
+        "railpack" => {
+            // Cap parallel builds — multi-GB compilations (Node/Python/Rust)
+            // would OOM-kill the host if every PR-driven deploy ran at once.
+            // Default permits=1 (serial); operators can raise via
+            // PIER_RAILPACK_MAX_PARALLEL_BUILDS at process start.
+            let _permit = match state.railpack_build_semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(e) => {
+                    log.push_str(&format!("Build semaphore closed: {e}\n"));
+                    finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+                    let _ = tokio::fs::remove_dir_all(&repo_dir).await;
+                    return;
+                }
+            };
+            log.push_str("Acquired build slot, starting Railpack…\n");
+            flush_log(&state, &deploy_id, &log);
+
+            let env_vars = build::parse_kv_lines(svc.build_env_vars.as_deref());
+            let start_cmd = svc.start_cmd.as_deref();
+
+            // Stream railpack output into `log`, flushing every 3 lines so the
+            // deployment page renders progress live — same cadence as the
+            // docker-compose branch above.
+            let mut line_count: u32 = 0;
+            let build_result = build::railpack_build(
+                &repo_dir,
+                &image_tag,
+                &env_vars,
+                start_cmd,
+                |line| {
+                    log.push_str(line);
+                    log.push('\n');
+                    line_count += 1;
+                    if line_count.is_multiple_of(3) {
+                        flush_log(&state, &deploy_id, &log);
+                    }
+                },
+            )
+            .await;
+            flush_log(&state, &deploy_id, &log);
+
+            if let Err(e) = build_result {
+                log.push_str(&format!("Railpack build failed: {e}\n"));
+                finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+                let _ = tokio::fs::remove_dir_all(&repo_dir).await;
+                return;
+            }
+
+            // Image is now available locally tagged as `image_tag`. Synthesize
+            // a compose file and run it via the same path that dockerfile-built
+            // services use, so the rest of the pipeline (port mapping, traefik
+            // labels, network attach) is identical.
+            let yaml = build::generate_compose_for_image(
+                &svc.name,
+                &stack_name,
+                &image_tag,
+                &state,
+                &service_id,
+            );
+
+            log.push_str("Deploying built image…\n");
+            flush_log(&state, &deploy_id, &log);
+
+            match docker::compose::deploy_stack(&stack_name, &yaml, &state.config, None).await {
+                Ok(output) => {
+                    log.push_str(&format!("Deploy: {output}\n"));
+                    flush_log(&state, &deploy_id, &log);
+                }
+                Err(e) => {
+                    log.push_str(&format!("Deploy failed: {e}\n"));
+                    finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+                    let _ = tokio::fs::remove_dir_all(&repo_dir).await;
+                    return;
+                }
+            }
+        }
         other => {
             log.push_str(&format!("Unknown build strategy: {other}\n"));
             finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
@@ -454,7 +532,7 @@ pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Resul
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image
+            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars
              FROM services WHERE id = ?1",
             [service_id],
             |row| {
@@ -466,6 +544,8 @@ pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Resul
                     build_strategy: row.get(4)?,
                     compose_content: row.get(5)?,
                     current_image: row.get(6)?,
+                    start_cmd: row.get(7)?,
+                    build_env_vars: row.get(8)?,
                 })
             },
         )?
@@ -2162,6 +2242,12 @@ struct ServiceInfo {
     build_strategy: Option<String>,
     compose_content: Option<String>,
     current_image: Option<String>,
+    /// Optional container start-command override for the railpack branch.
+    /// Ignored for dockerfile/docker-compose strategies.
+    start_cmd: Option<String>,
+    /// Optional KEY=VALUE\n... blob passed to `railpack build --env`.
+    /// Ignored for dockerfile/docker-compose strategies.
+    build_env_vars: Option<String>,
 }
 
 #[cfg(test)]

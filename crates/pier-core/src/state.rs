@@ -56,10 +56,6 @@ pub struct AppState {
     /// permits=1 (one build at a time); operators can raise the limit if
     /// the host has spare capacity. The semaphore is held for the entire
     /// duration of `railpack build` plus the subsequent image-run step.
-    // Read by the railpack branch in deploy::run_pipeline (added in a later
-    // commit of this feature). Suppress the dead-code warning until then so
-    // the zero-warnings clippy gate stays green between commits.
-    #[allow(dead_code)]
     pub railpack_build_semaphore: Arc<Semaphore>,
 }
 
