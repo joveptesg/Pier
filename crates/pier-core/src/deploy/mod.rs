@@ -422,21 +422,16 @@ pub async fn run_pipeline(
             // deployment page renders progress live — same cadence as the
             // docker-compose branch above.
             let mut line_count: u32 = 0;
-            let build_result = build::railpack_build(
-                &repo_dir,
-                &image_tag,
-                &env_vars,
-                start_cmd,
-                |line| {
+            let build_result =
+                build::railpack_build(&repo_dir, &image_tag, &env_vars, start_cmd, |line| {
                     log.push_str(line);
                     log.push('\n');
                     line_count += 1;
                     if line_count.is_multiple_of(3) {
                         flush_log(&state, &deploy_id, &log);
                     }
-                },
-            )
-            .await;
+                })
+                .await;
             flush_log(&state, &deploy_id, &log);
 
             if let Err(e) = build_result {

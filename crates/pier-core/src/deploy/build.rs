@@ -300,9 +300,7 @@ pub async fn railpack_build(
     }
 
     let mut cmd = tokio::process::Command::new("railpack");
-    cmd.arg("build")
-        .arg(repo_dir)
-        .args(["--name", image_tag]);
+    cmd.arg("build").arg(repo_dir).args(["--name", image_tag]);
 
     for (k, v) in env_vars {
         cmd.args(["--env", &format!("{k}={v}")]);
@@ -371,7 +369,9 @@ mod tests {
 
     #[test]
     fn parse_kv_lines_skips_blank_and_comments() {
-        let got = parse_kv_lines(Some("\n# a comment\nFOO=bar\n   \n  # indented comment\nBAZ=qux\n"));
+        let got = parse_kv_lines(Some(
+            "\n# a comment\nFOO=bar\n   \n  # indented comment\nBAZ=qux\n",
+        ));
         assert_eq!(
             got,
             vec![
@@ -386,7 +386,10 @@ mod tests {
         let got = parse_kv_lines(Some("URL=https://example.com/?a=1&b=2"));
         assert_eq!(
             got,
-            vec![("URL".to_string(), "https://example.com/?a=1&b=2".to_string())]
+            vec![(
+                "URL".to_string(),
+                "https://example.com/?a=1&b=2".to_string()
+            )]
         );
     }
 
