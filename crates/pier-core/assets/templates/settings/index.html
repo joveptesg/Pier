@@ -162,6 +162,70 @@
         </div>
     </div>
 
+    <!-- ── Tab: Auto-build (Railpack) ───────────────────────── -->
+    <div x-show="tab === 'railpack'" x-cloak x-data="railpackSettings()" x-init="load()"
+         class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-5">
+        <div>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Auto-build (Railpack)</h3>
+            <p class="text-xs text-gray-500 mt-1">
+                Controls how many Railpack builds can run in parallel. Each build can use several
+                GB of RAM during compilation, so the default cap of 1 is a safe choice for small
+                VPS hosts. Raise it only if your host has spare capacity.
+            </p>
+        </div>
+
+        <div x-show="loading" class="text-sm text-gray-400">Loading…</div>
+
+        <div x-show="!loading" class="space-y-4">
+            <!-- Current runtime value -->
+            <div class="flex items-center justify-between py-2">
+                <div>
+                    <p class="text-sm text-gray-900 dark:text-white">Currently running</p>
+                    <p class="text-xs text-gray-500 mt-0.5">Active permit count in the live semaphore</p>
+                </div>
+                <span class="text-sm font-mono text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg"
+                      x-text="runtimeValue + ' parallel build' + (runtimeValue === 1 ? '' : 's')"></span>
+            </div>
+
+            <div class="border-t border-gray-100 dark:border-gray-800"></div>
+
+            <!-- Editable saved value -->
+            <div>
+                <label class="block text-sm text-gray-900 dark:text-white mb-1">Max parallel builds</label>
+                <p class="text-xs text-gray-500 mb-2">Saved value (applied on next pier-core restart). Range: <span x-text="min"></span>–<span x-text="max"></span>.</p>
+                <div class="flex items-center gap-2">
+                    <input type="number" :min="min" :max="max" x-model.number="saved"
+                           :disabled="envOverride || saving"
+                           class="w-32 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50">
+                    <button @click="save()" :disabled="envOverride || saving || saved === lastSavedServerValue"
+                            class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-white transition-colors">
+                        <span x-text="saving ? 'Saving…' : 'Save'"></span>
+                    </button>
+                    <span x-show="savedMessage" x-cloak class="text-xs" :class="saveError ? 'text-red-500' : 'text-green-500'" x-text="savedMessage"></span>
+                </div>
+            </div>
+
+            <!-- Env-override notice (takes precedence over DB) -->
+            <div x-show="envOverride" x-cloak class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/30 rounded-lg p-3">
+                <p class="text-xs text-blue-700 dark:text-blue-300">
+                    <strong>Managed by environment variable.</strong>
+                    <code class="text-[11px]">PIER_RAILPACK_MAX_PARALLEL_BUILDS</code> is set in the systemd unit,
+                    so the saved value is ignored. Unset the env var and restart pier-core to use the UI value.
+                </p>
+            </div>
+
+            <!-- Restart-required notice (saved value ≠ runtime) -->
+            <div x-show="!envOverride && saved !== runtimeValue && saved === lastSavedServerValue" x-cloak
+                 class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 rounded-lg p-3">
+                <p class="text-xs text-amber-700 dark:text-amber-300">
+                    <strong>Restart required.</strong> Saved value (<span x-text="saved"></span>) differs from the
+                    live runtime value (<span x-text="runtimeValue"></span>). Run
+                    <code class="text-[11px]">systemctl restart pier</code> on the host for the change to take effect.
+                </p>
+            </div>
+        </div>
+    </div>
+
     <!-- ── Tab: External Access ──────────────────────────────── -->
     <div x-show="tab === 'external-access'" x-cloak x-data="externalAccess()" x-init="load()"
          class="space-y-6">
@@ -428,6 +492,7 @@ function settingsPage() {
         tabs: [
             { id: 'general',         label: 'General' },
             { id: 'cleanup',         label: 'Cleanup' },
+            { id: 'railpack',        label: 'Auto-build (Railpack)' },
             { id: 'external-access', label: 'External Access' },
             { id: 'account',         label: 'Account' },
             { id: 'security',        label: 'Security' },
@@ -472,6 +537,60 @@ function externalAccess() {
             if (!confirm('Revoke token "' + name + '"?')) return;
             try { await api('/api/v1/grants/' + id, { method: 'DELETE' }); toast('Token revoked'); await this.load(); }
             catch (e) { toast(e.message, 'error'); }
+        },
+    };
+}
+
+function railpackSettings() {
+    return {
+        loading: true,
+        saved: 1,
+        lastSavedServerValue: 1,
+        runtimeValue: 1,
+        envOverride: false,
+        min: 1,
+        max: 32,
+        saving: false,
+        savedMessage: '',
+        saveError: false,
+        async load() {
+            try {
+                const r = await fetch('/api/v1/admin/settings/railpack').then(r => r.json());
+                this.saved = r.max_parallel_builds;
+                this.lastSavedServerValue = r.max_parallel_builds;
+                this.runtimeValue = r.runtime_value;
+                this.envOverride = !!r.env_override;
+                this.min = r.min;
+                this.max = r.max;
+            } catch (e) {
+                toast('Failed to load Railpack settings', 'error');
+            }
+            this.loading = false;
+        },
+        async save() {
+            const v = parseInt(this.saved, 10);
+            if (Number.isNaN(v) || v < this.min || v > this.max) {
+                this.saveError = true;
+                this.savedMessage = `Must be between ${this.min} and ${this.max}`;
+                return;
+            }
+            this.saving = true;
+            this.saveError = false;
+            this.savedMessage = '';
+            try {
+                const res = await api('/api/v1/admin/settings/railpack', {
+                    method: 'PUT',
+                    body: JSON.stringify({ max_parallel_builds: v }),
+                });
+                this.lastSavedServerValue = res.saved;
+                this.savedMessage = res.restart_required ? 'Saved — restart required' : 'Saved';
+            } catch (e) {
+                this.saveError = true;
+                this.savedMessage = e.message || 'Save failed';
+            }
+            this.saving = false;
+            // Clear the success message after a few seconds for cleanliness.
+            setTimeout(() => { if (!this.saveError) this.savedMessage = ''; }, 3000);
         },
     };
 }

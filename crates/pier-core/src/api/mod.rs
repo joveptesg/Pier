@@ -37,6 +37,7 @@ pub mod resources;
 pub mod s3;
 pub mod schedules;
 pub mod security;
+pub mod settings_railpack;
 pub mod servers;
 pub mod service_dns;
 pub mod sources;
@@ -608,6 +609,11 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/federation/peer/{server_id}/stacks/{stack_id}/release",
             post(federation::peer_release_stack),
+        )
+        // Railpack auto-build admin settings.
+        .route(
+            "/admin/settings/railpack",
+            get(settings_railpack::get).put(settings_railpack::put),
         )
         .route_layer(axum::middleware::from_fn(require_global_admin));
 

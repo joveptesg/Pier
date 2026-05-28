@@ -228,14 +228,30 @@ async fn main() -> Result<()> {
 
     let partial_tokens = Arc::new(auth::partial_token::PartialTokenStore::new());
 
-    // Cap concurrent Railpack builds. Default: 1 (serial). Can be overridden
-    // via PIER_RAILPACK_MAX_PARALLEL_BUILDS at process start. Each build can
-    // need several GB of RAM, so the safe default is conservative.
-    let railpack_parallel = std::env::var("PIER_RAILPACK_MAX_PARALLEL_BUILDS")
+    // Resolve concurrent-Railpack-builds cap. Priority: env var > DB > 1.
+    //   * env var: lets ops force a value without touching the panel
+    //     (handy for tuning across `systemctl restart pier`).
+    //   * DB: the admin Settings → Auto-build (Railpack) tab writes here.
+    //   * 1: safe default for the 60% of installs sitting on small VPS.
+    //
+    // Read once at boot — the semaphore is created from this value and
+    // is not recreated at runtime. The admin UI surfaces a «requires
+    // restart» notice when the saved DB value diverges from what we
+    // captured here (see `railpack_parallel_at_boot` in state).
+    let railpack_parallel_env = std::env::var("PIER_RAILPACK_MAX_PARALLEL_BUILDS")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .filter(|n| *n >= 1)
-        .unwrap_or(1);
+        .filter(|n| (1..=32).contains(n));
+    let railpack_parallel_db: Option<usize> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'railpack.max_parallel_builds'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|n| (1..=32).contains(n));
+    let railpack_parallel = railpack_parallel_env.or(railpack_parallel_db).unwrap_or(1);
 
     // Build shared state
     let state = Arc::new(AppState {
@@ -250,6 +266,7 @@ async fn main() -> Result<()> {
         setup_token,
         partial_tokens,
         railpack_build_semaphore: Arc::new(tokio::sync::Semaphore::new(railpack_parallel)),
+        railpack_parallel_at_boot: railpack_parallel,
     });
 
     // One-shot recovery of env_json entries encrypted with historical random

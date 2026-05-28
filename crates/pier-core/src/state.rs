@@ -57,6 +57,13 @@ pub struct AppState {
     /// the host has spare capacity. The semaphore is held for the entire
     /// duration of `railpack build` plus the subsequent image-run step.
     pub railpack_build_semaphore: Arc<Semaphore>,
+
+    /// Permit count the semaphore was created with at boot. Stored so the
+    /// admin settings page can render a «requires restart» notice when
+    /// the saved DB value diverges from what's actually live in
+    /// `railpack_build_semaphore`. Source of truth for «what's running
+    /// right now».
+    pub railpack_parallel_at_boot: usize,
 }
 
 /// Type alias for Arc-wrapped shared state.
