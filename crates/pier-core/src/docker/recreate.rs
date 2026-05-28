@@ -461,6 +461,18 @@ fn allocations_for_this_container<'a>(
     container_compose_service: Option<&str>,
 ) -> Vec<&'a PortAllocation> {
     if let Some(cs) = container_compose_service {
+        // Catalog single-service guard: `deploy::update_ports_from_compose`
+        // stores `compose_service = NULL` when the generated YAML has only
+        // one service, even though the live container carries Docker's
+        // `com.docker.compose.service` label. Without this branch the strict
+        // partition below filters out every row (`None != Some("postgresql")`)
+        // and the toggle's recreate produces 0 port bindings → docker-proxy
+        // never starts → UI toggle bounces back. Same degraded-match logic
+        // that `port_sync::compute_sync_updates` already uses.
+        let all_alloc_null = allocations.iter().all(|a| a.compose_service.is_none());
+        if all_alloc_null {
+            return allocations.iter().collect();
+        }
         return allocations
             .iter()
             .filter(|a| a.compose_service.as_deref() == Some(cs))
@@ -757,6 +769,32 @@ mod tests {
         assert_eq!(mine.len(), 1, "api container must get only its own row, got {mine:?}");
         assert_eq!(mine[0].host_port, 3050);
         assert_eq!(mine[0].compose_service.as_deref(), Some("api"));
+    }
+
+    #[test]
+    fn allocations_filter_single_service_catalog_with_compose_label() {
+        // Regression: postgres (single-service catalog) stores
+        // compose_service=NULL in port_allocations, but the live container
+        // carries docker-compose's auto-injected label
+        // com.docker.compose.service="postgresql". Strict partition would
+        // return empty (None != Some("postgresql")), the toggle would
+        // recreate the container with 0 bindings, docker-proxy would never
+        // start, and the UI toggle would bounce back to OFF.
+        let a = alloc("primary", 10000, 5432, true, Some(5432));
+        assert!(a.compose_service.is_none(), "precondition: catalog row stores NULL");
+        let allocs = vec![a];
+        let mine = allocations_for_this_container(
+            &allocs,
+            &HashSet::new(),
+            None,
+            Some("postgresql"),
+        );
+        assert_eq!(
+            mine.len(),
+            1,
+            "single-service catalog must not partition out its only row"
+        );
+        assert_eq!(mine[0].host_port, 10000);
     }
 
     #[test]
