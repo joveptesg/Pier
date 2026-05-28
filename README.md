@@ -274,12 +274,13 @@ For projects that need overrides, drop a [`railpack.json`](https://railpack.com/
 - [x] Web dashboard (HTMX + Tailwind, dark mode)
 - [x] S3 bucket management
 - [x] Architecture visualization (Canvas)
-- [ ] RBAC (role-based access control)
-- [ ] 2FA (TOTP + WebAuthn)
-- [ ] Load balancing + horizontal scaling
-- [ ] Alert notifications (Telegram, Discord, Slack)
-- [ ] Auto-update mechanism
-- [ ] Docker network isolation per project
+- [x] RBAC (role-based access control)
+- [x] 2FA (TOTP + recovery codes)
+- [x] Load balancing + horizontal scaling
+- [x] Alert notifications (Telegram, Discord, Slack, Email)
+- [x] Auto-update mechanism
+- [x] Docker network isolation per project
+- [ ] WebAuthn / passkeys (second 2FA factor)
 - [ ] Pingora-based reverse proxy (replace Traefik)
 
 ## Contributing
