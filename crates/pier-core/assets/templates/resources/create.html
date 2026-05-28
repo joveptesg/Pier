@@ -2,7 +2,7 @@
 {% block title %}Deploy Resource{% endblock %}
 
 {% block content %}
-<div class="p-6 space-y-6" x-data="createResource('{{ catalog_id }}')" x-init="init()">
+<div class="p-6 space-y-6" x-data="createResource('{{ catalog_id }}', {{ host_total_ram_gb }})" x-init="init()">
     <!-- Header -->
     <div class="flex items-center gap-3">
         <a href="/resources/new" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
@@ -30,6 +30,34 @@
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                   text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                     <p class="text-xs text-gray-400 mt-0.5">Name used for the container and stack</p>
+                </div>
+            </template>
+
+            <!-- Railpack: general info callout (always shown when railpack selected) -->
+            <template x-if="catalogId === 'railpack'">
+                <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 rounded-lg p-3 space-y-1">
+                    <p class="text-sm font-medium text-amber-800 dark:text-amber-200">First build may take 1–10 minutes</p>
+                    <p class="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                        Railpack downloads dependencies and compiles your project from source. Peak RAM usage:
+                        Node ~3 GB, Python ~4 GB, Rust ~8 GB. The buildkit container holds layer cache between
+                        builds so subsequent deploys are much faster.
+                    </p>
+                </div>
+            </template>
+
+            <!-- Railpack: hard warning when host RAM is below the recommended 4 GB -->
+            <template x-if="catalogId === 'railpack' && hostRamGb > 0 && hostRamGb < 4">
+                <div class="bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800/40 rounded-lg p-3 space-y-1.5">
+                    <p class="text-sm font-semibold text-red-800 dark:text-red-200">
+                        ⚠ Your server has only <span x-text="hostRamGb"></span> GB RAM
+                    </p>
+                    <p class="text-xs text-red-700 dark:text-red-300 leading-relaxed">
+                        Railpack builds will likely fail with out-of-memory errors on this host. Recommended:
+                        <strong>4 GB+ RAM</strong> (8 GB for Rust projects). Lighter alternatives that work fine
+                        on small VPS: <a href="/resources/new/dockerfile" class="underline hover:no-underline">Dockerfile</a>,
+                        <a href="/resources/new/docker-image" class="underline hover:no-underline">Docker Image</a>, or
+                        <a href="/resources/new/docker-compose" class="underline hover:no-underline">Docker Compose</a>.
+                    </p>
                 </div>
             </template>
 
@@ -89,6 +117,20 @@
                                   :rows="field.key === 'deploy_key' ? 6 : 10"
                                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                          text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"></textarea>
+                    </template>
+
+                    <!-- Railpack-specific per-field hints -->
+                    <template x-if="catalogId === 'railpack' && field.key === 'start_cmd'">
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            Leave empty to let Railpack auto-detect from your project (e.g. <code>npm start</code> for Node,
+                            <code>python app.py</code> for Python). Override only if you need a custom entry point.
+                        </p>
+                    </template>
+                    <template x-if="catalogId === 'railpack' && field.key === 'env_vars'">
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            One <code>KEY=VALUE</code> per line. Available during <em>build</em> only — for runtime env
+                            use the Environment tab after the service is created. Comments (<code>#</code>) and blank lines are ignored.
+                        </p>
                     </template>
                 </div>
             </template>
@@ -317,9 +359,10 @@
 </div>
 
 <script>
-function createResource(catalogId) {
+function createResource(catalogId, hostRamGb) {
     return {
         catalogId,
+        hostRamGb,
         template: {},
         form: {},
         projects: [],
@@ -331,7 +374,7 @@ function createResource(catalogId) {
         loadingBranches: false,
         deployedRepos: new Set(),
         networks: [],
-        projectId: (new URLSearchParams(location.search)).get('project_id') || '',
+        projectId: '',
         networkId: '',
         serverId: 'local',
         sourceId: '',
@@ -366,6 +409,12 @@ function createResource(catalogId) {
                 this.projects = projs;
                 this.servers = srvs;
                 this.networks = nets || [];
+                // Pre-select project from ?project_id=... AFTER this.projects is set,
+                // so the <option> x-for has rendered and <select> can snap to the value.
+                const requestedProjectId = new URLSearchParams(location.search).get('project_id') || '';
+                if (requestedProjectId && this.projects.some(p => String(p.id) === requestedProjectId)) {
+                    this.projectId = requestedProjectId;
+                }
                 // Collect already-deployed git repositories (by "owner/repo" full_name).
                 if (Array.isArray(resources)) {
                     const set = new Set();

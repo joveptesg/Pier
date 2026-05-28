@@ -703,10 +703,26 @@ pub async fn resources_create(
     axum::Extension(user): axum::Extension<AuthUser>,
     Path(catalog_id): Path<String>,
 ) -> PageResult {
+    // Host total RAM in GB — used by the Railpack source to render a hard
+    // warning when the operator's VPS likely cannot complete the build.
+    // ~60% of self-hosted Pier installs sit on 2 GB RAM hosts where a
+    // Node/Python/Rust compile will OOM. Reading sysinfo here is cheap on
+    // a one-off page render (memory subsystem only, no CPU sampling).
+    let host_total_ram_gb: u64 = {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        // total_memory() returns bytes on current sysinfo; divide to GB.
+        sys.total_memory() / (1024 * 1024 * 1024)
+    };
     render(
         &state,
         "resources/create.html",
-        minijinja::context! { user => user.username, page => "projects", catalog_id => catalog_id },
+        minijinja::context! {
+            user => user.username,
+            page => "projects",
+            catalog_id => catalog_id,
+            host_total_ram_gb => host_total_ram_gb,
+        },
     )
 }
 
