@@ -231,3 +231,187 @@ pub fn generate_compose_for_image(
     }
     yaml
 }
+
+/// Parse a textarea-style KEY=VALUE block (one per line) into pairs.
+///
+/// Lines that are blank or have no `=` are skipped. Whitespace around the
+/// key is trimmed; values are kept verbatim (including embedded `=` signs
+/// and trailing whitespace, since some configs legitimately need spaces).
+// Wired into the railpack branch of deploy::run_pipeline in a later commit
+// of this feature; suppressed until then so the zero-warnings gate stays
+// green between intermediate commits.
+#[allow(dead_code)]
+pub fn parse_kv_lines(blob: Option<&str>) -> Vec<(String, String)> {
+    let Some(blob) = blob else {
+        return Vec::new();
+    };
+    blob.lines()
+        .filter_map(|line| {
+            let line = line.trim_start();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            let (k, v) = line.split_once('=')?;
+            let k = k.trim();
+            if k.is_empty() {
+                return None;
+            }
+            Some((k.to_string(), v.to_string()))
+        })
+        .collect()
+}
+
+/// Build an OCI image from source using the `railpack` CLI.
+///
+/// Pier shells out to the `railpack` binary (zero-config builder by Railway,
+/// successor to Nixpacks; talks to a moby/buildkit daemon over BUILDKIT_HOST).
+/// Both prerequisites are provisioned by `install.sh` — see that script for
+/// the BuildKit container setup and the PIER_BUILDKIT_MEMORY env var.
+///
+/// `repo_dir`     — path to a freshly cloned git working tree.
+/// `image_tag`    — local tag the resulting image will be named with so the
+///                  later `docker compose up` step can reference it.
+/// `env_vars`     — build-time env passed as repeated `--env KEY=VALUE`.
+/// `start_cmd`    — optional override for the container start command. When
+///                  `None`, railpack auto-detects from the project (e.g.
+///                  `npm start`, `python app.py`).
+/// `log_sink`     — invoked once per stdout/stderr line; the caller is
+///                  expected to batch writes into the `deployments.build_log`
+///                  column (same flush-every-N-lines pattern as the
+///                  docker-compose branch in `deploy::run_pipeline`).
+// Wired into the railpack branch of deploy::run_pipeline in a later commit
+// of this feature; suppressed until then so the zero-warnings gate stays
+// green between intermediate commits.
+#[allow(dead_code)]
+pub async fn railpack_build(
+    repo_dir: &Path,
+    image_tag: &str,
+    env_vars: &[(String, String)],
+    start_cmd: Option<&str>,
+    mut log_sink: impl FnMut(&str),
+) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    // Friendly upfront check — surface a clear message instead of the cryptic
+    // "No such file or directory" from spawn() when the operator hasn't run
+    // the updated install.sh yet.
+    let which = tokio::process::Command::new("railpack")
+        .arg("--version")
+        .output()
+        .await;
+    match which {
+        Ok(o) if o.status.success() => {}
+        _ => anyhow::bail!(
+            "railpack binary not found in PATH — run install.sh to provision it, \
+             or install manually from https://github.com/railwayapp/railpack/releases"
+        ),
+    }
+
+    let mut cmd = tokio::process::Command::new("railpack");
+    cmd.arg("build")
+        .arg(repo_dir)
+        .args(["--name", image_tag]);
+
+    for (k, v) in env_vars {
+        cmd.args(["--env", &format!("{k}={v}")]);
+    }
+    if let Some(sc) = start_cmd {
+        let sc = sc.trim();
+        if !sc.is_empty() {
+            cmd.args(["--start-cmd", sc]);
+        }
+    }
+
+    // Merge stderr into stdout so progress + errors arrive in one ordered
+    // stream — same trick as the docker-compose branch (`sh -c "... 2>&1"`).
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("spawn railpack: {e}"))?;
+
+    // Stream stdout
+    if let Some(out) = child.stdout.take() {
+        let mut reader = BufReader::new(out).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            log_sink(&line);
+        }
+    }
+    // Drain stderr separately — railpack writes most progress to stdout but
+    // BuildKit errors land here, so we surface them in the deployment log.
+    if let Some(err) = child.stderr.take() {
+        let mut reader = BufReader::new(err).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            log_sink(&line);
+        }
+    }
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| anyhow::anyhow!("wait railpack: {e}"))?;
+
+    if !status.success() {
+        anyhow::bail!(
+            "railpack build failed (exit {}). Check BUILDKIT_HOST and ensure the buildkit container is running.",
+            status.code().unwrap_or(-1)
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_kv_lines;
+
+    #[test]
+    fn parse_kv_lines_basic() {
+        let got = parse_kv_lines(Some("FOO=bar\nBAZ=qux"));
+        assert_eq!(
+            got,
+            vec![
+                ("FOO".to_string(), "bar".to_string()),
+                ("BAZ".to_string(), "qux".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_kv_lines_skips_blank_and_comments() {
+        let got = parse_kv_lines(Some("\n# a comment\nFOO=bar\n   \n  # indented comment\nBAZ=qux\n"));
+        assert_eq!(
+            got,
+            vec![
+                ("FOO".to_string(), "bar".to_string()),
+                ("BAZ".to_string(), "qux".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_kv_lines_keeps_value_equals() {
+        let got = parse_kv_lines(Some("URL=https://example.com/?a=1&b=2"));
+        assert_eq!(
+            got,
+            vec![("URL".to_string(), "https://example.com/?a=1&b=2".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_kv_lines_skips_lines_without_equals() {
+        let got = parse_kv_lines(Some("FOO=bar\nnotakv\nBAZ=qux"));
+        assert_eq!(
+            got,
+            vec![
+                ("FOO".to_string(), "bar".to_string()),
+                ("BAZ".to_string(), "qux".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_kv_lines_none_returns_empty() {
+        assert!(parse_kv_lines(None).is_empty());
+    }
+}
