@@ -62,6 +62,7 @@ O [Coolify](https://coolify.io) é ótimo, mas roda **6+ contêineres** e consom
 **Git e Implantações**
 - 🔄 Pipeline Git-to-deploy com webhooks do GitHub e GitLab
 - 🛠 Build a partir de Dockerfile, imagem Docker ou Compose
+- ✨ **Auto-build (Railpack)** — builds zero-config direto do código-fonte para Node, Python, Go, PHP, Java, Ruby, Rust, Vite/Astro/CRA e outras, sem precisar de Dockerfile
 - ⏪ Histórico de implantações com rollback
 
 **Rede e SSL**
@@ -178,6 +179,50 @@ docker run -d \
 Em seguida, abra `http://IP_DO_SEU_SERVIDOR:8443/setup` para criar sua conta de administrador.
 
 > Para configuração detalhada do servidor (hardening de segurança, firewall, instalação do Docker), consulte [INSTALL.md](../../INSTALL.md).
+
+### Auto-build (Railpack) — o que é e o que precisa
+
+A fonte **Auto-build** permite implantar a partir de um repositório Git **sem escrever um Dockerfile**. Por baixo dos panos, o Pier delega ao [Railpack](https://github.com/railwayapp/railpack) (o builder open-source da Railway, sucessor do Nixpacks), que se apoia em um daemon local do [moby/buildkit](https://github.com/moby/buildkit). Ambos os componentes são provisionados automaticamente pelo `install.sh`. Guia completo em [from-railpack](https://pier.team/docs/applications/from-railpack).
+
+> ### ⚠ Requisitos do servidor — leia antes de habilitar
+>
+> O Auto-build é **substancialmente mais pesado** do que os outros caminhos de implantação. Compilar código do usuário no host é fundamentalmente diferente de apenas executar um contêiner pré-construído, então o perfil de recursos muda:
+>
+> |              | Dockerfile / Compose / Docker Image | Auto-build (Railpack) |
+> |---|---|---|
+> | RAM mínima   | 512 MB                              | **4 GB** (8 GB para Rust) |
+> | Disco livre  | poucos GB por stack                 | **40+ GB** (cache do BuildKit) |
+> | Primeiro deploy | segundos                          | 1–10 minutos |
+>
+> **Se seu VPS tem menos de 4 GB de RAM, use a fonte Dockerfile ou Docker Image em vez desta.** A UI mostra um aviso explícito quando o host tem &lt;4 GB — o build vai quase certamente sofrer OOM-kill (de si mesmo ou de outro processo). O pier-core poda o cache do BuildKit diariamente para ~10 GB / retenção de 7 dias. Você também pode usar `PIER_SKIP_RAILPACK=1 bash install.sh` para pular o provisionamento por completo.
+
+**O que o Railpack detecta automaticamente** (sem configuração manual):
+
+| Linguagem / framework | Detectado a partir de |
+|---|---|
+| Node.js / Bun / Deno | `package.json`, `bun.lockb`, `deno.json` |
+| Python | `requirements.txt`, `pyproject.toml`, `Pipfile` |
+| Go | `go.mod` |
+| Rust | `Cargo.toml` |
+| PHP | `composer.json` |
+| Java | `pom.xml`, `build.gradle` |
+| Ruby | `Gemfile` |
+| Elixir | `mix.exs` |
+| Sites estáticos Vite / Astro / CRA | config do bundler + diretório de saída do build |
+
+Para projetos que precisam de overrides, coloque um [`railpack.json`](https://railpack.com/configuration/file) na raiz do repositório — o Railpack carrega automaticamente.
+
+**Ajustes finos** (no unit do systemd ou antes de `install.sh`):
+
+- `PIER_RAILPACK_MAX_PARALLEL_BUILDS=N` — limite de builds paralelos (padrão 1). Também ajustável na UI: `Configurações → Auto-build (Railpack)`.
+- `PIER_BUILDKIT_MEMORY=4g` — limite de RAM para o contêiner buildkit (padrão 4g).
+- `PIER_SKIP_RAILPACK=1` — pula o provisionamento. O card permanece na UI, mas qualquer tentativa de build retorna a mensagem clara "railpack binary not found".
+
+**FAQ**
+
+- **Por que não Nixpacks?** O Railpack é o sucessor ativo (a Railway migrou em março de 2025); o Nixpacks está em modo de manutenção. Pela abordagem baseada em grafo do BuildKit, o Railpack produz imagens Node ~38% menores e imagens Python ~77% menores.
+- **Funciona em ARM/aarch64?** Sim — tanto `railpack` quanto `moby/buildkit` distribuem binários linux/arm64. O install.sh escolhe a arquitetura correta automaticamente.
+- **Posso desabilitar?** Sim — `PIER_SKIP_RAILPACK=1 bash install.sh` pula o provisionamento. As fontes Dockerfile / Compose / Docker Image continuam funcionando normalmente.
 
 ## Stack Tecnológica
 

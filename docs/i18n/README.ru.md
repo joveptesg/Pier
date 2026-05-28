@@ -62,6 +62,7 @@
 **Git и развёртывание**
 - 🔄 Конвейер развёртывания из Git с вебхуками GitHub и GitLab
 - 🛠 Сборка из Dockerfile, Docker-образа или Compose
+- ✨ **Авто-сборка (Railpack)** — сборка из исходников без Dockerfile для Node, Python, Go, PHP, Java, Ruby, Rust, Vite/Astro/CRA и других
 - ⏪ История развёртываний с откатом
 
 **Сеть и SSL**
@@ -178,6 +179,50 @@ docker run -d \
 Затем откройте `http://YOUR_SERVER_IP:8443/setup` для создания учётной записи администратора.
 
 > Подробная настройка сервера (усиление безопасности, файрвол, установка Docker) описана в [INSTALL.md](../../INSTALL.md).
+
+### Авто-сборка (Railpack) — что это и что требуется
+
+Источник **Авто-сборка** позволяет разворачивать приложение из Git-репозитория **без написания Dockerfile**. Pier вызывает [Railpack](https://github.com/railwayapp/railpack) (открытый сборщик от Railway, преемник Nixpacks), который работает с локальным [moby/buildkit](https://github.com/moby/buildkit). Оба компонента устанавливаются автоматически через `install.sh`. Полное руководство — в [from-railpack](https://pier.team/docs/applications/from-railpack).
+
+> ### ⚠ Требования к серверу — прочитайте перед включением
+>
+> Авто-сборка **существенно тяжелее** остальных способов деплоя. Компиляция кода пользователя на хосте принципиально отличается от запуска готового контейнера, поэтому профиль нагрузки меняется:
+>
+> |              | Dockerfile / Compose / Docker Image | Авто-сборка (Railpack) |
+> |---|---|---|
+> | Минимум RAM   | 512 МБ                              | **4 ГБ** (8 ГБ для Rust) |
+> | Свободный диск| несколько ГБ на стек                | **40+ ГБ** (кэш BuildKit) |
+> | Первый деплой | секунды                             | 1–10 минут |
+>
+> **Если на вашем VPS меньше 4 ГБ RAM — используйте источник Dockerfile или Docker Image.** UI выводит жёсткое предупреждение, когда у хоста &lt;4 ГБ — сборка почти наверняка получит OOM-kill для себя или другого процесса. Pier-core ежесуточно чистит кэш BuildKit до ~10 ГБ / 7 дней хранения. Можно вообще отключить установку Railpack: `PIER_SKIP_RAILPACK=1 bash install.sh`.
+
+**Какие языки Railpack распознаёт автоматически** (без ручной настройки):
+
+| Язык / фреймворк | Детектится по |
+|---|---|
+| Node.js / Bun / Deno | `package.json`, `bun.lockb`, `deno.json` |
+| Python | `requirements.txt`, `pyproject.toml`, `Pipfile` |
+| Go | `go.mod` |
+| Rust | `Cargo.toml` |
+| PHP | `composer.json` |
+| Java | `pom.xml`, `build.gradle` |
+| Ruby | `Gemfile` |
+| Elixir | `mix.exs` |
+| Vite / Astro / CRA (статика) | конфигурация бандлера + директория сборки |
+
+Если нужны переопределения — положите в корень репозитория [`railpack.json`](https://railpack.com/configuration/file), Railpack подхватит его автоматически.
+
+**Параметры тюнинга** (задаются в systemd unit или перед `install.sh`):
+
+- `PIER_RAILPACK_MAX_PARALLEL_BUILDS=N` — лимит параллельных сборок (по умолчанию 1). Также настраивается в UI: `Настройки → Auto-build (Railpack)`.
+- `PIER_BUILDKIT_MEMORY=4g` — лимит RAM для контейнера buildkit (по умолчанию 4g).
+- `PIER_SKIP_RAILPACK=1` — пропустить установку. Карточка в UI останется, но при попытке сборки появится сообщение «railpack binary not found».
+
+**FAQ**
+
+- **Почему не Nixpacks?** Railpack — это активный преемник (Railway перешёл на него в марте 2025), Nixpacks находится в режиме maintenance. Railpack даёт ~38% меньшие Node-образы и ~77% меньшие Python-образы благодаря подходу через BuildKit-граф.
+- **Работает ли на ARM/aarch64?** Да — и `railpack`, и `moby/buildkit` имеют сборки под linux/arm64. install.sh выбирает нужную архитектуру автоматически.
+- **Можно отключить?** Да — `PIER_SKIP_RAILPACK=1 bash install.sh` пропустит установку. Источники Dockerfile / Compose / Docker Image будут работать как обычно.
 
 ## Технологический стек
 

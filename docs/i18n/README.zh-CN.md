@@ -62,6 +62,7 @@
 **Git 与部署**
 - 🔄 Git 到部署流水线，支持 GitHub 和 GitLab Webhooks
 - 🛠 支持从 Dockerfile、Docker 镜像或 Compose 构建
+- ✨ **自动构建 (Railpack)** — 直接从源代码零配置构建,支持 Node、Python、Go、PHP、Java、Ruby、Rust、Vite/Astro/CRA 等,无需编写 Dockerfile
 - ⏪ 部署历史与回滚
 
 **网络与 SSL**
@@ -178,6 +179,50 @@ docker run -d \
 然后打开 `http://YOUR_SERVER_IP:8443/setup` 创建管理员账号。
 
 > 如需详细的服务器配置指南（安全加固、防火墙、Docker 安装），请参阅 [INSTALL.md](../../INSTALL.md)。
+
+### 自动构建 (Railpack) — 简介与要求
+
+**自动构建**源类型让你可以从 Git 仓库部署应用而**无需编写 Dockerfile**。Pier 底层调用 [Railpack](https://github.com/railwayapp/railpack)（Railway 开源的构建器，Nixpacks 的继任者），与本地 [moby/buildkit](https://github.com/moby/buildkit) 守护进程协作。这两个组件由 `install.sh` 自动配置。完整指南见 [from-railpack 文档](https://pier.team/docs/applications/from-railpack)。
+
+> ### ⚠ 服务器要求 — 启用前请先阅读
+>
+> 自动构建**比其他部署方式重得多**。在主机上编译用户代码的资源需求与直接运行预构建容器有本质区别：
+>
+> |              | Dockerfile / Compose / Docker Image | 自动构建 (Railpack) |
+> |---|---|---|
+> | 最低内存     | 512 MB                              | **4 GB**（Rust 项目 8 GB） |
+> | 可用磁盘     | 每个堆栈几个 GB                     | **40+ GB**（BuildKit 缓存） |
+> | 首次部署     | 数秒                                | 1–10 分钟 |
+>
+> **如果您的 VPS 内存少于 4 GB,请改用 Dockerfile 或 Docker Image 源类型。** 当主机内存 &lt;4 GB 时 UI 会显示醒目的警告——构建几乎肯定会因 OOM 被内核杀死(可能影响自身或其他进程)。Pier-core 每天将 BuildKit 缓存修剪到 ~10 GB / 7 天保留期。如果完全不需要,可以用 `PIER_SKIP_RAILPACK=1 bash install.sh` 跳过安装。
+
+**Railpack 自动识别的语言**（无需手动配置）：
+
+| 语言 / 框架 | 检测依据 |
+|---|---|
+| Node.js / Bun / Deno | `package.json`、`bun.lockb`、`deno.json` |
+| Python | `requirements.txt`、`pyproject.toml`、`Pipfile` |
+| Go | `go.mod` |
+| Rust | `Cargo.toml` |
+| PHP | `composer.json` |
+| Java | `pom.xml`、`build.gradle` |
+| Ruby | `Gemfile` |
+| Elixir | `mix.exs` |
+| Vite / Astro / CRA 静态站点 | 打包器配置 + 构建输出目录 |
+
+如需覆盖默认行为,在仓库根目录放置 [`railpack.json`](https://railpack.com/configuration/file),Railpack 会自动识别。
+
+**调优参数**（在 systemd 单元中设置,或在 `install.sh` 之前导出）：
+
+- `PIER_RAILPACK_MAX_PARALLEL_BUILDS=N` — 并发构建上限（默认 1）。也可在 UI 中通过`设置 → Auto-build (Railpack)`修改。
+- `PIER_BUILDKIT_MEMORY=4g` — buildkit 容器的内存限制（默认 4g）。
+- `PIER_SKIP_RAILPACK=1` — 完全跳过安装。UI 中的卡片仍会显示,但点击构建会提示"railpack binary not found"。
+
+**FAQ**
+
+- **为什么不用 Nixpacks?** Railpack 是积极维护的继任者(Railway 于 2025 年 3 月切换),Nixpacks 已进入维护模式。Railpack 借助 BuildKit 图模型,Node 镜像减小约 38%,Python 镜像减小约 77%。
+- **支持 ARM/aarch64 吗?** 支持 —— `railpack` 和 `moby/buildkit` 都提供 linux/arm64 构建产物。install.sh 自动选择正确架构。
+- **可以关闭吗?** 可以 —— `PIER_SKIP_RAILPACK=1 bash install.sh` 会跳过安装。Dockerfile / Compose / Docker Image 源类型不受影响。
 
 ## 技术栈
 

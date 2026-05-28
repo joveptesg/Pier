@@ -62,6 +62,7 @@
 **Git & デプロイメント**
 - 🔄 GitHub & GitLab Webhook による Git デプロイパイプライン
 - 🛠 Dockerfile、Docker イメージ、または Compose からのビルド
+- ✨ **自動ビルド (Railpack)** — Node、Python、Go、PHP、Java、Ruby、Rust、Vite/Astro/CRA など、Dockerfile 不要でソースから直接ゼロコンフィグでビルド
 - ⏪ ロールバック付きデプロイ履歴
 
 **ネットワーク & SSL**
@@ -178,6 +179,50 @@ docker run -d \
 次に `http://YOUR_SERVER_IP:8443/setup` を開いて管理者アカウントを作成します。
 
 > 詳細なサーバーセットアップ（セキュリティ強化、ファイアウォール、Docker インストール）については、[INSTALL.md](../../INSTALL.md) を参照してください。
+
+### 自動ビルド (Railpack) — 概要と要件
+
+**自動ビルド**ソースを使うと、**Dockerfile を書かずに** Git リポジトリからアプリをデプロイできます。内部的に Pier は [Railpack](https://github.com/railwayapp/railpack) (Railway がオープンソース化したビルダー、Nixpacks の後継) を呼び出し、ローカルの [moby/buildkit](https://github.com/moby/buildkit) デーモンと連携します。両コンポーネントは `install.sh` が自動でセットアップします。詳しい手順は [from-railpack ガイド](https://pier.team/docs/applications/from-railpack) を参照してください。
+
+> ### ⚠ サーバー要件 — 有効化前に必ず読んでください
+>
+> 自動ビルドは他のデプロイ方法よりも**大幅に重い**処理です。ホスト上でユーザーコードをコンパイルするのは、ビルド済みコンテナを実行するのとは根本的に異なるため、リソースプロファイルも変わります:
+>
+> |              | Dockerfile / Compose / Docker Image | 自動ビルド (Railpack) |
+> |---|---|---|
+> | 最小 RAM      | 512 MB                              | **4 GB**（Rust は 8 GB） |
+> | 空きディスク  | スタックあたり数 GB                  | **40 GB 以上**（BuildKit キャッシュ） |
+> | 初回デプロイ  | 数秒                                | 1〜10 分 |
+>
+> **VPS の RAM が 4 GB 未満の場合は、代わりに Dockerfile または Docker Image ソースを使ってください。** ホストが 4 GB 未満のとき UI は強い警告を表示します — ビルドはほぼ確実に OOM-kill されます（ビルド自身か別プロセスが終了させられます）。pier-core は毎日 BuildKit キャッシュを ~10 GB / 保持期間 7 日に整理します。完全に無効化するには `PIER_SKIP_RAILPACK=1 bash install.sh` を実行してください。
+
+**Railpack が自動検出する言語**（手動設定不要）:
+
+| 言語 / フレームワーク | 検出元 |
+|---|---|
+| Node.js / Bun / Deno | `package.json`、`bun.lockb`、`deno.json` |
+| Python | `requirements.txt`、`pyproject.toml`、`Pipfile` |
+| Go | `go.mod` |
+| Rust | `Cargo.toml` |
+| PHP | `composer.json` |
+| Java | `pom.xml`、`build.gradle` |
+| Ruby | `Gemfile` |
+| Elixir | `mix.exs` |
+| Vite / Astro / CRA 静的サイト | バンドラ設定 + ビルド出力ディレクトリ |
+
+オーバーライドが必要なプロジェクトは、リポジトリ直下に [`railpack.json`](https://railpack.com/configuration/file) を置けば Railpack が自動で読み取ります。
+
+**チューニング項目**（systemd unit または `install.sh` 実行前に設定）:
+
+- `PIER_RAILPACK_MAX_PARALLEL_BUILDS=N` — 並列ビルド上限（デフォルト 1）。UI の `設定 → Auto-build (Railpack)` からも変更できます。
+- `PIER_BUILDKIT_MEMORY=4g` — buildkit コンテナの RAM 上限（デフォルト 4g）。
+- `PIER_SKIP_RAILPACK=1` — セットアップをスキップ。UI のカードは残りますが、ビルド試行時に「railpack binary not found」と明示されます。
+
+**FAQ**
+
+- **なぜ Nixpacks ではないのですか？** Railpack は活発に開発されている後継（Railway は 2025 年 3 月に移行）で、Nixpacks はメンテナンスモードです。Railpack は BuildKit グラフアプローチにより Node イメージで約 38%、Python イメージで約 77% の縮小を実現しています。
+- **ARM / aarch64 で動きますか？** はい — `railpack` と `moby/buildkit` の両方が linux/arm64 バイナリを提供しています。インストールスクリプトが自動で正しいアーキテクチャを選択します。
+- **無効にできますか？** はい — `PIER_SKIP_RAILPACK=1 bash install.sh` でセットアップをスキップできます。Dockerfile / Compose / Docker Image ソースは引き続き利用可能です。
 
 ## 技術スタック
 

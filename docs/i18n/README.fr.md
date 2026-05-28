@@ -62,6 +62,7 @@ Déployez des conteneurs, des stacks Docker Compose et des dépôts Git avec SSL
 **Git et déploiements**
 - 🔄 Pipeline Git-to-deploy avec webhooks GitHub et GitLab
 - 🛠 Construction depuis un Dockerfile, une image Docker ou Compose
+- ✨ **Auto-build (Railpack)** — builds zéro-config directement depuis le code source pour Node, Python, Go, PHP, Java, Ruby, Rust, Vite/Astro/CRA et plus, sans Dockerfile
 - ⏪ Historique des déploiements avec retour en arrière
 
 **Réseau et SSL**
@@ -178,6 +179,50 @@ docker run -d \
 Ouvrez ensuite `http://IP_DE_VOTRE_SERVEUR:8443/setup` pour créer votre compte administrateur.
 
 > Pour une configuration détaillée du serveur (renforcement de la sécurité, pare-feu, installation de Docker), consultez [INSTALL.md](../../INSTALL.md).
+
+### Auto-build (Railpack) — présentation et prérequis
+
+La source **Auto-build** vous permet de déployer depuis un dépôt Git **sans écrire de Dockerfile**. Sous le capot, Pier délègue à [Railpack](https://github.com/railwayapp/railpack) (le constructeur open-source de Railway, successeur de Nixpacks), qui s'appuie sur un démon local [moby/buildkit](https://github.com/moby/buildkit). Les deux composants sont provisionnés automatiquement par `install.sh`. Guide complet dans [from-railpack](https://pier.team/docs/applications/from-railpack).
+
+> ### ⚠ Configuration serveur requise — à lire avant l'activation
+>
+> Auto-build est **nettement plus gourmand** que les autres méthodes de déploiement. Compiler du code utilisateur sur l'hôte est fondamentalement différent du simple lancement d'un conteneur préconstruit, donc le profil de ressources change :
+>
+> |              | Dockerfile / Compose / Docker Image | Auto-build (Railpack) |
+> |---|---|---|
+> | RAM minimale | 512 Mo                              | **4 Go** (8 Go pour Rust) |
+> | Disque libre | quelques Go par stack               | **40+ Go** (cache BuildKit) |
+> | Premier déploiement | secondes                     | 1–10 minutes |
+>
+> **Si votre VPS dispose de moins de 4 Go de RAM, utilisez plutôt les sources Dockerfile ou Docker Image.** L'UI affiche un avertissement franc lorsque l'hôte est en dessous de 4 Go — le build va presque certainement déclencher un OOM-kill (lui-même ou un autre processus). Pier-core nettoie le cache BuildKit quotidiennement à ~10 Go / rétention 7 jours. Vous pouvez aussi exécuter `PIER_SKIP_RAILPACK=1 bash install.sh` pour sauter complètement l'installation.
+
+**Ce que Railpack détecte automatiquement** (sans config manuelle) :
+
+| Langage / framework | Détecté à partir de |
+|---|---|
+| Node.js / Bun / Deno | `package.json`, `bun.lockb`, `deno.json` |
+| Python | `requirements.txt`, `pyproject.toml`, `Pipfile` |
+| Go | `go.mod` |
+| Rust | `Cargo.toml` |
+| PHP | `composer.json` |
+| Java | `pom.xml`, `build.gradle` |
+| Ruby | `Gemfile` |
+| Elixir | `mix.exs` |
+| Sites statiques Vite / Astro / CRA | configuration du bundler + dossier de sortie du build |
+
+Pour les projets qui nécessitent des overrides, déposez un [`railpack.json`](https://railpack.com/configuration/file) à la racine du dépôt — Railpack le prend en compte automatiquement.
+
+**Paramètres de réglage** (à définir dans l'unit systemd ou avant `install.sh`) :
+
+- `PIER_RAILPACK_MAX_PARALLEL_BUILDS=N` — plafond de builds parallèles (défaut 1). Modifiable aussi depuis l'UI : `Paramètres → Auto-build (Railpack)`.
+- `PIER_BUILDKIT_MEMORY=4g` — limite RAM du conteneur buildkit (défaut 4g).
+- `PIER_SKIP_RAILPACK=1` — saute l'installation. La carte reste visible dans l'UI, mais toute tentative de build renvoie le message clair « railpack binary not found ».
+
+**FAQ**
+
+- **Pourquoi pas Nixpacks ?** Railpack est le successeur actif (Railway a migré en mars 2025) ; Nixpacks est en mode maintenance. Railpack produit des images Node ~38 % plus petites et des images Python ~77 % plus petites grâce à son approche par graphe BuildKit.
+- **Fonctionne-t-il sur ARM/aarch64 ?** Oui — `railpack` et `moby/buildkit` proposent tous deux des binaires linux/arm64. Le script d'installation sélectionne automatiquement la bonne architecture.
+- **Puis-je le désactiver ?** Oui — `PIER_SKIP_RAILPACK=1 bash install.sh` saute la provisioning. Les sources Dockerfile / Compose / Docker Image continuent de fonctionner normalement.
 
 ## Stack technique
 
