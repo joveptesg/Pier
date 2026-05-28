@@ -132,6 +132,50 @@ npm install left-pad         # proxied from npmjs.org + cached
 
 Full per-client guides: [npm](https://pier.team/docs/registry/clients/npm) · [yarn 1.x](https://pier.team/docs/registry/clients/yarn-classic) · [yarn 2/3/4](https://pier.team/docs/registry/clients/yarn-berry) · [pnpm](https://pier.team/docs/registry/clients/pnpm) · [bun](https://pier.team/docs/registry/clients/bun).
 
+## Auto-build (Railpack)
+
+The **Auto-build** source lets you deploy from a Git repository **without writing a Dockerfile**. Under the hood Pier shells out to [Railpack](https://github.com/railwayapp/railpack) (Railway's open-source builder, successor to Nixpacks) running against a local [moby/buildkit](https://github.com/moby/buildkit) daemon. Both are provisioned automatically by `install.sh`. See the [from-railpack guide](https://pier.team/docs/applications/from-railpack) for the full walkthrough.
+
+> ### ⚠ Server requirements — please read before enabling
+>
+> Auto-build is **substantially heavier** than the other deploy paths. Compiling user code on the host is fundamentally different from just running a pre-built container, so the resource picture changes:
+>
+> |              | Dockerfile / Compose / Docker Image | Auto-build (Railpack) |
+> |---|---|---|
+> | Minimum RAM  | 512 MB                              | **4 GB** (8 GB for Rust) |
+> | Free disk    | a few GB per stack                  | **40+ GB** (BuildKit cache) |
+> | First deploy | seconds                             | 1–10 minutes |
+>
+> **If your VPS has less than 4 GB RAM, use the Dockerfile or Docker Image source instead.** The UI shows a hard warning when the host has &lt;4 GB and the build will almost certainly OOM-kill itself or another process. Pier-core prunes the BuildKit cache daily back to ~10 GB / 7-day retention; you can also `PIER_SKIP_RAILPACK=1 bash install.sh` to skip provisioning entirely.
+
+**What Railpack detects** (no manual config needed for any of these):
+
+| Language / framework | Auto-detected from |
+|---|---|
+| Node.js / Bun / Deno | `package.json`, `bun.lockb`, `deno.json` |
+| Python | `requirements.txt`, `pyproject.toml`, `Pipfile` |
+| Go | `go.mod` |
+| Rust | `Cargo.toml` |
+| PHP | `composer.json` |
+| Java | `pom.xml`, `build.gradle` |
+| Ruby | `Gemfile` |
+| Elixir | `mix.exs` |
+| Vite / Astro / CRA static sites | their bundler config + build output dir |
+
+For projects that need overrides, drop a [`railpack.json`](https://railpack.com/configuration/file) in the repo root — Railpack picks it up automatically.
+
+**Tuning knobs** (set in the systemd unit or before `install.sh`):
+
+- `PIER_RAILPACK_MAX_PARALLEL_BUILDS=N` — cap concurrent builds (default 1). Can also be set from `Settings → Auto-build (Railpack)` in the UI.
+- `PIER_BUILDKIT_MEMORY=4g` — RAM limit for the buildkit container (default 4g).
+- `PIER_SKIP_RAILPACK=1` — skip provisioning entirely; the feature card stays in the UI but shows a clear "railpack binary not found" message on build.
+
+**FAQ**
+
+- **Why not Nixpacks?** Railpack is the active successor (Railway moved to it in March 2025); Nixpacks is in maintenance mode. Railpack produces ~38% smaller Node images and ~77% smaller Python images thanks to its BuildKit-graph approach.
+- **Does it work on ARM/aarch64?** Yes — both `railpack` and `moby/buildkit` ship linux/arm64 binaries. The install script picks the right architecture automatically.
+- **Can I disable it?** Yes — `PIER_SKIP_RAILPACK=1 bash install.sh` skips provisioning. You can still use Dockerfile / Compose / Docker Image sources.
+
 ## Templates
 
 **Databases** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
@@ -179,50 +223,6 @@ docker run -d \
 Then open `http://YOUR_SERVER_IP:8443/setup` to create your admin account.
 
 > For detailed server setup (security hardening, firewall, Docker installation), see [INSTALL.md](INSTALL.md).
-
-### Auto-build (Railpack) — what it is and what it needs
-
-The **Auto-build** source lets you deploy from a Git repository **without writing a Dockerfile**. Under the hood Pier shells out to [Railpack](https://github.com/railwayapp/railpack) (Railway's open-source builder, successor to Nixpacks) running against a local [moby/buildkit](https://github.com/moby/buildkit) daemon. Both are provisioned automatically by `install.sh`. See the [from-railpack guide](https://pier.team/docs/applications/from-railpack) for the full walkthrough.
-
-> ### ⚠ Server requirements — please read before enabling
->
-> Auto-build is **substantially heavier** than the other deploy paths. Compiling user code on the host is fundamentally different from just running a pre-built container, so the resource picture changes:
->
-> |              | Dockerfile / Compose / Docker Image | Auto-build (Railpack) |
-> |---|---|---|
-> | Minimum RAM  | 512 MB                              | **4 GB** (8 GB for Rust) |
-> | Free disk    | a few GB per stack                  | **40+ GB** (BuildKit cache) |
-> | First deploy | seconds                             | 1–10 minutes |
->
-> **If your VPS has less than 4 GB RAM, use the Dockerfile or Docker Image source instead.** The UI shows a hard warning when the host has &lt;4 GB and the build will almost certainly OOM-kill itself or another process. Pier-core prunes the BuildKit cache daily back to ~10 GB / 7-day retention; you can also `PIER_SKIP_RAILPACK=1 bash install.sh` to skip provisioning entirely.
-
-**What Railpack detects** (no manual config needed for any of these):
-
-| Language / framework | Auto-detected from |
-|---|---|
-| Node.js / Bun / Deno | `package.json`, `bun.lockb`, `deno.json` |
-| Python | `requirements.txt`, `pyproject.toml`, `Pipfile` |
-| Go | `go.mod` |
-| Rust | `Cargo.toml` |
-| PHP | `composer.json` |
-| Java | `pom.xml`, `build.gradle` |
-| Ruby | `Gemfile` |
-| Elixir | `mix.exs` |
-| Vite / Astro / CRA static sites | their bundler config + build output dir |
-
-For projects that need overrides, drop a [`railpack.json`](https://railpack.com/configuration/file) in the repo root — Railpack picks it up automatically.
-
-**Tuning knobs** (set in the systemd unit or before `install.sh`):
-
-- `PIER_RAILPACK_MAX_PARALLEL_BUILDS=N` — cap concurrent builds (default 1). Can also be set from `Settings → Auto-build (Railpack)` in the UI.
-- `PIER_BUILDKIT_MEMORY=4g` — RAM limit for the buildkit container (default 4g).
-- `PIER_SKIP_RAILPACK=1` — skip provisioning entirely; the feature card stays in the UI but shows a clear "railpack binary not found" message on build.
-
-**FAQ**
-
-- **Why not Nixpacks?** Railpack is the active successor (Railway moved to it in March 2025); Nixpacks is in maintenance mode. Railpack produces ~38% smaller Node images and ~77% smaller Python images thanks to its BuildKit-graph approach.
-- **Does it work on ARM/aarch64?** Yes — both `railpack` and `moby/buildkit` ship linux/arm64 binaries. The install script picks the right architecture automatically.
-- **Can I disable it?** Yes — `PIER_SKIP_RAILPACK=1 bash install.sh` skips provisioning. You can still use Dockerfile / Compose / Docker Image sources.
 
 ## Tech Stack
 
