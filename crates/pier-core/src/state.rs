@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use bollard::Docker;
 use minijinja::Environment;
 use rusqlite::Connection;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, Semaphore};
 
 use crate::auth::partial_token::PartialTokenStore;
 use crate::auth::setup_token::SetupTokenStore;
@@ -49,6 +49,18 @@ pub struct AppState {
     /// Short-lived RAM-only tokens issued by the password step of login when
     /// the user has 2FA enabled. The TOTP step consumes them.
     pub partial_tokens: Arc<PartialTokenStore>,
+
+    /// Caps concurrent Railpack auto-builds. Each build can consume several
+    /// GB of RAM during heavy compilation (Node/Python/Rust), so running
+    /// them in parallel on a small VPS would OOM-kill the host. Default
+    /// permits=1 (one build at a time); operators can raise the limit if
+    /// the host has spare capacity. The semaphore is held for the entire
+    /// duration of `railpack build` plus the subsequent image-run step.
+    // Read by the railpack branch in deploy::run_pipeline (added in a later
+    // commit of this feature). Suppress the dead-code warning until then so
+    // the zero-warnings clippy gate stays green between commits.
+    #[allow(dead_code)]
+    pub railpack_build_semaphore: Arc<Semaphore>,
 }
 
 /// Type alias for Arc-wrapped shared state.

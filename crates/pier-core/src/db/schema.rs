@@ -227,6 +227,7 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE services ADD COLUMN git_repo_url TEXT;
     ALTER TABLE services ADD COLUMN git_branch TEXT DEFAULT 'main';
     ALTER TABLE services ADD COLUMN git_webhook_secret TEXT;
+    -- build_strategy values: 'dockerfile', 'docker-compose', 'railpack' (added in migration 62)
     ALTER TABLE services ADD COLUMN build_strategy TEXT DEFAULT 'dockerfile';
     ALTER TABLE services ADD COLUMN previous_image_tag TEXT;
 
@@ -1420,6 +1421,21 @@ const MIGRATIONS: &[&str] = &[
     // Traefik configs and serve traffic exactly as before.
     r#"
     ALTER TABLE domains ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;
+    "#,
+    // Migration 62: Railpack auto-build fields.
+    //
+    // Two new optional columns on `services` for the new build_strategy="railpack"
+    // path (zero-config builder via the railpack CLI). Pre-existing rows get
+    // NULL for both, which means: use Railpack's auto-detected start command
+    // and no build-time env. Old rows with build_strategy in {dockerfile,
+    // docker-compose} ignore both fields entirely.
+    //
+    //   * start_cmd       — optional override for the container start command
+    //   * build_env_vars  — KEY=VALUE\n... textarea content passed to railpack
+    //                       as repeated --env flags at build time
+    r#"
+    ALTER TABLE services ADD COLUMN start_cmd TEXT;
+    ALTER TABLE services ADD COLUMN build_env_vars TEXT;
     "#,
 ];
 

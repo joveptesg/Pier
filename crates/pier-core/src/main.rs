@@ -228,6 +228,15 @@ async fn main() -> Result<()> {
 
     let partial_tokens = Arc::new(auth::partial_token::PartialTokenStore::new());
 
+    // Cap concurrent Railpack builds. Default: 1 (serial). Can be overridden
+    // via PIER_RAILPACK_MAX_PARALLEL_BUILDS at process start. Each build can
+    // need several GB of RAM, so the safe default is conservative.
+    let railpack_parallel = std::env::var("PIER_RAILPACK_MAX_PARALLEL_BUILDS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|n| *n >= 1)
+        .unwrap_or(1);
+
     // Build shared state
     let state = Arc::new(AppState {
         db: Mutex::new(conn),
@@ -240,6 +249,7 @@ async fn main() -> Result<()> {
         ssl_notify: Arc::new(tokio::sync::Notify::new()),
         setup_token,
         partial_tokens,
+        railpack_build_semaphore: Arc::new(tokio::sync::Semaphore::new(railpack_parallel)),
     });
 
     // One-shot recovery of env_json entries encrypted with historical random
