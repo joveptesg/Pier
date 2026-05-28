@@ -862,7 +862,8 @@ NODE_ENV=production"></textarea>
 
             <div x-show="!scaleInfo" class="text-sm text-gray-400 py-6 text-center">Loading…</div>
 
-            <div x-show="scaleInfo" class="space-y-4">
+            <template x-if="scaleInfo">
+            <div class="space-y-4">
                 <div>
                     <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Total replicas</label>
                     <div class="flex items-center gap-3">
@@ -931,6 +932,7 @@ NODE_ENV=production"></textarea>
                     </button>
                 </div>
             </div>
+            </template>
         </div>
     </div>
 
