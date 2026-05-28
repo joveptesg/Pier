@@ -2167,8 +2167,8 @@ struct ServiceInfo {
 #[cfg(test)]
 mod tests {
     use super::{
-        env_json_to_env_content, inject_env_file_into_services, inject_ports_into_yaml,
-        inject_mesh_extra_hosts_into_services, normalize_mesh_hostname,
+        env_json_to_env_content, inject_env_file_into_services,
+        inject_mesh_extra_hosts_into_services, inject_ports_into_yaml, normalize_mesh_hostname,
         upsert_port_rows, PortRow,
     };
     use crate::crypto::encrypt_env_json;
@@ -2197,7 +2197,10 @@ mod tests {
         db
     }
 
-    fn dump_ports(db: &rusqlite::Connection, service_id: &str) -> Vec<(Option<String>, String, i64, i64)> {
+    fn dump_ports(
+        db: &rusqlite::Connection,
+        service_id: &str,
+    ) -> Vec<(Option<String>, String, i64, i64)> {
         let mut stmt = db
             .prepare(
                 "SELECT compose_service, port_name, host_port, container_port \
@@ -2220,16 +2223,33 @@ mod tests {
         // (service_id, port_name) and let max-bot overwrite api's row.
         let db = fresh_ports_db();
         let flat = vec![
-            (Some("api".to_string()),     "primary".to_string(), 3050u16, 3050u16),
-            (Some("max-bot".to_string()), "primary".to_string(), 3054u16, 3054u16),
+            (
+                Some("api".to_string()),
+                "primary".to_string(),
+                3050u16,
+                3050u16,
+            ),
+            (
+                Some("max-bot".to_string()),
+                "primary".to_string(),
+                3054u16,
+                3054u16,
+            ),
         ];
 
         upsert_port_rows(&db, "svc-flowfin", &flat);
 
         let rows = dump_ports(&db, "svc-flowfin");
-        assert_eq!(rows.len(), 2, "both compose services must keep their own row: {rows:?}");
-        assert_eq!(rows[0], (Some("api".into()),     "primary".into(), 3050, 3050));
-        assert_eq!(rows[1], (Some("max-bot".into()), "primary".into(), 3054, 3054));
+        assert_eq!(
+            rows.len(),
+            2,
+            "both compose services must keep their own row: {rows:?}"
+        );
+        assert_eq!(rows[0], (Some("api".into()), "primary".into(), 3050, 3050));
+        assert_eq!(
+            rows[1],
+            (Some("max-bot".into()), "primary".into(), 3054, 3054)
+        );
     }
 
     #[test]
@@ -2239,22 +2259,57 @@ mod tests {
         // compose_service disambiguates across services.
         let db = fresh_ports_db();
         let flat = vec![
-            (Some("svc-A".to_string()), "primary".to_string(), 3050u16, 3050u16),
-            (Some("svc-A".to_string()), "port-1".to_string(),  9090u16, 9090u16),
-            (Some("svc-B".to_string()), "primary".to_string(), 3054u16, 3054u16),
-            (Some("svc-B".to_string()), "port-1".to_string(),  4001u16, 4001u16),
-            (Some("svc-B".to_string()), "port-2".to_string(),  4002u16, 4002u16),
+            (
+                Some("svc-A".to_string()),
+                "primary".to_string(),
+                3050u16,
+                3050u16,
+            ),
+            (
+                Some("svc-A".to_string()),
+                "port-1".to_string(),
+                9090u16,
+                9090u16,
+            ),
+            (
+                Some("svc-B".to_string()),
+                "primary".to_string(),
+                3054u16,
+                3054u16,
+            ),
+            (
+                Some("svc-B".to_string()),
+                "port-1".to_string(),
+                4001u16,
+                4001u16,
+            ),
+            (
+                Some("svc-B".to_string()),
+                "port-2".to_string(),
+                4002u16,
+                4002u16,
+            ),
         ];
 
         upsert_port_rows(&db, "svc-multi", &flat);
 
         let rows = dump_ports(&db, "svc-multi");
-        assert_eq!(rows.len(), 5, "all 5 (compose_service, port_name) slots must persist: {rows:?}");
-        assert_eq!(rows[0], (Some("svc-A".into()), "port-1".into(),  9090, 9090));
-        assert_eq!(rows[1], (Some("svc-A".into()), "primary".into(), 3050, 3050));
-        assert_eq!(rows[2], (Some("svc-B".into()), "port-1".into(),  4001, 4001));
-        assert_eq!(rows[3], (Some("svc-B".into()), "port-2".into(),  4002, 4002));
-        assert_eq!(rows[4], (Some("svc-B".into()), "primary".into(), 3054, 3054));
+        assert_eq!(
+            rows.len(),
+            5,
+            "all 5 (compose_service, port_name) slots must persist: {rows:?}"
+        );
+        assert_eq!(rows[0], (Some("svc-A".into()), "port-1".into(), 9090, 9090));
+        assert_eq!(
+            rows[1],
+            (Some("svc-A".into()), "primary".into(), 3050, 3050)
+        );
+        assert_eq!(rows[2], (Some("svc-B".into()), "port-1".into(), 4001, 4001));
+        assert_eq!(rows[3], (Some("svc-B".into()), "port-2".into(), 4002, 4002));
+        assert_eq!(
+            rows[4],
+            (Some("svc-B".into()), "primary".into(), 3054, 3054)
+        );
     }
 
     #[test]
@@ -2273,16 +2328,33 @@ mod tests {
         .unwrap();
 
         let flat = vec![
-            (Some("api".to_string()),     "primary".to_string(), 3050u16, 3050u16),
-            (Some("max-bot".to_string()), "primary".to_string(), 3054u16, 3054u16),
+            (
+                Some("api".to_string()),
+                "primary".to_string(),
+                3050u16,
+                3050u16,
+            ),
+            (
+                Some("max-bot".to_string()),
+                "primary".to_string(),
+                3054u16,
+                3054u16,
+            ),
         ];
 
         upsert_port_rows(&db, "svc-flowfin", &flat);
 
         let rows = dump_ports(&db, "svc-flowfin");
-        assert_eq!(rows.len(), 2, "redeploy must heal the missing api row: {rows:?}");
-        assert_eq!(rows[0], (Some("api".into()),     "primary".into(), 3050, 3050));
-        assert_eq!(rows[1], (Some("max-bot".into()), "primary".into(), 3054, 3054));
+        assert_eq!(
+            rows.len(),
+            2,
+            "redeploy must heal the missing api row: {rows:?}"
+        );
+        assert_eq!(rows[0], (Some("api".into()), "primary".into(), 3050, 3050));
+        assert_eq!(
+            rows[1],
+            (Some("max-bot".into()), "primary".into(), 3054, 3054)
+        );
     }
 
     #[test]
@@ -2298,7 +2370,11 @@ mod tests {
         upsert_port_rows(&db, "svc-single", &flat);
 
         let rows = dump_ports(&db, "svc-single");
-        assert_eq!(rows.len(), 1, "second call must UPDATE, not INSERT: {rows:?}");
+        assert_eq!(
+            rows.len(),
+            1,
+            "second call must UPDATE, not INSERT: {rows:?}"
+        );
         assert_eq!(rows[0], (None, "primary".into(), 8080, 8080));
     }
 
@@ -2308,9 +2384,12 @@ mod tests {
         // keep the operator's is_public/public_port toggles across redeploys.
         // Verify the UPDATE branch leaves them untouched.
         let db = fresh_ports_db();
-        let flat = vec![
-            (Some("api".to_string()), "primary".to_string(), 3050u16, 3050u16),
-        ];
+        let flat = vec![(
+            Some("api".to_string()),
+            "primary".to_string(),
+            3050u16,
+            3050u16,
+        )];
 
         upsert_port_rows(&db, "svc-x", &flat);
 

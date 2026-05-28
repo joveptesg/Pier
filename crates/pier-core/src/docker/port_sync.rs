@@ -221,10 +221,11 @@ pub async fn sync_ports_from_docker(state: &AppState, service_id: &str) -> Resul
                     let Some(hp_str) = entry.host_port.as_deref() else {
                         continue;
                     };
-                    let Ok(hp) = hp_str.parse::<u16>() else { continue };
+                    let Ok(hp) = hp_str.parse::<u16>() else {
+                        continue;
+                    };
                     let host_ip = entry.host_ip.as_deref().unwrap_or("");
-                    let is_public =
-                        host_ip.is_empty() || host_ip == "0.0.0.0" || host_ip == "::";
+                    let is_public = host_ip.is_empty() || host_ip == "0.0.0.0" || host_ip == "::";
                     bindings.push(ContainerBinding {
                         container_port: cp,
                         host_port: hp,
@@ -315,7 +316,10 @@ mod tests {
         }
     }
 
-    fn container(compose_service: Option<&str>, bindings: Vec<ContainerBinding>) -> ContainerBindings {
+    fn container(
+        compose_service: Option<&str>,
+        bindings: Vec<ContainerBinding>,
+    ) -> ContainerBindings {
         ContainerBindings {
             compose_service: compose_service.map(String::from),
             bindings,

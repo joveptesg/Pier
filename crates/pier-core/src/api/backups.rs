@@ -886,7 +886,9 @@ fn detect_format(filename: &str, catalog_id: &str) -> AppResult<UploadFormat> {
     // Postgres-only; tarballs and plain SQL are shared between Postgres and
     // MySQL. We do NOT inspect file content here — extension is the contract.
     let compatible = match catalog_id {
-        "postgresql" | "postgis" | "timescaledb" => is_pg_custom || is_plain_sql || is_cluster_archive,
+        "postgresql" | "postgis" | "timescaledb" => {
+            is_pg_custom || is_plain_sql || is_cluster_archive
+        }
         "mysql" | "mariadb" => is_plain_sql || is_cluster_archive,
         "mongodb" => is_mongo_archive,
         _ => false,

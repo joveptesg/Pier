@@ -49,10 +49,7 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
     // already-used ports, so a row here means pier saw the port as free at
     // allocation time. A foreign process can't sneak in later without us
     // noticing on a prior recreate or sync.
-    let our_host_ports: HashSet<u16> = allocations
-        .iter()
-        .map(|a| a.host_port as u16)
-        .collect();
+    let our_host_ports: HashSet<u16> = allocations.iter().map(|a| a.host_port as u16).collect();
 
     let containers_list = state
         .docker
@@ -764,9 +761,12 @@ mod tests {
 
         let mut current = HashSet::new();
         current.insert(3050u16);
-        let mine =
-            allocations_for_this_container(&allocs, &current, None, Some("api"));
-        assert_eq!(mine.len(), 1, "api container must get only its own row, got {mine:?}");
+        let mine = allocations_for_this_container(&allocs, &current, None, Some("api"));
+        assert_eq!(
+            mine.len(),
+            1,
+            "api container must get only its own row, got {mine:?}"
+        );
         assert_eq!(mine[0].host_port, 3050);
         assert_eq!(mine[0].compose_service.as_deref(), Some("api"));
     }
@@ -781,14 +781,13 @@ mod tests {
         // recreate the container with 0 bindings, docker-proxy would never
         // start, and the UI toggle would bounce back to OFF.
         let a = alloc("primary", 10000, 5432, true, Some(5432));
-        assert!(a.compose_service.is_none(), "precondition: catalog row stores NULL");
-        let allocs = vec![a];
-        let mine = allocations_for_this_container(
-            &allocs,
-            &HashSet::new(),
-            None,
-            Some("postgresql"),
+        assert!(
+            a.compose_service.is_none(),
+            "precondition: catalog row stores NULL"
         );
+        let allocs = vec![a];
+        let mine =
+            allocations_for_this_container(&allocs, &HashSet::new(), None, Some("postgresql"));
         assert_eq!(
             mine.len(),
             1,
@@ -825,7 +824,10 @@ mod tests {
         assert_eq!(mine[0].compose_service.as_deref(), Some("db-replica"));
     }
 
-    fn container_summary(id: &str, host_published_ports: &[u16]) -> bollard::models::ContainerSummary {
+    fn container_summary(
+        id: &str,
+        host_published_ports: &[u16],
+    ) -> bollard::models::ContainerSummary {
         let ports: Vec<bollard::models::PortSummary> = host_published_ports
             .iter()
             .map(|&hp| bollard::models::PortSummary {
@@ -896,7 +898,10 @@ mod tests {
         let our: std::collections::HashSet<u16> =
             allocs.iter().map(|a| a.host_port as u16).collect();
         assert!(our.contains(&3050), "api's 3050 must be in our_host_ports");
-        assert!(our.contains(&3054), "max-bot's 3054 must be in our_host_ports");
+        assert!(
+            our.contains(&3054),
+            "max-bot's 3054 must be in our_host_ports"
+        );
         assert!(!our.contains(&9999), "unrelated port must NOT be in set");
     }
 
@@ -920,10 +925,13 @@ mod tests {
         let api = alloc_with_compose("primary", 3050, 3050, true, Some(3050), "api");
         let bot = alloc_with_compose("primary", 3054, 3054, true, Some(3054), "max-bot");
         let allocs = vec![api, bot];
-        let mine =
-            allocations_for_this_container(&allocs, &HashSet::new(), None, Some("api"));
+        let mine = allocations_for_this_container(&allocs, &HashSet::new(), None, Some("api"));
         let b = build_port_bindings_for_container(&mine);
-        assert_eq!(b.len(), 1, "expected one binding for api container, got {b:?}");
+        assert_eq!(
+            b.len(),
+            1,
+            "expected one binding for api container, got {b:?}"
+        );
         assert!(b.contains_key("3050/tcp"));
         assert!(!b.contains_key("3054/tcp"), "max-bot's port leaked: {b:?}");
     }

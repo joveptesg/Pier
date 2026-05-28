@@ -279,7 +279,11 @@ pub async fn update(
             )?;
         }
         if let Some(ref cs) = body.compose_service {
-            let cs_opt: Option<String> = if cs.is_empty() { None } else { Some(cs.clone()) };
+            let cs_opt: Option<String> = if cs.is_empty() {
+                None
+            } else {
+                Some(cs.clone())
+            };
             db.execute(
                 "UPDATE domains SET compose_service = ?1 WHERE id = ?2",
                 rusqlite::params![cs_opt, id],
@@ -365,7 +369,9 @@ pub async fn activate(
         });
     }
 
-    Ok(Json(serde_json::json!({"ok": true, "id": id, "is_active": true})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "id": id, "is_active": true}),
+    ))
 }
 
 /// POST /api/v1/domains/{id}/deactivate
@@ -398,17 +404,18 @@ pub async fn deactivate(
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        db.execute(
-            "UPDATE domains SET is_active = 0 WHERE id = ?1",
-            [&id],
-        )?;
+        db.execute("UPDATE domains SET is_active = 0 WHERE id = ?1", [&id])?;
     }
 
     if let Err(e) = regenerate_for_service(&state, &service_id) {
-        tracing::warn!("Failed to regenerate Traefik config for {service_id} after deactivate: {e}");
+        tracing::warn!(
+            "Failed to regenerate Traefik config for {service_id} after deactivate: {e}"
+        );
     }
 
-    Ok(Json(serde_json::json!({"ok": true, "id": id, "is_active": false})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "id": id, "is_active": false}),
+    ))
 }
 
 /// DELETE /api/v1/domains/{id}

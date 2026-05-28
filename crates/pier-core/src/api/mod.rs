@@ -323,7 +323,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Domains — list/create/delete gated in-handler via the service's
         // project membership.
         .route("/domains", get(domains::list).post(domains::create))
-        .route("/domains/{id}", put(domains::update).delete(domains::remove))
+        .route(
+            "/domains/{id}",
+            put(domains::update).delete(domains::remove),
+        )
         .route("/domains/{id}/activate", post(domains::activate))
         .route("/domains/{id}/deactivate", post(domains::deactivate))
         .route("/resources/{id}/domains", get(domains::list_for_service))
