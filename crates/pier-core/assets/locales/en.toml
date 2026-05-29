@@ -1,0 +1,48 @@
+# English (default). Other locales fall back to keys here when missing.
+# Flat dotted keys. Use `[section]` headers for grouping — i18n loader flattens nested tables.
+
+[catalog]
+section_git_based = "Git Based"
+section_docker_based = "Docker Based"
+section_databases = "Databases"
+section_services = "Services"
+search_placeholder = "Search..."
+filter_all = "All categories"
+new_resource_title = "New Resource"
+new_resource_subtitle = "Select a resource to deploy on your server"
+
+[settings.tab]
+cleanup = "Cleanup"
+railpack = "Auto-build (Railpack)"
+
+[settings.cleanup]
+title = "System Cleanup"
+build_cache = "Build Cache"
+build_cache_desc = "Unused Docker build layers"
+dangling_images = "Dangling Images"
+dangling_images_desc = "Untagged images not used by containers"
+stopped_containers = "Stopped Containers"
+stopped_containers_desc = "Containers that are not running"
+railpack_buildkit = "Railpack BuildKit cache"
+railpack_buildkit_desc = "Layer cache used by Auto-build (Railpack) — lives inside the buildkit container, separate from Docker"
+clean = "Clean"
+clean_all = "Clean All"
+auto_section = "Auto Cleanup"
+enable_scheduled = "Enable scheduled cleanup"
+enable_scheduled_desc = "Automatically clean Docker resources"
+
+[resource.create.build_pack]
+label = "Build Pack"
+dockerfile = "Dockerfile"
+compose = "Docker Compose"
+railpack = "Railpack (Auto-build)"
+
+[resource.create.railpack]
+warning_first_build = "First build may take 1–10 minutes"
+pick_source = "Pick from a connected GitHub App"
+pick_source_hint = "optional — leave blank for public repos"
+pick_repo = "Repository"
+
+[resource.create.github_app]
+mode_pick = "Pick from list"
+mode_manual = "Enter URL manually"
