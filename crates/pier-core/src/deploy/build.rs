@@ -12,19 +12,36 @@ use http_body_util::Full;
 use crate::state::AppState;
 
 /// Clone a git repo to a temporary directory.
-pub async fn clone_repo(url: &str, branch: &str, dest: &Path) -> Result<String> {
+///
+/// `ssh_key_path` — if `Some`, the key file is used for SSH authentication
+/// via `GIT_SSH_COMMAND`. Required for `git@host:owner/repo.git` clones
+/// (Deploy Key flow). HTTPS clones ignore it.
+pub async fn clone_repo(
+    url: &str,
+    branch: &str,
+    dest: &Path,
+    ssh_key_path: Option<&Path>,
+) -> Result<String> {
     tokio::fs::create_dir_all(dest).await?;
 
-    let output = tokio::process::Command::new("git")
-        .args(["clone", "--depth", "1", "--branch", branch, url])
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.args(["clone", "--depth", "1", "--branch", branch, url])
         .arg(dest.to_string_lossy().as_ref())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env(
             "HOME",
             std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
-        )
-        .output()
-        .await?;
+        );
+
+    if let Some(key) = ssh_key_path {
+        let key_str = key.to_string_lossy();
+        cmd.env(
+            "GIT_SSH_COMMAND",
+            format!("ssh -i {key_str} -o StrictHostKeyChecking=no"),
+        );
+    }
+
+    let output = cmd.output().await?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

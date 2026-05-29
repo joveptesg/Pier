@@ -158,7 +158,9 @@ pub async fn run_pipeline(
     log.push_str("Cloning repository...\n");
     flush_log(&state, &deploy_id, &log);
 
-    match build::clone_repo(&clone_url, branch, &repo_dir).await {
+    let ssh_key_path = deploy_key_path_for(&state, &stack_name);
+    let ssh_key_ref = ssh_key_path.as_deref();
+    match build::clone_repo(&clone_url, branch, &repo_dir, ssh_key_ref).await {
         Ok(output) => {
             log.push_str(&output);
             flush_log(&state, &deploy_id, &log);
@@ -568,7 +570,9 @@ pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Resul
         .data_dir
         .join("tmp")
         .join(format!("compose-fetch-{}", uuid::Uuid::new_v4()));
-    build::clone_repo(&clone_url, branch, &tmp).await?;
+    let stack_name = format!("pier-{}", svc.name.to_lowercase().replace(' ', "-"));
+    let ssh_key_path = deploy_key_path_for(state, &stack_name);
+    build::clone_repo(&clone_url, branch, &tmp, ssh_key_path.as_deref()).await?;
 
     let compose_rel = svc
         .compose_path
@@ -682,6 +686,26 @@ async fn resolve_clone_url(state: &AppState, svc: &ServiceInfo) -> Result<String
             }
         }
         _ => Ok(repo_url.to_string()),
+    }
+}
+
+/// Return the deploy-key path on disk for a stack, if it exists.
+///
+/// Used by `clone_repo` to wire `GIT_SSH_COMMAND` for SSH clones of
+/// Deploy-Key-flow resources. Returns `None` for HTTPS-only flows
+/// (Public Repo, GitHub App), so the caller can pass it through
+/// unconditionally without checking the resource type.
+fn deploy_key_path_for(state: &AppState, stack_name: &str) -> Option<std::path::PathBuf> {
+    let key_path = state
+        .config
+        .data_dir
+        .join("stacks")
+        .join(stack_name)
+        .join("deploy_key");
+    if key_path.exists() {
+        Some(key_path)
+    } else {
+        None
     }
 }
 
