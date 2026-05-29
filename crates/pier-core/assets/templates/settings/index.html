@@ -59,14 +59,14 @@
     <!-- ── Tab: Cleanup ──────────────────────────────────────── -->
     <div x-show="tab === 'cleanup'" x-cloak x-data="cleanupApp()" x-init="loadInfo(); loadSettings()"
          class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">System Cleanup</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t("settings.cleanup.title", locale) }}</h3>
 
         <!-- Current Usage -->
         <div class="space-y-2 mb-5">
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Build Cache</p>
-                    <p class="text-xs text-gray-500">Unused Docker build layers</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t("settings.cleanup.build_cache", locale) }}</p>
+                    <p class="text-xs text-gray-500">{{ t("settings.cleanup.build_cache_desc", locale) }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <span x-show="infoLoading" x-cloak class="inline-flex items-center">
@@ -80,8 +80,8 @@
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Dangling Images</p>
-                    <p class="text-xs text-gray-500">Untagged images not used by containers</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t("settings.cleanup.dangling_images", locale) }}</p>
+                    <p class="text-xs text-gray-500">{{ t("settings.cleanup.dangling_images_desc", locale) }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <span x-show="infoLoading" x-cloak class="inline-flex items-center">
@@ -95,8 +95,8 @@
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Stopped Containers</p>
-                    <p class="text-xs text-gray-500">Containers that are not running</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t("settings.cleanup.stopped_containers", locale) }}</p>
+                    <p class="text-xs text-gray-500">{{ t("settings.cleanup.stopped_containers_desc", locale) }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <span x-show="infoLoading" x-cloak class="inline-flex items-center">
@@ -110,8 +110,8 @@
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Railpack BuildKit cache</p>
-                    <p class="text-xs text-gray-500">Layer cache used by Auto-build (Railpack) — lives inside the buildkit container, separate from Docker</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t("settings.cleanup.railpack_buildkit", locale) }}</p>
+                    <p class="text-xs text-gray-500">{{ t("settings.cleanup.railpack_buildkit_desc", locale) }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <span x-show="infoLoading" x-cloak class="inline-flex items-center">
@@ -127,19 +127,19 @@
                 <span class="text-xs text-gray-500" x-text="cleanMsg"></span>
                 <button @click="runCleanup(['build_cache','images','containers','railpack_buildkit_cache'])" :disabled="cleaning || infoLoading"
                         class="px-3 py-1.5 text-xs font-medium bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors disabled:opacity-50">
-                    <span x-text="cleaning ? 'Cleaning...' : 'Clean All'"></span>
+                    <span x-text="cleaning ? 'Cleaning...' : '{{ t(&quot;settings.cleanup.clean_all&quot;, locale) }}'"></span>
                 </button>
             </div>
         </div>
 
         <!-- Auto Cleanup Settings -->
         <div class="border-t border-gray-200 dark:border-gray-800 pt-4">
-            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Auto Cleanup</h4>
+            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{{ t("settings.cleanup.auto_section", locale) }}</h4>
             <div class="space-y-3">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-gray-900 dark:text-white">Enable scheduled cleanup</p>
-                        <p class="text-xs text-gray-500">Automatically clean Docker resources</p>
+                        <p class="text-sm text-gray-900 dark:text-white">{{ t("settings.cleanup.enable_scheduled", locale) }}</p>
+                        <p class="text-xs text-gray-500">{{ t("settings.cleanup.enable_scheduled_desc", locale) }}</p>
                     </div>
                     <label class="relative cursor-pointer">
                         <input type="checkbox" x-model="settings.enabled" @change="saveSettings()" class="sr-only peer">
@@ -510,8 +510,8 @@ function settingsPage() {
     return {
         tabs: [
             { id: 'general',         label: 'General' },
-            { id: 'cleanup',         label: 'Cleanup' },
-            { id: 'railpack',        label: 'Auto-build (Railpack)' },
+            { id: 'cleanup',         label: '{{ t("settings.tab.cleanup", locale) }}' },
+            { id: 'railpack',        label: '{{ t("settings.tab.railpack", locale) }}' },
             { id: 'external-access', label: 'External Access' },
             { id: 'account',         label: 'Account' },
             { id: 'security',        label: 'Security' },

@@ -7,10 +7,6 @@
 //! Lookup falls back from the requested locale → English → the raw key, so
 //! missing entries degrade gracefully without panicking or showing blanks.
 
-// SUPPORTED / negotiate / detect_locale / table_for are wired into page
-// handlers in the follow-up commit; suppress until they have call sites.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::sync::OnceLock;
 

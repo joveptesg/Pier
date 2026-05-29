@@ -36,7 +36,7 @@
             <!-- Railpack: general info callout (always shown when railpack selected) -->
             <template x-if="catalogId === 'railpack'">
                 <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 rounded-lg p-3 space-y-1">
-                    <p class="text-sm font-medium text-amber-800 dark:text-amber-200">First build may take 1–10 minutes</p>
+                    <p class="text-sm font-medium text-amber-800 dark:text-amber-200">{{ t("resource.create.railpack.warning_first_build", locale) }}</p>
                     <p class="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
                         Railpack downloads dependencies and compiles your project from source. Peak RAM usage:
                         Node ~3 GB, Python ~4 GB, Rust ~8 GB. The buildkit container holds layer cache between
@@ -64,7 +64,7 @@
             <!-- Railpack: optional GitHub App repo picker (auto-fills git_url + branch below) -->
             <template x-if="catalogId === 'railpack'">
                 <div class="space-y-2 bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
-                    <p class="text-xs font-medium text-gray-700 dark:text-gray-300">Pick from a connected GitHub App <span class="font-normal text-gray-400">(optional — leave blank for public repos)</span></p>
+                    <p class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t("resource.create.railpack.pick_source", locale) }} <span class="font-normal text-gray-400">({{ t("resource.create.railpack.pick_source_hint", locale) }})</span></p>
                     <div>
                         <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">GitHub App source</label>
                         <div class="flex gap-2">
@@ -82,7 +82,7 @@
                         </p>
                     </div>
                     <div x-show="sourceId">
-                        <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">Repository</label>
+                        <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t("resource.create.railpack.pick_repo", locale) }}</label>
                         <select x-model="selectedRepo" @change="onRepoSelected()"
                                 class="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                             <option value="">Select a repository...</option>
@@ -281,12 +281,12 @@
                                 <button type="button" @click="repoInputMode = 'pick'"
                                         :class="repoInputMode === 'pick' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400'"
                                         class="px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors">
-                                    Pick from list
+                                    {{ t("resource.create.github_app.mode_pick", locale) }}
                                 </button>
                                 <button type="button" @click="repoInputMode = 'manual'"
                                         :class="repoInputMode === 'manual' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400'"
                                         class="px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors">
-                                    Enter URL manually
+                                    {{ t("resource.create.github_app.mode_manual", locale) }}
                                 </button>
                             </div>
                         </div>
@@ -337,12 +337,12 @@
                                 <p x-show="loadingBranches" class="text-[10px] text-gray-400 mt-0.5">Loading branches...</p>
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Build Pack</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">{{ t("resource.create.build_pack.label", locale) }}</label>
                                 <select x-model="form.build_pack"
                                         class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
-                                    <option value="dockerfile">Dockerfile</option>
-                                    <option value="docker-compose">Docker Compose</option>
-                                    <option value="railpack">Railpack (Auto-build)</option>
+                                    <option value="dockerfile">{{ t("resource.create.build_pack.dockerfile", locale) }}</option>
+                                    <option value="docker-compose">{{ t("resource.create.build_pack.compose", locale) }}</option>
+                                    <option value="railpack">{{ t("resource.create.build_pack.railpack", locale) }}</option>
                                 </select>
                             </div>
                             <div x-show="form.build_pack === 'dockerfile'">

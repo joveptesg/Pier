@@ -10,8 +10,8 @@
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             </a>
             <div>
-                <h2 class="text-xl font-semibold text-gray-900 dark:text-white">New Resource</h2>
-                <p class="text-sm text-gray-500 mt-0.5">Select a resource to deploy on your server</p>
+                <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t("catalog.new_resource_title", locale) }}</h2>
+                <p class="text-sm text-gray-500 mt-0.5">{{ t("catalog.new_resource_subtitle", locale) }}</p>
             </div>
         </div>
     </div>
@@ -20,7 +20,7 @@
     <div class="flex items-center gap-3">
         <div class="flex-1 relative">
             <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            <input x-model="search" type="text" placeholder="Search..."
+            <input x-model="search" type="text" placeholder="{{ t('catalog.search_placeholder', locale) }}"
                    @keydown.slash.window.prevent="$el.focus()"
                    class="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg
                           text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
@@ -28,11 +28,11 @@
         <select x-model="filter"
                 class="px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg
                        text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">All categories</option>
-            <option value="git">Git Based</option>
-            <option value="application">Docker Based</option>
-            <option value="database">Databases</option>
-            <option value="service">Services</option>
+            <option value="">{{ t("catalog.filter_all", locale) }}</option>
+            <option value="git">{{ t("catalog.section_git_based", locale) }}</option>
+            <option value="application">{{ t("catalog.section_docker_based", locale) }}</option>
+            <option value="database">{{ t("catalog.section_databases", locale) }}</option>
+            <option value="service">{{ t("catalog.section_services", locale) }}</option>
         </select>
     </div>
 
@@ -44,7 +44,7 @@
 
         <!-- Git Based -->
         <div x-show="filteredByCategory('git').length > 0">
-            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Git Based</h3>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ t("catalog.section_git_based", locale) }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('git')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
@@ -74,7 +74,7 @@
 
         <!-- Docker Based -->
         <div x-show="filteredByCategory('application').length > 0">
-            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Docker Based</h3>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ t("catalog.section_docker_based", locale) }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('application')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
@@ -104,7 +104,7 @@
 
         <!-- Databases -->
         <div x-show="filteredByCategory('database').length > 0">
-            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Databases</h3>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ t("catalog.section_databases", locale) }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('database')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
@@ -134,7 +134,7 @@
 
         <!-- Services -->
         <div x-show="filteredByCategory('service').length > 0">
-            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Services</h3>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ t("catalog.section_services", locale) }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('service')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
