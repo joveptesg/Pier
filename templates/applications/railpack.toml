@@ -1,8 +1,8 @@
 [meta]
 id = "railpack"
-name = "Auto-build (Railpack)"
+name = "Railpack (Auto-build)"
 description = "Push code without writing a Dockerfile — Railpack detects the language and builds automatically"
-category = "application"
+category = "git"
 icon = "wand"
 tags = ["auto", "buildpack", "railpack", "git"]
 long_description = """
