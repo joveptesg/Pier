@@ -1313,6 +1313,10 @@ async fn create_railpack_app(
         .get("env_vars")
         .cloned()
         .filter(|s| !s.trim().is_empty());
+    let source_id = body
+        .source_id
+        .clone()
+        .filter(|s| !s.trim().is_empty());
 
     let service_id = uuid::Uuid::new_v4().to_string();
 
@@ -1333,8 +1337,8 @@ async fn create_railpack_app(
         db.execute(
             "INSERT INTO services
                  (id, project_id, network_id, name, service_type, status, catalog_id, category,
-                  image, git_repo_url, git_branch, build_strategy, start_cmd, build_env_vars)
-             VALUES (?1, ?2, ?3, ?4, 'compose', 'deploying', ?5, ?6, ?7, ?8, ?9, 'railpack', ?10, ?11)",
+                  image, git_repo_url, git_branch, git_source_id, build_strategy, start_cmd, build_env_vars)
+             VALUES (?1, ?2, ?3, ?4, 'compose', 'deploying', ?5, ?6, ?7, ?8, ?9, ?10, 'railpack', ?11, ?12)",
             rusqlite::params![
                 service_id,
                 body.project_id,
@@ -1345,6 +1349,7 @@ async fn create_railpack_app(
                 format!("railpack: {}", git_url),
                 git_url,
                 branch,
+                source_id,
                 start_cmd,
                 build_env_vars,
             ],

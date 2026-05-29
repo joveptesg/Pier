@@ -61,6 +61,41 @@
                 </div>
             </template>
 
+            <!-- Railpack: optional GitHub App repo picker (auto-fills git_url + branch below) -->
+            <template x-if="catalogId === 'railpack'">
+                <div class="space-y-2 bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <p class="text-xs font-medium text-gray-700 dark:text-gray-300">Pick from a connected GitHub App <span class="font-normal text-gray-400">(optional — leave blank for public repos)</span></p>
+                    <div>
+                        <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">GitHub App source</label>
+                        <div class="flex gap-2">
+                            <select x-model="sourceId"
+                                    class="flex-1 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">— None (public repo, or paste URL below) —</option>
+                                <template x-for="src in sources" :key="src.id">
+                                    <option :value="src.id" x-text="src.name"></option>
+                                </template>
+                            </select>
+                            <a href="/sources" class="px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-lg whitespace-nowrap flex items-center">+ Add</a>
+                        </div>
+                        <p x-show="sources.length === 0" class="text-[11px] text-gray-400 mt-1">
+                            No GitHub App sources configured. <a href="/sources" class="underline">Connect one</a> to deploy private repos.
+                        </p>
+                    </div>
+                    <div x-show="sourceId">
+                        <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">Repository</label>
+                        <select x-model="selectedRepo" @change="onRepoSelected()"
+                                class="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select a repository...</option>
+                            <template x-for="repo in sourceRepos" :key="repo.full_name">
+                                <option :value="repo.full_name" x-text="repo.full_name + (repo.is_private ? ' (private)' : '')"></option>
+                            </template>
+                        </select>
+                        <p x-show="loadingRepos" class="text-[11px] text-gray-400 mt-1">Loading repositories...</p>
+                        <p x-show="!loadingRepos && selectedRepo" class="text-[11px] text-green-600 dark:text-green-400 mt-1">URL and branch filled below — adjust port / start command as needed.</p>
+                    </div>
+                </div>
+            </template>
+
             <!-- Dynamic fields from catalog template (hidden for git-github-app — wizard handles it) -->
             <template x-for="field in (catalogId === 'git-github-app' ? [] : (template.fields || []).filter(f => f.key !== 'name'))" :key="field.key">
                 <div>
@@ -437,7 +472,7 @@ function createResource(catalogId, hostRamGb) {
                     fetch('/api/v1/servers').then(r => r.json()),
                     fetch('/api/v1/networks').then(r => r.json()),
                 ];
-                if (this.catalogId === 'git-github-app') {
+                if (this.catalogId === 'git-github-app' || this.catalogId === 'railpack') {
                     fetches.push(fetch('/api/v1/sources').then(r => r.json()));
                     fetches.push(fetch('/api/v1/resources').then(r => r.json()));
                 }
