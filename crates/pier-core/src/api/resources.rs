@@ -1203,10 +1203,10 @@ async fn create_git_deploy_github_app(
         .and_then(|p| p.parse().ok())
         .unwrap_or(3000);
 
-    let build_strategy = if build_pack == "docker-compose" {
-        "docker-compose"
-    } else {
-        "dockerfile"
+    let build_strategy = match build_pack.as_str() {
+        "docker-compose" => "docker-compose",
+        "railpack" => "railpack",
+        _ => "dockerfile",
     };
 
     let service_id = uuid::Uuid::new_v4().to_string();
