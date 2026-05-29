@@ -298,13 +298,11 @@
                                 <option value="">Select a repository...</option>
                                 <template x-for="repo in sourceRepos" :key="repo.full_name">
                                     <option :value="repo.full_name"
-                                            :disabled="deployedRepos.has(repo.full_name)"
-                                            :style="deployedRepos.has(repo.full_name) ? 'color:#999' : ''"
-                                            x-text="repo.full_name + (repo.is_private ? ' (private)' : '') + (deployedRepos.has(repo.full_name) ? ' — already deployed' : '')"></option>
+                                            x-text="repo.full_name + (repo.is_private ? ' (private)' : '') + (deployedRepos.has(repo.full_name) ? ' — already deployed (' + deployedRepos.get(repo.full_name) + ')' : '')"></option>
                                 </template>
                             </select>
                             <p x-show="loadingRepos" class="text-xs text-gray-400 mt-1">Loading repositories...</p>
-                            <p x-show="deployedRepos.size > 0 && !loadingRepos" class="text-[11px] text-gray-400 mt-1" x-text="deployedRepos.size + ' repository(ies) already deployed on this Pier — dimmed above.'"></p>
+                            <p x-show="deployedRepos.size > 0 && !loadingRepos" class="text-[11px] text-gray-400 mt-1" x-text="deployedRepos.size + ' repository(ies) already deployed on this Pier — you can deploy them again (e.g. a different compose file).'"></p>
                             <a x-show="sourceId && !loadingRepos" :href="'https://github.com/apps/' + sources.find(s=>s.id===sourceId)?.name?.replace('GitHub App: ','') + '/installations/new'" target="_blank"
                                class="text-xs text-blue-500 hover:text-blue-400 mt-1 inline-block">Change Repositories on GitHub ↗</a>
                         </div>
@@ -443,7 +441,7 @@ function createResource(catalogId, hostRamGb) {
         repoBranches: [],
         selectedRepo: '',
         loadingBranches: false,
-        deployedRepos: new Set(),
+        deployedRepos: new Map(),
         networks: [],
         projectId: '',
         networkId: '',
@@ -488,17 +486,23 @@ function createResource(catalogId, hostRamGb) {
                 if (requestedProjectId && this.projects.some(p => String(p.id) === requestedProjectId)) {
                     this.projectId = requestedProjectId;
                 }
-                // Collect already-deployed git repositories (by "owner/repo" full_name).
+                // Count already-deployed services per git repository (by "owner/repo").
+                // A repo can host several deploy targets (multiple compose files /
+                // Dockerfiles), so we no longer block re-selecting it — just show how
+                // many services already point at it.
                 if (Array.isArray(resources)) {
-                    const set = new Set();
+                    const counts = new Map();
                     for (const r of resources) {
                         const url = r.git_repo_url;
                         if (!url) continue;
                         // Normalise "https://github.com/owner/repo(.git)" → "owner/repo"
                         const m = url.match(/github\.com[\/:]([^\/]+)\/([^\/\.]+)(?:\.git)?\/?$/i);
-                        if (m) set.add(`${m[1]}/${m[2]}`);
+                        if (m) {
+                            const key = `${m[1]}/${m[2]}`;
+                            counts.set(key, (counts.get(key) || 0) + 1);
+                        }
                     }
-                    this.deployedRepos = set;
+                    this.deployedRepos = counts;
                 }
                 // Pre-select default network
                 const defaultNet = this.networks.find(n => n.is_default);
