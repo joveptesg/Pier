@@ -292,7 +292,7 @@
                                 </td>
                                 <td class="px-3 py-2.5">
                                     <span x-show="d.compose_service" class="text-[10px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded font-mono" x-text="d.compose_service"></span>
-                                    <span x-show="!d.compose_service" class="text-[10px] text-gray-400">—</span>
+                                    <span x-show="!d.compose_service" class="text-[10px] text-gray-500 dark:text-gray-400 font-mono" x-text="resource.container_name || resource.name || '—'"></span>
                                 </td>
                                 <td class="px-3 py-2.5">
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full"
@@ -1898,7 +1898,18 @@ function resourceDetail(id) {
                 toast(newState ? 'Public access enabled (port ' + port + ')' : 'Public access disabled');
                 await this.refresh();
                 await this.loadDomains();
-                this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.host || this.resource.ports?.[0]?.container || 0;
+                // Pick the public_port to show in the input. If the service is
+            // currently private, `public_port` in the DB is stale (set by a
+            // prior toggle that may have used the old host_port before a
+            // compose-driven host_port change). Prefer the LIVE host_port so
+            // the input reflects "what Pier is willing to expose right now".
+            // If the service is public, honour the saved public_port — the
+            // operator intentionally chose it.
+            {
+                const _p0 = this.resource.ports?.[0];
+                this.publicPort = (_p0?.is_public ? _p0?.public_port : null)
+                    || _p0?.host || _p0?.container || 0;
+            }
             } catch(e) { toast(e.message, 'error'); }
             this.togglingPublic = false;
         },
@@ -2042,7 +2053,18 @@ function resourceDetail(id) {
             this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
-            this.publicPort = this.resource.ports?.[0]?.public_port || this.resource.ports?.[0]?.host || this.resource.ports?.[0]?.container || 0;
+            // Pick the public_port to show in the input. If the service is
+            // currently private, `public_port` in the DB is stale (set by a
+            // prior toggle that may have used the old host_port before a
+            // compose-driven host_port change). Prefer the LIVE host_port so
+            // the input reflects "what Pier is willing to expose right now".
+            // If the service is public, honour the saved public_port — the
+            // operator intentionally chose it.
+            {
+                const _p0 = this.resource.ports?.[0];
+                this.publicPort = (_p0?.is_public ? _p0?.public_port : null)
+                    || _p0?.host || _p0?.container || 0;
+            }
             // Background polling: check for status changes + new deployments every 5s
             this._bgInterval = setInterval(async () => {
                 const oldStatus = this.resource.status;

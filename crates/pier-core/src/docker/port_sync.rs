@@ -349,6 +349,29 @@ mod tests {
     }
 
     #[test]
+    fn sync_zeroes_stale_public_port_for_private_row() {
+        // Regression: row was previously toggled public on host_port=5261,
+        // then the service went private (is_public=0). Later a compose
+        // update changed the host_port to 5264, but `public_port` stayed
+        // at 5261 as a "saved choice" — even though the container no
+        // longer publishes anything. Sync must zero `public_port=NULL`
+        // for private rows so the UI doesn't surface the stale value
+        // (Round 4 UI fix already falls back to host_port for private
+        // rows, but the DB should also be clean).
+        let mut a = alloc("r1", 5264, false, Some(5261), Some("astro-web"));
+        a.host_port = 5264;
+        let allocs = vec![a];
+        let containers = vec![container(Some("astro-web"), vec![])];
+        let updates = compute_sync_updates(&allocs, &containers);
+        assert_eq!(updates.len(), 1, "stale public_port must trigger an update");
+        assert!(!updates[0].new_is_public);
+        assert_eq!(
+            updates[0].new_public_port, None,
+            "private row must end up with public_port = NULL"
+        );
+    }
+
+    #[test]
     fn sync_marks_private_when_no_bindings_at_all() {
         // Container present but no published ports → DB row should reflect private.
         let allocs = vec![alloc("r1", 3054, true, Some(3054), Some("max-bot"))];
