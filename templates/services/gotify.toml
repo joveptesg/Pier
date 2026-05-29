@@ -5,6 +5,15 @@ description = "Self-hosted push notification server"
 category = "service"
 icon = "gotify"
 tags = ["notifications", "push", "alerts", "messaging"]
+long_description = """
+Gotify is a tiny self-hosted push notification server. Any script, app, cron job, monitoring tool, or CI pipeline can send a notification to your phone with a single HTTP POST. One Go binary, SQLite-backed, ~15 MB image, with a free native Android client that maintains a battery-friendly websocket.
+
+Use it as the "phone notification" endpoint for Prometheus / Beszel / Uptime Kuma alerts, long-running backup or training scripts, CI/deploy notifications, smart-home triggers — anything with curl. Replace Pushover/Pushbullet for free with full control.
+
+How it works on Pier — Gotify on port 80 behind Traefik with TLS. Set the admin password via env vars (Pier auto-generates). The data volume mounts at `/app/data` — SQLite database plus any installed plugins. Per-sender application tokens let you revoke individually. Each notification has a priority (0-10) that maps to importance on the client.
+
+Compared to alternatives — Pushover is hosted, polished, costs ~$5 one-time. ntfy.sh is another excellent self-hosted server with a polished iOS app (Gotify lacks one). Telegram bots work too but need a bot-per-sender. Gotify hits the sweet spot for curl-able Android notifications with full self-host control.
+"""
 
 [docker]
 image = "gotify/server:{{version}}"

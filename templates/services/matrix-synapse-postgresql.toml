@@ -5,6 +5,15 @@ description = "Matrix chat server with PostgreSQL backend"
 category = "service"
 icon = "matrix"
 tags = ["chat", "messaging", "matrix", "federation", "postgresql"]
+long_description = """
+Matrix Synapse is the reference homeserver of the Matrix protocol — an open, decentralized, federated standard for real-time chat, voice, video, and end-to-end encrypted messaging. This template ships Synapse plus a dedicated PostgreSQL backend, the only production-supported database for Synapse, pre-wired so federation and busy rooms perform correctly from day one.
+
+Use it to self-host a chat server that federates with the global Matrix network (your users alice:example.com can talk to anyone on any homeserver) and supports bridges to Telegram, Discord, WhatsApp, Signal, Slack and IRC. End-to-end encryption via Olm/Megolm is on by default in DMs.
+
+How it works on Pier — Synapse on port 8008 behind Traefik with TLS at your custom domain, PostgreSQL on the internal Docker network. Two persistent volumes — Synapse data (config + media store) and Postgres data. Create the first admin user via the `register_new_matrix_user` script with `docker exec`, then point Element clients at your homeserver URL.
+
+Compared to the SQLite Synapse template — Postgres is required for any deployment beyond personal use. SQLite cannot keep up with federation joins on big rooms. Compared to Mattermost / Rocket.Chat — those are closed-federation (one server per org). Choose Matrix when you want open federation, bridges, and E2EE-by-default in DMs.
+"""
 
 [compose]
 template = """services:

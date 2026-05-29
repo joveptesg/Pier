@@ -5,6 +5,15 @@ description = "Search engine with Kibana visualization dashboard"
 category = "service"
 icon = "elasticsearch"
 tags = ["search", "analytics", "logging", "elk", "kibana", "visualization"]
+long_description = """
+Elasticsearch (the distributed search/analytics/log-storage engine) plus Kibana (its visualization, dashboard, and admin UI) deployed as one Pier stack with the env wiring already correct. The fastest way to get a working ELK-style log/search/analytics environment without manually plumbing two services together.
+
+Use it for log aggregation (the "E" + "K" of ELK), application search backends, SIEM via the Elastic Security app, time-series analytics, or a quick RAG vector store with Kibana's Discover UI for exploration. Kibana provides Lens (drag-and-drop charts), Discover (log search), Dashboards, ML, Maps, and the Observability/Security apps.
+
+How it works on Pier — Elasticsearch on 9200 internally, Kibana on 5601 behind Traefik. Pier auto-generates the elastic user password and the kibana_system service account token; both are wired into env vars so Kibana boots authenticated against ES with zero manual steps. Two persistent volumes — ES data and Kibana state.
+
+Compared to alternatives — OpenSearch + OpenSearch Dashboards is the AWS-led Apache 2.0 fork (compatible APIs). ClickHouse + Grafana is much cheaper for log storage at scale. Grafana with the ES datasource is an alternative if ES is one of many sources. This bundle is the convenience choice for "give me both, pre-wired."
+"""
 
 [compose]
 template = """services:

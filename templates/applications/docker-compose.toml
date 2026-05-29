@@ -5,6 +5,15 @@ description = "Deploy a multi-container application with Docker Compose"
 category = "application"
 icon = "docker"
 tags = ["docker", "compose", "multi-container"]
+long_description = """
+Paste a docker-compose.yaml into Pier and ship a multi-container application — web + worker + cache + queue + database, whatever shape. Pier provisions the stack, attaches services to Traefik for HTTPS, tracks named volumes, manages env vars per service, aggregates logs, and exposes the same lifecycle controls (logs, restart, redeploy) as native templates.
+
+Use it when an open-source project ships a canonical docker-compose.yaml as its install method (paste, set domain, deploy), or when your own multi-service applications belong together (web + worker + Redis + Postgres). Local-dev → prod parity — the same Compose file you use locally can be the one you ship to Pier.
+
+How it works on Pier — paste a Compose YAML or upload a file. Pier runs `docker compose up -d` on the host. Named volumes become Pier-managed volumes. Networks default to a per-stack bridge; add the external `pier-traefik` network and standard Traefik labels to any service that should sit behind HTTPS. Edit env vars per service in the Pier UI without touching the YAML.
+
+Compared to alternatives — Dockerfile builds one container; Compose orchestrates many. Docker Image runs one prebuilt image; Compose runs a stack. Native Pier templates (PostgreSQL, Gitea, ...) come pre-wired with backups and version selectors. Compose is the "multi-container app of my own design" escape hatch.
+"""
 
 [ui.fields.name]
 type = "text"

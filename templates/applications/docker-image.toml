@@ -5,6 +5,15 @@ description = "Deploy any Docker image from a registry"
 category = "application"
 icon = "docker"
 tags = ["docker", "container"]
+long_description = """
+The simplest possible deploy — pick a Docker image by name, set the port and any env vars, and ship. Pier pulls the image, runs the container, attaches it to Traefik for HTTPS, and gives you logs / restart / env controls. No build, no Dockerfile, no Compose.
+
+Use it for off-the-shelf services (nginx, postgres, redis, any community image), your own CI-built images pushed to ghcr.io / Docker Hub / private registries, trying community projects with one curl ("docker pull foo/bar"), lightweight sidecars, or fast prototyping. Any image from any registry — Docker Hub, GHCR, Quay, GitLab Registry, AWS ECR, Google Artifact Registry — works.
+
+How it works on Pier — give the image reference (e.g. nginx:latest or ghcr.io/your-org/your-app:v1.2.3), the internal port, optional volumes and env. Pier pulls, runs, fronts with Traefik. For private registries, add credentials in Pier Settings → Registries before deploying. Pin a digest (image@sha256:...) for fully immutable deploys.
+
+Compared to alternatives — Dockerfile builds from source; Docker Image runs a prebuilt image. Railpack auto-detects and builds without a Dockerfile. Compose runs multiple containers. Native Pier templates come pre-wired with backups and lifecycle features. Docker Image is the generic escape hatch for anything not natively templated.
+"""
 
 [docker]
 image = "{{image}}"

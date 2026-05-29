@@ -5,6 +5,15 @@ description = "WireGuard VPN with web management interface"
 category = "service"
 icon = "amneziawg"
 tags = ["vpn", "wireguard", "network", "privacy", "security"]
+long_description = """
+AmneziaWG is an open-source fork of WireGuard that adds traffic obfuscation against Deep Packet Inspection (DPI). Vanilla WireGuard has a recognizable packet shape that DPI firewalls in restrictive networks (Russian RKN, Iran, GFW probes) can identify and block. AmneziaWG randomizes packet size, adds junk traffic, and pads the handshake — defeating most DPI signatures while keeping WireGuard protocol semantics.
+
+This template packages AmneziaWG with the wg-easy web management UI (a fork that knows the AmneziaWG parameters), so you add/remove clients, generate QR codes for mobile, and monitor traffic from a browser — no SSH or `wg-quick` editing.
+
+How it works on Pier — two ports — 51820/udp for VPN, 51821/tcp for the web UI behind Traefik. The config volume mounts at `/etc/wireguard`. Set the web UI password and your VPS public hostname via env. Add clients in the UI; each gets a config and QR code for the AmneziaVPN mobile app (iOS/Android/desktop). Standard WireGuard clients also work when obfuscation is off.
+
+Compared to alternatives — vanilla WireGuard (wg-easy) is simpler but DPI-blockable in restrictive networks. OpenVPN + obfsproxy works but is heavier. Shadowsocks/V2Ray are application-layer proxies (TCP only); AmneziaWG is a full IP-layer VPN. Use AmneziaWG specifically where vanilla WireGuard is blocked.
+"""
 
 [docker]
 image = "w0rng/amnezia-wg-easy:{{version}}"

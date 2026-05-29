@@ -5,6 +5,15 @@ description = "Deploy public & private repositories through your GitHub Apps"
 category = "git"
 icon = "github"
 tags = ["git", "github", "app", "private", "repository", "oauth"]
+long_description = """
+Deploy private (and public) GitHub repositories using a GitHub App you own. Install the app on your org or selected repos, paste the app credentials into Pier, and clone any of those repos without per-repo deploy keys. The recommended auth method for teams deploying many private repos to one Pier instance.
+
+Use it for orgs with many private repos (one app authorizes any number of repos), polyglot monorepo decomposition with N services from N private repos, continuous deploy for product teams, audit-conscious deployments (the audit trail lives on GitHub), and replacing Personal Access Tokens that grant repo-wide account access.
+
+How it works on Pier — create a GitHub App with Contents: Read-only permission, install on your org or selected repos, download the .pem private key. Provide App ID, Installation ID, and the .pem to Pier. At clone time Pier signs a JWT with the app's key, requests a short-lived installation access token from the GitHub API, and uses it to git clone. Tokens auto-rotate (~1 hour expiry).
+
+Compared to alternatives — Deploy Keys are simpler for 1-5 private repos. PATs are tied to a human account and grant broad access (strictly worse security). For non-GitHub hosts use Deploy Key. GitHub App is the right answer for "team / org with many GitHub private repos and we want one auth surface with fine-grained scope and audit trails."
+"""
 
 [ui.fields.name]
 type = "text"

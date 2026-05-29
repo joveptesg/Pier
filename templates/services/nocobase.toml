@@ -5,6 +5,15 @@ description = "Extensible open-source no-code/low-code platform"
 category = "service"
 icon = "nocobase"
 tags = ["no-code", "low-code", "platform", "workflow", "database"]
+long_description = """
+NocoBase is an open-source, plugin-driven no-code / low-code platform for building internal tools, admin panels, dashboards, CRMs, and back-office apps. Define data models in a UI, compose pages from prebuilt blocks (table, form, kanban, calendar, chart), wire workflows (triggers → conditions → actions), and drop down to TypeScript plugins when no-code hits a wall.
+
+Use it as a self-hosted Airtable + Retool — custom CRMs, project trackers, internal admin panels for an existing database, back-office apps for small ops teams, or the headless backend with admin UI for an MVP. RBAC is granular per role × collection × action with row-level filters.
+
+How it works on Pier — NocoBase plus PostgreSQL in one stack with the env vars pre-wired. Default port behind Traefik with TLS. The uploaded-files volume mounts at `/app/storage`; PostgreSQL data persists in its own volume. Set admin email/password via env on first launch.
+
+Compared to alternatives — Airtable is hosted, polished, and limits get expensive. Retool is hosted code-first internal tools with per-seat pricing. NocoDB is "Airtable for an existing SQL DB", simpler but narrower. NocoBase's plugin architecture is the differentiator — extend in TypeScript when no-code hits a wall.
+"""
 
 [docker]
 image = "nocobase/nocobase:{{version}}"

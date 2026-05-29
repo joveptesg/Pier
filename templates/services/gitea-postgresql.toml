@@ -5,6 +5,15 @@ description = "Self-hosted Git service backed by PostgreSQL"
 category = "service"
 icon = "gitea"
 tags = ["git", "repository", "postgresql", "devops", "code"]
+long_description = """
+Gitea (the lightweight self-hosted Git service) paired with a dedicated PostgreSQL backend for production use. Gitea defaults to SQLite which is fine for small teams; PostgreSQL is the recommended backend once you cross a handful of concurrent users, want HA backups, or run Gitea Actions at any volume.
+
+Use it as a self-hosted GitHub for a team of 5-500, an internal production Git + CI server with Gitea Actions, a public OSS host, or a package registry hub (npm/PyPI/Maven/Docker/Helm/Cargo/etc.) alongside Git repos. Webhooks, OAuth2/OIDC/LDAP/SAML SSO, fine-grained ACLs all scale comfortably with Postgres.
+
+How it works on Pier — Gitea web on port 3000, Gitea SSH on a high external port (e.g. 222). PostgreSQL on the internal Docker network. Persistent volumes — /data for Gitea (repos, uploads, config) and /var/lib/postgresql/data for Postgres. First-time setup is the standard Gitea install screen on first visit; the database config is pre-filled to point at the bundled Postgres.
+
+Compared to alternatives — Gitea with SQLite is fine for 1-3 users. GitLab CE is more powerful (full DevOps platform) but heavy (8 GB RAM minimum). Forgejo is a community-governed Gitea hard fork — drop-in compatible. GitHub Enterprise is SaaS or self-hosted with enterprise pricing. This template is the right answer for production Gitea on your VPS.
+"""
 
 [compose]
 template = """services:

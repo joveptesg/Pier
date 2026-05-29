@@ -5,6 +5,15 @@ description = "Self-hosted audiobook, ebook, and podcast server"
 category = "service"
 icon = "audiobookshelf"
 tags = ["audiobook", "ebook", "podcast", "media", "library"]
+long_description = """
+Audiobookshelf is a polished, free, open-source media server for your personal audiobook, ebook, and podcast collection. It scans your library, fetches metadata and cover art from Audible / Google Books / OpenLibrary / iTunes, exposes a fast web UI plus iOS/Android apps with offline downloads, tracks listening progress across devices, and never asks for a subscription.
+
+Use it as the Plex of audiobooks, a self-hosted podcatcher that archives episodes forever, or a household ebook library shared across phones and tablets. Mobile apps are free, open-source, and battery-friendly. Multi-user with per-library permissions.
+
+How it works on Pier — port 80 behind Traefik. Two persistent volumes — `/config` for settings and the SQLite database, `/metadata` for cached cover art. Plus you mount your actual media (audiobooks, podcasts, ebooks) from host paths or Pier-managed volumes. Create the admin via the web UI on first launch, add Libraries pointing at the mounted folders, and the initial scan begins.
+
+Compared to alternatives — Plex handles audiobooks but treats them like albums; Audiobookshelf is purpose-built. Calibre is the gold standard for ebook management but doesn't handle audio. Audible/Spotify are SaaS with DRM. Audiobookshelf is the answer for DRM-free files you own on a server you control.
+"""
 
 [docker]
 image = "advplyr/audiobookshelf:{{version}}"

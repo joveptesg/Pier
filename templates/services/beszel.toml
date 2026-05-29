@@ -5,6 +5,15 @@ description = "Lightweight server monitoring with Docker stats and alerts"
 category = "service"
 icon = "beszel"
 tags = ["monitoring", "server", "docker", "alerts", "metrics"]
+long_description = """
+Beszel is a lightweight, modern, web-based server monitoring system — a hub container plus tiny agents on each server you want to watch. Built on SQLite + PocketBase, it ships CPU/memory/disk/network metrics, per-Docker-container stats, alerts to email/Telegram/Discord/Slack/Gotify/ntfy, and a sub-50 MB footprint.
+
+Use it for small-fleet monitoring (3-30 servers across providers), homelab dashboards, public status pages, and as a simpler alternative to Prometheus + Grafana + Alertmanager + node_exporter when you don't need PromQL or 30 dashboards. The hub initiates outbound connections to agents over WireGuard or SSH tunnels, so no inbound firewall holes on the monitored side.
+
+How it works on Pier — Beszel hub on port 8090 behind Traefik. The data volume mounts at `/app/data` (SQLite + PocketBase files). On first launch, create the admin via the web UI, add servers from Settings → Servers, run the printed one-liner on each remote host. Metrics start flowing within a minute.
+
+Compared to alternatives — Netdata is per-host real-time with second-level granularity; Beszel is multi-host aggregated with minute-level. Uptime Kuma monitors endpoints from outside; Beszel from inside. The tools complement each other.
+"""
 
 [docker]
 image = "henrygd/beszel:{{version}}"

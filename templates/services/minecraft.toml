@@ -5,6 +5,15 @@ description = "Java Edition game server with auto-update support"
 category = "service"
 icon = "minecraft"
 tags = ["game", "server", "minecraft", "java"]
+long_description = """
+A Pier-managed Minecraft Java Edition server based on the itzg/minecraft-server image — the community-standard Minecraft Docker image. Pick a Minecraft version and server flavor (vanilla, PaperMC, Spigot, Bukkit, Forge, Fabric, Quilt), and Pier provisions a working server in seconds with the world persisted across restarts.
+
+Use it for a friend-group / family server, a modded Forge/Fabric server with mods dropped into the mounted /data/mods volume, a PaperMC high-performance server for mini-games and plugins, or a throwaway test server. Minecraft Java Edition only — for Bedrock crossplay, use the Geyser plugin on PaperMC.
+
+How it works on Pier — port 25565/tcp (the standard Minecraft port). The data volume mounts at `/data` — world files, server.properties, mods, plugins, player data persist there. On first boot the image auto-downloads the chosen Minecraft version. The EULA env is pre-set to TRUE; configure DIFFICULTY, MODE, MOTD, MAX_PLAYERS, WHITELIST, OPS, MEMORY via Pier env.
+
+Compared to alternatives — Realms is Mojang's hosted Minecraft, ~$8/month with a 10-player cap and limited mod support. Aternos/Apex are managed Minecraft hosts. Self-host on Pier gives unlimited players, every plugin/mod, your own backups, at the cost of a VPS you likely already pay for.
+"""
 
 [docker]
 image = "itzg/minecraft-server:{{version}}"

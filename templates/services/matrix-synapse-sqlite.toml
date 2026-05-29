@@ -5,6 +5,15 @@ description = "Open-source chat server for the Matrix protocol"
 category = "service"
 icon = "matrix"
 tags = ["chat", "messaging", "matrix", "federation", "communication"]
+long_description = """
+Matrix Synapse with the default SQLite backend in one container. The reference Matrix homeserver — federation, end-to-end encryption, voice/video, bridges to Telegram/Discord/WhatsApp/Signal — packaged for personal use, small communities, or protocol testing where the simpler SQLite backend is enough.
+
+Use it for a personal homeserver shared with a handful of users, a family chat, or to develop and test Matrix bots, bridges, and clients without provisioning Postgres. The full Matrix protocol works the same as on the PostgreSQL deployment — just at a smaller scale.
+
+How it works on Pier — single Synapse container on port 8008 behind Traefik. The data volume mounts at `/data` containing `homeserver.db` (SQLite), `homeserver.yaml`, and the media store. Backups are trivial — copy the volume while the container is paused. Create the first admin user via `register_new_matrix_user`.
+
+When to upgrade — once you have more than a handful of active users or join busy public rooms with many federated participants, SQLite becomes the bottleneck. Synapse ships a `synapse_port_db` script for migrating to the PostgreSQL template in one pass.
+"""
 
 [docker]
 image = "matrixdotorg/synapse:{{version}}"

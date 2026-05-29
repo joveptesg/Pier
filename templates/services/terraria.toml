@@ -5,6 +5,15 @@ description = "Dedicated game server for Terraria"
 category = "service"
 icon = "terraria"
 tags = ["game", "server", "terraria"]
+long_description = """
+A Pier-managed Terraria dedicated server. Pick world size (small/medium/large), difficulty (normal/expert/master/journey), max players, password — Pier provisions the server, generates the world on first boot, persists data across restarts, and restarts on crash.
+
+Use it for a friend-group server, a tModLoader-modded server (Calamity, Thorium, Fargo's), a long-running megabase archive, or PvP/event servers. Worlds persist across restarts; switch worlds by changing the WORLD_FILENAME env var without losing old ones.
+
+How it works on Pier — port 7777/tcp (Terraria standard). The data volume mounts at the image's world path. On first boot the server auto-generates a world per the SIZE/DIFFICULTY/MODE/SEED env vars. Subsequent boots load the existing world. Connect from the Terraria client via Multiplayer → Join via IP, point at your VPS public IP, enter the password.
+
+Compared to alternatives — Re-Logic doesn't offer hosted Terraria servers; the options are self-host or third-party Terraria hosts. Self-host on Pier is cheaper than dedicated Terraria hosts. For ops-grade server management (admin tools, permissions, plugins), drop the TShock binary into the data volume.
+"""
 
 [docker]
 image = "beardedio/terraria:{{version}}"

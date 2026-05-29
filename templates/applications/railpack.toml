@@ -5,6 +5,15 @@ description = "Push code without writing a Dockerfile — Railpack detects the l
 category = "application"
 icon = "wand"
 tags = ["auto", "buildpack", "railpack", "git"]
+long_description = """
+Railpack is a modern image builder developed by Railway and released in 2024 as the successor to Nixpacks. It inspects a Git repository, identifies the language and framework (Node, Python, Go, Rust, Ruby, PHP, Java, Deno, Bun, Elixir, static sites), and produces a production-ready OCI image using BuildKit — no Dockerfile required.
+
+Use this template when you have a code repository and want "git push → live URL" without writing or maintaining a Dockerfile. Railpack detects Next.js / Astro / Vite / Django / Flask / Rails / Phoenix automatically and picks the right install, build, and start commands. Override anything via a railpack.json at the repo root.
+
+How it works on Pier: provide a Git URL, branch, and the port your app listens on. Pier clones the repo, runs Railpack to build the image, stores it locally, and starts the container under Traefik with optional TLS. Subsequent pushes reuse the BuildKit layer cache — typical incremental builds finish in 10-30 seconds.
+
+Compared to Nixpacks — smaller images (20-80% reduction, no Nix store layer), faster cache hits, simpler overrides. Compared to a hand-written Dockerfile — less control but zero maintenance; use Dockerfile if you need exotic system packages or custom multi-stage logic.
+"""
 
 [ui.fields.name]
 type = "text"

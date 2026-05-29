@@ -5,6 +5,15 @@ description = "Deploy from a public Git repository (GitHub, GitLab, Bitbucket, e
 category = "git"
 icon = "git"
 tags = ["git", "github", "gitlab", "public", "repository"]
+long_description = """
+Point Pier at a public Git repository (GitHub, GitLab, Bitbucket, Codeberg, Gitea, anywhere) and Pier clones it, builds the Dockerfile in the repo, runs the resulting container. Webhook-friendly for push-to-deploy. The simplest "I have a repo, deploy it" template for open-source code.
+
+Use it for deploying open-source projects with a Dockerfile, your own public repos (portfolio sites, personal APIs), documentation sites that build to a container, quick-share demos with colleagues, or fork-and-deploy workflows where you push tweaks to your fork.
+
+How it works on Pier — provide a public Git HTTPS URL, branch (or tag/commit SHA), Dockerfile path within the repo (defaults to /Dockerfile), container port and env vars. Pier performs a shallow clone, runs `docker buildx build`, stores the image locally, starts the container. BuildKit cache + Traefik HTTPS work the same as other Git/Dockerfile templates. Generate a webhook URL and add it to the Git host for push-to-deploy.
+
+Compared to alternatives — for private repos use Deploy Key or GitHub App templates. For repos without a Dockerfile use Railpack (auto-detect). For one-off inline Dockerfile use the Dockerfile template. For prebuilt images use Docker Image. Public Repository is the simplest path for repos you'd link without auth.
+"""
 
 [ui.fields.name]
 type = "text"

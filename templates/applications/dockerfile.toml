@@ -5,6 +5,15 @@ description = "Build and deploy from a Dockerfile (provide Git URL or paste Dock
 category = "application"
 icon = "docker"
 tags = ["docker", "build", "dockerfile"]
+long_description = """
+Bring your own Dockerfile and Pier builds the image with BuildKit, runs the container, and wires it up. Paste the Dockerfile inline or point at a Git repo containing one. Useful when you need full build control — exotic system packages, multi-stage builds, distroless base images, custom entrypoints, build-time secrets — that auto-builders (Railpack) can't express.
+
+Use it for hand-tuned Dockerfiles you've maintained for years, strict image control (distroless / scratch / minimal Alpine), legacy apps, single-file utility containers (paste a 10-line Dockerfile inline), or builds with BuildKit secrets that need to stay out of the final image.
+
+How it works on Pier — paste a Dockerfile or provide a Git URL. Pier runs `docker buildx build` with BuildKit on the host. BuildKit layer cache makes incremental rebuilds fast (typical 10-30 seconds). Build secrets ride along via BuildKit's secret mount mechanism without baking into the final image. Attach a domain for HTTPS via Traefik; wire a webhook for push-to-deploy.
+
+Compared to alternatives — Railpack auto-detects and builds without a Dockerfile (use when you don't need control). Docker Image runs a prebuilt image (use when CI builds for you). Compose runs multiple containers. Native Pier templates have managed backups. Dockerfile is the right answer when you need explicit single-container build control.
+"""
 
 [ui.fields.name]
 type = "text"

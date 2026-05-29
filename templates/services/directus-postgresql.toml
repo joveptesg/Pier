@@ -5,6 +5,15 @@ description = "Headless CMS with PostgreSQL backend"
 category = "service"
 icon = "directus"
 tags = ["cms", "headless", "api", "graphql", "postgresql"]
+long_description = """
+Directus (the open-source headless CMS and data platform) paired with a dedicated PostgreSQL backend in one Pier stack. Pre-wired env vars, persistent volumes, ready for production multi-user content teams or any use case where SQLite is no longer enough.
+
+Use it as a multi-user editorial CMS, a headless backend for web + mobile apps (REST + GraphQL out of the box), an internal admin UI on top of an existing Postgres database, the backend layer of a SaaS MVP, or a translation-friendly i18n CMS. RBAC granular per role × collection × action; Flows for visual workflows.
+
+How it works on Pier — Directus on port 8055 internally behind Traefik. PostgreSQL on the internal Docker network. Persistent volumes — Directus uploads at /directus/uploads, extensions at /directus/extensions, plus Postgres data. First-launch admin user is created via env vars (Pier auto-generates a strong password).
+
+Compared to alternatives — Directus with SQLite is fine for one editor. Strapi is JavaScript-first and plugin-rich but heavier. Supabase is "Postgres + auth + storage + edge functions" for app backends. NocoBase is no-code-first with TypeScript plugins. Sanity/Contentful are SaaS-only. This template is the right answer for production headless CMS on SQL with a great admin UI.
+"""
 
 [compose]
 template = """services:

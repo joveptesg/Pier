@@ -5,6 +5,15 @@ description = "Deploy from a private Git repository using an SSH deploy key"
 category = "git"
 icon = "git"
 tags = ["git", "ssh", "private", "deploy-key", "repository"]
+long_description = """
+Deploy from a private Git repository using an SSH deploy key — a keypair scoped to a single repository on the Git host. Generate the keypair locally, register the public half as a deploy key on your repo (read-only is fine), paste the private half into Pier. The recommended auth method for a small number of private repos when you want repo-scoped, revocable, read-only access.
+
+Use it for private application code, client/customer projects (the key is scoped — leaks affect only that repo), private forks/mirrors of upstream projects, or multi-repo monorepo decomposition where each Pier service points at a different private repo with its own keypair.
+
+How it works on Pier — provide an SSH Git URL (e.g. git@github.com:myorg/myrepo.git), branch, the SSH private key (pasted as a textarea), Dockerfile path, container port. Pier stores the private key encrypted in its database, decrypts only at clone time, performs a shallow clone over SSH, runs `docker buildx build`, starts the container. Generate a webhook URL for push-to-deploy.
+
+Compared to alternatives — Public Repository for repos that are public. GitHub App for 10+ private repos under one org (one app authorizes many repos). Personal Access Tokens grant access to ALL your repos (strictly worse security). Deploy Key is the right answer for a small number of private repos with strong per-repo scoping.
+"""
 
 [ui.fields.name]
 type = "text"

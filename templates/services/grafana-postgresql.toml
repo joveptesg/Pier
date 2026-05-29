@@ -5,6 +5,15 @@ description = "Grafana dashboards backed by PostgreSQL database"
 category = "service"
 icon = "grafana"
 tags = ["monitoring", "dashboards", "analytics", "postgresql"]
+long_description = """
+Grafana paired with a dedicated PostgreSQL backend in one Pier stack. PostgreSQL is what Grafana recommends for production — multi-user, HA-friendly, and avoids the SQLite write-lock issues that plague Grafana under load with multiple concurrent editors.
+
+Use it for analytics teams with concurrent dashboard editors, HA/DR scenarios with PG backups and replicas, large dashboard/annotation volume, or centralized observability serving hundreds of users — exactly the deployment Grafana documents Postgres for. SQLite Grafana is fine for single-admin homelab use; this is the multi-user production template.
+
+How it works on Pier — Grafana on port 3000 internally behind Traefik. PostgreSQL stays on the internal Docker network (not exposed). Each service has its own data volume. GF_DATABASE_TYPE=postgres and connection settings are pre-set so Grafana boots straight into Postgres. Default admin password is Pier-generated.
+
+Compared to alternatives — Grafana Cloud is hosted with a free tier and autoscale. Standalone Grafana (SQLite) is simpler for single-admin use. Metabase / Superset target BI analysts more than ops dashboards. This template is the right answer for "production Grafana on my own VPS without manually wiring two services together."
+"""
 
 [compose]
 template = """services:
