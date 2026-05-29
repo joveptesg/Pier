@@ -1186,7 +1186,7 @@ async fn create_git_deploy_github_app(
         .cloned()
         .filter(|b| !b.is_empty())
         .unwrap_or_else(|| "/Dockerfile".to_string());
-    let _compose_path = body
+    let compose_path = body
         .config
         .get("compose_path")
         .cloned()
@@ -1226,11 +1226,12 @@ async fn create_git_deploy_github_app(
     // Create service record WITHOUT deploying (status = "created")
     let allocated_ports = with_db(state, |db| {
         db.execute(
-            "INSERT INTO services (id, project_id, network_id, name, service_type, status, catalog_id, category, image, git_repo_url, git_branch, git_source_id, build_strategy)
-             VALUES (?1, ?2, ?3, ?4, 'compose', 'created', ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO services (id, project_id, network_id, name, service_type, status, catalog_id, category, image, git_repo_url, git_branch, git_source_id, build_strategy, compose_path)
+             VALUES (?1, ?2, ?3, ?4, 'compose', 'created', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             rusqlite::params![
                 service_id, body.project_id, network_id, name, body.catalog_id, item.meta.category,
-                format!("git: {}", git_url), git_url, branch, source_id, build_strategy
+                format!("git: {}", git_url), git_url, branch, source_id, build_strategy,
+                if build_strategy == "docker-compose" { Some(compose_path) } else { None::<String> }
             ],
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];

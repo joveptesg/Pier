@@ -42,7 +42,7 @@ pub async fn run_pipeline(
             }
         };
         db.query_row(
-            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars
+            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars, compose_path
              FROM services WHERE id = ?1",
             [&service_id],
             |row| {
@@ -56,6 +56,7 @@ pub async fn run_pipeline(
                     current_image: row.get(6)?,
                     start_cmd: row.get(7)?,
                     build_env_vars: row.get(8)?,
+                    compose_path: row.get(9)?,
                 })
             },
         )
@@ -237,10 +238,18 @@ pub async fn run_pipeline(
             }
         }
         "docker-compose" => {
-            // Use repo's own docker-compose.yml — run from repo dir (needed for build: context)
-            let compose_file = repo_dir.join("docker-compose.yml");
+            // Use repo's own compose file — run from repo dir (needed for build: context).
+            // Honor the user-configured compose location; strip any leading `/`
+            // so `join` doesn't treat it as an absolute path.
+            let compose_rel = svc
+                .compose_path
+                .as_deref()
+                .map(|p| p.trim_start_matches('/'))
+                .filter(|p| !p.is_empty())
+                .unwrap_or("docker-compose.yml");
+            let compose_file = repo_dir.join(compose_rel);
             if !compose_file.exists() {
-                log.push_str("docker-compose.yml not found in repo\n");
+                log.push_str(&format!("{compose_rel} not found in repo\n"));
                 finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
                 let _ = tokio::fs::remove_dir_all(&repo_dir).await;
                 return;
@@ -527,7 +536,7 @@ pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Resul
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars
+            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars, compose_path
              FROM services WHERE id = ?1",
             [service_id],
             |row| {
@@ -541,6 +550,7 @@ pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Resul
                     current_image: row.get(6)?,
                     start_cmd: row.get(7)?,
                     build_env_vars: row.get(8)?,
+                    compose_path: row.get(9)?,
                 })
             },
         )?
@@ -560,10 +570,16 @@ pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Resul
         .join(format!("compose-fetch-{}", uuid::Uuid::new_v4()));
     build::clone_repo(&clone_url, branch, &tmp).await?;
 
-    let compose_path = tmp.join("docker-compose.yml");
-    let yaml = tokio::fs::read_to_string(&compose_path).await.map_err(|e| {
-        anyhow::anyhow!("docker-compose.yml not found in repo (branch {branch}): {e}")
-    });
+    let compose_rel = svc
+        .compose_path
+        .as_deref()
+        .map(|p| p.trim_start_matches('/'))
+        .filter(|p| !p.is_empty())
+        .unwrap_or("docker-compose.yml");
+    let compose_file = tmp.join(compose_rel);
+    let yaml = tokio::fs::read_to_string(&compose_file)
+        .await
+        .map_err(|e| anyhow::anyhow!("{compose_rel} not found in repo (branch {branch}): {e}"));
     let _ = tokio::fs::remove_dir_all(&tmp).await;
     yaml
 }
@@ -2243,6 +2259,10 @@ struct ServiceInfo {
     /// Optional KEY=VALUE\n... blob passed to `railpack build --env`.
     /// Ignored for dockerfile/docker-compose strategies.
     build_env_vars: Option<String>,
+    /// Optional path (relative to repo root) to the compose file for the
+    /// docker-compose strategy. May carry a leading `/`. `None` → default
+    /// `docker-compose.yml`. Ignored for dockerfile/railpack strategies.
+    compose_path: Option<String>,
 }
 
 #[cfg(test)]
