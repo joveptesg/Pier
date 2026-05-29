@@ -238,38 +238,68 @@
                         </p>
                     </div>
 
-                    <!-- Step 2: Select Repository -->
+                    <!-- Step 2: Select Repository (picker OR manual URL) -->
                     <div x-show="sourceId">
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Repository</label>
-                        <select x-model="selectedRepo" @change="onRepoSelected()"
-                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option value="">Select a repository...</option>
-                            <template x-for="repo in sourceRepos" :key="repo.full_name">
-                                <option :value="repo.full_name"
-                                        :disabled="deployedRepos.has(repo.full_name)"
-                                        :style="deployedRepos.has(repo.full_name) ? 'color:#999' : ''"
-                                        x-text="repo.full_name + (repo.is_private ? ' (private)' : '') + (deployedRepos.has(repo.full_name) ? ' — already deployed' : '')"></option>
-                            </template>
-                        </select>
-                        <p x-show="loadingRepos" class="text-xs text-gray-400 mt-1">Loading repositories...</p>
-                        <p x-show="deployedRepos.size > 0 && !loadingRepos" class="text-[11px] text-gray-400 mt-1" x-text="deployedRepos.size + ' repository(ies) already deployed on this Pier — dimmed above.'"></p>
-                        <a x-show="sourceId && !loadingRepos" :href="'https://github.com/apps/' + sources.find(s=>s.id===sourceId)?.name?.replace('GitHub App: ','') + '/installations/new'" target="_blank"
-                           class="text-xs text-blue-500 hover:text-blue-400 mt-1 inline-block">Change Repositories on GitHub ↗</a>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400">Repository</label>
+                            <div class="inline-flex rounded-lg border border-gray-300 dark:border-gray-700 p-0.5 bg-gray-50 dark:bg-gray-800">
+                                <button type="button" @click="repoInputMode = 'pick'"
+                                        :class="repoInputMode === 'pick' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400'"
+                                        class="px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors">
+                                    Pick from list
+                                </button>
+                                <button type="button" @click="repoInputMode = 'manual'"
+                                        :class="repoInputMode === 'manual' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400'"
+                                        class="px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors">
+                                    Enter URL manually
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Picker mode -->
+                        <div x-show="repoInputMode === 'pick'">
+                            <select x-model="selectedRepo" @change="onRepoSelected()"
+                                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">Select a repository...</option>
+                                <template x-for="repo in sourceRepos" :key="repo.full_name">
+                                    <option :value="repo.full_name"
+                                            :disabled="deployedRepos.has(repo.full_name)"
+                                            :style="deployedRepos.has(repo.full_name) ? 'color:#999' : ''"
+                                            x-text="repo.full_name + (repo.is_private ? ' (private)' : '') + (deployedRepos.has(repo.full_name) ? ' — already deployed' : '')"></option>
+                                </template>
+                            </select>
+                            <p x-show="loadingRepos" class="text-xs text-gray-400 mt-1">Loading repositories...</p>
+                            <p x-show="deployedRepos.size > 0 && !loadingRepos" class="text-[11px] text-gray-400 mt-1" x-text="deployedRepos.size + ' repository(ies) already deployed on this Pier — dimmed above.'"></p>
+                            <a x-show="sourceId && !loadingRepos" :href="'https://github.com/apps/' + sources.find(s=>s.id===sourceId)?.name?.replace('GitHub App: ','') + '/installations/new'" target="_blank"
+                               class="text-xs text-blue-500 hover:text-blue-400 mt-1 inline-block">Change Repositories on GitHub ↗</a>
+                        </div>
+
+                        <!-- Manual URL mode -->
+                        <div x-show="repoInputMode === 'manual'">
+                            <input x-model="form.git_url" @input="onManualUrlInput()" type="text"
+                                   placeholder="https://github.com/user/repo"
+                                   class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Must be a repository your GitHub App installation can access. Authentication uses the selected source above.</p>
+                            <p x-show="manualUrlError" x-cloak class="text-[11px] text-red-500 mt-1" x-text="manualUrlError"></p>
+                        </div>
                     </div>
 
                     <!-- Step 3: Configuration (compact 2-column grid) -->
-                    <div x-show="selectedRepo" class="space-y-3 pt-3 border-t border-gray-200 dark:border-gray-800">
+                    <div x-show="isRepoReady" class="space-y-3 pt-3 border-t border-gray-200 dark:border-gray-800">
                         <h4 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Configuration</h4>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Branch</label>
-                                <select x-model="form.branch"
+                                <select x-show="repoInputMode === 'pick'" x-model="form.branch"
                                         class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
                                     <template x-for="b in repoBranches" :key="b">
                                         <option :value="b" x-text="b"></option>
                                     </template>
                                 </select>
-                                <p x-show="loadingBranches" class="text-[10px] text-gray-400 mt-0.5">Loading...</p>
+                                <input x-show="repoInputMode === 'manual'" x-model="form.branch" type="text"
+                                       placeholder="main"
+                                       class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
+                                <p x-show="loadingBranches && repoInputMode === 'pick'" class="text-[10px] text-gray-400 mt-0.5">Loading...</p>
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Build Pack</label>
@@ -296,7 +326,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Service Name</label>
-                                <input x-model="form.name" type="text" :placeholder="selectedRepo.split('/').pop()"
+                                <input x-model="form.name" type="text" :placeholder="repoNamePlaceholder()"
                                        class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
                             </div>
                         </div>
@@ -379,6 +409,8 @@ function createResource(catalogId, hostRamGb) {
         serverId: 'local',
         sourceId: '',
         loadingRepos: false,
+        repoInputMode: 'pick',
+        manualUrlError: '',
         loading: true,
         deploying: false,
         deploymentMode: 'standalone',
@@ -532,12 +564,54 @@ function createResource(catalogId, hostRamGb) {
             crypto.getRandomValues(arr);
             return Array.from(arr, b => chars[b % chars.length]).join('');
         },
+        isValidRepoUrl(url) {
+            return typeof url === 'string' && /^https?:\/\/[a-zA-Z0-9.-]+\/[^\/\s]+\/[^\/\s]+?(\.git)?\/?$/.test(url.trim());
+        },
+        get isRepoReady() {
+            if (this.repoInputMode === 'pick') return !!this.selectedRepo;
+            return this.isValidRepoUrl(this.form.git_url);
+        },
+        repoNamePlaceholder() {
+            if (this.selectedRepo) return this.selectedRepo.split('/').pop();
+            const url = (this.form.git_url || '').trim().replace(/\.git$/, '').replace(/\/$/, '');
+            const last = url.split('/').pop();
+            return last || 'my-app';
+        },
+        onManualUrlInput() {
+            const url = (this.form.git_url || '').trim();
+            if (!url) { this.manualUrlError = ''; return; }
+            if (!this.isValidRepoUrl(url)) {
+                this.manualUrlError = 'Enter a full HTTPS URL like https://github.com/user/repo';
+                return;
+            }
+            this.manualUrlError = '';
+            this.form.branch = this.form.branch || 'main';
+            this.form.build_pack = this.form.build_pack || 'dockerfile';
+            this.form.build_path = this.form.build_path || '/Dockerfile';
+            this.form.compose_path = this.form.compose_path || '/docker-compose.yml';
+            this.form.port = this.form.port || '3000';
+            const derived = url.replace(/\.git$/, '').replace(/\/$/, '').split('/').pop();
+            if (derived && (!this.form.name || /-[a-z0-9]{8}$/.test(this.form.name))) {
+                this.form.name = derived;
+            }
+        },
         generatePwd() { return generatePassword(32); },
         async deploy() {
             const name = this.form.name;
             if (!name || !name.trim()) {
                 toast('Name is required', 'error');
                 return;
+            }
+            if (this.catalogId === 'git-github-app' && this.repoInputMode === 'manual') {
+                if (!this.sourceId) {
+                    toast('Select a GitHub App source first', 'error');
+                    return;
+                }
+                if (!this.isValidRepoUrl(this.form.git_url)) {
+                    this.manualUrlError = 'Enter a full HTTPS URL like https://github.com/user/repo';
+                    toast('Repository URL is invalid', 'error');
+                    return;
+                }
             }
 
             this.deploying = true;
