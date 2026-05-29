@@ -352,6 +352,7 @@ pub async fn cleanup_settings_update(
         "cleanup.prune_build_cache",
         "cleanup.prune_images",
         "cleanup.prune_containers",
+        "cleanup.prune_railpack_buildkit",
     ];
 
     for key in &keys {
@@ -390,9 +391,10 @@ pub async fn cleanup_settings_update(
     };
     let enabled = read("cleanup.enabled", "true") != "false";
     let config = serde_json::json!({
-        "prune_images":      read("cleanup.prune_images",      "true") != "false",
-        "prune_build_cache": read("cleanup.prune_build_cache", "true") != "false",
-        "prune_containers":  read("cleanup.prune_containers",  "false") == "true",
+        "prune_images":             read("cleanup.prune_images",             "true")  != "false",
+        "prune_build_cache":        read("cleanup.prune_build_cache",        "true")  != "false",
+        "prune_containers":         read("cleanup.prune_containers",         "false") == "true",
+        "prune_railpack_buildkit":  read("cleanup.prune_railpack_buildkit",  "false") == "true",
     });
     let next = crate::scheduler::cron_utils::next_fire_utc(cron, "UTC", chrono::Utc::now())
         .ok()
@@ -434,6 +436,7 @@ pub async fn cleanup_settings_get(
         "prune_build_cache": get("cleanup.prune_build_cache") != "false",
         "prune_images": get("cleanup.prune_images") != "false",
         "prune_containers": get("cleanup.prune_containers") == "true",
+        "prune_railpack_buildkit": get("cleanup.prune_railpack_buildkit") == "true",
     })))
 }
 

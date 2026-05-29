@@ -13,16 +13,27 @@ pub struct CleanupOptions {
     pub prune_images: bool,
     pub prune_build_cache: bool,
     pub prune_containers: bool,
+    /// Prune the Railpack/BuildKit layer cache (lives inside the
+    /// moby/buildkit container, not the host Docker daemon). Conservative
+    /// parameters match the safety-net loop in `main.rs`: ~10 GB / 7-day
+    /// retention. Operators wanting an aggressive "wipe now" use the
+    /// manual Clean button (POST /system/cleanup with target
+    /// `railpack_buildkit_cache`), which uses 0/0 instead.
+    pub prune_railpack_buildkit: bool,
 }
 
 impl CleanupOptions {
     /// Default policy (matches the legacy loop's behaviour from
-    /// `settings.cleanup.*`): images + cache yes, containers no.
+    /// `settings.cleanup.*`): images + cache yes, containers no,
+    /// railpack off (the standalone daily loop in `main.rs` handles
+    /// it; turning this on means the operator wants the scheduled
+    /// run to do it too).
     pub fn defaults() -> Self {
         Self {
             prune_images: true,
             prune_build_cache: true,
             prune_containers: false,
+            prune_railpack_buildkit: false,
         }
     }
 }
@@ -41,6 +52,28 @@ pub async fn run_once(state: &SharedState, opts: &CleanupOptions) -> anyhow::Res
     }
     if opts.prune_containers {
         summary.push(prune_pass(state, "containers", &["container", "prune", "-f"]).await);
+    }
+    if opts.prune_railpack_buildkit {
+        // Same numbers as the standalone safety-net loop in main.rs so the
+        // two converge on the same target rather than fighting. Idempotent:
+        // running both in one day just means one is a no-op.
+        summary.push(
+            prune_pass(
+                state,
+                "railpack_buildkit",
+                &[
+                    "exec",
+                    "buildkit",
+                    "buildctl",
+                    "prune",
+                    "--keep-storage",
+                    "10737418240",
+                    "--keep-duration",
+                    "168h",
+                ],
+            )
+            .await,
+        );
     }
 
     if summary.is_empty() {

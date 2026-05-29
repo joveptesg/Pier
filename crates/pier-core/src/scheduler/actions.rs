@@ -35,6 +35,7 @@ struct CleanupActionConfig {
     prune_images: Option<bool>,
     prune_build_cache: Option<bool>,
     prune_containers: Option<bool>,
+    prune_railpack_buildkit: Option<bool>,
 }
 
 /// Dispatch a single schedule fire based on its `action_type`.
@@ -110,6 +111,9 @@ async fn fire_cleanup(state: &SharedState, action_config: &str) -> Result<Action
         prune_images: cfg.prune_images.unwrap_or(defaults.prune_images),
         prune_build_cache: cfg.prune_build_cache.unwrap_or(defaults.prune_build_cache),
         prune_containers: cfg.prune_containers.unwrap_or(defaults.prune_containers),
+        prune_railpack_buildkit: cfg
+            .prune_railpack_buildkit
+            .unwrap_or(defaults.prune_railpack_buildkit),
     };
     let output = cleanup::run_once(state, &opts).await?;
     Ok(ActionResult {
