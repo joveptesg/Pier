@@ -885,11 +885,33 @@ async fn create_git_deploy(
         .and_then(|p| p.parse().ok())
         .unwrap_or(3000);
 
-    // Public-repo deferred path for non-Dockerfile build packs.
+    // Deferred path for non-Dockerfile build packs (compose / railpack).
     // Pipeline does the clone + build later; we just register the service.
-    // Deploy-key flows stay on the legacy sync path until pipeline gains SSH.
-    if !use_deploy_key && build_pack != "dockerfile" {
-        return create_git_deploy_public_deferred(
+    // For Deploy Key flows we persist the SSH key to disk first so
+    // pipeline's clone_repo can find it via deploy_key_path_for.
+    if build_pack != "dockerfile" {
+        if use_deploy_key {
+            let deploy_key = body.config.get("deploy_key").cloned().unwrap_or_default();
+            if deploy_key.trim().is_empty() {
+                return Err(AppError::BadRequest("SSH deploy key is required".into()));
+            }
+            let stack_dir = state.config.data_dir.join("stacks").join(stack_name);
+            tokio::fs::create_dir_all(&stack_dir)
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Create stack dir: {e}")))?;
+            let key_path = stack_dir.join("deploy_key");
+            tokio::fs::write(&key_path, &deploy_key)
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Write deploy key: {e}")))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let perms = std::fs::Permissions::from_mode(0o600);
+                std::fs::set_permissions(&key_path, perms)
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("chmod deploy key: {e}")))?;
+            }
+        }
+        return create_git_deploy_deferred(
             state,
             body,
             name,
@@ -1148,12 +1170,15 @@ async fn create_git_deploy(
     })))
 }
 
-/// Public Repository + non-Dockerfile build pack (docker-compose / railpack).
-/// Registers the service with status='created' so the deferred deploy pipeline
-/// owns the clone + build. Mirrors `create_git_deploy_github_app` but without
-/// the GitHub App source/token plumbing.
+/// Public Repository or Deploy Key + non-Dockerfile build pack
+/// (docker-compose / railpack). Registers the service with status='created'
+/// so the deferred deploy pipeline owns the clone + build. Mirrors
+/// `create_git_deploy_github_app` but without the GitHub App source/token
+/// plumbing — for Deploy Key flows, the caller is responsible for
+/// persisting the SSH key to disk before delegating here so pipeline's
+/// `clone_repo` can pick it up via `deploy_key_path_for`.
 #[allow(clippy::too_many_arguments)]
-async fn create_git_deploy_public_deferred(
+async fn create_git_deploy_deferred(
     state: &SharedState,
     body: &CreateResourceRequest,
     name: &str,
