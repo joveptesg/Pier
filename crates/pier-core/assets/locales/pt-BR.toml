@@ -1,0 +1,47 @@
+# Português (Brasil)
+
+[catalog]
+section_git_based = "Baseado em Git"
+section_docker_based = "Baseado em Docker"
+section_databases = "Bancos de dados"
+section_services = "Serviços"
+search_placeholder = "Buscar..."
+filter_all = "Todas as categorias"
+new_resource_title = "Novo recurso"
+new_resource_subtitle = "Selecione um recurso para implantar no servidor"
+
+[settings.tab]
+cleanup = "Limpeza"
+railpack = "Auto-build (Railpack)"
+
+[settings.cleanup]
+title = "Limpeza do sistema"
+build_cache = "Cache de build"
+build_cache_desc = "Camadas de build do Docker não utilizadas"
+dangling_images = "Imagens órfãs"
+dangling_images_desc = "Imagens sem tag não usadas por contêineres"
+stopped_containers = "Contêineres parados"
+stopped_containers_desc = "Contêineres que não estão em execução"
+railpack_buildkit = "Cache do Railpack BuildKit"
+railpack_buildkit_desc = "Cache de camadas usado pelo Auto-build (Railpack) — vive dentro do contêiner buildkit, separado do Docker"
+clean = "Limpar"
+clean_all = "Limpar tudo"
+auto_section = "Limpeza automática"
+enable_scheduled = "Ativar limpeza programada"
+enable_scheduled_desc = "Limpar recursos do Docker automaticamente"
+
+[resource.create.build_pack]
+label = "Build Pack"
+dockerfile = "Dockerfile"
+compose = "Docker Compose"
+railpack = "Railpack (Auto-build)"
+
+[resource.create.railpack]
+warning_first_build = "O primeiro build pode levar 1–10 minutos"
+pick_source = "Escolher de uma GitHub App conectada"
+pick_source_hint = "opcional — deixe vazio para repositórios públicos"
+pick_repo = "Repositório"
+
+[resource.create.github_app]
+mode_pick = "Escolher da lista"
+mode_manual = "Inserir URL manualmente"

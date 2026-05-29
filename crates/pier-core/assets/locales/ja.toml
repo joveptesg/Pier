@@ -1,0 +1,47 @@
+# 日本語
+
+[catalog]
+section_git_based = "Git ベース"
+section_docker_based = "Docker ベース"
+section_databases = "データベース"
+section_services = "サービス"
+search_placeholder = "検索..."
+filter_all = "すべてのカテゴリ"
+new_resource_title = "新しいリソース"
+new_resource_subtitle = "サーバーにデプロイするリソースを選択"
+
+[settings.tab]
+cleanup = "クリーンアップ"
+railpack = "自動ビルド (Railpack)"
+
+[settings.cleanup]
+title = "システムクリーンアップ"
+build_cache = "ビルドキャッシュ"
+build_cache_desc = "未使用の Docker ビルドレイヤー"
+dangling_images = "ダングリングイメージ"
+dangling_images_desc = "コンテナで使用されていないタグなしイメージ"
+stopped_containers = "停止中のコンテナ"
+stopped_containers_desc = "実行されていないコンテナ"
+railpack_buildkit = "Railpack BuildKit キャッシュ"
+railpack_buildkit_desc = "自動ビルド (Railpack) のレイヤーキャッシュ — buildkit コンテナ内にあり、Docker とは別"
+clean = "クリーンアップ"
+clean_all = "すべてクリーンアップ"
+auto_section = "自動クリーンアップ"
+enable_scheduled = "スケジュールされたクリーンアップを有効化"
+enable_scheduled_desc = "Docker リソースを自動的にクリーンアップ"
+
+[resource.create.build_pack]
+label = "ビルドパック"
+dockerfile = "Dockerfile"
+compose = "Docker Compose"
+railpack = "Railpack (自動ビルド)"
+
+[resource.create.railpack]
+warning_first_build = "初回ビルドは 1〜10 分かかる可能性があります"
+pick_source = "接続済みの GitHub App から選択"
+pick_source_hint = "任意 — パブリックリポジトリの場合は空のまま"
+pick_repo = "リポジトリ"
+
+[resource.create.github_app]
+mode_pick = "一覧から選択"
+mode_manual = "URL を手動入力"
