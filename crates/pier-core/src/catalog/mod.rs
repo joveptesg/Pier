@@ -179,11 +179,11 @@ pub fn load_catalog() -> Vec<CatalogItem> {
         }
     }
 
-    // Sort: git first, then applications, then databases (by popularity), then services
+    // Sort: applications (Docker-based) first, then git sources, then databases (by popularity), then services
     items.sort_by(|a, b| {
         let cat_order = |cat: &str| match cat {
-            "git" => 0,
-            "application" => 1,
+            "application" => 0,
+            "git" => 1,
             "database" => 2,
             "service" => 3,
             _ => 4,
