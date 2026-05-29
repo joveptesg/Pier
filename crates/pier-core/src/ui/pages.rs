@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 
 use crate::auth::middleware::AuthUser;
 use crate::error::AppError;
 use crate::state::SharedState;
-use crate::ui::i18n;
 
 type PageResult = Result<Response, AppError>;
 
@@ -372,21 +371,12 @@ pub async fn notifications_page(
 /// GET /settings
 pub async fn settings_page(
     State(state): State<SharedState>,
-    headers: HeaderMap,
     axum::Extension(user): axum::Extension<AuthUser>,
 ) -> PageResult {
-    let locale = i18n::detect_locale(&headers);
-    let i18n_table = i18n::table_for(&locale);
     render(
         &state,
         "settings/index.html",
-        minijinja::context! {
-            user => user.username,
-            page => "settings",
-            version => env!("CARGO_PKG_VERSION"),
-            locale => locale,
-            i18n_table => i18n_table,
-        },
+        minijinja::context! { user => user.username, page => "settings", version => env!("CARGO_PKG_VERSION") },
     )
 }
 
@@ -698,27 +688,18 @@ pub async fn project_detail(
 /// GET /resources/new
 pub async fn resources_catalog(
     State(state): State<SharedState>,
-    headers: HeaderMap,
     axum::Extension(user): axum::Extension<AuthUser>,
 ) -> PageResult {
-    let locale = i18n::detect_locale(&headers);
-    let i18n_table = i18n::table_for(&locale);
     render(
         &state,
         "resources/catalog.html",
-        minijinja::context! {
-            user => user.username,
-            page => "projects",
-            locale => locale,
-            i18n_table => i18n_table,
-        },
+        minijinja::context! { user => user.username, page => "projects" },
     )
 }
 
 /// GET /resources/new/{catalog_id}
 pub async fn resources_create(
     State(state): State<SharedState>,
-    headers: HeaderMap,
     axum::Extension(user): axum::Extension<AuthUser>,
     Path(catalog_id): Path<String>,
 ) -> PageResult {
@@ -733,8 +714,6 @@ pub async fn resources_create(
         // total_memory() returns bytes on current sysinfo; divide to GB.
         sys.total_memory() / (1024 * 1024 * 1024)
     };
-    let locale = i18n::detect_locale(&headers);
-    let i18n_table = i18n::table_for(&locale);
     render(
         &state,
         "resources/create.html",
@@ -743,8 +722,6 @@ pub async fn resources_create(
             page => "projects",
             catalog_id => catalog_id,
             host_total_ram_gb => host_total_ram_gb,
-            locale => locale,
-            i18n_table => i18n_table,
         },
     )
 }

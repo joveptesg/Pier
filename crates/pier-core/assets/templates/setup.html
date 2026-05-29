@@ -7,13 +7,13 @@
     <div class="flex items-start gap-2">
         <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
         <div class="flex-1 min-w-0">
-            <p class="font-semibold">Reverse-proxy (Traefik) не запустился</p>
+            <p class="font-semibold">Reverse-proxy (Traefik) failed to start</p>
             <p class="mt-1 text-xs break-words text-amber-800 dark:text-amber-300">{{ proxy_error }}</p>
-            <p class="mt-3 text-xs">Это часто из-за rate-limit Docker Hub на shared-IP VPS. Чтобы починить вручную, выполните на сервере:</p>
+            <p class="mt-3 text-xs">This is often caused by a Docker Hub rate-limit on shared-IP VPSes. To fix it manually, run on the server:</p>
             <pre class="mt-1.5 text-xs bg-amber-100 dark:bg-amber-500/20 p-2 rounded overflow-x-auto"><code>docker pull mirror.gcr.io/library/traefik:v3.7.1
 docker tag mirror.gcr.io/library/traefik:v3.7.1 traefik:v3.7.1
 sudo systemctl restart pier</code></pre>
-            <p class="mt-2 text-xs">После рестарта Pier переподнимет Traefik автоматически. На /setup эта плашка пропадёт.</p>
+            <p class="mt-2 text-xs">After the restart, Pier brings Traefik back up automatically. This banner disappears on /setup.</p>
         </div>
     </div>
 </div>

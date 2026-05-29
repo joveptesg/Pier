@@ -1,8 +1,6 @@
 use minijinja::Environment;
 use rust_embed::RustEmbed;
 
-use crate::ui::i18n;
-
 #[derive(RustEmbed)]
 #[folder = "assets/templates/"]
 pub struct TemplateAssets;
@@ -25,12 +23,6 @@ pub fn init_templates() -> Environment<'static> {
 
     // Inject version as a global variable available in all templates
     env.add_global("version", env!("CARGO_PKG_VERSION"));
-
-    // Localization: {{ t("settings.tab.cleanup", locale) }} — `locale`
-    // is injected per-render by the page handler.
-    env.add_function("t", |key: String, locale: String| {
-        i18n::t(&locale, &key)
-    });
 
     tracing::info!("Loaded {} templates", TemplateAssets::iter().count());
     env
