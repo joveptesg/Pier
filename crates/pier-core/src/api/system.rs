@@ -234,11 +234,49 @@ pub async fn cleanup_info() -> AppResult<impl IntoResponse> {
         }
     }
 
+    // Railpack/BuildKit cache lives INSIDE the moby/buildkit container, so
+    // `docker system df` above doesn't see it. Ask buildctl directly. Returns
+    // 0 when the container is absent (PIER_SKIP_RAILPACK=1 install) or any
+    // step times out — UI just renders "0 B" in that case, no error surfaced.
+    let buildkit_cache = read_buildkit_cache_size().await;
+
     Ok(Json(serde_json::json!({
         "build_cache": build_cache,
         "images_reclaimable": images_reclaimable,
         "containers_size": containers_size,
+        "buildkit_cache": buildkit_cache,
     })))
+}
+
+/// Total size of the Railpack/BuildKit layer cache, in bytes.
+///
+/// Runs `docker exec buildkit buildctl du` and looks for the trailing
+/// `Total:` line. Returns 0 when:
+/// - the buildkit container is not running (operator opted out via
+///   `PIER_SKIP_RAILPACK=1`);
+/// - the command exceeds the 5-second timeout;
+/// - the output is unparseable.
+///
+/// All failures are silent because Auto-build is optional — surfacing
+/// an error here would scare operators away from the otherwise-working
+/// Cleanup tab.
+async fn read_buildkit_cache_size() -> u64 {
+    let fut = tokio::process::Command::new("docker")
+        .args(["exec", "buildkit", "buildctl", "du"])
+        .output();
+    let output = match tokio::time::timeout(std::time::Duration::from_secs(5), fut).await {
+        Ok(Ok(o)) if o.status.success() => o,
+        _ => return 0,
+    };
+    let raw = String::from_utf8_lossy(&output.stdout);
+    // Last line typically looks like: "Total:		8.45GB"
+    for line in raw.lines().rev() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("Total:") {
+            return parse_docker_size(rest.trim());
+        }
+    }
+    0
 }
 
 /// POST /api/v1/system/cleanup — run cleanup for specified targets
