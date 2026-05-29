@@ -2984,7 +2984,7 @@ dependencies = [
 
 [[package]]
 name = "pier-agent"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -3005,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "pier-core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "aes-gcm",
  "ammonia",
@@ -3066,7 +3066,7 @@ dependencies = [
 
 [[package]]
 name = "pier-net-helper"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -3079,7 +3079,7 @@ dependencies = [
 
 [[package]]
 name = "pier-tests"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
