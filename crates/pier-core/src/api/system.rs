@@ -293,6 +293,24 @@ pub async fn cleanup(Json(body): Json<serde_json::Value>) -> AppResult<impl Into
             "build_cache" => ("docker", &["builder", "prune", "-f"]),
             "images" => ("docker", &["image", "prune", "-f"]),
             "containers" => ("docker", &["container", "prune", "-f"]),
+            // Operator pressed Clean on the Railpack row -> wipe the BuildKit
+            // cache inside the buildkit container completely (--keep-storage 0
+            // + --keep-duration 0). The daily safety-net loop in main.rs uses
+            // softer 10GB / 7-day parameters; the explicit click is "I want
+            // disk back now".
+            "railpack_buildkit_cache" => (
+                "docker",
+                &[
+                    "exec",
+                    "buildkit",
+                    "buildctl",
+                    "prune",
+                    "--keep-storage",
+                    "0",
+                    "--keep-duration",
+                    "0",
+                ],
+            ),
             _ => continue,
         };
 
