@@ -33,11 +33,24 @@ label = "Branch"
 default = "main"
 placeholder = "main"
 
+[ui.fields.build_pack]
+type = "select"
+label = "Build Pack"
+required = true
+default = "dockerfile"
+options = ["dockerfile", "docker-compose", "railpack"]
+
 [ui.fields.build_path]
 type = "text"
 label = "Dockerfile Path"
 default = "/Dockerfile"
 placeholder = "/Dockerfile"
+
+[ui.fields.compose_path]
+type = "text"
+label = "Compose Path"
+default = "/docker-compose.yml"
+placeholder = "/docker-compose.yml"
 
 [ui.fields.port]
 type = "number"

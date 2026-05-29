@@ -98,7 +98,7 @@
 
             <!-- Dynamic fields from catalog template (hidden for git-github-app — wizard handles it) -->
             <template x-for="field in (catalogId === 'git-github-app' ? [] : (template.fields || []).filter(f => f.key !== 'name'))" :key="field.key">
-                <div>
+                <div x-show="!isFieldHidden(field)">
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1" x-text="field.label"></label>
 
                     <!-- Text input -->
@@ -604,6 +604,13 @@ function createResource(catalogId, hostRamGb) {
             const arr = new Uint8Array(len);
             crypto.getRandomValues(arr);
             return Array.from(arr, b => chars[b % chars.length]).join('');
+        },
+        isFieldHidden(field) {
+            const bp = this.form.build_pack;
+            if (!bp) return false;
+            if (field.key === 'build_path') return bp !== 'dockerfile';
+            if (field.key === 'compose_path') return bp !== 'docker-compose';
+            return false;
         },
         isValidRepoUrl(url) {
             return typeof url === 'string' && /^https?:\/\/[a-zA-Z0-9.-]+\/[^\/\s]+\/[^\/\s]+?(\.git)?\/?$/.test(url.trim());

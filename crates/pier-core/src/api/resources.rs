@@ -866,12 +866,42 @@ async fn create_git_deploy(
         .cloned()
         .filter(|b| !b.is_empty())
         .unwrap_or_else(|| "/Dockerfile".to_string());
+    let compose_path = body
+        .config
+        .get("compose_path")
+        .cloned()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "/docker-compose.yml".to_string());
+    let build_pack = body
+        .config
+        .get("build_pack")
+        .cloned()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "dockerfile".to_string());
 
     let container_port: u16 = body
         .config
         .get("port")
         .and_then(|p| p.parse().ok())
         .unwrap_or(3000);
+
+    // Public-repo deferred path for non-Dockerfile build packs.
+    // Pipeline does the clone + build later; we just register the service.
+    // Deploy-key flows stay on the legacy sync path until pipeline gains SSH.
+    if !use_deploy_key && build_pack != "dockerfile" {
+        return create_git_deploy_public_deferred(
+            state,
+            body,
+            name,
+            item,
+            &git_url,
+            &branch,
+            &build_pack,
+            &compose_path,
+            container_port,
+        )
+        .await;
+    }
 
     let service_id = uuid::Uuid::new_v4().to_string();
 
@@ -1114,6 +1144,104 @@ async fn create_git_deploy(
         "id": service_id,
         "name": name,
         "status": "running",
+        "ports": ports_json,
+    })))
+}
+
+/// Public Repository + non-Dockerfile build pack (docker-compose / railpack).
+/// Registers the service with status='created' so the deferred deploy pipeline
+/// owns the clone + build. Mirrors `create_git_deploy_github_app` but without
+/// the GitHub App source/token plumbing.
+#[allow(clippy::too_many_arguments)]
+async fn create_git_deploy_public_deferred(
+    state: &SharedState,
+    body: &CreateResourceRequest,
+    name: &str,
+    item: &catalog::CatalogItem,
+    git_url: &str,
+    branch: &str,
+    build_pack: &str,
+    compose_path: &str,
+    container_port: u16,
+) -> AppResult<Json<serde_json::Value>> {
+    let build_strategy = match build_pack {
+        "docker-compose" => "docker-compose",
+        "railpack" => "railpack",
+        _ => "dockerfile",
+    };
+
+    let service_id = uuid::Uuid::new_v4().to_string();
+
+    let network_id = body.network_id.clone().or_else(|| {
+        state.db.lock().ok().and_then(|db| {
+            db.query_row(
+                "SELECT id FROM networks WHERE is_default = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
+        })
+    });
+
+    let allocated_ports = with_db(state, |db| {
+        db.execute(
+            "INSERT INTO services (id, project_id, network_id, name, service_type, status, catalog_id, category,
+                image, git_repo_url, git_branch, build_strategy, compose_path)
+             VALUES (?1, ?2, ?3, ?4, 'compose', 'created', ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            rusqlite::params![
+                service_id,
+                body.project_id,
+                network_id,
+                name,
+                body.catalog_id,
+                item.meta.category,
+                format!("git: {}", git_url),
+                git_url,
+                branch,
+                build_strategy,
+                compose_path,
+            ],
+        )?;
+        let port_specs = vec![("primary".to_string(), container_port)];
+        let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
+        Ok(ports::allocate_ports(
+            db,
+            &service_id,
+            &port_specs,
+            port_start,
+            port_end,
+        )?)
+    })?;
+
+    let host_port = allocated_ports
+        .first()
+        .map(|p| p.host_port as u16)
+        .unwrap_or(container_port);
+    let sid = service_id.clone();
+    with_db(state, |db| {
+        let _ = db.execute(
+            "UPDATE services SET port = ?1 WHERE id = ?2",
+            rusqlite::params![host_port as i64, sid],
+        );
+        Ok(())
+    })?;
+
+    let ports_json: Vec<serde_json::Value> = allocated_ports
+        .iter()
+        .map(|pa| {
+            serde_json::json!({"name": pa.port_name, "host": pa.host_port, "container": pa.container_port})
+        })
+        .collect();
+
+    tracing::info!(
+        "Created deferred git resource '{name}' (build_pack={build_pack}, status=created)"
+    );
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "id": service_id,
+        "name": name,
+        "status": "created",
         "ports": ports_json,
     })))
 }
