@@ -108,9 +108,24 @@
                 </div>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
+            <div class="flex items-center justify-between py-2">
+                <div>
+                    <p class="text-sm text-gray-900 dark:text-white">Railpack BuildKit cache</p>
+                    <p class="text-xs text-gray-500">Layer cache used by Auto-build (Railpack) — lives inside the buildkit container, separate from Docker</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span x-show="infoLoading" x-cloak class="inline-flex items-center">
+                        <svg class="w-3.5 h-3.5 spinner text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30" stroke-dashoffset="10"/></svg>
+                    </span>
+                    <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-purple-500" x-text="fmtB(info.buildkit_cache)"></span>
+                    <button @click="runCleanup(['railpack_buildkit_cache'])" :disabled="cleaning || infoLoading"
+                            class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-purple-100 dark:hover:bg-purple-900/20 hover:text-purple-600 rounded transition-colors disabled:opacity-50">Clean</button>
+                </div>
+            </div>
+            <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between pt-2">
                 <span class="text-xs text-gray-500" x-text="cleanMsg"></span>
-                <button @click="runCleanup(['build_cache','images','containers'])" :disabled="cleaning || infoLoading"
+                <button @click="runCleanup(['build_cache','images','containers','railpack_buildkit_cache'])" :disabled="cleaning || infoLoading"
                         class="px-3 py-1.5 text-xs font-medium bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors disabled:opacity-50">
                     <span x-text="cleaning ? 'Cleaning...' : 'Clean All'"></span>
                 </button>
@@ -155,6 +170,10 @@
                         <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                             <input type="checkbox" x-model="settings.prune_containers" @change="saveSettings()" class="rounded border-gray-300 dark:border-gray-600 text-blue-500">
                             Stopped Containers
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                            <input type="checkbox" x-model="settings.prune_railpack_buildkit" @change="saveSettings()" class="rounded border-gray-300 dark:border-gray-600 text-blue-500">
+                            Railpack BuildKit cache
                         </label>
                     </div>
                 </div>
@@ -638,9 +657,9 @@ function generalSettings() {
 
 function cleanupApp() {
     return {
-        info: { build_cache: 0, images_reclaimable: 0, containers_size: 0 },
+        info: { build_cache: 0, images_reclaimable: 0, containers_size: 0, buildkit_cache: 0 },
         infoLoading: true,
-        settings: { enabled: true, interval_hours: 24, prune_build_cache: true, prune_images: true, prune_containers: false },
+        settings: { enabled: true, interval_hours: 24, prune_build_cache: true, prune_images: true, prune_containers: false, prune_railpack_buildkit: false },
         cleaning: false, cleanMsg: '',
         fmtB(b) { if (!b) return '0 B'; const k=1024,s=['B','KB','MB','GB']; const i=Math.floor(Math.log(b)/Math.log(k)); return (b/Math.pow(k,i)).toFixed(1)+' '+s[i]; },
         async loadInfo() {
