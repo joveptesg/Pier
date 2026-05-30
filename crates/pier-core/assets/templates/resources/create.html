@@ -410,6 +410,15 @@
                 </select>
                 <p class="text-xs text-gray-400 mt-0.5">Server where the resource will be deployed</p>
             </div>
+
+            <!-- Host port override (catalog single-port templates only) -->
+            <div x-show="(template.ports || []).length === 1 && catalogId !== 'docker-image' && catalogId !== 'git-github-app'">
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Host Port (optional)</label>
+                <input x-model.number="hostPort" type="number" min="1024" max="65535"
+                       :placeholder="(template.ports && template.ports[0] && template.ports[0][1] && template.ports[0][1].internal) || 'auto'"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                <p class="text-xs text-gray-400 mt-0.5">Leave empty for auto: Pier tries the standard port (e.g. 5432 for Postgres), falls back to its pool if taken.</p>
+            </div>
         </div>
 
         <!-- Actions -->
@@ -447,6 +456,7 @@ function createResource(catalogId, hostRamGb) {
         networkId: '',
         serverId: 'local',
         sourceId: '',
+        hostPort: null,        // operator-chosen host port; null = auto (try standard, fall back to pool)
         loadingRepos: false,
         repoInputMode: 'pick',
         manualUrlError: '',
@@ -697,6 +707,11 @@ function createResource(catalogId, hostRamGb) {
                     source_id: this.sourceId || null,
                     config: { ...this.form },
                 };
+                // Only send host_port if the operator typed a positive number.
+                // Leaving it out means "auto" on the backend (try standard, fall back to pool).
+                if (this.hostPort && this.hostPort >= 1024 && this.hostPort <= 65535) {
+                    payload.host_port = this.hostPort;
+                }
 
                 if (this.deploymentMode === 'cluster') {
                     payload.deployment_mode = 'cluster';

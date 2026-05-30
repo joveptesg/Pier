@@ -89,6 +89,13 @@ pub struct CreateResourceRequest {
     /// Node-to-server distribution: [{"server_id": "srv-xxx"}, ...]
     #[serde(default)]
     pub node_distribution: Vec<NodeAssignment>,
+    /// Operator-chosen host port for the primary port. `None` = auto: the
+    /// allocator tries the standard port (= container_port) first, falls
+    /// back to the pool if taken. Only honoured for single-port catalog
+    /// templates (postgres, redis, etc.) — multi-port templates ignore it
+    /// for now (per-port override is a future extension).
+    #[serde(default)]
+    pub host_port: Option<u16>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -369,12 +376,21 @@ pub async fn create(
                 item.docker.as_ref().map(|d| catalog::substitute(&d.image, &vars)),
             ],
         )?;
+        // Catalog flow: honour body.host_port for single-port templates only.
+        // Multi-port templates (RabbitMQ, Supabase) get auto-allocation across
+        // every port; per-port override is a future extension.
+        let host_port_overrides: Vec<Option<u16>> = if port_specs.len() == 1 {
+            vec![body.host_port]
+        } else {
+            vec![None; port_specs.len()]
+        };
         Ok(ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
             port_start,
             port_end,
+            &host_port_overrides,
         )?)
     })?;
 
@@ -747,6 +763,7 @@ async fn create_dockerfile(
             &port_specs,
             port_start,
             port_end,
+            &[],
         )?)
     })?;
 
@@ -949,6 +966,7 @@ async fn create_git_deploy(
             &port_specs,
             port_start,
             port_end,
+            &[],
         )?)
     })?;
 
@@ -1235,6 +1253,7 @@ async fn create_git_deploy_deferred(
             &port_specs,
             port_start,
             port_end,
+            &[],
         )?)
     })?;
 
@@ -1395,6 +1414,7 @@ async fn create_git_deploy_github_app(
             &port_specs,
             port_start,
             port_end,
+            &[],
         )?)
     })?;
 
@@ -1516,6 +1536,7 @@ async fn create_railpack_app(
             &port_specs,
             port_start,
             port_end,
+            &[],
         )?)
     })?;
 
@@ -2796,6 +2817,7 @@ pub async fn load_balance(
             &port_specs,
             LB_PORT_RANGE_START,
             LB_PORT_RANGE_END,
+            &[],
         )
         .map_err(|e| AppError::Internal(anyhow::anyhow!("allocate_ports: {e}")))?;
         // Re-apply public flag so the user's toggle survives a scale.
