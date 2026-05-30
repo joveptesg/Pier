@@ -127,7 +127,8 @@
     <!-- Overview Tab -->
     <div x-show="tab === 'overview'" class="space-y-4">
         <!-- Cluster Nodes (shown only for cluster deployments) -->
-        <div x-show="clusterInfo && clusterInfo.cluster" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+        <template x-if="clusterInfo && clusterInfo.cluster">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center gap-2">
                     <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Cluster Nodes</h3>
@@ -160,6 +161,7 @@
                 </template>
             </div>
         </div>
+        </template>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
@@ -1898,18 +1900,14 @@ function resourceDetail(id) {
                 toast(newState ? 'Public access enabled (port ' + port + ')' : 'Public access disabled');
                 await this.refresh();
                 await this.loadDomains();
-                // Pick the public_port to show in the input. If the service is
-            // currently private, `public_port` in the DB is stale (set by a
-            // prior toggle that may have used the old host_port before a
-            // compose-driven host_port change). Prefer the LIVE host_port so
-            // the input reflects "what Pier is willing to expose right now".
-            // If the service is public, honour the saved public_port — the
-            // operator intentionally chose it.
-            {
-                const _p0 = this.resource.ports?.[0];
-                this.publicPort = (_p0?.is_public ? _p0?.public_port : null)
-                    || _p0?.host || _p0?.container || 0;
-            }
+                // Prefer the operator's saved public_port choice even when
+                // the service is currently private — they picked it
+                // intentionally and expect it back on the next toggle ON.
+                // Fall back to host_port / container_port for never-toggled
+                // services.
+                this.publicPort = this.resource.ports?.[0]?.public_port
+                    || this.resource.ports?.[0]?.host
+                    || this.resource.ports?.[0]?.container || 0;
             } catch(e) { toast(e.message, 'error'); }
             this.togglingPublic = false;
         },

@@ -88,13 +88,19 @@ pub(crate) fn compute_sync_updates(
             .iter()
             .find(|b| b.container_port as i64 == alloc.container_port);
 
+        // For private rows (no host binding, or binding on 127.0.0.1) we
+        // **preserve** the operator's saved `public_port` choice. They picked
+        // it intentionally — toggling OFF/ON shouldn't lose it. Sync only
+        // overwrites `public_port` when the container is currently public
+        // (and even then, picks the actual host_port docker is using, since
+        // that's what was just applied).
+        let cur_public_port = alloc.public_port.map(|p| p as u16);
         let (new_is_public, new_public_port) = match binding {
-            None => (false, None),
+            None => (false, cur_public_port),
             Some(b) if b.is_public => (true, Some(b.host_port)),
-            Some(_) => (false, None),
+            Some(_) => (false, cur_public_port),
         };
 
-        let cur_public_port = alloc.public_port.map(|p| p as u16);
         if new_is_public != alloc.is_public || new_public_port != cur_public_port {
             updates.push(PortUpdate {
                 row_id: alloc.id.clone(),
@@ -345,29 +351,26 @@ mod tests {
         let updates = compute_sync_updates(&allocs, &containers);
         assert_eq!(updates.len(), 1);
         assert!(!updates[0].new_is_public);
-        assert_eq!(updates[0].new_public_port, None);
+        // Round 6: public_port preserved (operator's saved choice).
+        assert_eq!(updates[0].new_public_port, Some(3050));
     }
 
     #[test]
-    fn sync_zeroes_stale_public_port_for_private_row() {
-        // Regression: row was previously toggled public on host_port=5261,
-        // then the service went private (is_public=0). Later a compose
-        // update changed the host_port to 5264, but `public_port` stayed
-        // at 5261 as a "saved choice" — even though the container no
-        // longer publishes anything. Sync must zero `public_port=NULL`
-        // for private rows so the UI doesn't surface the stale value
-        // (Round 4 UI fix already falls back to host_port for private
-        // rows, but the DB should also be clean).
-        let mut a = alloc("r1", 5264, false, Some(5261), Some("astro-web"));
-        a.host_port = 5264;
+    fn sync_preserves_public_port_for_private_row() {
+        // Round 6: operator chose public_port=5432 last time they toggled
+        // ON. Sync now sees a private container (no host binding). It must
+        // NOT zero public_port — preserve the saved choice so the next
+        // toggle ON uses 5432 again instead of defaulting to host_port.
+        // Reverts the Round 4 behavior which surprised operators by
+        // resetting their input on toggle OFF.
+        let mut a = alloc("r1", 5432, false, Some(5432), Some("postgresql"));
+        a.host_port = 10000;
         let allocs = vec![a];
-        let containers = vec![container(Some("astro-web"), vec![])];
+        let containers = vec![container(Some("postgresql"), vec![])];
         let updates = compute_sync_updates(&allocs, &containers);
-        assert_eq!(updates.len(), 1, "stale public_port must trigger an update");
-        assert!(!updates[0].new_is_public);
-        assert_eq!(
-            updates[0].new_public_port, None,
-            "private row must end up with public_port = NULL"
+        assert!(
+            updates.is_empty(),
+            "sync must be a no-op when is_public matches and public_port should be preserved: {updates:?}"
         );
     }
 
@@ -379,7 +382,8 @@ mod tests {
         let updates = compute_sync_updates(&allocs, &containers);
         assert_eq!(updates.len(), 1);
         assert!(!updates[0].new_is_public);
-        assert_eq!(updates[0].new_public_port, None);
+        // Round 6: public_port preserved across toggle (saved choice).
+        assert_eq!(updates[0].new_public_port, Some(3054));
     }
 
     #[test]
@@ -417,7 +421,8 @@ mod tests {
         assert_eq!(api_u.new_public_port, Some(3050));
         let bot_u = by_id["r-bot"];
         assert!(!bot_u.new_is_public);
-        assert_eq!(bot_u.new_public_port, None);
+        // Round 6: bot's saved public_port=Some(3054) is preserved across the toggle.
+        assert_eq!(bot_u.new_public_port, Some(3054));
     }
 
     #[test]
