@@ -137,6 +137,7 @@ O [Coolify](https://coolify.io) é ótimo, mas roda **6+ contêineres** e consom
 - 🖥 Gerenciamento multi-servidor com agentes remotos
 - 💾 Backups agendados com integração S3
 - 📊 Monitoramento em tempo real — CPU, RAM, Disco, Rede
+- 🗄 **Editor de dados** integrado — navegue por tabelas/coleções e execute consultas SQL/Mongo/Redis pelo painel (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 
 **Experiência do Desenvolvedor**
 - ⚡ Interface web construída com HTMX + Alpine.js — modo escuro, tempo real, responsiva
@@ -311,6 +312,7 @@ Para projetos que precisam de overrides, coloque um [`railpack.json`](https://ra
 - [ ] Balanceamento de carga + escalabilidade horizontal
 - [ ] Notificações de alerta (Telegram, Discord, Slack)
 - [ ] Mecanismo de atualização automática
+- [x] Editor de dados integrado (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 - [ ] Isolamento de rede Docker por projeto
 - [ ] Proxy reverso baseado em Pingora (substituir Traefik)
 

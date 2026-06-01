@@ -137,6 +137,7 @@ Luego abre `http://TU_IP_DEL_SERVIDOR:8443/setup` para crear tu cuenta de admini
 - 🖥 Gestión multi-servidor con agentes remotos
 - 💾 Respaldos programados con integración S3
 - 📊 Monitoreo en tiempo real — CPU, RAM, Disco, Red
+- 🗄 **Editor de datos** integrado — explora tablas/colecciones y ejecuta consultas SQL/Mongo/Redis desde el panel (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 
 **Experiencia de desarrollo**
 - ⚡ Interfaz web construida con HTMX + Alpine.js — modo oscuro, tiempo real, responsive
@@ -310,6 +311,7 @@ Si tu proyecto necesita anular el comportamiento por defecto, deja un [`railpack
 - [ ] Balanceo de carga + escalado horizontal
 - [ ] Notificaciones de alertas (Telegram, Discord, Slack)
 - [ ] Mecanismo de actualización automática
+- [x] Editor de datos integrado (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 - [ ] Aislamiento de red Docker por proyecto
 - [ ] Proxy inverso basado en Pingora (reemplazo de Traefik)
 

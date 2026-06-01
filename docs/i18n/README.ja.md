@@ -137,6 +137,7 @@ curl -fsSL https://pier.team/install | sudo bash
 - 🖥 リモートエージェントによるマルチサーバー管理
 - 💾 S3 連携によるスケジュールバックアップ
 - 📊 リアルタイムモニタリング — CPU、RAM、ディスク、ネットワーク
+- 🗄 組み込み**データエディタ** — ダッシュボードからテーブル/コレクションを閲覧し、SQL/Mongo/Redis クエリを実行（PostgreSQL、MySQL/MariaDB、MongoDB、Redis）
 
 **開発者体験**
 - ⚡ HTMX + Alpine.js で構築された Web UI — ダークモード、リアルタイム、レスポンシブ
@@ -310,6 +311,7 @@ npm install left-pad         # npmjs.org からプロキシ + キャッシュ
 - [ ] 負荷分散 + 水平スケーリング
 - [ ] アラート通知 (Telegram, Discord, Slack)
 - [ ] 自動アップデート機能
+- [x] 組み込みデータエディタ（PostgreSQL、MySQL/MariaDB、MongoDB、Redis）
 - [ ] プロジェクトごとの Docker ネットワーク分離
 - [ ] Pingora ベースのリバースプロキシ (Traefik 置換)
 

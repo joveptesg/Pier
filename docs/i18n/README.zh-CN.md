@@ -137,6 +137,7 @@ curl -fsSL https://pier.team/install | sudo bash
 - 🖥 多服务器管理，支持远程代理
 - 💾 定时备份，集成 S3 存储
 - 📊 实时监控 — CPU、内存、磁盘、网络
+- 🗄 内置**数据编辑器** — 在面板中浏览表/集合并运行 SQL/Mongo/Redis 查询（PostgreSQL、MySQL/MariaDB、MongoDB、Redis）
 
 **开发者体验**
 - ⚡ 基于 HTMX + Alpine.js 的 Web UI — 暗色模式、实时更新、响应式
@@ -310,6 +311,7 @@ npm install left-pad         # 从 npmjs.org 代理 + 缓存
 - [ ] 负载均衡 + 水平扩展
 - [ ] 告警通知（Telegram、Discord、Slack）
 - [ ] 自动更新机制
+- [x] 内置数据编辑器（PostgreSQL、MySQL/MariaDB、MongoDB、Redis）
 - [ ] 按项目隔离 Docker 网络
 - [ ] 基于 Pingora 的反向代理（替代 Traefik）
 

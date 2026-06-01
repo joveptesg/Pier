@@ -137,6 +137,7 @@ curl -fsSL https://pier.team/install | sudo bash
 - 🖥 Multi-Server-Verwaltung mit Remote-Agenten
 - 💾 Geplante Backups mit S3-Integration
 - 📊 Echtzeit-Monitoring — CPU, RAM, Festplatte, Netzwerk
+- 🗄 Integrierter **Daten-Editor** — Tabellen/Collections durchsuchen und SQL/Mongo/Redis-Abfragen direkt im Dashboard ausführen (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 
 **Entwickler-Erfahrung**
 - ⚡ Web-UI mit HTMX + Alpine.js — Dark Mode, Echtzeit, responsiv
@@ -310,6 +311,7 @@ Für Projekte, die Overrides brauchen, legen Sie eine [`railpack.json`](https://
 - [ ] Lastverteilung + horizontale Skalierung
 - [ ] Benachrichtigungen (Telegram, Discord, Slack)
 - [ ] Automatischer Update-Mechanismus
+- [x] Integrierter Daten-Editor (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 - [ ] Docker-Netzwerkisolierung pro Projekt
 - [ ] Pingora-basierter Reverse Proxy (Traefik ersetzen)
 

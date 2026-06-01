@@ -135,6 +135,7 @@ Then open `http://YOUR_SERVER_IP:8443/setup` to create your admin account.
 - 🖥 Multi-server management with remote agents
 - 💾 Scheduled backups with S3 integration
 - 📊 Real-time monitoring — CPU, RAM, Disk, Network
+- 🗄 Built-in **data editor** — browse tables/collections and run SQL/Mongo/Redis queries from the dashboard (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 
 **Developer Experience**
 - ⚡ Web UI built with HTMX + Alpine.js — dark mode, real-time, responsive
@@ -239,6 +240,37 @@ For projects that need overrides, drop a [`railpack.json`](https://railpack.com/
 - **Does it work on ARM/aarch64?** Yes — both `railpack` and `moby/buildkit` ship linux/arm64 binaries. The install script picks the right architecture automatically.
 - **Can I disable it?** Yes — `PIER_SKIP_RAILPACK=1 bash install.sh` skips provisioning. You can still use Dockerfile / Compose / Docker Image sources.
 
+## Data editor
+
+**Browse and query your databases from the dashboard — no Adminer, no pgweb, no external client.** Every database service gets a **Data** tab: explore the schema, page through rows, and run queries inline. Built into the binary, gated by RBAC, and every query is audited.
+
+### Supported engines
+
+| Engine | Driver | Browse | Query runner |
+|---|---|---|---|
+| **PostgreSQL** (incl. PostGIS, TimescaleDB) | native `sqlx` | schemas · tables · views · structure · rows | arbitrary SQL |
+| **MySQL / MariaDB** | native `sqlx` | databases · tables · views · structure · rows | arbitrary SQL |
+| **MongoDB** | `mongosh` (docker-exec) | databases · collections · documents | `mongosh` scripts |
+| **Redis / Valkey** | native `redis` | keys (SCAN) · type-aware values · TTL | raw commands |
+
+### Browse
+
+- **SQL** — schema/table tree, per-table structure (columns, types, nullability, defaults, primary keys, indexes), and paginated rows with a total count.
+- **MongoDB** — database → collection tree, paginated documents rendered as EJSON.
+- **Redis** — `SCAN`-based key browser with per-key type, a type-aware value view (string / list / set / zset / hash / stream) and TTL; switch between DBs 0–15.
+
+### Query
+
+- **SQL Runner** — run any statement against PostgreSQL or MySQL/MariaDB. Reads return a grid (capped at 1,000 rows); writes report the affected-row count. A 15-second statement timeout keeps a runaway query from pinning the database.
+- **Mongo Shell** — run any `mongosh` script against the selected database.
+- **Redis commands** — run any command (`GET`, `HGETALL`, `TTL`, …) and read the reply as JSON.
+
+### Access & audit
+
+- **Read** (browse, structure, rows) requires `Viewer`; **write** (any runner) requires `Editor` — enforced per-resource by Pier's RBAC.
+- Every runner execution is recorded in the `db_query_log` audit table — who ran what, against which database, with status, row count and duration.
+- Connections use credentials decrypted from the service's encrypted env. Private databases are reached over the `pier-net` Docker network, so no port has to be published to the host.
+
 ## Templates
 
 **Databases** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
@@ -309,6 +341,7 @@ For projects that need overrides, drop a [`railpack.json`](https://railpack.com/
 - [x] Alert notifications (Telegram, Discord, Slack, Email)
 - [x] Auto-update mechanism
 - [x] Docker network isolation per project
+- [x] Built-in data editor (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 - [ ] WebAuthn / passkeys (second 2FA factor)
 - [ ] Pingora-based reverse proxy (replace Traefik)
 

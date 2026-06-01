@@ -137,6 +137,7 @@ Ouvrez ensuite `http://IP_DE_VOTRE_SERVEUR:8443/setup` pour créer votre compte 
 - 🖥 Gestion multi-serveurs avec agents distants
 - 💾 Sauvegardes planifiées avec intégration S3
 - 📊 Supervision en temps réel — CPU, RAM, disque, réseau
+- 🗄 **Éditeur de données** intégré — parcourez les tables/collections et exécutez des requêtes SQL/Mongo/Redis depuis le tableau de bord (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 
 **Expérience développeur**
 - ⚡ Interface web construite avec HTMX + Alpine.js — mode sombre, temps réel, responsive
@@ -310,6 +311,7 @@ Pour les projets qui nécessitent des overrides, déposez un [`railpack.json`](h
 - [ ] Répartition de charge + mise à l'échelle horizontale
 - [ ] Notifications d'alertes (Telegram, Discord, Slack)
 - [ ] Mécanisme de mise à jour automatique
+- [x] Éditeur de données intégré (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
 - [ ] Isolation réseau Docker par projet
 - [ ] Reverse proxy basé sur Pingora (remplacement de Traefik)
 
