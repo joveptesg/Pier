@@ -1437,6 +1437,29 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE services ADD COLUMN start_cmd TEXT;
     ALTER TABLE services ADD COLUMN build_env_vars TEXT;
     "#,
+    // Migration 63: Audit log for the in-panel SQL runner (db-browser Phase 2).
+    //
+    // Every statement executed through `POST /resources/{id}/db-browser/query`
+    // is recorded here — who ran what, against which database, the outcome and
+    // duration. `kind` is 'read' | 'write'; `status` is 'ok' | 'error';
+    // `row_count` holds rows returned (read) or rows affected (write).
+    r#"
+    CREATE TABLE IF NOT EXISTS db_query_log (
+        id          TEXT PRIMARY KEY NOT NULL,
+        service_id  TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        user_id     TEXT,
+        username    TEXT,
+        db_name     TEXT,
+        sql         TEXT NOT NULL,
+        kind        TEXT NOT NULL,
+        status      TEXT NOT NULL,
+        row_count   INTEGER,
+        duration_ms INTEGER,
+        error       TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_db_query_log_service ON db_query_log(service_id);
+    "#,
 ];
 
 /// Run all pending database migrations.

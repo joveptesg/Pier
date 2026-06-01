@@ -31,11 +31,13 @@ bollard = "0.20.1"
 # Database
 rusqlite = { version = "0.38", features = ["bundled", "backup"] }
 
-# Native SQL driver for the in-panel database browser (Phase 1: PostgreSQL).
+# Native SQL drivers for the in-panel database browser + SQL runner (Postgres
+# and MySQL/MariaDB). The `any` driver is intentionally NOT used: it pulls
+# sqlx-sqlite, whose libsqlite3-sys collides with the one rusqlite links.
 # No TLS backend — the panel only ever dials the co-located DB container on
 # 127.0.0.1, so we connect with sslmode=disable and keep the binary lean.
 # Pulled in by pier-core only, behind its `db-browser` feature.
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "mysql"] }
 
 # Serialization
 serde = { version = "1.0.228", features = ["derive"] }

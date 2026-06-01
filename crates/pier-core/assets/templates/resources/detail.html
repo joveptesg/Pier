@@ -456,6 +456,64 @@
     <div x-show="tab === 'data'" x-cloak class="space-y-4">
         <div x-show="dbb.error" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm" x-text="dbb.error"></div>
 
+        <!-- SQL runner -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">SQL Runner</h3>
+                <span class="text-[11px] text-gray-400">DB: <span class="font-mono" x-text="dbb.database || '—'"></span></span>
+            </div>
+            <textarea x-model="dbb.runner.sql" rows="4" spellcheck="false"
+                      @keydown.ctrl.enter="runSql()" @keydown.meta.enter="runSql()"
+                      placeholder="SELECT * FROM ...   (Ctrl/Cmd+Enter to run)"
+                      class="w-full font-mono text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2"></textarea>
+            <div class="flex items-center gap-3">
+                <button @click="runSql()" :disabled="dbb.runner.running || !dbb.runner.sql.trim()"
+                        class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
+                    <span x-show="!dbb.runner.running">Run</span><span x-show="dbb.runner.running" x-cloak>Running…</span>
+                </button>
+                <span class="text-[11px] text-gray-400">Editor role required. Statements are audited.</span>
+            </div>
+
+            <div x-show="dbb.runner.error" x-cloak class="text-sm text-red-600 dark:text-red-400 font-mono whitespace-pre-wrap" x-text="dbb.runner.error"></div>
+
+            <template x-if="dbb.runner.result && dbb.runner.result.kind === 'write'">
+                <div class="text-sm text-green-600 dark:text-green-400">
+                    ✓ <span x-text="dbb.runner.result.rows_affected"></span> row(s) affected
+                    <span class="text-gray-400">(<span x-text="dbb.runner.result.duration_ms"></span> ms)</span>
+                </div>
+            </template>
+
+            <template x-if="dbb.runner.result && dbb.runner.result.kind === 'read'">
+                <div class="space-y-1">
+                    <div class="text-[11px] text-gray-400">
+                        <span x-text="dbb.runner.result.rows.length"></span> row(s)
+                        <span>(<span x-text="dbb.runner.result.duration_ms"></span> ms)</span>
+                        <span x-show="dbb.runner.result.truncated" class="text-amber-500"> — truncated to first 1000</span>
+                    </div>
+                    <div class="border border-gray-200 dark:border-gray-800/50 rounded-lg overflow-auto max-h-[50vh]">
+                        <table class="text-sm w-max min-w-full">
+                            <thead class="bg-gray-50 dark:bg-gray-800/50 text-gray-500 text-xs uppercase tracking-wide sticky top-0">
+                                <tr><template x-for="col in dbb.runner.result.columns" :key="col"><th class="text-left px-3 py-2 font-mono whitespace-nowrap" x-text="col"></th></template></tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="(row, ri) in dbb.runner.result.rows" :key="ri">
+                                    <tr class="border-t border-gray-100 dark:border-gray-800/50">
+                                        <template x-for="(cell, ci) in row" :key="ci">
+                                            <td class="px-3 py-1.5 font-mono whitespace-nowrap max-w-[320px] truncate"
+                                                :class="cell === null ? 'text-gray-400 italic' : 'text-gray-800 dark:text-gray-200'"
+                                                :title="cell === null ? 'NULL' : cell"
+                                                x-text="cell === null ? 'NULL' : cell"></td>
+                                        </template>
+                                    </tr>
+                                </template>
+                                <tr x-show="dbb.runner.result.rows.length === 0"><td class="px-3 py-3 text-gray-400 text-xs">No rows returned.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </template>
+        </div>
+
         <div class="flex gap-4 items-start">
             <!-- Left: object tree -->
             <div class="w-64 shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-3 space-y-3">
@@ -1848,7 +1906,7 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         // Read-only data browser (Data tab)
         dbbView: 'data',
-        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0 },
+        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, runner: { sql: '', running: false, result: null, error: '' } },
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
         showRestoreDb: false, dbRestoring: false,
@@ -2104,6 +2162,29 @@ function resourceDetail(id) {
         dbPrevPage() {
             if (this.dbb.offset === 0) return;
             this.dbb.offset = Math.max(0, this.dbb.offset - this.dbb.limit); this.loadDbRows();
+        },
+        async runSql() {
+            const r = this.dbb.runner;
+            const sql = (r.sql || '').trim();
+            if (!sql || r.running) return;
+            const lower = sql.toLowerCase();
+            const destructive = /^\s*(drop|truncate)\b/.test(lower)
+                || (/^\s*delete\b/.test(lower) && !/\bwhere\b/.test(lower))
+                || (/^\s*update\b/.test(lower) && !/\bwhere\b/.test(lower));
+            if (destructive && !confirm('This looks like a destructive statement (DROP/TRUNCATE, or DELETE/UPDATE without WHERE). Run it anyway?')) return;
+            r.running = true; r.error = ''; r.result = null;
+            try {
+                r.result = await api(`/api/v1/resources/${this.id}/db-browser/query`, {
+                    method: 'POST',
+                    body: JSON.stringify({ database: this.dbb.database, sql }),
+                });
+                // A write may have changed the currently-open table — refresh it.
+                if (r.result.kind === 'write' && this.dbb.selTable) this.loadDbRows();
+            } catch (e) {
+                r.error = e.message || 'Query failed';
+            } finally {
+                r.running = false;
+            }
         },
         async loadDatabases() {
             this.dbLoading = true;

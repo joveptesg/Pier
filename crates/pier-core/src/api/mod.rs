@@ -347,9 +347,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/system/cleanup-info", get(system::cleanup_info))
         .route("/system/update-check", get(system::update_check));
 
-    // In-panel database browser (read-only, Viewer+; each handler self-gates
-    // via `enforce_resource_role`). Compiled only with the `db-browser`
-    // feature so size-sensitive builds drop sqlx entirely.
+    // In-panel database browser + SQL runner. Browser reads are Viewer+; the
+    // runner is Editor+ (each handler self-gates via `enforce_resource_role`).
+    // Compiled only with the `db-browser` feature so size-sensitive builds drop
+    // sqlx entirely.
     #[cfg(feature = "db-browser")]
     let protected = protected
         .route(
@@ -364,7 +365,11 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/db-browser/structure",
             get(db_browser::structure),
         )
-        .route("/resources/{id}/db-browser/rows", get(db_browser::rows));
+        .route("/resources/{id}/db-browser/rows", get(db_browser::rows))
+        .route(
+            "/resources/{id}/db-browser/query",
+            post(db_browser::run_query),
+        );
 
     // Global-Admin sub-router. Anything here is reached by:
     //   1. require_auth populates AuthUser in extensions
