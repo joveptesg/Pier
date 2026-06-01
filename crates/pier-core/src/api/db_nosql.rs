@@ -191,16 +191,30 @@ pub async fn redis_keys(
         .pattern
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "*".into());
-    let cursor = q.cursor.unwrap_or(0);
-    let (next, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-        .arg(cursor)
-        .arg("MATCH")
-        .arg(&pattern)
-        .arg("COUNT")
-        .arg(200)
-        .query_async(&mut con)
-        .await
-        .map_err(redis_err)?;
+
+    // A single SCAN may legally return zero keys with a non-zero cursor (the
+    // batch covered empty hash-table slots). Loop from the incoming cursor until
+    // we've gathered a page worth of keys or the cursor wraps to 0 — otherwise a
+    // populated DB looks empty and the user has to keep clicking "Load more".
+    let mut cursor = q.cursor.unwrap_or(0);
+    let mut keys: Vec<String> = Vec::new();
+    for _ in 0..50 {
+        let (next, batch): (u64, Vec<String>) = redis::cmd("SCAN")
+            .arg(cursor)
+            .arg("MATCH")
+            .arg(&pattern)
+            .arg("COUNT")
+            .arg(200)
+            .query_async(&mut con)
+            .await
+            .map_err(redis_err)?;
+        cursor = next;
+        keys.extend(batch);
+        if cursor == 0 || keys.len() >= 200 {
+            break;
+        }
+    }
+    let next = cursor;
 
     let mut out = Vec::with_capacity(keys.len());
     for k in &keys {
@@ -215,6 +229,42 @@ pub async fn redis_keys(
     Ok(Json(
         serde_json::json!({ "keys": out, "cursor": next, "db": dbidx }),
     ))
+}
+
+/// GET /api/v1/resources/{id}/db-browser/redis/keyspace — key count per logical
+/// DB, so the UI can show where the data lives (and auto-pick a non-empty DB).
+pub async fn redis_keyspace(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
+    let target = redis_target(&state, &id)?;
+    let mut con = redis_conn(&state, &target, 0).await?;
+
+    // `INFO keyspace` returns lines like `db0:keys=1204,expires=3,avg_ttl=0`.
+    let info: String = redis::cmd("INFO")
+        .arg("keyspace")
+        .query_async(&mut con)
+        .await
+        .map_err(redis_err)?;
+
+    let mut counts = serde_json::Map::new();
+    for line in info.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("db") {
+            if let Some((idx, fields)) = rest.split_once(':') {
+                let keys = fields
+                    .split(',')
+                    .find_map(|kv| kv.strip_prefix("keys="))
+                    .and_then(|n| n.parse::<i64>().ok())
+                    .unwrap_or(0);
+                counts.insert(idx.to_string(), serde_json::json!(keys));
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "keyspace": counts })))
 }
 
 #[derive(Deserialize)]

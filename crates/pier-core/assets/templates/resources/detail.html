@@ -458,12 +458,31 @@
         <!-- ===== Redis / Valkey ===== -->
         <div x-show="dbEngineKind === 'redis'" x-cloak class="space-y-4">
             <div x-show="redis.error" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm" x-text="redis.error"></div>
+
+            <!-- Command (full width, top — same shape as Mongo Shell) -->
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-2">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Command</h3>
+                    <span class="text-[11px] text-gray-400">DB <span class="font-mono" x-text="redis.db"></span> · Editor · audited</span>
+                </div>
+                <div class="flex gap-2">
+                    <input x-model="redis.cmd" @keydown.enter="runRedisCommand()" spellcheck="false" placeholder="GET foooh:…   ·   KEYS *   ·   HGETALL myhash"
+                           class="flex-1 font-mono text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+                    <button @click="runRedisCommand()" :disabled="redis.cmdRunning || !redis.cmd.trim()"
+                            class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
+                        <span x-show="!redis.cmdRunning">Run</span><span x-show="redis.cmdRunning" x-cloak>…</span>
+                    </button>
+                </div>
+                <pre x-show="redis.cmdResult" x-cloak class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-auto max-h-[30vh] whitespace-pre-wrap" x-text="redis.cmdResult ? redisJson(redis.cmdResult.result) : ''"></pre>
+            </div>
+
+            <!-- Browser: keys | value -->
             <div class="flex gap-4 items-start">
                 <div class="w-72 shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-3 space-y-2">
                     <div class="flex items-center gap-2">
                         <label class="text-[11px] text-gray-400">DB</label>
                         <select x-model.number="redis.db" @change="loadRedisKeys()" class="text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-1">
-                            <template x-for="n in 16" :key="n"><option :value="n-1" x-text="n-1"></option></template>
+                            <template x-for="n in 16" :key="n"><option :value="n-1" x-text="redisDbLabel(n-1)"></option></template>
                         </select>
                         <input x-model="redis.pattern" @keydown.enter="loadRedisKeys()" placeholder="*" class="flex-1 min-w-0 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 font-mono">
                         <button @click="loadRedisKeys()" class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Scan</button>
@@ -477,33 +496,61 @@
                                 <span class="truncate font-mono text-gray-700 dark:text-gray-300" x-text="k.key"></span>
                             </button>
                         </template>
-                        <div x-show="!redis.loading && redis.keys.length === 0" class="text-xs text-gray-400 px-2 py-1">No keys.</div>
+                        <div x-show="redis.loading && redis.keys.length === 0" class="text-xs text-gray-400 px-2 py-1">Loading…</div>
+                        <div x-show="!redis.loading && redis.keys.length === 0" class="text-xs text-gray-400 px-2 py-1">No keys in this DB.</div>
                         <button x-show="redis.cursor !== 0" @click="loadRedisKeys(false)" class="w-full text-xs text-blue-500 py-1">Load more…</button>
                     </div>
                 </div>
                 <div class="flex-1 min-w-0 space-y-4">
-                    <div x-show="!redis.selKey" class="text-sm text-gray-400 py-6 text-center">Select a key to view its value.</div>
+                    <div x-show="!redis.selKey" class="text-sm text-gray-400 py-10 text-center">Select a key to view its value.</div>
                     <div x-show="redis.selKey && redis.value" x-cloak class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-2">
                         <div class="flex items-center justify-between gap-3">
                             <h3 class="text-sm font-mono text-gray-900 dark:text-gray-100 truncate" x-text="redis.selKey"></h3>
-                            <span class="text-[11px] text-gray-400 shrink-0"><span x-text="redis.value && redis.value.type"></span> · TTL <span x-text="redis.value && redis.value.ttl"></span></span>
+                            <span class="text-[11px] text-gray-400 shrink-0"><span class="uppercase" x-text="redis.value && redis.value.type"></span> · TTL <span x-text="redis.value ? (redis.value.ttl < 0 ? '∞' : redis.value.ttl + 's') : ''"></span></span>
                         </div>
-                        <pre class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-auto max-h-[40vh] whitespace-pre-wrap" x-text="redis.value ? redisJson(redis.value.value) : ''"></pre>
-                    </div>
-                    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-2">
-                        <div class="flex items-center justify-between">
-                            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Command</h3>
-                            <span class="text-[11px] text-gray-400">Editor role · audited</span>
+
+                        <!-- hash → field/value table -->
+                        <div x-show="redis.value && redis.value.type === 'hash'" x-cloak class="overflow-auto max-h-[45vh] rounded border border-gray-100 dark:border-gray-800/50">
+                            <table class="w-full text-xs">
+                                <thead class="bg-gray-50 dark:bg-gray-800/50 text-gray-500 uppercase tracking-wide"><tr><th class="text-left px-3 py-1.5 font-medium">Field</th><th class="text-left px-3 py-1.5 font-medium">Value</th></tr></thead>
+                                <tbody>
+                                    <template x-for="(p, i) in redisPairs()" :key="i">
+                                        <tr class="border-t border-gray-100 dark:border-gray-800/50">
+                                            <td class="px-3 py-1 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap" x-text="p[0]"></td>
+                                            <td class="px-3 py-1 font-mono text-gray-800 dark:text-gray-200 break-all" x-text="redisScalar(p[1])"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
                         </div>
-                        <div class="flex gap-2">
-                            <input x-model="redis.cmd" @keydown.enter="runRedisCommand()" spellcheck="false" placeholder="GET mykey"
-                                   class="flex-1 font-mono text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
-                            <button @click="runRedisCommand()" :disabled="redis.cmdRunning || !redis.cmd.trim()"
-                                    class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
-                                <span x-show="!redis.cmdRunning">Run</span><span x-show="redis.cmdRunning" x-cloak>…</span>
-                            </button>
+
+                        <!-- zset → member/score table -->
+                        <div x-show="redis.value && redis.value.type === 'zset'" x-cloak class="overflow-auto max-h-[45vh] rounded border border-gray-100 dark:border-gray-800/50">
+                            <table class="w-full text-xs">
+                                <thead class="bg-gray-50 dark:bg-gray-800/50 text-gray-500 uppercase tracking-wide"><tr><th class="text-left px-3 py-1.5 font-medium">Member</th><th class="text-left px-3 py-1.5 font-medium">Score</th></tr></thead>
+                                <tbody>
+                                    <template x-for="(p, i) in redisPairs()" :key="i">
+                                        <tr class="border-t border-gray-100 dark:border-gray-800/50">
+                                            <td class="px-3 py-1 font-mono text-gray-800 dark:text-gray-200 break-all" x-text="redisScalar(p[0])"></td>
+                                            <td class="px-3 py-1 font-mono text-gray-500 whitespace-nowrap" x-text="redisScalar(p[1])"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
                         </div>
-                        <pre x-show="redis.cmdResult" x-cloak class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-auto max-h-[30vh] whitespace-pre-wrap" x-text="redis.cmdResult ? redisJson(redis.cmdResult.result) : ''"></pre>
+
+                        <!-- list / set → ordered list -->
+                        <div x-show="redis.value && (redis.value.type === 'list' || redis.value.type === 'set')" x-cloak class="overflow-auto max-h-[45vh] rounded border border-gray-100 dark:border-gray-800/50 divide-y divide-gray-100 dark:divide-gray-800/50">
+                            <template x-for="(item, i) in redisList()" :key="i">
+                                <div class="flex gap-2 px-3 py-1 text-xs">
+                                    <span class="text-gray-400 w-8 shrink-0 text-right tabular-nums" x-text="i"></span>
+                                    <span class="font-mono text-gray-800 dark:text-gray-200 break-all" x-text="redisScalar(item)"></span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- string / stream / other → raw JSON/text -->
+                        <pre x-show="redis.value && !['hash','zset','list','set'].includes(redis.value.type)" x-cloak class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-auto max-h-[45vh] whitespace-pre-wrap" x-text="redis.value ? redisJson(redis.value.value) : ''"></pre>
                     </div>
                 </div>
             </div>
@@ -698,7 +745,7 @@
                                 <tr><th class="text-left px-3 py-2">Column</th><th class="text-left px-3 py-2">Type</th><th class="text-left px-3 py-2">Nullable</th><th class="text-left px-3 py-2">Default</th></tr>
                             </thead>
                             <tbody>
-                                <template x-for="c in dbb.structure.columns" :key="c.name">
+                                <template x-for="c in (dbb.structure ? dbb.structure.columns : [])" :key="c.name">
                                     <tr class="border-t border-gray-100 dark:border-gray-800/50">
                                         <td class="px-3 py-1.5 font-mono">
                                             <span x-text="c.name"></span>
@@ -2037,7 +2084,7 @@ function resourceDetail(id) {
         // Read-only data browser (Data tab)
         dbbView: 'data',
         dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
-        redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false },
+        redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false, keyspace: {} },
         mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, shellOpen: false, script: '', scriptOut: '', scriptRunning: false },
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
@@ -2303,11 +2350,53 @@ function resourceDetail(id) {
         },
         loadDataTab() {
             const k = this.dbEngineKind;
-            if (k === 'redis') this.loadRedisKeys();
+            if (k === 'redis') this.initRedis();
             else if (k === 'mongo') this.loadMongo();
             else this.loadDbBrowser();
         },
         // ── Redis ──
+        async initRedis() {
+            await this.loadRedisKeyspace();
+            // Auto-pick the first non-empty DB so the data is visible immediately
+            // (the app may store keys in a non-zero DB via its REDIS_URL).
+            const ks = this.redis.keyspace || {};
+            const nonEmpty = Object.keys(ks).map(Number).filter(n => ks[n] > 0).sort((a, b) => a - b);
+            if (nonEmpty.length && !nonEmpty.includes(this.redis.db)) this.redis.db = nonEmpty[0];
+            await this.loadRedisKeys();
+        },
+        async loadRedisKeyspace() {
+            try {
+                const d = await api(`/api/v1/resources/${this.id}/db-browser/redis/keyspace`);
+                this.redis.keyspace = d.keyspace || {};
+            } catch (e) { this.redis.keyspace = {}; }
+        },
+        redisDbLabel(n) {
+            const c = this.redis.keyspace ? this.redis.keyspace[n] : null;
+            return (c != null && c > 0) ? `${n} (${c})` : `${n}`;
+        },
+        // hash (HGETALL) and zset (WITHSCORES) come back either as a flat
+        // [k,v,k,v…] array or an object, depending on RESP2/RESP3 — normalise.
+        redisPairs() {
+            const v = this.redis.value ? this.redis.value.value : null;
+            if (v == null) return [];
+            if (Array.isArray(v)) {
+                const out = [];
+                for (let i = 0; i + 1 < v.length; i += 2) out.push([v[i], v[i + 1]]);
+                return out;
+            }
+            if (typeof v === 'object') return Object.entries(v);
+            return [];
+        },
+        redisList() {
+            const v = this.redis.value ? this.redis.value.value : null;
+            if (Array.isArray(v)) return v;
+            if (v == null) return [];
+            return [v];
+        },
+        redisScalar(v) {
+            if (v === null || v === undefined) return '';
+            return (typeof v === 'object') ? JSON.stringify(v) : String(v);
+        },
         async loadRedisKeys(reset = true) {
             const r = this.redis;
             if (reset) { r.cursor = 0; r.keys = []; r.selKey = ''; r.value = null; }

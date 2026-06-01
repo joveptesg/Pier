@@ -374,6 +374,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         // Redis / Valkey (native client)
         .route(
+            "/resources/{id}/db-browser/redis/keyspace",
+            get(db_nosql::redis_keyspace),
+        )
+        .route(
             "/resources/{id}/db-browser/redis/keys",
             get(db_nosql::redis_keys),
         )
