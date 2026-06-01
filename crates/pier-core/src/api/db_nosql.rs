@@ -83,18 +83,20 @@ fn port_lookup(state: &SharedState, id: &str, container_port: i64) -> AppResult<
 // ── Redis ────────────────────────────────────────────────────────────────────
 
 struct RedisTarget {
+    container: String,
     host_port: u16,
     password: String,
 }
 
 fn redis_target(state: &SharedState, id: &str) -> AppResult<RedisTarget> {
-    let (catalog, _name, env) = service_row(state, id)?;
+    let (catalog, name, env) = service_row(state, id)?;
     if !matches!(catalog.as_str(), "redis" | "valkey") {
         return Err(AppError::BadRequest("This is not a Redis service.".into()));
     }
     let password = env.get("REDIS_PASSWORD").cloned().unwrap_or_default();
     let host_port = port_lookup(state, id, 6379)?;
     Ok(RedisTarget {
+        container: format!("pier-{}", name.to_lowercase().replace(' ', "-")),
         host_port,
         password,
     })
@@ -104,15 +106,25 @@ fn redis_err(e: redis::RedisError) -> AppError {
     AppError::BadRequest(format!("Redis error: {e}"))
 }
 
-async fn redis_conn(target: &RedisTarget, db: i64) -> AppResult<redis::aio::MultiplexedConnection> {
+async fn redis_conn(
+    state: &SharedState,
+    target: &RedisTarget,
+    db: i64,
+) -> AppResult<redis::aio::MultiplexedConnection> {
     let db = db.clamp(0, 15);
+    // Prefer the container's pier-net IP + internal 6379 (works for unpublished
+    // services); fall back to the host loopback port.
+    let (host, port) =
+        match super::db_browser::container_host(&state.docker, &target.container).await {
+            Some(ip) => (ip, 6379u16),
+            None => ("127.0.0.1".to_string(), target.host_port),
+        };
     let url = if target.password.is_empty() {
-        format!("redis://127.0.0.1:{}/{db}", target.host_port)
+        format!("redis://{host}:{port}/{db}")
     } else {
         format!(
-            "redis://:{}@127.0.0.1:{}/{db}",
-            urlencoding::encode(&target.password),
-            target.host_port
+            "redis://:{}@{host}:{port}/{db}",
+            urlencoding::encode(&target.password)
         )
     };
     let client =
@@ -173,7 +185,7 @@ pub async fn redis_keys(
     enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let target = redis_target(&state, &id)?;
     let dbidx = q.db.unwrap_or(0);
-    let mut con = redis_conn(&target, dbidx).await?;
+    let mut con = redis_conn(&state, &target, dbidx).await?;
 
     let pattern = q
         .pattern
@@ -220,7 +232,7 @@ pub async fn redis_value(
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let target = redis_target(&state, &id)?;
-    let mut con = redis_conn(&target, q.db.unwrap_or(0)).await?;
+    let mut con = redis_conn(&state, &target, q.db.unwrap_or(0)).await?;
 
     let key = q.key;
     let t: String = redis::cmd("TYPE")
@@ -300,7 +312,7 @@ pub async fn redis_command(
     }
 
     let started = Instant::now();
-    let result = run_redis_command(&target, dbidx, &args).await;
+    let result = run_redis_command(&state, &target, dbidx, &args).await;
     let duration_ms = started.elapsed().as_millis() as i64;
 
     let (status, error) = match &result {
@@ -327,11 +339,12 @@ pub async fn redis_command(
 }
 
 async fn run_redis_command(
+    state: &SharedState,
     target: &RedisTarget,
     dbidx: i64,
     args: &[String],
 ) -> AppResult<serde_json::Value> {
-    let mut con = redis_conn(target, dbidx).await?;
+    let mut con = redis_conn(state, target, dbidx).await?;
     let mut cmd = redis::cmd(args[0].as_str());
     for a in &args[1..] {
         cmd.arg(a.as_str());

@@ -513,10 +513,14 @@
         <div x-show="dbEngineKind === 'mongo'" x-cloak class="space-y-4">
             <div x-show="mongo.error" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm" x-text="mongo.error"></div>
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-3">
-                <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Mongo Shell</h3>
+                <button @click="mongo.shellOpen = !mongo.shellOpen" class="w-full flex items-center justify-between">
+                    <span class="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        <svg class="w-3.5 h-3.5 text-gray-400 transition-transform" :class="mongo.shellOpen ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        Mongo Shell
+                    </span>
                     <span class="text-[11px] text-gray-400">DB: <span class="font-mono" x-text="mongo.database || '—'"></span> · Editor · audited</span>
-                </div>
+                </button>
+                <div x-show="mongo.shellOpen" x-cloak class="space-y-3">
                 <textarea x-model="mongo.script" rows="3" spellcheck="false"
                           @keydown.ctrl.enter="runMongoScript()" @keydown.meta.enter="runMongoScript()"
                           placeholder="db.users.find().limit(5)   (Ctrl/Cmd+Enter to run)"
@@ -528,6 +532,7 @@
                     </button>
                 </div>
                 <pre x-show="mongo.scriptOut" x-cloak class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-auto max-h-[40vh] whitespace-pre-wrap" x-text="mongo.scriptOut"></pre>
+                </div>
             </div>
 
             <div class="flex gap-4 items-start">
@@ -576,12 +581,16 @@
         <!-- ===== SQL (PostgreSQL / MySQL) ===== -->
         <div x-show="dbEngineKind === 'sql' && dbb.error" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm" x-text="dbb.error"></div>
 
-        <!-- SQL runner -->
+        <!-- SQL runner (collapsible, closed by default) -->
         <div x-show="dbEngineKind === 'sql'" x-cloak class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-3">
-            <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">SQL Runner</h3>
+            <button @click="dbb.runnerOpen = !dbb.runnerOpen" class="w-full flex items-center justify-between">
+                <span class="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    <svg class="w-3.5 h-3.5 text-gray-400 transition-transform" :class="dbb.runnerOpen ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    SQL Runner
+                </span>
                 <span class="text-[11px] text-gray-400">DB: <span class="font-mono" x-text="dbb.database || '—'"></span></span>
-            </div>
+            </button>
+            <div x-show="dbb.runnerOpen" x-cloak class="space-y-3">
             <textarea x-model="dbb.runner.sql" rows="4" spellcheck="false"
                       @keydown.ctrl.enter="runSql()" @keydown.meta.enter="runSql()"
                       placeholder="SELECT * FROM ...   (Ctrl/Cmd+Enter to run)"
@@ -632,6 +641,7 @@
                     </div>
                 </div>
             </template>
+            </div>
         </div>
 
         <div x-show="dbEngineKind === 'sql'" class="flex gap-4 items-start">
@@ -2026,9 +2036,9 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         // Read-only data browser (Data tab)
         dbbView: 'data',
-        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, runner: { sql: '', running: false, result: null, error: '' } },
+        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
         redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false },
-        mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, script: '', scriptOut: '', scriptRunning: false },
+        mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, shellOpen: false, script: '', scriptOut: '', scriptRunning: false },
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
         showRestoreDb: false, dbRestoring: false,

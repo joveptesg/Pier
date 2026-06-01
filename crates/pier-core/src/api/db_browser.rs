@@ -8,8 +8,9 @@
 //! `Option<String>` — so the handlers stay engine-agnostic.
 //!
 //! Unlike [`super::databases`] (which `docker exec`s the CLI), this connects to
-//! the database **over TCP** on the loopback: the DB container binds
-//! `127.0.0.1:{host_port}` and pier-core runs natively on the same host.
+//! the database **over TCP**. Private DB services aren't published to the host,
+//! so we dial the container's `pier-net` IP + internal port ([`container_host`]),
+//! falling back to `127.0.0.1:{host_port}` for published ports.
 //!
 //! Two surfaces:
 //! - **Browser** (read-only, `Viewer+`): list databases, schema/table tree,
@@ -99,9 +100,13 @@ impl Engine {
     }
 }
 
-/// Resolved loopback connection target for a SQL service.
+/// Resolved connection target for a SQL service. We prefer the container's
+/// `pier-net` IP + internal port (works for unpublished DBs); `host_port` is the
+/// loopback fallback for published ports.
 struct Target {
     engine: Engine,
+    container: String,
+    container_port: u16,
     host_port: u16,
     user: String,
     password: String,
@@ -175,18 +180,19 @@ fn db_err(e: sqlx::Error) -> AppError {
 /// Look up the service, classify its engine, and assemble the connection target
 /// from the allocated host port + decrypted env credentials.
 fn resolve_target(state: &SharedState, id: &str) -> AppResult<Target> {
-    let (catalog_id, env_json): (Option<String>, Option<String>) = {
+    let (catalog_id, name, env_json): (Option<String>, String, Option<String>) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT catalog_id, env_json FROM services WHERE id = ?1",
+            "SELECT catalog_id, name, env_json FROM services WHERE id = ?1",
             [id],
             |row| {
                 Ok((
                     row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
                 ))
             },
         )
@@ -263,6 +269,8 @@ fn resolve_target(state: &SharedState, id: &str) -> AppResult<Target> {
 
     Ok(Target {
         engine,
+        container: format!("pier-{}", name.to_lowercase().replace(' ', "-")),
+        container_port: engine.default_port() as u16,
         host_port: host_port as u16,
         user,
         password,
@@ -270,19 +278,39 @@ fn resolve_target(state: &SharedState, id: &str) -> AppResult<Target> {
     })
 }
 
-/// Open a loopback connection to `database` and bound statement time.
-async fn connect(target: &Target, database: &str) -> AppResult<Db> {
+/// Resolve a container's reachable IP on the `pier-net` docker network (falling
+/// back to the first network with an address). This lets a host-native pier-core
+/// reach a DB container whose port isn't published to the host loopback.
+pub(crate) async fn container_host(docker: &bollard::Docker, container: &str) -> Option<String> {
+    let info = docker.inspect_container(container, None).await.ok()?;
+    let nets = info.network_settings?.networks?;
+    if let Some(ep) = nets.get("pier-net") {
+        if let Some(ip) = ep.ip_address.as_ref().filter(|ip| !ip.is_empty()) {
+            return Some(ip.clone());
+        }
+    }
+    nets.values()
+        .find_map(|ep| ep.ip_address.as_ref().filter(|ip| !ip.is_empty()).cloned())
+}
+
+/// Open a connection to `database` and bound statement time. Prefers the
+/// container's `pier-net` IP + internal port; falls back to `127.0.0.1:host_port`.
+async fn connect(state: &SharedState, target: &Target, database: &str) -> AppResult<Db> {
+    let (host, port) = match container_host(&state.docker, &target.container).await {
+        Some(ip) => (ip, target.container_port),
+        None => ("127.0.0.1".to_string(), target.host_port),
+    };
     let conn_err = |e: sqlx::Error| {
         AppError::BadRequest(format!(
-            "Could not connect to {}: {e}",
+            "Could not connect to {} at {host}:{port}: {e}",
             target.engine.label()
         ))
     };
     match target.engine {
         Engine::Postgres => {
             let opts = PgConnectOptions::new()
-                .host("127.0.0.1")
-                .port(target.host_port)
+                .host(&host)
+                .port(port)
                 .username(&target.user)
                 .password(&target.password)
                 .database(database)
@@ -295,8 +323,8 @@ async fn connect(target: &Target, database: &str) -> AppResult<Db> {
         }
         Engine::Mysql => {
             let opts = MySqlConnectOptions::new()
-                .host("127.0.0.1")
-                .port(target.host_port)
+                .host(&host)
+                .port(port)
                 .username(&target.user)
                 .password(&target.password)
                 .database(database)
@@ -352,7 +380,7 @@ pub async fn list_databases(
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let target = resolve_target(&state, &id)?;
-    let mut db = connect(&target, &target.default_db).await?;
+    let mut db = connect(&state, &target, &target.default_db).await?;
 
     let sql = match target.engine {
         Engine::Postgres => {
@@ -387,7 +415,7 @@ pub async fn objects(
     enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
     let target = resolve_target(&state, &id)?;
     let database = q.database.unwrap_or_else(|| target.default_db.clone());
-    let mut db = connect(&target, &database).await?;
+    let mut db = connect(&state, &target, &database).await?;
 
     // Postgres: every user schema in the connected DB. MySQL: a database *is* a
     // schema, so scope to the connected one.
@@ -451,7 +479,7 @@ pub async fn structure(
         .table
         .ok_or_else(|| AppError::BadRequest("table is required".into()))?;
 
-    let mut db = connect(&target, &database).await?;
+    let mut db = connect(&state, &target, &database).await?;
     ensure_table_exists(&mut db, engine, &schema, &table).await?;
 
     // Primary-key columns — standard information_schema, identical on both.
@@ -552,7 +580,7 @@ pub async fn rows(
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let offset = q.offset.unwrap_or(0).max(0);
 
-    let mut db = connect(&target, &database).await?;
+    let mut db = connect(&state, &target, &database).await?;
     ensure_table_exists(&mut db, engine, &schema, &table).await?;
 
     let col_sql = format!(
@@ -649,9 +677,9 @@ pub async fn run_query(
     let read = is_read_stmt(&sql);
     let started = Instant::now();
     let result = if read {
-        run_read(&target, &database, &sql).await
+        run_read(&state, &target, &database, &sql).await
     } else {
-        run_write(&target, &database, &sql).await
+        run_write(&state, &target, &database, &sql).await
     };
     let duration_ms = started.elapsed().as_millis() as i64;
 
@@ -697,9 +725,14 @@ pub async fn run_query(
 
 /// Execute a rowset-returning statement. We learn its column names by preparing
 /// it (no execution), then wrap it so every column is cast to text.
-async fn run_read(target: &Target, database: &str, sql: &str) -> AppResult<Outcome> {
+async fn run_read(
+    state: &SharedState,
+    target: &Target,
+    database: &str,
+    sql: &str,
+) -> AppResult<Outcome> {
     let engine = target.engine;
-    let mut db = connect(target, database).await?;
+    let mut db = connect(state, target, database).await?;
 
     let names = db.column_names(sql).await.map_err(db_err)?;
 
@@ -744,8 +777,13 @@ async fn run_read(target: &Target, database: &str, sql: &str) -> AppResult<Outco
 
 /// Execute a non-rowset statement (INSERT/UPDATE/DELETE/DDL/…); report affected
 /// rows.
-async fn run_write(target: &Target, database: &str, sql: &str) -> AppResult<Outcome> {
-    let mut db = connect(target, database).await?;
+async fn run_write(
+    state: &SharedState,
+    target: &Target,
+    database: &str,
+    sql: &str,
+) -> AppResult<Outcome> {
+    let mut db = connect(state, target, database).await?;
     let affected = db.exec(sql).await.map_err(db_err)? as i64;
     Ok(Outcome::Write { affected })
 }
