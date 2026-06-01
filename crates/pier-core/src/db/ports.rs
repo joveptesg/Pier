@@ -255,8 +255,7 @@ mod tests {
         // host_port=5432 (NOT a number from the 10000+ pool). Round 5 fix.
         let conn = test_conn();
         let specs = vec![("primary".to_string(), 5432u16)];
-        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[])
-            .expect("allocate");
+        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[]).expect("allocate");
         assert_eq!(allocs.len(), 1);
         assert_eq!(
             allocs[0].host_port, 5432,
@@ -287,8 +286,8 @@ mod tests {
         // Operator explicitly asked for host_port=15432 → it's free, give it.
         let conn = test_conn();
         let specs = vec![("primary".to_string(), 5432u16)];
-        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[Some(15432)])
-            .expect("allocate");
+        let allocs =
+            allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[Some(15432)]).expect("allocate");
         assert_eq!(allocs[0].host_port, 15432);
     }
 

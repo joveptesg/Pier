@@ -26,6 +26,11 @@ bollard = { workspace = true }
 # Database
 rusqlite = { workspace = true }
 
+# Native PostgreSQL driver for the in-panel data browser. Optional + behind
+# the `db-browser` feature (default on) so size-sensitive builds can drop it
+# with `--no-default-features`.
+sqlx = { workspace = true, optional = true }
+
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -118,3 +123,11 @@ qrcode = { workspace = true }
 # Markdown rendering (npm package READMEs)
 pulldown-cmark = { workspace = true }
 ammonia = { workspace = true }
+
+[features]
+# `db-browser` ships the in-panel database browser (native sqlx driver).
+# It's on by default; build with `--no-default-features` (e.g. on a
+# memory-constrained host using `--profile release-lowmem`) to drop sqlx and
+# shrink the binary.
+default = ["db-browser"]
+db-browser = ["dep:sqlx"]

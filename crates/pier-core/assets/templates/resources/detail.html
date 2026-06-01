@@ -105,6 +105,9 @@
         <button x-show="resource.category === 'database'" @click="tab = 'databases'; loadDatabases()"
                 :class="tab === 'databases' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Databases</button>
+        <button x-show="resource.category === 'database'" @click="tab = 'data'; loadDbBrowser()"
+                :class="tab === 'data' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Data</button>
         <button @click="tab = 'env'" :class="tab === 'env' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Environment</button>
         <button @click="tab = 'domains'" :class="tab === 'domains' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
@@ -449,6 +452,118 @@
     </div>
 
     <!-- Databases Tab (only for database category) -->
+    <!-- ── Data browser (read-only) ───────────────────────────── -->
+    <div x-show="tab === 'data'" x-cloak class="space-y-4">
+        <div x-show="dbb.error" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm" x-text="dbb.error"></div>
+
+        <div class="flex gap-4 items-start">
+            <!-- Left: object tree -->
+            <div class="w-64 shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-3 space-y-3">
+                <div>
+                    <label class="text-[11px] uppercase tracking-wide text-gray-400">Database</label>
+                    <select x-model="dbb.database" @change="loadDbObjects()"
+                            class="mt-1 w-full text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5">
+                        <template x-for="d in dbb.databases" :key="d"><option :value="d" x-text="d"></option></template>
+                    </select>
+                </div>
+                <div x-show="dbb.loading" class="text-xs text-gray-400">Loading…</div>
+                <div class="max-h-[60vh] overflow-y-auto space-y-3">
+                    <template x-for="s in dbb.schemas" :key="s.name">
+                        <div>
+                            <div class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide px-1 mb-1" x-text="s.name"></div>
+                            <div class="space-y-0.5">
+                                <template x-for="t in s.tables" :key="t.name">
+                                    <button @click="openDbTable(s.name, t.name)"
+                                            :class="dbb.selSchema === s.name && dbb.selTable === t.name ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'"
+                                            class="w-full text-left text-sm px-2 py-1 rounded-md flex items-center gap-1.5">
+                                        <span class="text-gray-400 text-xs" x-text="t.kind === 'view' ? '◫' : '▦'"></span>
+                                        <span class="truncate" x-text="t.name"></span>
+                                    </button>
+                                </template>
+                                <div x-show="s.tables.length === 0" class="text-xs text-gray-400 px-2">no tables</div>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="!dbb.loading && dbb.schemas.length === 0" class="text-xs text-gray-400 px-1">No tables in this database.</div>
+                </div>
+            </div>
+
+            <!-- Right: structure + data grid -->
+            <div class="flex-1 min-w-0 space-y-4">
+                <div x-show="!dbb.selTable" class="text-sm text-gray-400 py-10 text-center">Select a table to view its structure and data.</div>
+
+                <div x-show="dbb.selTable" x-cloak class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                            <span class="text-gray-400" x-text="dbb.selSchema + '.'"></span><span x-text="dbb.selTable"></span>
+                        </h3>
+                        <div class="flex items-center gap-1 text-xs">
+                            <button @click="dbbView = 'data'" :class="dbbView==='data' ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-500'" class="px-2 py-1">Data</button>
+                            <button @click="dbbView = 'structure'" :class="dbbView==='structure' ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-500'" class="px-2 py-1">Structure</button>
+                        </div>
+                    </div>
+
+                    <!-- Structure -->
+                    <div x-show="dbbView === 'structure' && dbb.structure" x-cloak class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 dark:bg-gray-800/50 text-gray-500 text-xs uppercase tracking-wide">
+                                <tr><th class="text-left px-3 py-2">Column</th><th class="text-left px-3 py-2">Type</th><th class="text-left px-3 py-2">Nullable</th><th class="text-left px-3 py-2">Default</th></tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="c in dbb.structure.columns" :key="c.name">
+                                    <tr class="border-t border-gray-100 dark:border-gray-800/50">
+                                        <td class="px-3 py-1.5 font-mono">
+                                            <span x-text="c.name"></span>
+                                            <span x-show="c.is_pk" class="ml-1 text-[10px] text-amber-600 dark:text-amber-400" title="Primary key">PK</span>
+                                        </td>
+                                        <td class="px-3 py-1.5 font-mono text-gray-500" x-text="c.type"></td>
+                                        <td class="px-3 py-1.5 text-gray-500" x-text="c.nullable ? 'YES' : 'NO'"></td>
+                                        <td class="px-3 py-1.5 font-mono text-gray-400 truncate max-w-[200px]" x-text="c.default || '—'"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Data grid -->
+                    <div x-show="dbbView === 'data'" class="space-y-2">
+                        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-auto max-h-[60vh]">
+                            <div x-show="dbb.gridLoading" class="text-xs text-gray-400 px-3 py-2">Loading…</div>
+                            <table x-show="dbb.rows" class="text-sm w-max min-w-full">
+                                <thead class="bg-gray-50 dark:bg-gray-800/50 text-gray-500 text-xs uppercase tracking-wide sticky top-0">
+                                    <tr><template x-for="col in (dbb.rows ? dbb.rows.columns : [])" :key="col"><th class="text-left px-3 py-2 font-mono whitespace-nowrap" x-text="col"></th></template></tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="(row, ri) in (dbb.rows ? dbb.rows.rows : [])" :key="ri">
+                                        <tr class="border-t border-gray-100 dark:border-gray-800/50">
+                                            <template x-for="(cell, ci) in row" :key="ci">
+                                                <td class="px-3 py-1.5 font-mono whitespace-nowrap max-w-[320px] truncate"
+                                                    :class="cell === null ? 'text-gray-400 italic' : 'text-gray-800 dark:text-gray-200'"
+                                                    :title="cell === null ? 'NULL' : cell"
+                                                    x-text="cell === null ? 'NULL' : cell"></td>
+                                            </template>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="dbb.rows && dbb.rows.rows.length === 0"><td class="px-3 py-3 text-gray-400 text-xs">No rows.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div x-show="dbb.rows" class="flex items-center justify-between text-xs text-gray-500">
+                            <div>
+                                <span x-text="dbb.offset + 1"></span>–<span x-text="dbb.offset + (dbb.rows ? dbb.rows.rows.length : 0)"></span>
+                                <span x-show="dbb.rows && dbb.rows.total !== null"> of <span x-text="dbb.rows ? dbb.rows.total : ''"></span></span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button @click="dbPrevPage()" :disabled="dbb.offset === 0" class="px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 disabled:opacity-40">Prev</button>
+                                <button @click="dbNextPage()" :disabled="dbb.rows && dbb.rows.rows.length < dbb.limit" class="px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 disabled:opacity-40">Next</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div x-show="tab === 'databases'" class="space-y-4">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-4">
@@ -1731,6 +1846,9 @@ function resourceDetail(id) {
         changingNetwork: false,
         availableNetworks: [],
         dbList: [], dbLoading: false, dbCreating: false,
+        // Read-only data browser (Data tab)
+        dbbView: 'data',
+        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0 },
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
         showRestoreDb: false, dbRestoring: false,
@@ -1940,6 +2058,53 @@ function resourceDetail(id) {
             this.changingNetwork = false;
         },
         // Database management
+        async loadDbBrowser() {
+            this.dbb.error = ''; this.dbb.loading = true;
+            try {
+                const d = await api(`/api/v1/resources/${this.id}/db-browser/databases`);
+                this.dbb.databases = d.databases || [];
+                this.dbb.database = d.default || this.dbb.databases[0] || '';
+                await this.loadDbObjects();
+            } catch (e) {
+                this.dbb.databases = []; this.dbb.schemas = [];
+                this.dbb.error = e.message || 'Failed to connect to the database.';
+            } finally { this.dbb.loading = false; }
+        },
+        async loadDbObjects() {
+            if (!this.dbb.database) return;
+            this.dbb.error = ''; this.dbb.selSchema = ''; this.dbb.selTable = '';
+            this.dbb.structure = null; this.dbb.rows = null;
+            try {
+                const d = await api(`/api/v1/resources/${this.id}/db-browser/objects?database=${encodeURIComponent(this.dbb.database)}`);
+                this.dbb.schemas = d.schemas || [];
+            } catch (e) { this.dbb.schemas = []; this.dbb.error = e.message || 'Failed to load tables.'; }
+        },
+        async openDbTable(schema, table) {
+            this.dbb.selSchema = schema; this.dbb.selTable = table; this.dbb.offset = 0;
+            this.dbbView = 'data';
+            await Promise.all([this.loadDbStructure(), this.loadDbRows()]);
+        },
+        dbQS() {
+            return `database=${encodeURIComponent(this.dbb.database)}&schema=${encodeURIComponent(this.dbb.selSchema)}&table=${encodeURIComponent(this.dbb.selTable)}`;
+        },
+        async loadDbStructure() {
+            try { this.dbb.structure = await api(`/api/v1/resources/${this.id}/db-browser/structure?${this.dbQS()}`); }
+            catch (e) { this.dbb.structure = null; this.dbb.error = e.message; }
+        },
+        async loadDbRows() {
+            this.dbb.gridLoading = true; this.dbb.error = '';
+            try { this.dbb.rows = await api(`/api/v1/resources/${this.id}/db-browser/rows?${this.dbQS()}&limit=${this.dbb.limit}&offset=${this.dbb.offset}`); }
+            catch (e) { this.dbb.rows = null; this.dbb.error = e.message; }
+            finally { this.dbb.gridLoading = false; }
+        },
+        dbNextPage() {
+            if (!this.dbb.rows || this.dbb.rows.rows.length < this.dbb.limit) return;
+            this.dbb.offset += this.dbb.limit; this.loadDbRows();
+        },
+        dbPrevPage() {
+            if (this.dbb.offset === 0) return;
+            this.dbb.offset = Math.max(0, this.dbb.offset - this.dbb.limit); this.loadDbRows();
+        },
         async loadDatabases() {
             this.dbLoading = true;
             try { this.dbList = await fetch('/api/v1/resources/'+this.id+'/databases').then(r => r.ok ? r.json() : []); } catch { this.dbList = []; }

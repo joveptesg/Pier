@@ -8,6 +8,8 @@ pub mod catalog;
 pub mod compose;
 pub mod containers;
 pub mod databases;
+#[cfg(feature = "db-browser")]
+pub mod db_browser;
 pub mod deployments;
 pub mod domains;
 pub mod env;
@@ -344,6 +346,25 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/system/disk-usage", get(system::disk_usage))
         .route("/system/cleanup-info", get(system::cleanup_info))
         .route("/system/update-check", get(system::update_check));
+
+    // In-panel database browser (read-only, Viewer+; each handler self-gates
+    // via `enforce_resource_role`). Compiled only with the `db-browser`
+    // feature so size-sensitive builds drop sqlx entirely.
+    #[cfg(feature = "db-browser")]
+    let protected = protected
+        .route(
+            "/resources/{id}/db-browser/databases",
+            get(db_browser::list_databases),
+        )
+        .route(
+            "/resources/{id}/db-browser/objects",
+            get(db_browser::objects),
+        )
+        .route(
+            "/resources/{id}/db-browser/structure",
+            get(db_browser::structure),
+        )
+        .route("/resources/{id}/db-browser/rows", get(db_browser::rows));
 
     // Global-Admin sub-router. Anything here is reached by:
     //   1. require_auth populates AuthUser in extensions

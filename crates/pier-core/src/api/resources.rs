@@ -1487,10 +1487,7 @@ async fn create_railpack_app(
         .get("env_vars")
         .cloned()
         .filter(|s| !s.trim().is_empty());
-    let source_id = body
-        .source_id
-        .clone()
-        .filter(|s| !s.trim().is_empty());
+    let source_id = body.source_id.clone().filter(|s| !s.trim().is_empty());
 
     let service_id = uuid::Uuid::new_v4().to_string();
 
