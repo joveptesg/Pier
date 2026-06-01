@@ -61,6 +61,24 @@ done
 
 [[ $EUID -ne 0 ]] && error "This script must be run as root (sudo)"
 
+# ── Ensure baseline swap (floor) — runtime / buildkit safety net ─────────────
+# NOTE: this does NOT fix a build OOM. install.sh installs a PRE-BUILT binary
+# and runs AFTER compilation, so it cannot rescue a `cargo build` that already
+# got SIGKILL'd — that's build-from-source.sh's job (swap BEFORE the build).
+# Here we only guarantee a 4 GiB swap floor so the running host (pier + buildkit
+# image builds) has an OOM relief valve. Opt out with PIER_SKIP_SWAP=1.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ "${PIER_SKIP_SWAP:-0}" != "1" ]]; then
+    if [[ -f "${SCRIPT_DIR}/lib-swap.sh" ]]; then
+        # shellcheck source=lib-swap.sh
+        source "${SCRIPT_DIR}/lib-swap.sh"
+        ensure_swap 4096 4096 || warn "swap-страховка пропущена (см. сообщение выше)"
+    else
+        warn "lib-swap.sh не найден рядом с install.sh — пропускаю настройку swap."
+    fi
+fi
+
 # ── Check prerequisites ─────────────────────────────────────────────────────
 
 info "Checking prerequisites..."

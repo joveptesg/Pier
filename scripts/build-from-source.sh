@@ -32,6 +32,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SWAPFILE="/swapfile"
 
+# Shared swap helper (ensure_swap / tune_swappiness). Loggers above are reused.
+# shellcheck source=lib-swap.sh
+source "${SCRIPT_DIR}/lib-swap.sh"
+
 # ── Parse arguments ──────────────────────────────────────────────────────────
 
 NO_SWAP=false
@@ -94,47 +98,34 @@ NPROC=$(nproc)
 
 info "RAM: ${MEM_TOTAL_MB} MiB, Swap: ${SWAP_TOTAL_MB} MiB, CPUs: ${NPROC}"
 
-# ── Pick strategy ────────────────────────────────────────────────────────────
+# ── Pick strategy (jobs + profile by PHYSICAL RAM) ───────────────────────────
+# Swap is handled separately by ensure_swap below. Job count is sized to
+# physical RAM, not effective: running many parallel rustc on swap thrashes.
 
-SWAP_ADD_MB=0
+SWAP_FLOOR_MB=4096      # baseline swap on every host (OOM relief valve)
+
 PROFILE="release"
-JOBS="$NPROC"
-
-if (( EFFECTIVE_MB >= 6144 )); then
-    PROFILE="release"
+if (( MEM_TOTAL_MB >= 6144 )); then
     JOBS="$NPROC"
-elif (( EFFECTIVE_MB >= 3072 )); then
-    PROFILE="release"
-    # ram_gb/2, at least 1
-    JOBS=$(( MEM_TOTAL_MB / 2048 ))
+elif (( MEM_TOTAL_MB >= 3072 )); then
+    JOBS=$(( MEM_TOTAL_MB / 2048 ))     # ram_gb/2, at least 1
     (( JOBS < 1 )) && JOBS=1
     (( JOBS > NPROC )) && JOBS="$NPROC"
 else
-    PROFILE="release-lowmem"
+    PROFILE="release-lowmem"            # lower rustc peak → swapping stays tolerable
     JOBS=1
-    if [[ "$NO_SWAP" == "false" ]]; then
-        # Bring effective memory up to 4 GiB.
-        TARGET_MB=4096
-        ADD=$(( TARGET_MB - EFFECTIVE_MB ))
-        # round up to whole GiB, min 1 GiB if we add anything at all
-        SWAP_ADD_MB=$(( ((ADD + 1023) / 1024) * 1024 ))
-        (( SWAP_ADD_MB < 1024 )) && SWAP_ADD_MB=1024
-    fi
 fi
 
 # Honor forces last so user overrides win.
 [[ -n "$FORCE_PROFILE" ]] && PROFILE="$FORCE_PROFILE"
 [[ -n "$FORCE_JOBS" ]]    && JOBS="$FORCE_JOBS"
 
-# Disk-space sanity for swap
-if (( SWAP_ADD_MB > 0 )); then
-    DISK_FREE_MB=$(df -BM --output=avail / | tail -n1 | tr -dc '0-9')
-    NEEDED_MB=$(( SWAP_ADD_MB + 2048 ))
-    if (( DISK_FREE_MB < NEEDED_MB )); then
-        warn "Only ${DISK_FREE_MB} MiB free on /, need ${NEEDED_MB} MiB for swap + 2 GiB headroom."
-        warn "Falling back to release-lowmem without swap. Build may run very slow or OOM."
-        SWAP_ADD_MB=0
-    fi
+# Build target (RAM+swap to aim for) depends on the chosen profile: the cold
+# release build peaks higher (LTO + codegen-units=1) than release-lowmem.
+if [[ "$PROFILE" == "release-lowmem" ]]; then
+    BUILD_TARGET_MB=4096
+else
+    BUILD_TARGET_MB=6144
 fi
 
 # ── Print plan ───────────────────────────────────────────────────────────────
@@ -145,16 +136,16 @@ echo -e "${CYAN}  Build plan${NC}"
 echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
 echo "  Profile:    ${PROFILE}"
 echo "  Jobs:       ${JOBS}"
-if (( SWAP_ADD_MB > 0 )); then
-    echo "  Swap:       create ${SWAP_ADD_MB} MiB at ${SWAPFILE}, persist in /etc/fstab"
+if [[ "$NO_SWAP" == "true" ]]; then
+    echo "  Swap:       disabled (--no-swap)"
 else
-    echo "  Swap:       no changes"
+    echo "  Swap:       ensure floor ${SWAP_FLOOR_MB}MiB / target RAM+swap ${BUILD_TARGET_MB}MiB at ${SWAPFILE}"
 fi
 echo "  Build user: ${BUILD_USER}"
 echo "  Repo:       ${REPO_DIR}"
 echo ""
 
-if (( SWAP_ADD_MB > 0 )) && [[ "$ASSUME_YES" == "false" ]]; then
+if [[ "$NO_SWAP" == "false" ]] && [[ "$ASSUME_YES" == "false" ]]; then
     read -r -p "Proceed with this plan? [Y/n] " ans
     case "${ans:-Y}" in
         Y|y|yes|YES) ;;
@@ -162,35 +153,11 @@ if (( SWAP_ADD_MB > 0 )) && [[ "$ASSUME_YES" == "false" ]]; then
     esac
 fi
 
-# ── Ensure swap ──────────────────────────────────────────────────────────────
+# ── Ensure swap (floor + build target) BEFORE building ───────────────────────
 
-if (( SWAP_ADD_MB > 0 )); then
-    step "Setting up ${SWAP_ADD_MB} MiB swap at ${SWAPFILE}..."
-
-    if swapon --show=NAME --noheadings | grep -qx "$SWAPFILE"; then
-        info "${SWAPFILE} already active — skipping creation."
-    else
-        if [[ -e "$SWAPFILE" ]]; then
-            warn "${SWAPFILE} exists but is not active. Reusing it as-is."
-        else
-            if command -v fallocate &>/dev/null; then
-                fallocate -l "${SWAP_ADD_MB}M" "$SWAPFILE"
-            else
-                dd if=/dev/zero of="$SWAPFILE" bs=1M count="$SWAP_ADD_MB" status=progress
-            fi
-            chmod 600 "$SWAPFILE"
-            mkswap "$SWAPFILE" >/dev/null
-        fi
-        swapon "$SWAPFILE"
-        info "Swap activated."
-    fi
-
-    if ! grep -qE "^${SWAPFILE}\s+" /etc/fstab; then
-        echo "${SWAPFILE} none swap sw 0 0" >> /etc/fstab
-        info "Added ${SWAPFILE} to /etc/fstab."
-    else
-        info "${SWAPFILE} already in /etc/fstab — skipping."
-    fi
+if [[ "$NO_SWAP" == "false" ]]; then
+    ensure_swap "$SWAP_FLOOR_MB" "$BUILD_TARGET_MB" \
+        || warn "ensure_swap не смог поднять swap — сборка может быть медленной или упасть по OOM."
 fi
 
 # ── Ensure rust toolchain (as build user) ───────────────────────────────────
