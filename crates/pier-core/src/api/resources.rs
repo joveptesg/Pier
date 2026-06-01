@@ -3549,8 +3549,12 @@ pub async fn set_port_public(
                     rusqlite::params![target_pp.map(|p| p as i64), pid],
                 )?;
             } else {
+                // Preserve public_port across toggle OFF — operators expect
+                // the input to remember what they typed so the next toggle
+                // ON uses the same port. Round 6 fixed port_sync but this
+                // path was still hardcoding NULL.
                 db.execute(
-                    "UPDATE port_allocations SET is_public = 0, public_port = NULL WHERE id = ?1",
+                    "UPDATE port_allocations SET is_public = 0 WHERE id = ?1",
                     [pid],
                 )?;
             }
@@ -3616,10 +3620,16 @@ pub async fn set_port_public(
                             rusqlite::params![row.prev_public_port.map(|p| p as i64), row.id],
                         )
                     } else {
+                        // Restore the snapshot's public_port too — hardcoding
+                        // NULL here would erase the operator's saved choice
+                        // even when the toggle attempt failed. prev_public_port
+                        // is None when the service never had one (UPDATE
+                        // writes NULL); Some(p) when the operator had
+                        // previously chosen p (UPDATE preserves it).
                         db.execute(
-                            "UPDATE port_allocations SET is_public = 0, public_port = NULL \
-                             WHERE id = ?1",
-                            [&row.id],
+                            "UPDATE port_allocations SET is_public = 0, public_port = ?1 \
+                             WHERE id = ?2",
+                            rusqlite::params![row.prev_public_port.map(|p| p as i64), &row.id],
                         )
                     };
                 }
