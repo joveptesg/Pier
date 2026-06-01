@@ -96,7 +96,14 @@ fn redis_target(state: &SharedState, id: &str) -> AppResult<RedisTarget> {
     if !matches!(catalog.as_str(), "redis" | "valkey") {
         return Err(AppError::BadRequest("This is not a Redis service.".into()));
     }
-    let password = env.get("REDIS_PASSWORD").cloned().unwrap_or_default();
+    // Valkey stores its password in VALKEY_PASSWORD (its template runs
+    // `valkey-server --requirepass {{VALKEY_PASSWORD}}`); fall back to it so the
+    // whole Redis browser (keys/value/command/keyspace/monitor) authenticates.
+    let password = env
+        .get("REDIS_PASSWORD")
+        .or_else(|| env.get("VALKEY_PASSWORD"))
+        .cloned()
+        .unwrap_or_default();
     let host_port = port_lookup(state, id, 6379)?;
     Ok(RedisTarget {
         container: format!("pier-{}", name.to_lowercase().replace(' ', "-")),
