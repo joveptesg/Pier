@@ -26,10 +26,11 @@ bollard = { workspace = true }
 # Database
 rusqlite = { workspace = true }
 
-# Native PostgreSQL driver for the in-panel data browser. Optional + behind
-# the `db-browser` feature (default on) so size-sensitive builds can drop it
-# with `--no-default-features`.
+# Native SQL/Redis drivers for the in-panel data browser. Optional + behind the
+# `db-browser` feature (default on) so size-sensitive builds can drop them with
+# `--no-default-features`. MongoDB uses the `mongosh` docker-exec path (no crate).
 sqlx = { workspace = true, optional = true }
+redis = { workspace = true, optional = true }
 
 # Serialization
 serde = { workspace = true }
@@ -130,4 +131,4 @@ ammonia = { workspace = true }
 # memory-constrained host using `--profile release-lowmem`) to drop sqlx and
 # shrink the binary.
 default = ["db-browser"]
-db-browser = ["dep:sqlx"]
+db-browser = ["dep:sqlx", "dep:redis"]

@@ -105,7 +105,7 @@
         <button x-show="resource.category === 'database'" @click="tab = 'databases'; loadDatabases()"
                 :class="tab === 'databases' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Databases</button>
-        <button x-show="resource.category === 'database'" @click="tab = 'data'; loadDbBrowser()"
+        <button x-show="resource.category === 'database'" @click="tab = 'data'; loadDataTab()"
                 :class="tab === 'data' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Data</button>
         <button @click="tab = 'env'" :class="tab === 'env' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
@@ -454,10 +454,130 @@
     <!-- Databases Tab (only for database category) -->
     <!-- ── Data browser (read-only) ───────────────────────────── -->
     <div x-show="tab === 'data'" x-cloak class="space-y-4">
-        <div x-show="dbb.error" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm" x-text="dbb.error"></div>
+
+        <!-- ===== Redis / Valkey ===== -->
+        <div x-show="dbEngineKind === 'redis'" x-cloak class="space-y-4">
+            <div x-show="redis.error" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm" x-text="redis.error"></div>
+            <div class="flex gap-4 items-start">
+                <div class="w-72 shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-3 space-y-2">
+                    <div class="flex items-center gap-2">
+                        <label class="text-[11px] text-gray-400">DB</label>
+                        <select x-model.number="redis.db" @change="loadRedisKeys()" class="text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-1">
+                            <template x-for="n in 16" :key="n"><option :value="n-1" x-text="n-1"></option></template>
+                        </select>
+                        <input x-model="redis.pattern" @keydown.enter="loadRedisKeys()" placeholder="*" class="flex-1 min-w-0 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 font-mono">
+                        <button @click="loadRedisKeys()" class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Scan</button>
+                    </div>
+                    <div class="max-h-[55vh] overflow-y-auto space-y-0.5">
+                        <template x-for="k in redis.keys" :key="k.key">
+                            <button @click="loadRedisValue(k.key)"
+                                    :class="redis.selKey === k.key ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800'"
+                                    class="w-full text-left text-sm px-2 py-1 rounded flex items-center gap-2">
+                                <span class="text-[9px] uppercase text-gray-400 w-9 shrink-0" x-text="k.type"></span>
+                                <span class="truncate font-mono text-gray-700 dark:text-gray-300" x-text="k.key"></span>
+                            </button>
+                        </template>
+                        <div x-show="!redis.loading && redis.keys.length === 0" class="text-xs text-gray-400 px-2 py-1">No keys.</div>
+                        <button x-show="redis.cursor !== 0" @click="loadRedisKeys(false)" class="w-full text-xs text-blue-500 py-1">Load more…</button>
+                    </div>
+                </div>
+                <div class="flex-1 min-w-0 space-y-4">
+                    <div x-show="!redis.selKey" class="text-sm text-gray-400 py-6 text-center">Select a key to view its value.</div>
+                    <div x-show="redis.selKey && redis.value" x-cloak class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-2">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-sm font-mono text-gray-900 dark:text-gray-100 truncate" x-text="redis.selKey"></h3>
+                            <span class="text-[11px] text-gray-400 shrink-0"><span x-text="redis.value && redis.value.type"></span> · TTL <span x-text="redis.value && redis.value.ttl"></span></span>
+                        </div>
+                        <pre class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-auto max-h-[40vh] whitespace-pre-wrap" x-text="redis.value ? redisJson(redis.value.value) : ''"></pre>
+                    </div>
+                    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Command</h3>
+                            <span class="text-[11px] text-gray-400">Editor role · audited</span>
+                        </div>
+                        <div class="flex gap-2">
+                            <input x-model="redis.cmd" @keydown.enter="runRedisCommand()" spellcheck="false" placeholder="GET mykey"
+                                   class="flex-1 font-mono text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+                            <button @click="runRedisCommand()" :disabled="redis.cmdRunning || !redis.cmd.trim()"
+                                    class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
+                                <span x-show="!redis.cmdRunning">Run</span><span x-show="redis.cmdRunning" x-cloak>…</span>
+                            </button>
+                        </div>
+                        <pre x-show="redis.cmdResult" x-cloak class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-auto max-h-[30vh] whitespace-pre-wrap" x-text="redis.cmdResult ? redisJson(redis.cmdResult.result) : ''"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== MongoDB ===== -->
+        <div x-show="dbEngineKind === 'mongo'" x-cloak class="space-y-4">
+            <div x-show="mongo.error" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm" x-text="mongo.error"></div>
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Mongo Shell</h3>
+                    <span class="text-[11px] text-gray-400">DB: <span class="font-mono" x-text="mongo.database || '—'"></span> · Editor · audited</span>
+                </div>
+                <textarea x-model="mongo.script" rows="3" spellcheck="false"
+                          @keydown.ctrl.enter="runMongoScript()" @keydown.meta.enter="runMongoScript()"
+                          placeholder="db.users.find().limit(5)   (Ctrl/Cmd+Enter to run)"
+                          class="w-full font-mono text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2"></textarea>
+                <div>
+                    <button @click="runMongoScript()" :disabled="mongo.scriptRunning || !mongo.script.trim()"
+                            class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
+                        <span x-show="!mongo.scriptRunning">Run</span><span x-show="mongo.scriptRunning" x-cloak>Running…</span>
+                    </button>
+                </div>
+                <pre x-show="mongo.scriptOut" x-cloak class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-auto max-h-[40vh] whitespace-pre-wrap" x-text="mongo.scriptOut"></pre>
+            </div>
+
+            <div class="flex gap-4 items-start">
+                <div class="w-64 shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-3 space-y-3">
+                    <div>
+                        <label class="text-[11px] uppercase tracking-wide text-gray-400">Database</label>
+                        <select x-model="mongo.database" @change="loadMongoCollections()" class="mt-1 w-full text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5">
+                            <template x-for="d in mongo.databases" :key="d"><option :value="d" x-text="d"></option></template>
+                        </select>
+                    </div>
+                    <div class="max-h-[55vh] overflow-y-auto space-y-0.5">
+                        <template x-for="c in mongo.collections" :key="c">
+                            <button @click="openMongoColl(c)"
+                                    :class="mongo.collection === c ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'"
+                                    class="w-full text-left text-sm px-2 py-1 rounded flex items-center gap-1.5">
+                                <span class="text-gray-400 text-xs">▤</span><span class="truncate" x-text="c"></span>
+                            </button>
+                        </template>
+                        <div x-show="mongo.collections.length === 0" class="text-xs text-gray-400 px-2">No collections.</div>
+                    </div>
+                </div>
+                <div class="flex-1 min-w-0 space-y-3">
+                    <div x-show="!mongo.collection" class="text-sm text-gray-400 py-10 text-center">Select a collection to view documents.</div>
+                    <div x-show="mongo.collection" x-cloak class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                <span class="text-gray-400" x-text="mongo.database + '.'"></span><span x-text="mongo.collection"></span>
+                            </h3>
+                            <div class="flex items-center gap-2 text-xs text-gray-500">
+                                <span x-show="mongo.docs">skip <span x-text="mongo.skip"></span><span x-show="mongo.docs && mongo.docs.total !== null"> · <span x-text="mongo.docs ? mongo.docs.total : ''"></span> total</span></span>
+                                <button @click="mongoPrev()" :disabled="mongo.skip === 0" class="px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 disabled:opacity-40">Prev</button>
+                                <button @click="mongoNext()" :disabled="mongo.docs && mongo.docs.documents.length < mongo.limit" class="px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 disabled:opacity-40">Next</button>
+                            </div>
+                        </div>
+                        <div class="space-y-2 max-h-[55vh] overflow-y-auto">
+                            <template x-for="(doc, di) in (mongo.docs ? mongo.docs.documents : [])" :key="di">
+                                <pre class="text-xs font-mono bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-lg p-3 overflow-x-auto" x-text="mongoDocJson(doc)"></pre>
+                            </template>
+                            <div x-show="mongo.docs && mongo.docs.documents.length === 0" class="text-xs text-gray-400">No documents.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== SQL (PostgreSQL / MySQL) ===== -->
+        <div x-show="dbEngineKind === 'sql' && dbb.error" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm" x-text="dbb.error"></div>
 
         <!-- SQL runner -->
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-3">
+        <div x-show="dbEngineKind === 'sql'" x-cloak class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-3">
             <div class="flex items-center justify-between">
                 <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">SQL Runner</h3>
                 <span class="text-[11px] text-gray-400">DB: <span class="font-mono" x-text="dbb.database || '—'"></span></span>
@@ -514,7 +634,7 @@
             </template>
         </div>
 
-        <div class="flex gap-4 items-start">
+        <div x-show="dbEngineKind === 'sql'" class="flex gap-4 items-start">
             <!-- Left: object tree -->
             <div class="w-64 shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-3 space-y-3">
                 <div>
@@ -1907,6 +2027,8 @@ function resourceDetail(id) {
         // Read-only data browser (Data tab)
         dbbView: 'data',
         dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, runner: { sql: '', running: false, result: null, error: '' } },
+        redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false },
+        mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, script: '', scriptOut: '', scriptRunning: false },
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
         showRestoreDb: false, dbRestoring: false,
@@ -2163,6 +2285,74 @@ function resourceDetail(id) {
             if (this.dbb.offset === 0) return;
             this.dbb.offset = Math.max(0, this.dbb.offset - this.dbb.limit); this.loadDbRows();
         },
+        get dbEngineKind() {
+            const c = (this.resource.catalog_id || '').toLowerCase();
+            if (['redis', 'valkey'].includes(c)) return 'redis';
+            if (c === 'mongodb') return 'mongo';
+            return 'sql';
+        },
+        loadDataTab() {
+            const k = this.dbEngineKind;
+            if (k === 'redis') this.loadRedisKeys();
+            else if (k === 'mongo') this.loadMongo();
+            else this.loadDbBrowser();
+        },
+        // ── Redis ──
+        async loadRedisKeys(reset = true) {
+            const r = this.redis;
+            if (reset) { r.cursor = 0; r.keys = []; r.selKey = ''; r.value = null; }
+            r.loading = true; r.error = '';
+            try {
+                const d = await api(`/api/v1/resources/${this.id}/db-browser/redis/keys?db=${r.db}&pattern=${encodeURIComponent(r.pattern || '*')}&cursor=${r.cursor}`);
+                r.keys = reset ? (d.keys || []) : r.keys.concat(d.keys || []);
+                r.cursor = d.cursor;
+            } catch (e) { r.error = e.message || 'Failed to load keys.'; } finally { r.loading = false; }
+        },
+        async loadRedisValue(key) {
+            const r = this.redis; r.selKey = key; r.value = null; r.error = '';
+            try { r.value = await api(`/api/v1/resources/${this.id}/db-browser/redis/value?db=${r.db}&key=${encodeURIComponent(key)}`); }
+            catch (e) { r.error = e.message; }
+        },
+        async runRedisCommand() {
+            const r = this.redis; const cmd = (r.cmd || '').trim();
+            if (!cmd || r.cmdRunning) return;
+            r.cmdRunning = true; r.cmdResult = null; r.error = '';
+            try { r.cmdResult = await api(`/api/v1/resources/${this.id}/db-browser/redis/command`, { method: 'POST', body: JSON.stringify({ command: cmd, db: r.db }) }); }
+            catch (e) { r.error = e.message; } finally { r.cmdRunning = false; }
+        },
+        redisJson(v) { try { return JSON.stringify(v, null, 2); } catch { return String(v); } },
+        // ── MongoDB ──
+        async loadMongo() {
+            const m = this.mongo; m.loading = true; m.error = '';
+            try {
+                const d = await api(`/api/v1/resources/${this.id}/db-browser/mongo/databases`);
+                m.databases = d.databases || [];
+                m.database = m.databases[0] || '';
+                await this.loadMongoCollections();
+            } catch (e) { m.error = e.message || 'Failed to connect to MongoDB.'; } finally { m.loading = false; }
+        },
+        async loadMongoCollections() {
+            const m = this.mongo; if (!m.database) return;
+            m.error = ''; m.collection = ''; m.docs = null;
+            try { const d = await api(`/api/v1/resources/${this.id}/db-browser/mongo/collections?database=${encodeURIComponent(m.database)}`); m.collections = d.collections || []; }
+            catch (e) { m.collections = []; m.error = e.message; }
+        },
+        async openMongoColl(coll) { const m = this.mongo; m.collection = coll; m.skip = 0; await this.loadMongoDocs(); },
+        async loadMongoDocs() {
+            const m = this.mongo; if (!m.collection) return; m.error = '';
+            try { m.docs = await api(`/api/v1/resources/${this.id}/db-browser/mongo/documents?database=${encodeURIComponent(m.database)}&collection=${encodeURIComponent(m.collection)}&limit=${m.limit}&skip=${m.skip}`); }
+            catch (e) { m.docs = null; m.error = e.message; }
+        },
+        mongoNext() { const m = this.mongo; if (!m.docs || m.docs.documents.length < m.limit) return; m.skip += m.limit; this.loadMongoDocs(); },
+        mongoPrev() { const m = this.mongo; if (m.skip === 0) return; m.skip = Math.max(0, m.skip - m.limit); this.loadMongoDocs(); },
+        async runMongoScript() {
+            const m = this.mongo; const s = (m.script || '').trim();
+            if (!s || m.scriptRunning) return;
+            m.scriptRunning = true; m.scriptOut = ''; m.error = '';
+            try { const d = await api(`/api/v1/resources/${this.id}/db-browser/mongo/query`, { method: 'POST', body: JSON.stringify({ database: m.database, script: s }) }); m.scriptOut = d.output || '(no output)'; }
+            catch (e) { m.error = e.message; } finally { m.scriptRunning = false; }
+        },
+        mongoDocJson(d) { try { return JSON.stringify(d, null, 2); } catch { return String(d); } },
         async runSql() {
             const r = this.dbb.runner;
             const sql = (r.sql || '').trim();

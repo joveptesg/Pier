@@ -795,7 +795,7 @@ fn has_duplicates(v: &[String]) -> bool {
 /// Best-effort audit row. Never fails the request — a logging error must not
 /// mask a successful (or failed) query.
 #[allow(clippy::too_many_arguments)]
-fn log_query(
+pub(crate) fn log_query(
     state: &SharedState,
     service_id: &str,
     user: &AuthUser,

@@ -723,7 +723,7 @@ pub async fn change_password(
 }
 
 /// Execute a command inside a Docker container and return stdout.
-async fn exec_in_container(
+pub(crate) async fn exec_in_container(
     docker: &bollard::Docker,
     container: &str,
     cmd: &[&str],

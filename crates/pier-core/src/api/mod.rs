@@ -10,6 +10,8 @@ pub mod containers;
 pub mod databases;
 #[cfg(feature = "db-browser")]
 pub mod db_browser;
+#[cfg(feature = "db-browser")]
+pub mod db_nosql;
 pub mod deployments;
 pub mod domains;
 pub mod env;
@@ -369,6 +371,36 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/resources/{id}/db-browser/query",
             post(db_browser::run_query),
+        )
+        // Redis / Valkey (native client)
+        .route(
+            "/resources/{id}/db-browser/redis/keys",
+            get(db_nosql::redis_keys),
+        )
+        .route(
+            "/resources/{id}/db-browser/redis/value",
+            get(db_nosql::redis_value),
+        )
+        .route(
+            "/resources/{id}/db-browser/redis/command",
+            post(db_nosql::redis_command),
+        )
+        // MongoDB (mongosh via docker-exec)
+        .route(
+            "/resources/{id}/db-browser/mongo/databases",
+            get(db_nosql::mongo_databases),
+        )
+        .route(
+            "/resources/{id}/db-browser/mongo/collections",
+            get(db_nosql::mongo_collections),
+        )
+        .route(
+            "/resources/{id}/db-browser/mongo/documents",
+            get(db_nosql::mongo_documents),
+        )
+        .route(
+            "/resources/{id}/db-browser/mongo/query",
+            post(db_nosql::mongo_query),
         );
 
     // Global-Admin sub-router. Anything here is reached by:
