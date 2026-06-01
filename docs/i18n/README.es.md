@@ -38,6 +38,69 @@ Despliega contenedores, stacks de Docker Compose y repositorios Git con SSL auto
 </p>
 -->
 
+## Inicio rápido
+
+### Opción A: Instalación con un solo comando (Ubuntu/Debian)
+
+```bash
+curl -fsSL https://pier.team/install | sudo bash
+```
+
+> La URL corta redirige a [`scripts/bootstrap.sh`](../../scripts/bootstrap.sh). El script instala Docker, descarga el binario de la última release (con verificación sha256) y ejecuta `install.sh`. Vuelve a ejecutarlo en cualquier momento para actualizar a la última release.
+
+### Opción B: Compilar desde el código fuente
+
+```bash
+git clone https://github.com/joveptesg/pier.git
+cd pier
+cargo build --release
+sudo bash scripts/install.sh --binary target/release/pier
+```
+
+### Opción C: Docker
+
+```bash
+docker run -d \
+  --name pier \
+  -p 8443:8443 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v pier-data:/app/data \
+  ghcr.io/joveptesg/pier:latest
+```
+
+### Opción D: Instalar desde una release preconstruida (sin compilar)
+
+¿Ya tienes Docker? Descarga directamente el último binario preconstruido — sin toolchain de Rust, sin compilación:
+
+```bash
+# 1. Descarga el binario preconstruido + checksum (linux/amd64)
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64 -o pier-linux-amd64
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64.sha256 -o pier-linux-amd64.sha256
+sha256sum -c pier-linux-amd64.sha256          # verifica la integridad
+
+# 2. Obtén el instalador y ejecútalo
+curl -fL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/install.sh -o install.sh
+chmod +x pier-linux-amd64
+sudo bash install.sh --binary ./pier-linux-amd64
+```
+
+> El equivalente manual de la Opción A, sin la instalación automática de Docker. Requiere Docker + Compose ya presentes (consulta [INSTALL.md](../../INSTALL.md)). El nombre del archivo del binario debe seguir siendo `pier-linux-amd64` para que `sha256sum -c` coincida.
+
+### Actualizar Pier
+
+Las actualizaciones descargan un **binario preconstruido** nuevo — sin necesidad de recompilar desde el código fuente. `install.sh` detecta el servicio en ejecución, lo detiene, reemplaza el binario y lo reinicia, conservando tu `.env` y `/opt/pier/data`.
+
+```bash
+# Lo más fácil — vuelve a ejecutar el instalador de un solo comando (vuelve a descargar la última release):
+curl -fsSL https://pier.team/install | sudo bash
+
+# O manualmente, con el mismo flujo que la Opción D (descargar → verificar → install.sh).
+```
+
+Luego abre `http://TU_IP_DEL_SERVIDOR:8443/setup` para crear tu cuenta de administrador.
+
+> Para una configuración detallada del servidor (hardening de seguridad, firewall, instalación de Docker), consulta [INSTALL.md](../../INSTALL.md).
+
 ## ¿Por qué Pier?
 
 [Coolify](https://coolify.io) es genial, pero ejecuta **más de 6 contenedores** y consume **750 MB – 1.2 GB de RAM** en reposo. Pier ofrece las mismas funciones principales en un solo binario.
@@ -191,38 +254,6 @@ Si tu proyecto necesita anular el comportamiento por defecto, deja un [`railpack
 **Aplicaciones** — Despliegue desde Dockerfile, imagen Docker o Docker Compose
 
 > ¿No encuentras lo que necesitas? Despliega cualquier imagen Docker o stack de Compose manualmente.
-
-## Inicio rápido
-
-### Opción A: Instalación con un solo comando (Ubuntu/Debian)
-
-```bash
-curl -fsSL https://pier.team/install | sudo bash
-```
-
-### Opción B: Compilar desde el código fuente
-
-```bash
-git clone https://github.com/joveptesg/pier.git
-cd pier
-cargo build --release
-sudo bash scripts/install.sh --binary target/release/pier
-```
-
-### Opción C: Docker
-
-```bash
-docker run -d \
-  --name pier \
-  -p 8443:8443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v pier-data:/app/data \
-  ghcr.io/joveptesg/pier:latest
-```
-
-Luego abre `http://TU_IP_DEL_SERVIDOR:8443/setup` para crear tu cuenta de administrador.
-
-> Para una configuración detallada del servidor (hardening de seguridad, firewall, instalación de Docker), consulta [INSTALL.md](../../INSTALL.md).
 
 ## Stack tecnológico
 

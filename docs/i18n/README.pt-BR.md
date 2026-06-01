@@ -38,6 +38,69 @@ Implante contêineres, stacks Docker Compose e repositórios Git com SSL automá
 </p>
 -->
 
+## Início Rápido
+
+### Opção A: Instalação com um comando (Ubuntu/Debian)
+
+```bash
+curl -fsSL https://pier.team/install | sudo bash
+```
+
+> A URL curta redireciona para [`scripts/bootstrap.sh`](../../scripts/bootstrap.sh). O script instala o Docker, baixa o binário da última release (com verificação sha256) e executa o `install.sh`. Execute-o novamente a qualquer momento para atualizar para a última release.
+
+### Opção B: Compilar a partir do código-fonte
+
+```bash
+git clone https://github.com/joveptesg/pier.git
+cd pier
+cargo build --release
+sudo bash scripts/install.sh --binary target/release/pier
+```
+
+### Opção C: Docker
+
+```bash
+docker run -d \
+  --name pier \
+  -p 8443:8443 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v pier-data:/app/data \
+  ghcr.io/joveptesg/pier:latest
+```
+
+### Opção D: Instalar a partir de uma release pré-compilada (sem build)
+
+Já tem o Docker? Pegue o binário pré-compilado mais recente diretamente — sem toolchain Rust, sem compilação:
+
+```bash
+# 1. Baixe o binário pré-compilado + checksum (linux/amd64)
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64 -o pier-linux-amd64
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64.sha256 -o pier-linux-amd64.sha256
+sha256sum -c pier-linux-amd64.sha256          # verifica a integridade
+
+# 2. Baixe o instalador e execute-o
+curl -fL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/install.sh -o install.sh
+chmod +x pier-linux-amd64
+sudo bash install.sh --binary ./pier-linux-amd64
+```
+
+> O equivalente manual da Opção A, menos a instalação automática do Docker. Requer o Docker + Compose já presentes (consulte [INSTALL.md](../../INSTALL.md)). O nome do arquivo do binário deve permanecer `pier-linux-amd64` para que o `sha256sum -c` corresponda.
+
+### Atualizando o Pier
+
+As atualizações baixam um **binário pré-compilado** novo — sem necessidade de recompilar a partir do código-fonte. O `install.sh` detecta o serviço em execução, para-o, troca o binário e o reinicia, preservando seu `.env` e o `/opt/pier/data`.
+
+```bash
+# Mais fácil — execute novamente o instalador de um comando (rebaixa a última release):
+curl -fsSL https://pier.team/install | sudo bash
+
+# Ou manualmente, o mesmo fluxo da Opção D (baixar → verificar → install.sh).
+```
+
+Em seguida, abra `http://IP_DO_SEU_SERVIDOR:8443/setup` para criar sua conta de administrador.
+
+> Para configuração detalhada do servidor (hardening de segurança, firewall, instalação do Docker), consulte [INSTALL.md](../../INSTALL.md).
+
 ## Por que o Pier?
 
 O [Coolify](https://coolify.io) é ótimo, mas roda **6+ contêineres** e consome **750 MB – 1,2 GB de RAM** em repouso. O Pier entrega as mesmas funcionalidades essenciais em um único binário.
@@ -191,38 +254,6 @@ Para projetos que precisam de overrides, coloque um [`railpack.json`](https://ra
 **Aplicações** — Implante a partir de Dockerfile, imagem Docker ou Docker Compose
 
 > Não encontrou o que precisa? Implante qualquer imagem Docker ou stack Compose manualmente.
-
-## Início Rápido
-
-### Opção A: Instalação com um comando (Ubuntu/Debian)
-
-```bash
-curl -fsSL https://pier.team/install | sudo bash
-```
-
-### Opção B: Compilar a partir do código-fonte
-
-```bash
-git clone https://github.com/joveptesg/pier.git
-cd pier
-cargo build --release
-sudo bash scripts/install.sh --binary target/release/pier
-```
-
-### Opção C: Docker
-
-```bash
-docker run -d \
-  --name pier \
-  -p 8443:8443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v pier-data:/app/data \
-  ghcr.io/joveptesg/pier:latest
-```
-
-Em seguida, abra `http://IP_DO_SEU_SERVIDOR:8443/setup` para criar sua conta de administrador.
-
-> Para configuração detalhada do servidor (hardening de segurança, firewall, instalação do Docker), consulte [INSTALL.md](../../INSTALL.md).
 
 ## Stack Tecnológica
 

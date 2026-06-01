@@ -38,6 +38,69 @@ Déployez des conteneurs, des stacks Docker Compose et des dépôts Git avec SSL
 </p>
 -->
 
+## Démarrage rapide
+
+### Option A : Installation en une commande (Ubuntu/Debian)
+
+```bash
+curl -fsSL https://pier.team/install | sudo bash
+```
+
+> L'URL courte redirige vers [`scripts/bootstrap.sh`](../../scripts/bootstrap.sh). Le script installe Docker, télécharge le binaire de la dernière version (avec vérification sha256) et exécute `install.sh`. Relancez-le à tout moment pour passer à la dernière version.
+
+### Option B : Compiler depuis les sources
+
+```bash
+git clone https://github.com/joveptesg/pier.git
+cd pier
+cargo build --release
+sudo bash scripts/install.sh --binary target/release/pier
+```
+
+### Option C : Docker
+
+```bash
+docker run -d \
+  --name pier \
+  -p 8443:8443 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v pier-data:/app/data \
+  ghcr.io/joveptesg/pier:latest
+```
+
+### Option D : Installation depuis une version préconstruite (sans compilation)
+
+Vous avez déjà Docker ? Récupérez directement le dernier binaire préconstruit — pas de toolchain Rust, pas de compilation :
+
+```bash
+# 1. Télécharger le binaire préconstruit + la somme de contrôle (linux/amd64)
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64 -o pier-linux-amd64
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64.sha256 -o pier-linux-amd64.sha256
+sha256sum -c pier-linux-amd64.sha256          # vérifier l'intégrité
+
+# 2. Récupérer l'installeur et l'exécuter
+curl -fL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/install.sh -o install.sh
+chmod +x pier-linux-amd64
+sudo bash install.sh --binary ./pier-linux-amd64
+```
+
+> L'équivalent manuel de l'Option A, sans l'installation automatique de Docker. Nécessite que Docker + Compose soient déjà présents (voir [INSTALL.md](../../INSTALL.md)). Le nom de fichier du binaire doit rester `pier-linux-amd64` pour que `sha256sum -c` corresponde.
+
+### Mettre à jour Pier
+
+Les mises à jour récupèrent un nouveau **binaire préconstruit** — aucune recompilation depuis les sources n'est nécessaire. `install.sh` détecte le service en cours d'exécution, l'arrête, remplace le binaire et le redémarre, en préservant votre `.env` et `/opt/pier/data`.
+
+```bash
+# Le plus simple — relancer l'installeur en une commande (re-télécharge la dernière version) :
+curl -fsSL https://pier.team/install | sudo bash
+
+# Ou manuellement, selon le même flux que l'Option D (télécharger → vérifier → install.sh).
+```
+
+Ouvrez ensuite `http://IP_DE_VOTRE_SERVEUR:8443/setup` pour créer votre compte administrateur.
+
+> Pour une configuration détaillée du serveur (renforcement de la sécurité, pare-feu, installation de Docker), consultez [INSTALL.md](../../INSTALL.md).
+
 ## Pourquoi Pier ?
 
 [Coolify](https://coolify.io) est un excellent outil, mais il exécute **6+ conteneurs** et consomme **750 Mo à 1,2 Go de RAM** au repos. Pier offre les mêmes fonctionnalités essentielles dans un seul binaire.
@@ -191,38 +254,6 @@ Pour les projets qui nécessitent des overrides, déposez un [`railpack.json`](h
 **Applications** — Déploiement depuis un Dockerfile, une image Docker ou Docker Compose
 
 > Vous ne trouvez pas ce qu'il vous faut ? Déployez n'importe quelle image Docker ou stack Compose manuellement.
-
-## Démarrage rapide
-
-### Option A : Installation en une commande (Ubuntu/Debian)
-
-```bash
-curl -fsSL https://pier.team/install | sudo bash
-```
-
-### Option B : Compiler depuis les sources
-
-```bash
-git clone https://github.com/joveptesg/pier.git
-cd pier
-cargo build --release
-sudo bash scripts/install.sh --binary target/release/pier
-```
-
-### Option C : Docker
-
-```bash
-docker run -d \
-  --name pier \
-  -p 8443:8443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v pier-data:/app/data \
-  ghcr.io/joveptesg/pier:latest
-```
-
-Ouvrez ensuite `http://IP_DE_VOTRE_SERVEUR:8443/setup` pour créer votre compte administrateur.
-
-> Pour une configuration détaillée du serveur (renforcement de la sécurité, pare-feu, installation de Docker), consultez [INSTALL.md](../../INSTALL.md).
 
 ## Stack technique
 

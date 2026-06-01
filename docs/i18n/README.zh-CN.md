@@ -38,6 +38,69 @@
 </p>
 -->
 
+## 快速开始
+
+### 方式 A：一键安装（Ubuntu/Debian）
+
+```bash
+curl -fsSL https://pier.team/install | sudo bash
+```
+
+> 该短链接会重定向到 [`scripts/bootstrap.sh`](../../scripts/bootstrap.sh)。脚本会安装 Docker，下载最新发行版二进制文件（带 sha256 校验），并运行 `install.sh`。随时重新运行即可更新到最新发行版。
+
+### 方式 B：从源码构建
+
+```bash
+git clone https://github.com/joveptesg/pier.git
+cd pier
+cargo build --release
+sudo bash scripts/install.sh --binary target/release/pier
+```
+
+### 方式 C：Docker
+
+```bash
+docker run -d \
+  --name pier \
+  -p 8443:8443 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v pier-data:/app/data \
+  ghcr.io/joveptesg/pier:latest
+```
+
+### 方式 D：从预构建发行版安装（无需构建）
+
+已经装好了 Docker？直接获取最新的预构建二进制文件 — 无需 Rust 工具链，无需编译：
+
+```bash
+# 1. 下载预构建二进制文件 + 校验和（linux/amd64）
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64 -o pier-linux-amd64
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64.sha256 -o pier-linux-amd64.sha256
+sha256sum -c pier-linux-amd64.sha256          # 校验完整性
+
+# 2. 获取安装脚本并运行
+curl -fL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/install.sh -o install.sh
+chmod +x pier-linux-amd64
+sudo bash install.sh --binary ./pier-linux-amd64
+```
+
+> 这是方式 A 的手动等价流程，但不会自动安装 Docker。要求系统中已存在 Docker + Compose（参见 [INSTALL.md](../../INSTALL.md)）。二进制文件名必须保持为 `pier-linux-amd64`，这样 `sha256sum -c` 才能匹配。
+
+### 更新 Pier
+
+更新会拉取全新的**预构建二进制文件** — 无需从源码重新构建。`install.sh` 会检测正在运行的服务、停止它、替换二进制文件并重新启动，同时保留你的 `.env` 和 `/opt/pier/data`。
+
+```bash
+# 最简单的方式 —— 重新运行一键安装脚本（会重新下载最新发行版）：
+curl -fsSL https://pier.team/install | sudo bash
+
+# 或手动操作，流程与方式 D 相同（下载 → 校验 → install.sh）。
+```
+
+然后打开 `http://YOUR_SERVER_IP:8443/setup` 创建管理员账号。
+
+> 如需详细的服务器配置指南（安全加固、防火墙、Docker 安装），请参阅 [INSTALL.md](../../INSTALL.md)。
+
 ## 为什么选择 Pier？
 
 [Coolify](https://coolify.io) 是一款出色的工具，但它需要运行 **6 个以上的容器**，空闲时消耗 **750 MB – 1.2 GB 内存**。Pier 以单一二进制文件提供同等核心功能。
@@ -191,38 +254,6 @@ npm install left-pad         # 从 npmjs.org 代理 + 缓存
 **应用程序** — 从 Dockerfile、Docker 镜像或 Docker Compose 部署
 
 > 没找到需要的？可手动部署任意 Docker 镜像或 Compose 堆栈。
-
-## 快速开始
-
-### 方式 A：一键安装（Ubuntu/Debian）
-
-```bash
-curl -fsSL https://pier.team/install | sudo bash
-```
-
-### 方式 B：从源码构建
-
-```bash
-git clone https://github.com/joveptesg/pier.git
-cd pier
-cargo build --release
-sudo bash scripts/install.sh --binary target/release/pier
-```
-
-### 方式 C：Docker
-
-```bash
-docker run -d \
-  --name pier \
-  -p 8443:8443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v pier-data:/app/data \
-  ghcr.io/joveptesg/pier:latest
-```
-
-然后打开 `http://YOUR_SERVER_IP:8443/setup` 创建管理员账号。
-
-> 如需详细的服务器配置指南（安全加固、防火墙、Docker 安装），请参阅 [INSTALL.md](../../INSTALL.md)。
 
 ## 技术栈
 

@@ -38,6 +38,69 @@
 </p>
 -->
 
+## クイックスタート
+
+### オプション A: ワンコマンドインストール (Ubuntu/Debian)
+
+```bash
+curl -fsSL https://pier.team/install | sudo bash
+```
+
+> この短縮 URL は [`scripts/bootstrap.sh`](../../scripts/bootstrap.sh) にリダイレクトされます。スクリプトは Docker をインストールし、最新リリースのバイナリをダウンロード（sha256 検証付き）して `install.sh` を実行します。最新リリースに更新したいときは、いつでも再実行できます。
+
+### オプション B: ソースからビルド
+
+```bash
+git clone https://github.com/joveptesg/pier.git
+cd pier
+cargo build --release
+sudo bash scripts/install.sh --binary target/release/pier
+```
+
+### オプション C: Docker
+
+```bash
+docker run -d \
+  --name pier \
+  -p 8443:8443 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v pier-data:/app/data \
+  ghcr.io/joveptesg/pier:latest
+```
+
+### オプション D: ビルド済みリリースからインストール（ビルド不要）
+
+すでに Docker をお持ちですか？最新のビルド済みバイナリを直接取得できます — Rust ツールチェーンもコンパイルも不要です:
+
+```bash
+# 1. ビルド済みバイナリ + チェックサムをダウンロード (linux/amd64)
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64 -o pier-linux-amd64
+curl -fL https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64.sha256 -o pier-linux-amd64.sha256
+sha256sum -c pier-linux-amd64.sha256          # 整合性を検証
+
+# 2. インストーラーを取得して実行
+curl -fL https://raw.githubusercontent.com/joveptesg/pier/main/scripts/install.sh -o install.sh
+chmod +x pier-linux-amd64
+sudo bash install.sh --binary ./pier-linux-amd64
+```
+
+> オプション A の手動版で、Docker の自動インストールを省いたものです。Docker + Compose が既にインストールされている必要があります（[INSTALL.md](../../INSTALL.md) を参照）。`sha256sum -c` が一致するように、バイナリのファイル名は `pier-linux-amd64` のままにしてください。
+
+### Pier の更新
+
+更新では新しい**ビルド済みバイナリ**を取得します — ソースからの再ビルドは不要です。`install.sh` は実行中のサービスを検出して停止し、バイナリを入れ替えてから再起動します。その際、`.env` と `/opt/pier/data` は保持されます。
+
+```bash
+# 最も簡単 — ワンコマンドインストーラーを再実行（最新リリースを再ダウンロード）:
+curl -fsSL https://pier.team/install | sudo bash
+
+# または手動で、オプション D と同じ流れ（ダウンロード → 検証 → install.sh）。
+```
+
+次に `http://YOUR_SERVER_IP:8443/setup` を開いて管理者アカウントを作成します。
+
+> 詳細なサーバーセットアップ（セキュリティ強化、ファイアウォール、Docker インストール）については、[INSTALL.md](../../INSTALL.md) を参照してください。
+
 ## なぜ Pier なのか？
 
 [Coolify](https://coolify.io) は優れたツールですが、**6 つ以上のコンテナ**を実行し、アイドル時に **750 MB〜1.2 GB の RAM** を消費します。Pier は同等のコア機能を単一バイナリで提供します。
@@ -191,38 +254,6 @@ npm install left-pad         # npmjs.org からプロキシ + キャッシュ
 **アプリケーション** — Dockerfile、Docker イメージ、または Docker Compose からデプロイ
 
 > 必要なものが見つかりませんか？任意の Docker イメージや Compose スタックを手動でデプロイできます。
-
-## クイックスタート
-
-### オプション A: ワンコマンドインストール (Ubuntu/Debian)
-
-```bash
-curl -fsSL https://pier.team/install | sudo bash
-```
-
-### オプション B: ソースからビルド
-
-```bash
-git clone https://github.com/joveptesg/pier.git
-cd pier
-cargo build --release
-sudo bash scripts/install.sh --binary target/release/pier
-```
-
-### オプション C: Docker
-
-```bash
-docker run -d \
-  --name pier \
-  -p 8443:8443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v pier-data:/app/data \
-  ghcr.io/joveptesg/pier:latest
-```
-
-次に `http://YOUR_SERVER_IP:8443/setup` を開いて管理者アカウントを作成します。
-
-> 詳細なサーバーセットアップ（セキュリティ強化、ファイアウォール、Docker インストール）については、[INSTALL.md](../../INSTALL.md) を参照してください。
 
 ## 技術スタック
 
