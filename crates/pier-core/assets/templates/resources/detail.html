@@ -108,6 +108,9 @@
         <button x-show="resource.category === 'database'" @click="tab = 'data'; loadDataTab()"
                 :class="tab === 'data' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Data</button>
+        <button x-show="['redis','valkey'].includes((resource.catalog_id||'').toLowerCase())" @click="tab = 'monitor'"
+                :class="tab === 'monitor' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
+                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Monitor</button>
         <button @click="tab = 'env'" :class="tab === 'env' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
                 class="px-4 py-2 text-sm font-medium border-b-2 transition-colors">Environment</button>
         <button @click="tab = 'domains'" :class="tab === 'domains' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
@@ -796,6 +799,26 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ── Monitor (Redis live MONITOR over WebSocket) ─────────── -->
+    <div x-show="tab === 'monitor'" x-cloak class="space-y-3">
+        <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-xs">
+            <strong>MONITOR</strong> streams every command (and its data) the server runs — so you can see ephemeral / short-TTL key activity that the Data tab's snapshot and the Docker logs never show. <strong>Editor only · audited.</strong> It adds load to Redis while running — keep it open only while debugging; <strong>Stop</strong> closes the stream and removes the load immediately.
+        </div>
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 space-y-3">
+            <div class="flex items-center gap-2 flex-wrap">
+                <button x-show="!mon.live" @click="startMonitor()" class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Start</button>
+                <button x-show="mon.live" @click="stopMonitor()" x-cloak class="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg">Stop</button>
+                <span x-show="mon.live" x-cloak class="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400"><span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>live</span>
+                <input x-model="mon.filter" placeholder="filter (e.g. foooh:)" class="flex-1 min-w-[140px] text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 font-mono">
+                <span class="text-xs text-gray-400 tabular-nums" x-text="monLines().length + ' / ' + mon.lines.length"></span>
+                <button @click="mon.lines = []" class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Clear</button>
+                <label class="flex items-center gap-1 text-xs text-gray-500"><input type="checkbox" x-model="mon.autoscroll"> autoscroll</label>
+            </div>
+            <pre x-ref="monBox" class="text-xs font-mono bg-gray-950 text-gray-200 rounded-lg p-3 overflow-auto h-[60vh] whitespace-pre-wrap" x-text="monLines().join('\n')"></pre>
+            <div x-show="!mon.live && mon.lines.length === 0" class="text-xs text-gray-400">Press <strong>Start</strong> to stream live Redis commands. Trigger activity in your app and watch the keys (e.g. <span class="font-mono">"SET" "foooh:…"</span>) appear in real time, with the DB index in brackets.</div>
         </div>
     </div>
 
@@ -2085,6 +2108,7 @@ function resourceDetail(id) {
         dbbView: 'data',
         dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
         redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false, keyspace: {} },
+        mon: { ws: null, live: false, lines: [], filter: '', autoscroll: true },
         mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, shellOpen: false, script: '', scriptOut: '', scriptRunning: false },
         showCreateDb: false, showChangeDbPwd: false, dbChangingPwd: false,
         changeDbPassword: { db: '', owner: '', password: '' },
@@ -2397,6 +2421,32 @@ function resourceDetail(id) {
             if (v === null || v === undefined) return '';
             return (typeof v === 'object') ? JSON.stringify(v) : String(v);
         },
+        // ── Redis live MONITOR (Monitor tab) ──
+        monLines() {
+            const f = (this.mon.filter || '').trim();
+            return f ? this.mon.lines.filter(l => l.includes(f)) : this.mon.lines;
+        },
+        startMonitor() {
+            if (this.mon.ws) return;
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = `${proto}//${location.host}/api/v1/resources/${this.id}/db-browser/redis/monitor/ws`;
+            let ws;
+            try { ws = new WebSocket(url); }
+            catch (e) { this.redis.error = 'Monitor failed: ' + (e.message || e); return; }
+            this.mon.ws = ws; this.mon.live = true;
+            ws.onmessage = (ev) => {
+                if (typeof ev.data !== 'string') return;
+                this.mon.lines.push(ev.data);
+                if (this.mon.lines.length > 2000) this.mon.lines.splice(0, this.mon.lines.length - 2000);
+                if (this.mon.autoscroll) this.$nextTick(() => { const b = this.$refs.monBox; if (b) b.scrollTop = b.scrollHeight; });
+            };
+            ws.onclose = () => { this.mon.live = false; this.mon.ws = null; };
+            ws.onerror = () => { this.mon.live = false; };
+        },
+        stopMonitor() {
+            if (this.mon.ws) { try { this.mon.ws.close(); } catch (e) {} this.mon.ws = null; }
+            this.mon.live = false;
+        },
         async loadRedisKeys(reset = true) {
             const r = this.redis;
             if (reset) { r.cursor = 0; r.keys = []; r.selKey = ''; r.value = null; }
@@ -2583,7 +2633,7 @@ function resourceDetail(id) {
         activeDeployCount: 0,
         async init() {
             await this.refresh(); this.loadEnv(); if(this.supportsBackup){this.loadSchedules();this.loadBackups();this.loadDatabases();} this.loadCluster(); this.loadScaleInfo(); this.loadDomains(); this.loadComposeServices(); this.loadGitConfig(); this.loadSecuritySettings();
-            this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } });
+            this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } if (val !== 'monitor') { this.stopMonitor(); } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
             // Pick the public_port to show in the input. If the service is

@@ -16,10 +16,13 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::ws::{Message, WebSocket};
+use axum::extract::{Path, Query, State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::Json;
+use futures_util::StreamExt;
 use serde::Deserialize;
+use tokio::time::{interval, Duration};
 
 use crate::auth::middleware::AuthUser;
 use crate::auth::rbac::{enforce_resource_role, ProjectRole};
@@ -423,6 +426,114 @@ fn tokenize(s: &str) -> Vec<String> {
         out.push(cur);
     }
     out
+}
+
+// ── Redis live MONITOR (WebSocket) ───────────────────────────────────────────
+
+/// GET /api/v1/resources/{id}/db-browser/redis/monitor/ws — live `MONITOR` feed.
+///
+/// `MONITOR` streams every command the server executes (with the DB index and
+/// key), so an operator can see ephemeral/TTL key activity that a `SCAN`
+/// snapshot can't catch and that Redis never writes to its log. It's `Editor+`
+/// (it exposes all commands and their data) and only runs while the socket is
+/// open — closing it drops the dedicated connection and removes the MONITOR.
+pub async fn redis_monitor_ws(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+    ws: WebSocketUpgrade,
+) -> AppResult<axum::response::Response> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
+    let target = redis_target(&state, &id)?;
+
+    // Same host/port resolution as redis_conn (DB index is irrelevant for
+    // MONITOR — it's server-wide).
+    let (host, port) =
+        match super::db_browser::container_host(&state.docker, &target.container).await {
+            Some(ip) => (ip, 6379u16),
+            None => ("127.0.0.1".to_string(), target.host_port),
+        };
+    let url = if target.password.is_empty() {
+        format!("redis://{host}:{port}")
+    } else {
+        format!(
+            "redis://:{}@{host}:{port}",
+            urlencoding::encode(&target.password)
+        )
+    };
+
+    // Audit the session start (best-effort, like the query log).
+    super::db_browser::log_query(
+        &state,
+        &id,
+        &user,
+        "-",
+        "MONITOR",
+        "redis-monitor",
+        "ok",
+        None,
+        0,
+        None,
+    );
+
+    Ok(ws.on_upgrade(move |socket| async move {
+        stream_redis_monitor(url, socket).await;
+    }))
+}
+
+async fn stream_redis_monitor(url: String, mut socket: WebSocket) {
+    let client = match redis::Client::open(url) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = socket
+                .send(Message::Text(format!("[pier] redis client: {e}").into()))
+                .await;
+            return;
+        }
+    };
+    let monitor = match client.get_async_monitor().await {
+        Ok(m) => m,
+        Err(e) => {
+            let _ = socket
+                .send(Message::Text(
+                    format!("[pier] could not start MONITOR: {e}").into(),
+                ))
+                .await;
+            return;
+        }
+    };
+    let mut stream = monitor.into_on_message::<String>();
+    let mut ping_tick = interval(Duration::from_secs(30));
+    ping_tick.tick().await; // skip immediate fire
+
+    loop {
+        tokio::select! {
+            line = stream.next() => {
+                match line {
+                    Some(text) => {
+                        if socket.send(Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break, // monitor connection closed
+                }
+            }
+            _ = ping_tick.tick() => {
+                if socket.send(Message::Ping(vec![].into())).await.is_err() {
+                    break;
+                }
+            }
+            msg = socket.recv() => {
+                match msg {
+                    None => break,
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+    // Dropping `stream` (and its connection) ends the MONITOR on the server.
 }
 
 // ── MongoDB (via mongosh) ────────────────────────────────────────────────────

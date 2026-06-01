@@ -389,6 +389,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/db-browser/redis/command",
             post(db_nosql::redis_command),
         )
+        .route(
+            "/resources/{id}/db-browser/redis/monitor/ws",
+            get(db_nosql::redis_monitor_ws),
+        )
         // MongoDB (mongosh via docker-exec)
         .route(
             "/resources/{id}/db-browser/mongo/databases",
