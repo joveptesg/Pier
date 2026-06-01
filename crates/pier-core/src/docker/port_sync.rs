@@ -18,13 +18,54 @@
 //! Failures are best-effort: page-load sync never blocks the UI. If Docker
 //! is unreachable the existing DB rows are used as-is.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use bollard::query_parameters::ListContainersOptions;
 
 use crate::db::models::PortAllocation;
-use crate::state::AppState;
+use crate::state::{AppState, SharedState};
+
+/// Minimum gap between two background port syncs for the same service. The
+/// resource-detail page polls every 5s and an operator may have several tabs
+/// open; without this throttle each tick would re-hammer the Docker API. A
+/// service that synced (or is mid-sync) inside this window is skipped.
+const SYNC_TTL: Duration = Duration::from_secs(8);
+
+/// Per-service timestamp of the last background sync kickoff. Module-local so
+/// we don't have to thread new state through `AppState` and its constructor.
+fn last_sync_map() -> &'static Mutex<HashMap<String, Instant>> {
+    static M: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    M.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Fire-and-forget, throttled background port reconciliation. Kept OFF the
+/// read path so `GET /api/v1/resources/{id}` returns immediately instead of
+/// blocking on `docker inspect`. Best-effort: any DB correction is surfaced
+/// to the UI by its existing 5s poll. The make-public toggle path
+/// (`set_port_public`) still syncs synchronously, where correctness matters.
+pub fn spawn_port_sync_throttled(state: SharedState, service_id: String) {
+    {
+        let mut m = match last_sync_map().lock() {
+            Ok(g) => g,
+            Err(_) => return, // poisoned — skip rather than panic on a best-effort path
+        };
+        if let Some(t) = m.get(&service_id) {
+            if t.elapsed() < SYNC_TTL {
+                return; // synced recently (or a sync is still in flight)
+            }
+        }
+        // Stamp BEFORE spawning so concurrent tabs dedupe against this entry.
+        m.insert(service_id.clone(), Instant::now());
+    }
+    tokio::spawn(async move {
+        if let Err(e) = sync_ports_from_docker(&state, &service_id).await {
+            tracing::warn!("background port sync for {service_id} failed: {e}");
+        }
+    });
+}
 
 /// What Docker reports for one container — the compose service name (from
 /// the `com.docker.compose.service` label) and the host bindings extracted
@@ -200,9 +241,21 @@ pub async fn sync_ports_from_docker(state: &AppState, service_id: &str) -> Resul
         }
     }
 
+    // Inspect every target container concurrently rather than sequentially —
+    // on a multi-container stack this turns N round-trips to the Docker daemon
+    // into ~1 round-trip of wall-clock latency. `Docker` is a cheap Arc clone.
+    let inspects = target_ids.iter().map(|cid| {
+        let docker = state.docker.clone();
+        async move {
+            let res = docker.inspect_container(cid, None).await;
+            (cid, res)
+        }
+    });
+    let inspect_results = futures_util::future::join_all(inspects).await;
+
     let mut container_bindings: Vec<ContainerBindings> = Vec::with_capacity(target_ids.len());
-    for cid in &target_ids {
-        let info = match state.docker.inspect_container(cid, None).await {
+    for (cid, res) in inspect_results {
+        let info = match res {
             Ok(i) => i,
             Err(e) => {
                 tracing::warn!("sync_ports_from_docker: inspect {cid} failed: {e}");

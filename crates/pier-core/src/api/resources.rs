@@ -1699,17 +1699,17 @@ pub async fn get(
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
 
-    // Reconcile DB <-> Docker reality BEFORE reading. Pier's compose parser
-    // ignores the host-IP portion of ports: entries, so an operator-authored
-    // "0.0.0.0:3050:3050" makes the container public on the host without
-    // ever flipping is_public in the DB. Result: the UI toggle renders OFF
-    // over a publicly-bound container, and the next toggle press crashes
-    // pre-flight on its own docker-proxy. sync_ports_from_docker reads
-    // HostConfig.PortBindings and UPDATEs the DB. Best-effort — Docker
-    // unreachable / inspect failure is logged at warn and swallowed.
-    if let Err(e) = crate::docker::port_sync::sync_ports_from_docker(&state, &id).await {
-        tracing::warn!("get resource {id}: port sync skipped: {e}");
-    }
+    // Reconcile DB <-> Docker port reality in the BACKGROUND so this handler
+    // returns immediately instead of blocking on `docker inspect` (the cause
+    // of the multi-second "hang" on the resource-detail page). Pier's compose
+    // parser ignores the host-IP portion of ports: entries, so an operator-
+    // authored "0.0.0.0:3050:3050" makes the container public on the host
+    // without ever flipping is_public in the DB; sync_ports_from_docker reads
+    // HostConfig.PortBindings and UPDATEs the DB. The detail page's 5s poll
+    // surfaces the correction on its next tick. The one place correctness is
+    // load-bearing — the make-public toggle — syncs synchronously in
+    // set_port_public, so moving this off the read path is safe.
+    crate::docker::port_sync::spawn_port_sync_throttled(state.clone(), id.clone());
 
     let db = state
         .db
@@ -3297,6 +3297,16 @@ pub async fn set_port_public(
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let ui_public_port = body.public_port.unwrap_or(0) as u16;
+
+    // Reconcile DB <-> Docker reality SYNCHRONOUSLY before we read the port
+    // rows below. The read path (GET resource detail) now syncs in the
+    // background, so this is the load-bearing spot: toggling on top of a
+    // stale is_public flag is what crashed the recreate pre-flight on its own
+    // docker-proxy. Cheap now that inspects run concurrently; this is a rare,
+    // user-initiated path. Best-effort — Docker unreachable is logged only.
+    if let Err(e) = crate::docker::port_sync::sync_ports_from_docker(&state, &id).await {
+        tracing::warn!("set_port_public {id}: pre-toggle port sync skipped: {e}");
+    }
 
     // ─── Resolve target rows ─────────────────────────────────────────────
     // Two paths:

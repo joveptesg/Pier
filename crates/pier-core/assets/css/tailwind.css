@@ -1,0 +1,20 @@
+/*
+ * Tailwind input for the Pier admin panel. Compiled to
+ * assets/static/tailwind.css (committed, embedded via rust_embed).
+ * See tailwind.config.js for the build command.
+ */
+
+/* Self-hosted logo font — replaces the Google Fonts CDN <link> that used to
+ * live in base.html / auth_base.html. woff2 lives under assets/static/fonts/
+ * and is served by the /static/{*path} route with a long immutable cache. */
+@font-face {
+  font-family: 'Allerta Stencil';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/fonts/allerta-stencil.woff2') format('woff2');
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
