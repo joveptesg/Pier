@@ -2440,14 +2440,12 @@ function resourceDetail(id) {
                 toast(newState ? 'Public access enabled (port ' + port + ')' : 'Public access disabled');
                 await this.refresh();
                 await this.loadDomains();
-                // Prefer the operator's saved public_port choice even when
-                // the service is currently private — they picked it
-                // intentionally and expect it back on the next toggle ON.
-                // Fall back to host_port / container_port for never-toggled
-                // services.
+                // Default value for the Public Port input — same priority
+                // as on initial load: saved choice > container_port (service
+                // standard) > host_port (pier-pool slot fallback).
                 this.publicPort = this.resource.ports?.[0]?.public_port
-                    || this.resource.ports?.[0]?.host
-                    || this.resource.ports?.[0]?.container || 0;
+                    || this.resource.ports?.[0]?.container
+                    || this.resource.ports?.[0]?.host || 0;
             } catch(e) { toast(e.message, 'error'); }
             this.togglingPublic = false;
         },
@@ -2947,16 +2945,16 @@ function resourceDetail(id) {
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
             // Pick the public_port to show in the input. If the service is
             // currently private, `public_port` in the DB is stale (set by a
-            // prior toggle that may have used the old host_port before a
-            // compose-driven host_port change). Prefer the LIVE host_port so
-            // the input reflects "what Pier is willing to expose right now".
-            // If the service is public, honour the saved public_port — the
-            // operator intentionally chose it.
-            {
-                const _p0 = this.resource.ports?.[0];
-                this.publicPort = (_p0?.is_public ? _p0?.public_port : null)
-                    || _p0?.host || _p0?.container || 0;
-            }
+            // Default value for the Public Port input:
+            //   1. operator's saved choice (`public_port`) wins — they picked
+            //      it intentionally, must come back on next toggle (Round 7);
+            //   2. container_port — the SERVICE's standard port (5432 for
+            //      Postgres, etc.). Better default than host_port for catalog
+            //      services where host_port = pier-pool slot like 10000;
+            //   3. host_port — last fallback when container_port is 0/broken.
+            this.publicPort = this.resource.ports?.[0]?.public_port
+                || this.resource.ports?.[0]?.container
+                || this.resource.ports?.[0]?.host || 0;
             // Background polling: check for status changes + new deployments every 5s
             this._bgInterval = setInterval(async () => {
                 const oldStatus = this.resource.status;
