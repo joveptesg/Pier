@@ -641,10 +641,15 @@
                 <span class="text-[11px] text-gray-400">DB: <span class="font-mono" x-text="dbb.database || '—'"></span></span>
             </button>
             <div x-show="dbb.runnerOpen" x-cloak class="space-y-3">
-            <textarea x-model="dbb.runner.sql" rows="4" spellcheck="false"
-                      @keydown.ctrl.enter="runSql()" @keydown.meta.enter="runSql()"
-                      placeholder="SELECT * FROM ...   (Ctrl/Cmd+Enter to run)"
-                      class="w-full font-mono text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2"></textarea>
+            <!-- SQL editor with lightweight syntax highlight (zero-dependency overlay) -->
+            <div class="relative rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-hidden">
+                <pre x-ref="sqlHl" aria-hidden="true" class="absolute inset-0 m-0 px-3 py-2 overflow-hidden whitespace-pre-wrap break-words pointer-events-none font-mono text-sm leading-5 text-gray-800 dark:text-gray-200" x-html="sqlHighlight(dbb.runner.sql) + '\n'"></pre>
+                <textarea x-ref="sqlTa" x-model="dbb.runner.sql" rows="4" spellcheck="false"
+                          @input="syncSqlScroll()" @scroll="syncSqlScroll()"
+                          @keydown.ctrl.enter="runSql()" @keydown.meta.enter="runSql()"
+                          placeholder="SELECT * FROM ...   (Ctrl/Cmd+Enter to run)"
+                          class="relative z-10 block w-full px-3 py-2 bg-transparent text-transparent caret-gray-800 dark:caret-gray-200 placeholder:text-gray-400 resize-y whitespace-pre-wrap break-words outline-none font-mono text-sm leading-5"></textarea>
+            </div>
             <div class="flex items-center gap-3">
                 <button @click="runSql()" :disabled="dbb.runner.running || !dbb.runner.sql.trim()"
                         class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
@@ -2643,6 +2648,25 @@ function resourceDetail(id) {
         },
         useHistory(sql) { this.dbb.runner.sql = sql; this.dbb.runnerOpen = true; this.dbb.history.open = false; },
         fmtWhen(ts) { return ts ? ts.replace('T', ' ').replace('Z', '').slice(0, 19) : ''; },
+        // ── Lightweight SQL highlighting (C2) — overlay layer, no dependency ──
+        syncSqlScroll() { const ta = this.$refs.sqlTa, hl = this.$refs.sqlHl; if (ta && hl) { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; } },
+        sqlHighlight(sql) {
+            if (!sql) return '';
+            const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const kw = /\b(SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|ALTER|ADD|COLUMN|DROP|TRUNCATE|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|USING|AND|OR|NOT|NULL|IS|IN|LIKE|ILIKE|BETWEEN|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|AS|DISTINCT|UNION|ALL|CASE|WHEN|THEN|ELSE|END|ASC|DESC|PRIMARY|KEY|FOREIGN|UNIQUE|REFERENCES|DEFAULT|INDEX|CONSTRAINT|RETURNING|WITH|EXISTS|TRUE|FALSE|COUNT|SUM|AVG|MIN|MAX|COALESCE|CAST|BEGIN|COMMIT|ROLLBACK)\b/gi;
+            const kwRepl = s => s.replace(kw, '<span class="text-blue-600 dark:text-blue-400 font-semibold">$1</span>');
+            const token = /(--[^\n]*|\/\*[\s\S]*?\*\/)|('(?:[^']|'')*'|`(?:[^`]|``)*`)|(\b\d+(?:\.\d+)?\b)/g;
+            let out = '', last = 0, m;
+            while ((m = token.exec(sql)) !== null) {
+                out += kwRepl(esc(sql.slice(last, m.index)));
+                if (m[1]) out += '<span class="text-gray-400 italic">' + esc(m[1]) + '</span>';
+                else if (m[2]) out += '<span class="text-green-600 dark:text-green-400">' + esc(m[2]) + '</span>';
+                else if (m[3]) out += '<span class="text-amber-600 dark:text-amber-400">' + esc(m[3]) + '</span>';
+                last = token.lastIndex;
+            }
+            out += kwRepl(esc(sql.slice(last)));
+            return out;
+        },
         dbNextPage() {
             if (!this.dbb.rows || this.dbb.rows.rows.length < this.dbb.limit) return;
             this.dbb.offset += this.dbb.limit; this.loadDbRows();
