@@ -773,6 +773,8 @@
                     <div x-show="dbbView === 'data'" class="space-y-2">
                         <!-- Filter bar + export -->
                         <div class="flex items-center gap-2 flex-wrap text-xs">
+                            <button @click="openInsert()" :disabled="!dbb.structure" class="px-2 py-1 rounded border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 font-medium disabled:opacity-40">+ Row</button>
+                            <span class="text-gray-300 dark:text-gray-700">|</span>
                             <select x-model="dbb.filter.col" class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 font-mono">
                                 <option value="">— filter column —</option>
                                 <template x-for="col in (dbb.rows ? dbb.rows.columns : [])" :key="col"><option :value="col" x-text="col"></option></template>
@@ -831,6 +833,9 @@
                                     <h3 class="text-sm font-mono text-gray-900 dark:text-gray-100 truncate" x-text="dbb.cell.col"></h3>
                                     <div class="flex items-center gap-2 shrink-0">
                                         <button x-show="!dbb.cell.editing && pkCols().length" @click="startCellEdit()" class="text-xs px-2 py-1 rounded border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30">Edit</button>
+                                        <button x-show="!dbb.cell.editing && pkCols().length && !dbb.cell.delConfirm" @click="dbb.cell.delConfirm = true" class="text-xs px-2 py-1 rounded border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30">Delete row</button>
+                                        <button x-show="dbb.cell.delConfirm" x-cloak @click="deleteRow()" :disabled="dbb.cell.deleting" class="text-xs px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"><span x-show="!dbb.cell.deleting">Confirm delete</span><span x-show="dbb.cell.deleting" x-cloak>…</span></button>
+                                        <button x-show="dbb.cell.delConfirm" x-cloak @click="dbb.cell.delConfirm = false" class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
                                         <span x-show="!pkCols().length" class="text-[11px] text-gray-400">read-only (no PK)</span>
                                         <button @click="copyText(dbb.cell.value)" class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Copy</button>
                                         <button @click="dbb.cell.open = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
@@ -852,6 +857,34 @@
                                         <button x-show="dbb.cell.draft === null" @click="dbb.cell.draft = ''" class="ml-auto text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Set value</button>
                                     </div>
                                     <p class="text-[11px] text-gray-400">Updates <span class="font-mono" x-text="dbb.selSchema + '.' + dbb.selTable"></span> by primary key · Editor · audited.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Insert row modal -->
+                        <div x-show="dbb.insert.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" @click="dbb.insert.open = false" @keydown.escape.window="dbb.insert.open = false">
+                            <div @click.stop class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+                                <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-800">
+                                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Insert row — <span class="font-mono" x-text="dbb.selSchema + '.' + dbb.selTable"></span></h3>
+                                    <button @click="dbb.insert.open = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+                                </div>
+                                <div class="p-4 space-y-2 overflow-auto">
+                                    <template x-for="c in ((dbb.structure && dbb.structure.columns) || [])" :key="c.name">
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-44 shrink-0 text-xs font-mono">
+                                                <span x-text="c.name"></span><span x-show="c.is_pk" class="ml-1 text-[10px] text-amber-600 dark:text-amber-400">PK</span>
+                                                <div class="text-[10px] text-gray-400 truncate" x-text="c.type + (c.nullable ? '' : ' · NOT NULL')"></div>
+                                            </div>
+                                            <input x-model="dbb.insert.vals[c.name]" :disabled="dbb.insert.nulls[c.name]" :placeholder="c.default ? ('default: ' + c.default) : (c.nullable ? 'NULL / default' : '')" class="flex-1 min-w-0 text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 disabled:opacity-40">
+                                            <button @click="dbb.insert.nulls[c.name] = !dbb.insert.nulls[c.name]" :class="dbb.insert.nulls[c.name] ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800' : 'border-gray-200 dark:border-gray-700 text-gray-500'" class="text-[10px] px-1.5 py-1 rounded border shrink-0">NULL</button>
+                                        </div>
+                                    </template>
+                                    <div x-show="dbb.insert.error" x-cloak class="text-xs text-red-600 dark:text-red-400 break-words" x-text="dbb.insert.error"></div>
+                                </div>
+                                <div class="flex items-center gap-2 px-4 py-2 border-t border-gray-100 dark:border-gray-800">
+                                    <button @click="saveInsert()" :disabled="dbb.insert.saving" class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"><span x-show="!dbb.insert.saving">Insert</span><span x-show="dbb.insert.saving" x-cloak>Inserting…</span></button>
+                                    <button @click="dbb.insert.open = false" class="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+                                    <span class="ml-auto text-[11px] text-gray-400">Empty = DB default · Editor · audited</span>
                                 </div>
                             </div>
                         </div>
@@ -2205,7 +2238,7 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         // Read-only data browser (Data tab)
         dbbView: 'data',
-        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, sort: '', dir: 'asc', maxed: false, filter: { col: '', op: 'eq', val: '' }, cell: { open: false, col: '', value: null, ri: -1, ci: -1, draft: null, editing: false, saving: false, error: '' }, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
+        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, sort: '', dir: 'asc', maxed: false, filter: { col: '', op: 'eq', val: '' }, cell: { open: false, col: '', value: null, ri: -1, ci: -1, draft: null, editing: false, saving: false, error: '', delConfirm: false, deleting: false }, insert: { open: false, vals: {}, nulls: {}, saving: false, error: '' }, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
         redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false, keyspace: {} },
         mon: { ws: null, live: false, lines: [], filter: '', autoscroll: true },
         mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, shellOpen: false, script: '', scriptOut: '', scriptRunning: false },
@@ -2485,7 +2518,7 @@ function resourceDetail(id) {
         // ── Cell viewer + inline edit (B1) ──
         openCell(ri, ci) {
             const r = this.dbb.rows;
-            this.dbb.cell = { open: true, ri, ci, col: r.columns[ci], value: r.rows[ri][ci], draft: r.rows[ri][ci], editing: false, saving: false, error: '' };
+            this.dbb.cell = { open: true, ri, ci, col: r.columns[ci], value: r.rows[ri][ci], draft: r.rows[ri][ci], editing: false, saving: false, error: '', delConfirm: false, deleting: false };
         },
         cellPretty() {
             const v = this.dbb.cell.value;
@@ -2509,6 +2542,45 @@ function resourceDetail(id) {
                 c.value = c.draft; c.editing = false;
             } catch (e) { c.error = e.message || 'Update failed'; }
             finally { c.saving = false; }
+        },
+        _rowPk(ri) {
+            const pks = this.pkCols(); const cols = this.dbb.rows.columns; const pk = {};
+            for (const p of pks) { const idx = cols.indexOf(p); pk[p] = idx >= 0 ? this.dbb.rows.rows[ri][idx] : null; }
+            return pk;
+        },
+        async deleteRow() {
+            const c = this.dbb.cell; if (!this.pkCols().length) { c.error = 'Table has no primary key.'; return; }
+            c.deleting = true; c.error = '';
+            try {
+                await api(`/api/v1/resources/${this.id}/db-browser/rows/delete`, { method: 'POST', body: JSON.stringify({ database: this.dbb.database, schema: this.dbb.selSchema, table: this.dbb.selTable, pk: this._rowPk(c.ri) }) });
+                this.dbb.rows.rows.splice(c.ri, 1);
+                if (this.dbb.rows.total !== null && this.dbb.rows.total !== undefined) this.dbb.rows.total = Math.max(0, this.dbb.rows.total - 1);
+                c.open = false;
+            } catch (e) { c.error = e.message || 'Delete failed'; }
+            finally { c.deleting = false; c.delConfirm = false; }
+        },
+        // ── Insert row (B2) ──
+        openInsert() {
+            const cols = (this.dbb.structure && this.dbb.structure.columns) || [];
+            const vals = {}, nulls = {};
+            cols.forEach(c => { vals[c.name] = ''; nulls[c.name] = false; });
+            this.dbb.insert = { open: true, vals, nulls, saving: false, error: '' };
+        },
+        async saveInsert() {
+            const ins = this.dbb.insert; const cols = (this.dbb.structure && this.dbb.structure.columns) || [];
+            const values = {};
+            cols.forEach(c => {
+                if (ins.nulls[c.name]) values[c.name] = null;
+                else if ((ins.vals[c.name] || '') !== '') values[c.name] = ins.vals[c.name];
+            });
+            if (!Object.keys(values).length) { ins.error = 'Enter at least one value (or mark a column NULL).'; return; }
+            ins.saving = true; ins.error = '';
+            try {
+                await api(`/api/v1/resources/${this.id}/db-browser/rows/insert`, { method: 'POST', body: JSON.stringify({ database: this.dbb.database, schema: this.dbb.selSchema, table: this.dbb.selTable, values }) });
+                ins.open = false;
+                this.dbb.offset = 0; await this.loadDbRows();
+            } catch (e) { ins.error = e.message || 'Insert failed'; }
+            finally { ins.saving = false; }
         },
         // ── Export current page ──
         exportRows(fmt) {

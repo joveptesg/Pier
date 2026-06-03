@@ -785,6 +785,76 @@ async fn fetch_pk_cols(
         .collect())
 }
 
+/// Reject unless the supplied key is exactly the table's primary key (no more,
+/// no less) — so a single-row UPDATE/DELETE can only ever touch one row.
+fn validate_full_pk(
+    pk_cols: &[String],
+    pk: &std::collections::HashMap<String, Option<String>>,
+) -> AppResult<()> {
+    if pk_cols.is_empty() {
+        return Err(AppError::BadRequest(
+            "This table has no primary key, so rows can't be edited safely.".into(),
+        ));
+    }
+    if pk.len() != pk_cols.len() || !pk_cols.iter().all(|c| pk.contains_key(c)) {
+        return Err(AppError::BadRequest(
+            "The row key must match the table's primary key columns.".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// `col = 'literal'` (or `col IS NULL`) for every PK column, joined with `AND`.
+fn pk_where(
+    engine: Engine,
+    pk_cols: &[String],
+    pk: &std::collections::HashMap<String, Option<String>>,
+) -> String {
+    pk_cols
+        .iter()
+        .map(|c| {
+            let ident = engine.quote_ident(c);
+            match pk.get(c).and_then(|v| v.as_deref()) {
+                Some(v) => format!("{ident} = {}", engine.quote_literal(v)),
+                None => format!("{ident} IS NULL"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
+
+/// Execute a mutating statement, record it in `db_query_log`, and return the
+/// affected-row count.
+async fn exec_write(
+    db: &mut Db,
+    state: &SharedState,
+    id: &str,
+    user: &AuthUser,
+    database: &str,
+    sql: &str,
+) -> AppResult<i64> {
+    let started = Instant::now();
+    let result = db.exec(sql).await;
+    let duration_ms = started.elapsed().as_millis() as i64;
+    let (status, affected, error) = match &result {
+        Ok(n) => ("ok", Some(*n as i64), None),
+        Err(e) => ("error", None, Some(e.to_string())),
+    };
+    log_query(
+        state,
+        id,
+        user,
+        database,
+        sql,
+        "write",
+        status,
+        affected,
+        duration_ms,
+        error.as_deref(),
+    );
+    Ok(result.map_err(db_err)? as i64)
+}
+
 #[derive(Deserialize)]
 pub struct UpdateRowRequest {
     pub database: Option<String>,
@@ -827,34 +897,128 @@ pub async fn update_row(
     }
 
     let pk_cols = fetch_pk_cols(&mut db, engine, &body.schema, &body.table).await?;
-    if pk_cols.is_empty() {
-        return Err(AppError::BadRequest(
-            "This table has no primary key, so rows can't be edited safely.".into(),
-        ));
-    }
-    // The supplied key must be exactly the table's PK (no more, no less) so the
-    // UPDATE can only ever touch a single row.
-    if body.pk.len() != pk_cols.len() || !pk_cols.iter().all(|c| body.pk.contains_key(c)) {
-        return Err(AppError::BadRequest(
-            "The row key must match the table's primary key columns.".into(),
-        ));
-    }
+    validate_full_pk(&pk_cols, &body.pk)?;
 
     let set_val = match body.value.as_deref() {
         Some(v) => engine.quote_literal(v),
         None => "NULL".to_string(),
     };
-    let where_sql = pk_cols
+    let qualified = format!(
+        "{}.{}",
+        engine.quote_ident(&body.schema),
+        engine.quote_ident(&body.table)
+    );
+    let sql = format!(
+        "UPDATE {qualified} SET {} = {set_val} WHERE {}",
+        engine.quote_ident(&body.column),
+        pk_where(engine, &pk_cols, &body.pk)
+    );
+
+    let affected = exec_write(&mut db, &state, &id, &user, &database, &sql).await?;
+    Ok(Json(serde_json::json!({ "rows_affected": affected })))
+}
+
+#[derive(Deserialize)]
+pub struct InsertRowRequest {
+    pub database: Option<String>,
+    pub schema: String,
+    pub table: String,
+    /// Column → value for the columns to set. Omitted columns use their DB
+    /// default; an explicit `null` inserts SQL NULL.
+    pub values: std::collections::HashMap<String, Option<String>>,
+}
+
+/// POST /api/v1/resources/{id}/db-browser/rows/insert — insert one row.
+/// `Editor+`, audited.
+pub async fn insert_row(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+    Json(body): Json<InsertRowRequest>,
+) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
+    let target = resolve_target(&state, &id)?;
+    let engine = target.engine;
+    let database = body
+        .database
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| target.default_db.clone());
+
+    let mut db = connect(&state, &target, &database).await?;
+    ensure_table_exists(&mut db, engine, &body.schema, &body.table).await?;
+
+    let cols = fetch_cols(&mut db, engine, &body.schema, &body.table).await?;
+    for k in body.values.keys() {
+        if !cols.contains(k) {
+            return Err(AppError::BadRequest(format!("Unknown column {k}")));
+        }
+    }
+
+    // Emit provided columns in the table's ordinal order for a stable statement.
+    let provided: Vec<&String> = cols
         .iter()
-        .map(|c| {
-            let ident = engine.quote_ident(c);
-            match body.pk.get(c).and_then(|v| v.as_deref()) {
-                Some(v) => format!("{ident} = {}", engine.quote_literal(v)),
-                None => format!("{ident} IS NULL"),
-            }
+        .filter(|c| body.values.contains_key(*c))
+        .collect();
+    if provided.is_empty() {
+        return Err(AppError::BadRequest("No values provided.".into()));
+    }
+    let col_list = provided
+        .iter()
+        .map(|c| engine.quote_ident(c))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let val_list = provided
+        .iter()
+        .map(|c| match body.values.get(*c).and_then(|v| v.as_deref()) {
+            Some(v) => engine.quote_literal(v),
+            None => "NULL".to_string(),
         })
         .collect::<Vec<_>>()
-        .join(" AND ");
+        .join(", ");
+
+    let qualified = format!(
+        "{}.{}",
+        engine.quote_ident(&body.schema),
+        engine.quote_ident(&body.table)
+    );
+    let sql = format!("INSERT INTO {qualified} ({col_list}) VALUES ({val_list})");
+
+    let affected = exec_write(&mut db, &state, &id, &user, &database, &sql).await?;
+    Ok(Json(serde_json::json!({ "rows_affected": affected })))
+}
+
+#[derive(Deserialize)]
+pub struct DeleteRowRequest {
+    pub database: Option<String>,
+    pub schema: String,
+    pub table: String,
+    /// Full primary key of the row to delete.
+    pub pk: std::collections::HashMap<String, Option<String>>,
+}
+
+/// POST /api/v1/resources/{id}/db-browser/rows/delete — delete one row by its
+/// full primary key. `Editor+`, audited.
+pub async fn delete_row(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+    Json(body): Json<DeleteRowRequest>,
+) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
+    let target = resolve_target(&state, &id)?;
+    let engine = target.engine;
+    let database = body
+        .database
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| target.default_db.clone());
+
+    let mut db = connect(&state, &target, &database).await?;
+    ensure_table_exists(&mut db, engine, &body.schema, &body.table).await?;
+
+    let pk_cols = fetch_pk_cols(&mut db, engine, &body.schema, &body.table).await?;
+    validate_full_pk(&pk_cols, &body.pk)?;
 
     let qualified = format!(
         "{}.{}",
@@ -862,31 +1026,11 @@ pub async fn update_row(
         engine.quote_ident(&body.table)
     );
     let sql = format!(
-        "UPDATE {qualified} SET {} = {set_val} WHERE {where_sql}",
-        engine.quote_ident(&body.column)
+        "DELETE FROM {qualified} WHERE {}",
+        pk_where(engine, &pk_cols, &body.pk)
     );
 
-    let started = Instant::now();
-    let result = db.exec(&sql).await;
-    let duration_ms = started.elapsed().as_millis() as i64;
-    let (status, affected, error) = match &result {
-        Ok(n) => ("ok", Some(*n as i64), None),
-        Err(e) => ("error", None, Some(e.to_string())),
-    };
-    log_query(
-        &state,
-        &id,
-        &user,
-        &database,
-        &sql,
-        "write",
-        status,
-        affected,
-        duration_ms,
-        error.as_deref(),
-    );
-
-    let affected = result.map_err(db_err)? as i64;
+    let affected = exec_write(&mut db, &state, &id, &user, &database, &sql).await?;
     Ok(Json(serde_json::json!({ "rows_affected": affected })))
 }
 

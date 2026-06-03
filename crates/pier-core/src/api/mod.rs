@@ -403,6 +403,14 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             post(db_browser::update_row),
         )
         .route(
+            "/resources/{id}/db-browser/rows/insert",
+            post(db_browser::insert_row),
+        )
+        .route(
+            "/resources/{id}/db-browser/rows/delete",
+            post(db_browser::delete_row),
+        )
+        .route(
             "/resources/{id}/db-browser/query",
             post(db_browser::run_query),
         )
