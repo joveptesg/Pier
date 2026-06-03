@@ -370,6 +370,11 @@ pub struct BrowseQuery {
     pub table: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    /// Column to sort by. Validated against the table's catalog columns before
+    /// use, so it can never be arbitrary SQL.
+    pub sort: Option<String>,
+    /// Sort direction — only `asc` / `desc` are honoured.
+    pub dir: Option<String>,
 }
 
 /// GET /api/v1/resources/{id}/db-browser/databases — list user-visible DBs.
@@ -429,6 +434,37 @@ pub async fn objects(
     );
     let grid = db.fetch_text(&sql).await.map_err(db_err)?;
 
+    // Estimated row counts (cheap catalog estimates, like Railway) in one extra
+    // query — keyed by "schema\0table". Negative/NULL estimates (e.g. a table
+    // never ANALYZEd, or a view) are dropped so the UI shows no badge.
+    let count_sql = match target.engine {
+        Engine::Postgres => "SELECT n.nspname, c.relname, c.reltuples::bigint \
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE c.relkind IN ('r', 'p')"
+            .to_string(),
+        Engine::Mysql => format!(
+            "SELECT table_schema, table_name, table_rows \
+             FROM information_schema.tables WHERE {filter}"
+        ),
+    };
+    let mut counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    if let Ok(cg) = db.fetch_text(&count_sql).await {
+        for r in &cg {
+            let s = r.first().cloned().flatten().unwrap_or_default();
+            let t = r.get(1).cloned().flatten().unwrap_or_default();
+            if let Some(n) = r
+                .get(2)
+                .cloned()
+                .flatten()
+                .and_then(|v| v.parse::<i64>().ok())
+            {
+                if n >= 0 {
+                    counts.insert(format!("{s}\u{0}{t}"), n);
+                }
+            }
+        }
+    }
+
     let mut schemas: Vec<serde_json::Value> = Vec::new();
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for row in &grid {
@@ -440,6 +476,7 @@ pub async fn objects(
         } else {
             "table"
         };
+        let rows_est = counts.get(&format!("{schema}\u{0}{name}")).copied();
 
         let i = match index.get(&schema) {
             Some(&i) => i,
@@ -451,7 +488,7 @@ pub async fn objects(
             }
         };
         if let Some(arr) = schemas[i]["tables"].as_array_mut() {
-            arr.push(serde_json::json!({ "name": name, "kind": kind }));
+            arr.push(serde_json::json!({ "name": name, "kind": kind, "rows": rows_est }));
         }
     }
 
@@ -611,8 +648,23 @@ pub async fn rows(
         engine.quote_ident(&schema),
         engine.quote_ident(&table)
     );
+
+    // ORDER BY: the sort column must be one of the table's real columns (never
+    // trusted from the client), and the direction is a fixed allowlist.
+    let order_by = match q.sort.as_deref() {
+        Some(s) if cols.iter().any(|c| c == s) => {
+            let dir = match q.dir.as_deref() {
+                Some(d) if d.eq_ignore_ascii_case("desc") => "DESC",
+                _ => "ASC",
+            };
+            format!(" ORDER BY {} {dir}", engine.quote_ident(s))
+        }
+        _ => String::new(),
+    };
+
     // limit/offset are validated i64 — safe to inline.
-    let sql = format!("SELECT {select_list} FROM {qualified} LIMIT {limit} OFFSET {offset}");
+    let sql =
+        format!("SELECT {select_list} FROM {qualified}{order_by} LIMIT {limit} OFFSET {offset}");
     let grid = db.fetch_text(&sql).await.map_err(db_err)?;
 
     let count_sql = format!("SELECT {} FROM {qualified}", engine.text_cast("count(*)"));

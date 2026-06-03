@@ -694,7 +694,12 @@
             </div>
         </div>
 
-        <div x-show="dbEngineKind === 'sql'" class="flex gap-4 items-start">
+        <div x-show="dbEngineKind === 'sql'" :class="dbb.maxed ? 'fixed inset-0 z-50 bg-gray-50 dark:bg-gray-950 p-4 overflow-auto' : 'relative'">
+            <button @click="dbb.maxed = !dbb.maxed" class="absolute top-1 right-1 z-10 text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-1.5" :title="dbb.maxed ? 'Exit full screen' : 'Full screen'">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M8 20H4m0 0v-4m0 4l5-5m7 5h4m0 0v-4m0 4l-5-5"/></svg>
+                <span x-text="dbb.maxed ? 'Minimize' : 'Maximize'"></span>
+            </button>
+            <div class="flex gap-4 items-start">
             <!-- Left: object tree -->
             <div class="w-64 shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-3 space-y-3">
                 <div>
@@ -705,7 +710,7 @@
                     </select>
                 </div>
                 <div x-show="dbb.loading" class="text-xs text-gray-400">Loading…</div>
-                <div class="max-h-[60vh] overflow-y-auto space-y-3">
+                <div class="overflow-y-auto space-y-3" :class="dbb.maxed ? 'max-h-[85vh]' : 'max-h-[60vh]'">
                     <template x-for="s in dbb.schemas" :key="s.name">
                         <div>
                             <div class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide px-1 mb-1" x-text="s.name"></div>
@@ -716,6 +721,7 @@
                                             class="w-full text-left text-sm px-2 py-1 rounded-md flex items-center gap-1.5">
                                         <span class="text-gray-400 text-xs" x-text="t.kind === 'view' ? '◫' : '▦'"></span>
                                         <span class="truncate" x-text="t.name"></span>
+                                        <span x-show="t.rows !== null && t.rows !== undefined" class="ml-auto shrink-0 text-[10px] text-gray-400 tabular-nums" :title="(t.rows||0) + ' rows (estimate)'" x-text="fmtCount(t.rows)"></span>
                                     </button>
                                 </template>
                                 <div x-show="s.tables.length === 0" class="text-xs text-gray-400 px-2">no tables</div>
@@ -765,11 +771,11 @@
 
                     <!-- Data grid -->
                     <div x-show="dbbView === 'data'" class="space-y-2">
-                        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-auto max-h-[60vh]">
+                        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-auto" :class="dbb.maxed ? 'max-h-[80vh]' : 'max-h-[60vh]'">
                             <div x-show="dbb.gridLoading" class="text-xs text-gray-400 px-3 py-2">Loading…</div>
                             <table x-show="dbb.rows" class="text-sm w-max min-w-full">
                                 <thead class="bg-gray-50 dark:bg-gray-800/50 text-gray-500 text-xs uppercase tracking-wide sticky top-0">
-                                    <tr><template x-for="col in (dbb.rows ? dbb.rows.columns : [])" :key="col"><th class="text-left px-3 py-2 font-mono whitespace-nowrap" x-text="col"></th></template></tr>
+                                    <tr><template x-for="col in (dbb.rows ? dbb.rows.columns : [])" :key="col"><th class="text-left px-3 py-2 font-mono whitespace-nowrap"><button @click="sortBy(col)" class="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-300" :class="dbb.sort === col ? 'text-blue-600 dark:text-blue-400' : ''"><span x-text="col"></span><span x-show="dbb.sort === col" class="text-[9px]" x-text="dbb.dir === 'desc' ? '▼' : '▲'"></span></button></th></template></tr>
                                 </thead>
                                 <tbody>
                                     <template x-for="(row, ri) in (dbb.rows ? dbb.rows.rows : [])" :key="ri">
@@ -798,6 +804,7 @@
                         </div>
                     </div>
                 </div>
+            </div>
             </div>
         </div>
     </div>
@@ -2145,7 +2152,7 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         // Read-only data browser (Data tab)
         dbbView: 'data',
-        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
+        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, sort: '', dir: 'asc', maxed: false, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
         redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false, keyspace: {} },
         mon: { ws: null, live: false, lines: [], filter: '', autoscroll: true },
         mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, shellOpen: false, script: '', scriptOut: '', scriptRunning: false },
@@ -2381,6 +2388,7 @@ function resourceDetail(id) {
         },
         async openDbTable(schema, table) {
             this.dbb.selSchema = schema; this.dbb.selTable = table; this.dbb.offset = 0;
+            this.dbb.sort = ''; this.dbb.dir = 'asc';
             this.dbbView = 'data';
             await Promise.all([this.loadDbStructure(), this.loadDbRows()]);
         },
@@ -2393,9 +2401,25 @@ function resourceDetail(id) {
         },
         async loadDbRows() {
             this.dbb.gridLoading = true; this.dbb.error = '';
-            try { this.dbb.rows = await api(`/api/v1/resources/${this.id}/db-browser/rows?${this.dbQS()}&limit=${this.dbb.limit}&offset=${this.dbb.offset}`); }
+            let qs = `${this.dbQS()}&limit=${this.dbb.limit}&offset=${this.dbb.offset}`;
+            if (this.dbb.sort) qs += `&sort=${encodeURIComponent(this.dbb.sort)}&dir=${this.dbb.dir}`;
+            try { this.dbb.rows = await api(`/api/v1/resources/${this.id}/db-browser/rows?${qs}`); }
             catch (e) { this.dbb.rows = null; this.dbb.error = e.message; }
             finally { this.dbb.gridLoading = false; }
+        },
+        // Click a column header: asc → desc → unsorted.
+        sortBy(col) {
+            if (this.dbb.sort !== col) { this.dbb.sort = col; this.dbb.dir = 'asc'; }
+            else if (this.dbb.dir === 'asc') { this.dbb.dir = 'desc'; }
+            else { this.dbb.sort = ''; this.dbb.dir = 'asc'; }
+            this.dbb.offset = 0;
+            this.loadDbRows();
+        },
+        fmtCount(n) {
+            if (n === null || n === undefined) return '';
+            if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+            return String(n);
         },
         dbNextPage() {
             if (!this.dbb.rows || this.dbb.rows.rows.length < this.dbb.limit) return;
@@ -2672,7 +2696,7 @@ function resourceDetail(id) {
         activeDeployCount: 0,
         async init() {
             await this.refresh(); this.loadEnv(); if(this.supportsBackup){this.loadSchedules();this.loadBackups();this.loadDatabases();} this.loadCluster(); this.loadScaleInfo(); this.loadDomains(); this.loadComposeServices(); this.loadGitConfig(); this.loadSecuritySettings();
-            this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } if (val !== 'monitor') { this.stopMonitor(); } });
+            this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } if (val !== 'monitor') { this.stopMonitor(); } if (val !== 'data') { this.dbb.maxed = false; } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);
             // Pick the public_port to show in the input. If the service is
