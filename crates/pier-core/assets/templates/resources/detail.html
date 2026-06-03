@@ -651,6 +651,27 @@
                     <span x-show="!dbb.runner.running">Run</span><span x-show="dbb.runner.running" x-cloak>Running…</span>
                 </button>
                 <span class="text-[11px] text-gray-400">Editor role required. Statements are audited.</span>
+                <button @click="toggleHistory()" :class="dbb.history.open ? 'text-blue-600 dark:text-blue-400' : ''" class="ml-auto text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">History</button>
+            </div>
+
+            <!-- Query history -->
+            <div x-show="dbb.history.open" x-cloak class="border border-gray-200 dark:border-gray-800/50 rounded-lg overflow-auto max-h-[40vh] divide-y divide-gray-100 dark:divide-gray-800/50">
+                <div x-show="dbb.history.loading" class="text-xs text-gray-400 px-3 py-2">Loading…</div>
+                <template x-for="(h, hi) in dbb.history.items" :key="hi">
+                    <button @click="useHistory(h.sql)" class="w-full text-left px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800/50" title="Click to load into the runner">
+                        <div class="flex items-center gap-2 text-[10px] text-gray-400">
+                            <span :class="h.status === 'error' ? 'text-red-500' : 'text-green-600 dark:text-green-400'" x-text="h.status === 'error' ? '✕' : '✓'"></span>
+                            <span class="uppercase" x-text="h.kind"></span>
+                            <span x-show="h.row_count !== null && h.row_count !== undefined"><span x-text="h.row_count"></span> rows</span>
+                            <span x-show="h.duration_ms !== null && h.duration_ms !== undefined"><span x-text="h.duration_ms"></span> ms</span>
+                            <span class="ml-auto" x-text="fmtWhen(h.created_at)"></span>
+                            <span x-text="h.username"></span>
+                        </div>
+                        <div class="font-mono text-xs text-gray-700 dark:text-gray-300 truncate" x-text="h.sql"></div>
+                        <div x-show="h.error" x-cloak class="font-mono text-[10px] text-red-500 truncate" x-text="h.error"></div>
+                    </button>
+                </template>
+                <div x-show="!dbb.history.loading && dbb.history.items.length === 0" class="text-xs text-gray-400 px-3 py-2">No history yet.</div>
             </div>
 
             <div x-show="dbb.runner.error" x-cloak class="text-sm text-red-600 dark:text-red-400 font-mono whitespace-pre-wrap" x-text="dbb.runner.error"></div>
@@ -664,10 +685,13 @@
 
             <template x-if="dbb.runner.result && dbb.runner.result.kind === 'read'">
                 <div class="space-y-1">
-                    <div class="text-[11px] text-gray-400">
-                        <span x-text="dbb.runner.result.rows.length"></span> row(s)
+                    <div class="flex items-center gap-2 text-[11px] text-gray-400">
+                        <span><span x-text="dbb.runner.result.rows.length"></span> row(s)</span>
                         <span>(<span x-text="dbb.runner.result.duration_ms"></span> ms)</span>
-                        <span x-show="dbb.runner.result.truncated" class="text-amber-500"> — truncated to first 1000</span>
+                        <span x-show="dbb.runner.result.truncated" class="text-amber-500">— truncated to first 1000</span>
+                        <span class="ml-auto">Export:</span>
+                        <button @click="exportResult('csv')" class="px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">CSV</button>
+                        <button @click="exportResult('json')" class="px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">JSON</button>
                     </div>
                     <div class="border border-gray-200 dark:border-gray-800/50 rounded-lg overflow-auto max-h-[50vh]">
                         <table class="text-sm w-max min-w-full">
@@ -2238,7 +2262,7 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         // Read-only data browser (Data tab)
         dbbView: 'data',
-        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, sort: '', dir: 'asc', maxed: false, filter: { col: '', op: 'eq', val: '' }, cell: { open: false, col: '', value: null, ri: -1, ci: -1, draft: null, editing: false, saving: false, error: '', delConfirm: false, deleting: false }, insert: { open: false, vals: {}, nulls: {}, saving: false, error: '' }, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
+        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, sort: '', dir: 'asc', maxed: false, filter: { col: '', op: 'eq', val: '' }, cell: { open: false, col: '', value: null, ri: -1, ci: -1, draft: null, editing: false, saving: false, error: '', delConfirm: false, deleting: false }, insert: { open: false, vals: {}, nulls: {}, saving: false, error: '' }, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' }, history: { open: false, items: [], loading: false } },
         redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false, keyspace: {} },
         mon: { ws: null, live: false, lines: [], filter: '', autoscroll: true },
         mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, shellOpen: false, script: '', scriptOut: '', scriptRunning: false },
@@ -2582,25 +2606,43 @@ function resourceDetail(id) {
             } catch (e) { ins.error = e.message || 'Insert failed'; }
             finally { ins.saving = false; }
         },
-        // ── Export current page ──
+        // ── Export ──
         exportRows(fmt) {
             const r = this.dbb.rows; if (!r) return;
-            const base = `${this.dbb.selSchema}.${this.dbb.selTable}`;
+            this._download(r.columns, r.rows, `${this.dbb.selSchema}.${this.dbb.selTable}`, fmt);
+        },
+        exportResult(fmt) {
+            const r = this.dbb.runner.result;
+            if (!r || r.kind !== 'read') return;
+            this._download(r.columns, r.rows, 'query-result', fmt);
+        },
+        _download(columns, rows, base, fmt) {
             let blob, name;
             if (fmt === 'json') {
-                const objs = r.rows.map(row => Object.fromEntries(r.columns.map((c, i) => [c, row[i]])));
-                blob = new Blob([JSON.stringify(objs, null, 2)], { type: 'application/json' });
-                name = `${base}.json`;
+                const objs = rows.map(row => Object.fromEntries(columns.map((c, i) => [c, row[i]])));
+                blob = new Blob([JSON.stringify(objs, null, 2)], { type: 'application/json' }); name = `${base}.json`;
             } else {
                 const esc = (v) => v === null || v === undefined ? '' : (/[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v));
-                const lines = [r.columns.map(esc).join(',')].concat(r.rows.map(row => row.map(esc).join(',')));
-                blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-                name = `${base}.csv`;
+                const lines = [columns.map(esc).join(',')].concat(rows.map(row => row.map(esc).join(',')));
+                blob = new Blob([lines.join('\n')], { type: 'text/csv' }); name = `${base}.csv`;
             }
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a'); a.href = url; a.download = name; a.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
         },
+        // ── Query history (C1) ──
+        async toggleHistory() {
+            this.dbb.history.open = !this.dbb.history.open;
+            if (this.dbb.history.open) await this.loadHistory();
+        },
+        async loadHistory() {
+            this.dbb.history.loading = true;
+            try { const d = await api(`/api/v1/resources/${this.id}/db-browser/query-history?limit=50`); this.dbb.history.items = d.history || []; }
+            catch (e) { this.dbb.history.items = []; }
+            finally { this.dbb.history.loading = false; }
+        },
+        useHistory(sql) { this.dbb.runner.sql = sql; this.dbb.runnerOpen = true; this.dbb.history.open = false; },
+        fmtWhen(ts) { return ts ? ts.replace('T', ' ').replace('Z', '').slice(0, 19) : ''; },
         dbNextPage() {
             if (!this.dbb.rows || this.dbb.rows.rows.length < this.dbb.limit) return;
             this.dbb.offset += this.dbb.limit; this.loadDbRows();

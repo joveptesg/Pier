@@ -1034,6 +1034,53 @@ pub async fn delete_row(
     Ok(Json(serde_json::json!({ "rows_affected": affected })))
 }
 
+#[derive(Deserialize)]
+pub struct HistoryQuery {
+    pub limit: Option<i64>,
+}
+
+/// GET /api/v1/resources/{id}/db-browser/query-history — recent audited queries
+/// for this service, newest first (read from the local `db_query_log`).
+pub async fn query_history(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+    Query(q): Query<HistoryQuery>,
+) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Viewer)?;
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let mut stmt = db
+        .prepare(
+            "SELECT sql, kind, status, row_count, duration_ms, error, username, created_at
+             FROM db_query_log WHERE service_id = ?1
+             ORDER BY created_at DESC, rowid DESC LIMIT ?2",
+        )
+        .map_err(|e| anyhow::anyhow!("prepare: {e}"))?;
+    let items: Vec<serde_json::Value> = stmt
+        .query_map(rusqlite::params![id, limit], |r| {
+            Ok(serde_json::json!({
+                "sql": r.get::<_, String>(0)?,
+                "kind": r.get::<_, Option<String>>(1)?,
+                "status": r.get::<_, Option<String>>(2)?,
+                "row_count": r.get::<_, Option<i64>>(3)?,
+                "duration_ms": r.get::<_, Option<i64>>(4)?,
+                "error": r.get::<_, Option<String>>(5)?,
+                "username": r.get::<_, Option<String>>(6)?,
+                "created_at": r.get::<_, Option<String>>(7)?,
+            }))
+        })
+        .map_err(|e| anyhow::anyhow!("query: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(Json(serde_json::json!({ "history": items })))
+}
+
 // ── SQL runner ──────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]

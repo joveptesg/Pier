@@ -414,6 +414,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/db-browser/query",
             post(db_browser::run_query),
         )
+        .route(
+            "/resources/{id}/db-browser/query-history",
+            get(db_browser::query_history),
+        )
         // Redis / Valkey (native client)
         .route(
             "/resources/{id}/db-browser/redis/keyspace",
