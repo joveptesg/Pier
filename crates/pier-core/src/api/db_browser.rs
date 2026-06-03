@@ -375,6 +375,47 @@ pub struct BrowseQuery {
     pub sort: Option<String>,
     /// Sort direction — only `asc` / `desc` are honoured.
     pub dir: Option<String>,
+    /// Single-column filter: column (validated against catalog), operator
+    /// (fixed allowlist) and value (engine-quoted literal).
+    pub filter_col: Option<String>,
+    pub filter_op: Option<String>,
+    pub filter_val: Option<String>,
+}
+
+/// Build a validated `WHERE` clause from a single-column filter, or empty string.
+/// `col` must be one of the table's real columns; the operator is a fixed
+/// allowlist; the value is engine-quoted. Returns `" WHERE …"` (leading space)
+/// or `""`.
+fn build_filter(
+    engine: Engine,
+    cols: &[String],
+    filter_col: Option<&str>,
+    filter_op: Option<&str>,
+    filter_val: Option<&str>,
+) -> String {
+    let col = match filter_col {
+        Some(c) if cols.iter().any(|x| x == c) => c,
+        _ => return String::new(),
+    };
+    let ident = engine.quote_ident(col);
+    let val = filter_val.unwrap_or_default();
+    match filter_op.unwrap_or("eq") {
+        "eq" => format!(" WHERE {ident} = {}", engine.quote_literal(val)),
+        "ne" => format!(" WHERE {ident} <> {}", engine.quote_literal(val)),
+        "gt" => format!(" WHERE {ident} > {}", engine.quote_literal(val)),
+        "lt" => format!(" WHERE {ident} < {}", engine.quote_literal(val)),
+        "ge" => format!(" WHERE {ident} >= {}", engine.quote_literal(val)),
+        "le" => format!(" WHERE {ident} <= {}", engine.quote_literal(val)),
+        // LIKE on text-cast so it works for any column type.
+        "like" => format!(
+            " WHERE {} LIKE {}",
+            engine.text_cast(&ident),
+            engine.quote_literal(val)
+        ),
+        "null" => format!(" WHERE {ident} IS NULL"),
+        "notnull" => format!(" WHERE {ident} IS NOT NULL"),
+        _ => String::new(),
+    }
 }
 
 /// GET /api/v1/resources/{id}/db-browser/databases — list user-visible DBs.
@@ -662,12 +703,24 @@ pub async fn rows(
         _ => String::new(),
     };
 
+    let where_clause = build_filter(
+        engine,
+        &cols,
+        q.filter_col.as_deref(),
+        q.filter_op.as_deref(),
+        q.filter_val.as_deref(),
+    );
+
     // limit/offset are validated i64 — safe to inline.
-    let sql =
-        format!("SELECT {select_list} FROM {qualified}{order_by} LIMIT {limit} OFFSET {offset}");
+    let sql = format!(
+        "SELECT {select_list} FROM {qualified}{where_clause}{order_by} LIMIT {limit} OFFSET {offset}"
+    );
     let grid = db.fetch_text(&sql).await.map_err(db_err)?;
 
-    let count_sql = format!("SELECT {} FROM {qualified}", engine.text_cast("count(*)"));
+    let count_sql = format!(
+        "SELECT {} FROM {qualified}{where_clause}",
+        engine.text_cast("count(*)")
+    );
     let total: Option<i64> = db
         .fetch_text(&count_sql)
         .await

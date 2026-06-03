@@ -771,6 +771,26 @@
 
                     <!-- Data grid -->
                     <div x-show="dbbView === 'data'" class="space-y-2">
+                        <!-- Filter bar + export -->
+                        <div class="flex items-center gap-2 flex-wrap text-xs">
+                            <select x-model="dbb.filter.col" class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 font-mono">
+                                <option value="">— filter column —</option>
+                                <template x-for="col in (dbb.rows ? dbb.rows.columns : [])" :key="col"><option :value="col" x-text="col"></option></template>
+                            </select>
+                            <select x-model="dbb.filter.op" class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1">
+                                <option value="eq">=</option><option value="ne">≠</option><option value="like">LIKE</option>
+                                <option value="gt">&gt;</option><option value="lt">&lt;</option><option value="ge">≥</option><option value="le">≤</option>
+                                <option value="null">IS NULL</option><option value="notnull">IS NOT NULL</option>
+                            </select>
+                            <input x-show="!['null','notnull'].includes(dbb.filter.op)" x-model="dbb.filter.val" @keydown.enter="applyFilter()" placeholder="value" class="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 font-mono min-w-[120px]">
+                            <button @click="applyFilter()" :disabled="!dbb.filter.col" class="px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40">Apply</button>
+                            <button x-show="dbb.filter.col" @click="clearFilter()" class="px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Clear</button>
+                            <div class="ml-auto flex items-center gap-2 text-gray-500">
+                                <span class="text-[11px]">Export:</span>
+                                <button @click="exportRows('csv')" :disabled="!dbb.rows" class="px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40">CSV</button>
+                                <button @click="exportRows('json')" :disabled="!dbb.rows" class="px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40">JSON</button>
+                            </div>
+                        </div>
                         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-auto" :class="dbb.maxed ? 'max-h-[80vh]' : 'max-h-[60vh]'">
                             <div x-show="dbb.gridLoading" class="text-xs text-gray-400 px-3 py-2">Loading…</div>
                             <table x-show="dbb.rows" class="text-sm w-max min-w-full">
@@ -781,9 +801,10 @@
                                     <template x-for="(row, ri) in (dbb.rows ? dbb.rows.rows : [])" :key="ri">
                                         <tr class="border-t border-gray-100 dark:border-gray-800/50">
                                             <template x-for="(cell, ci) in row" :key="ci">
-                                                <td class="px-3 py-1.5 font-mono whitespace-nowrap max-w-[320px] truncate"
+                                                <td @click="openCell(dbb.rows.columns[ci], cell)"
+                                                    class="px-3 py-1.5 font-mono whitespace-nowrap max-w-[320px] truncate cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
                                                     :class="cell === null ? 'text-gray-400 italic' : 'text-gray-800 dark:text-gray-200'"
-                                                    :title="cell === null ? 'NULL' : cell"
+                                                    :title="cell === null ? 'NULL' : 'Click to view'"
                                                     x-text="cell === null ? 'NULL' : cell"></td>
                                             </template>
                                         </tr>
@@ -800,6 +821,20 @@
                             <div class="flex items-center gap-2">
                                 <button @click="dbPrevPage()" :disabled="dbb.offset === 0" class="px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 disabled:opacity-40">Prev</button>
                                 <button @click="dbNextPage()" :disabled="dbb.rows && dbb.rows.rows.length < dbb.limit" class="px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 disabled:opacity-40">Next</button>
+                            </div>
+                        </div>
+
+                        <!-- Cell viewer -->
+                        <div x-show="dbb.cell.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" @click="dbb.cell.open = false" @keydown.escape.window="dbb.cell.open = false">
+                            <div @click.stop class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+                                <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-800">
+                                    <h3 class="text-sm font-mono text-gray-900 dark:text-gray-100 truncate" x-text="dbb.cell.col"></h3>
+                                    <div class="flex items-center gap-2 shrink-0">
+                                        <button @click="copyText(dbb.cell.value)" class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Copy</button>
+                                        <button @click="dbb.cell.open = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+                                    </div>
+                                </div>
+                                <pre class="text-xs font-mono p-4 overflow-auto whitespace-pre-wrap break-all" :class="dbb.cell.value === null ? 'text-gray-400 italic' : 'text-gray-800 dark:text-gray-200'" x-text="cellPretty()"></pre>
                             </div>
                         </div>
                     </div>
@@ -2152,7 +2187,7 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         // Read-only data browser (Data tab)
         dbbView: 'data',
-        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, sort: '', dir: 'asc', maxed: false, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
+        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, sort: '', dir: 'asc', maxed: false, filter: { col: '', op: 'eq', val: '' }, cell: { open: false, col: '', value: null }, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
         redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false, keyspace: {} },
         mon: { ws: null, live: false, lines: [], filter: '', autoscroll: true },
         mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, shellOpen: false, script: '', scriptOut: '', scriptRunning: false },
@@ -2389,6 +2424,7 @@ function resourceDetail(id) {
         async openDbTable(schema, table) {
             this.dbb.selSchema = schema; this.dbb.selTable = table; this.dbb.offset = 0;
             this.dbb.sort = ''; this.dbb.dir = 'asc';
+            this.dbb.filter = { col: '', op: 'eq', val: '' };
             this.dbbView = 'data';
             await Promise.all([this.loadDbStructure(), this.loadDbRows()]);
         },
@@ -2403,6 +2439,11 @@ function resourceDetail(id) {
             this.dbb.gridLoading = true; this.dbb.error = '';
             let qs = `${this.dbQS()}&limit=${this.dbb.limit}&offset=${this.dbb.offset}`;
             if (this.dbb.sort) qs += `&sort=${encodeURIComponent(this.dbb.sort)}&dir=${this.dbb.dir}`;
+            const f = this.dbb.filter;
+            if (f.col) {
+                qs += `&filter_col=${encodeURIComponent(f.col)}&filter_op=${f.op}`;
+                if (f.op !== 'null' && f.op !== 'notnull') qs += `&filter_val=${encodeURIComponent(f.val)}`;
+            }
             try { this.dbb.rows = await api(`/api/v1/resources/${this.id}/db-browser/rows?${qs}`); }
             catch (e) { this.dbb.rows = null; this.dbb.error = e.message; }
             finally { this.dbb.gridLoading = false; }
@@ -2415,11 +2456,41 @@ function resourceDetail(id) {
             this.dbb.offset = 0;
             this.loadDbRows();
         },
+        applyFilter() { this.dbb.offset = 0; this.loadDbRows(); },
+        clearFilter() { this.dbb.filter = { col: '', op: 'eq', val: '' }; this.dbb.offset = 0; this.loadDbRows(); },
         fmtCount(n) {
             if (n === null || n === undefined) return '';
             if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
             if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
             return String(n);
+        },
+        // ── Cell viewer ──
+        openCell(col, value) { this.dbb.cell = { open: true, col, value }; },
+        cellPretty() {
+            const v = this.dbb.cell.value;
+            if (v === null || v === undefined) return 'NULL';
+            try { const p = JSON.parse(v); if (p && typeof p === 'object') return JSON.stringify(p, null, 2); } catch (e) {}
+            return String(v);
+        },
+        copyText(t) { try { navigator.clipboard.writeText(t == null ? '' : String(t)); } catch (e) {} },
+        // ── Export current page ──
+        exportRows(fmt) {
+            const r = this.dbb.rows; if (!r) return;
+            const base = `${this.dbb.selSchema}.${this.dbb.selTable}`;
+            let blob, name;
+            if (fmt === 'json') {
+                const objs = r.rows.map(row => Object.fromEntries(r.columns.map((c, i) => [c, row[i]])));
+                blob = new Blob([JSON.stringify(objs, null, 2)], { type: 'application/json' });
+                name = `${base}.json`;
+            } else {
+                const esc = (v) => v === null || v === undefined ? '' : (/[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v));
+                const lines = [r.columns.map(esc).join(',')].concat(r.rows.map(row => row.map(esc).join(',')));
+                blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+                name = `${base}.csv`;
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
         },
         dbNextPage() {
             if (!this.dbb.rows || this.dbb.rows.rows.length < this.dbb.limit) return;
