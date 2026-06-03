@@ -12,6 +12,7 @@ pub mod databases;
 pub mod db_browser;
 #[cfg(feature = "db-browser")]
 pub mod db_nosql;
+pub mod dependencies;
 pub mod deployments;
 pub mod domains;
 pub mod env;
@@ -105,6 +106,15 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             .burst_size(10)
             .finish()
             .expect("setup governor config"),
+    );
+    // CI deploy API: a deploy is expensive (clone + build), so throttle it per
+    // client IP with a tight profile (same as npm publish).
+    let deploy_governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(6)
+            .burst_size(3)
+            .finish()
+            .expect("deploy governor config"),
     );
 
     let public = Router::new()
@@ -244,6 +254,16 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         // Deployments (CI/CD pipeline)
         .route("/resources/{id}/deploy", post(deployments::manual_deploy))
+        // Authenticated CI deploy API (Bearer api_token). Returns deployment_id
+        // for status polling. Rate-limited per IP — deploys are expensive.
+        .route(
+            "/services/{id}/deploy",
+            post(deployments::api_deploy).layer(GovernorLayer::new(deploy_governor.clone())),
+        )
+        .route(
+            "/projects/{id}/services/{name}/deploy",
+            post(deployments::api_deploy_by_name).layer(GovernorLayer::new(deploy_governor)),
+        )
         .route("/resources/{id}/rollback", post(deployments::rollback))
         .route("/resources/{id}/deployments", get(deployments::list))
         .route(
@@ -253,6 +273,16 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route(
             "/resources/{id}/deployments/{dep_id}/cancel",
             post(deployments::cancel),
+        )
+        // Declared service dependency graph (Layer C). Empty = no-op; an edge
+        // makes a push that redeploys the dependency also redeploy this service.
+        .route(
+            "/resources/{id}/dependencies",
+            get(dependencies::list).post(dependencies::add),
+        )
+        .route(
+            "/resources/{id}/dependencies/{dep_id}",
+            delete(dependencies::remove),
         )
         // Database management (PostgreSQL/MySQL)
         .route(

@@ -41,6 +41,8 @@ pub enum AuthEvent {
     ProjectMemberAdded,
     ProjectMemberRoleChanged,
     ProjectMemberRemoved,
+    // Deploy events
+    ServiceDeployed,
 }
 
 impl AuthEvent {
@@ -67,6 +69,7 @@ impl AuthEvent {
             Self::ProjectMemberAdded => "project.member_added",
             Self::ProjectMemberRoleChanged => "project.member_role_changed",
             Self::ProjectMemberRemoved => "project.member_removed",
+            Self::ServiceDeployed => "service.deployed",
         }
     }
 }

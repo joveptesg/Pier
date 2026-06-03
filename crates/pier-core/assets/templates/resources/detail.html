@@ -1344,9 +1344,47 @@ NODE_ENV=production"></textarea>
                         <template x-for="s in gitSources" :key="s.id"><option :value="s.id" x-text="s.name + ' (' + s.source_type + ')'"></option></template>
                     </select>
                 </div>
+                <div class="pt-2 border-t border-gray-100 dark:border-gray-800">
+                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Monorepo (optional)</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Root directory</label>
+                            <input type="text" x-model="gitConfig.root_path" placeholder="services/bot"
+                                   class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white font-mono">
+                            <p class="text-xs text-gray-400 mt-0.5">Subdirectory used as the build context. Empty = repo root.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Watch paths</label>
+                            <textarea x-model="gitConfig.watch_paths" rows="3" placeholder="services/bot/**&#10;packages/shared/**"
+                                      class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white font-mono"></textarea>
+                            <p class="text-xs text-gray-400 mt-0.5">One glob per line. A push redeploys this service only if a changed file matches. Empty = derive from root directory, or watch everything.</p>
+                        </div>
+                    </div>
+                </div>
                 <div class="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
                     <button @click="saveGitConfig()" class="px-4 py-2 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Save Git Config</button>
                 </div>
+            </div>
+        </div>
+        <!-- Service dependencies — explicit declared graph (Layer C) -->
+        <div x-show="gitConfig.git_repo_url" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dependencies</h3>
+            <p class="text-xs text-gray-400 mb-4">When one of these is redeployed by a push, this service redeploys too. Same project only.</p>
+            <div class="space-y-2 mb-4">
+                <template x-for="d in serviceDeps" :key="d.id">
+                    <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+                        <span class="text-sm font-mono text-gray-700 dark:text-gray-300" x-text="d.depends_on_name"></span>
+                        <button @click="removeDep(d.id)" class="shrink-0 px-2 py-1 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300 transition-colors">Remove</button>
+                    </div>
+                </template>
+                <p x-show="!serviceDeps.length" class="text-xs text-gray-400">No dependencies declared.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <select x-model="newDepId" class="flex-1 px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white">
+                    <option value="">Select a service…</option>
+                    <template x-for="s in depCandidates" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
+                </select>
+                <button @click="addDep()" class="shrink-0 px-4 py-2 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Add</button>
             </div>
         </div>
         <!-- Webhook Info (shown only after saving) -->
@@ -2094,9 +2132,10 @@ function resourceDetail(id) {
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, deleteBackups: false, deletePassword: '', deleting: false, requirePwOnDelete: true,
         showDeleteDbModal: false, deleteDbName: '', deleteDbConfirm: '', deleteDbPassword: '', deleteDbBackups: false, deletingDb: false,
         showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
-        gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '' },
+        gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '', root_path: '', watch_paths: '' },
         gitComposePreview: '', gitComposeLoading: false, reloadingCompose: false,
         gitSources: [], showWebhookSecret: false,
+        serviceDeps: [], depCandidates: [], newDepId: '',
         ciDeployments: [], expandedLog: null, selectedDeploy: null, deploysPage: 1, deploysPerPage: 10, cancellingDeploy: false,
         togglingPublic: false,
         publicPort: 0,
@@ -3189,9 +3228,35 @@ function resourceDetail(id) {
         async loadGitConfig() {
             try {
                 const cfg = await fetch('/api/v1/resources/'+this.id+'/git').then(r=>r.ok?r.json():null);
-                if(cfg) { this.gitConfig = { git_repo_url: cfg.git_repo_url||'', git_branch: cfg.git_branch||'main', git_source_id: cfg.git_source_id||'', build_strategy: cfg.build_strategy||'dockerfile', webhook_secret: cfg.webhook_secret||'' }; }
+                if(cfg) { this.gitConfig = { git_repo_url: cfg.git_repo_url||'', git_branch: cfg.git_branch||'main', git_source_id: cfg.git_source_id||'', build_strategy: cfg.build_strategy||'dockerfile', webhook_secret: cfg.webhook_secret||'', root_path: cfg.root_path||'', watch_paths: cfg.watch_paths||'' }; }
                 this.gitSources = await fetch('/api/v1/sources').then(r=>r.ok?r.json():[]).catch(()=>[]);
+                this.loadDeps();
             } catch{}
+        },
+        async loadDeps() {
+            try {
+                this.serviceDeps = await fetch('/api/v1/resources/'+this.id+'/dependencies').then(r=>r.ok?r.json():[]).catch(()=>[]);
+                const all = await fetch('/api/v1/resources').then(r=>r.ok?r.json():[]).catch(()=>[]);
+                const pid = this.resource.project_id || null;
+                const have = new Set((this.serviceDeps||[]).map(d=>d.depends_on_service_id));
+                this.depCandidates = (all||[]).filter(s => s.id !== this.id && (s.project_id||null) === pid && !have.has(s.id));
+            } catch{}
+        },
+        async addDep() {
+            if(!this.newDepId){toast('Pick a service','error');return;}
+            try {
+                await api('/api/v1/resources/'+this.id+'/dependencies',{method:'POST',body:JSON.stringify({depends_on_service_id:this.newDepId})});
+                this.newDepId='';
+                this.loadDeps();
+                toast('Dependency added');
+            } catch(e){toast(e.message,'error');}
+        },
+        async removeDep(depId) {
+            try {
+                await api('/api/v1/resources/'+this.id+'/dependencies/'+depId,{method:'DELETE'});
+                this.loadDeps();
+                toast('Dependency removed');
+            } catch(e){toast(e.message,'error');}
         },
         async saveGitConfig() {
             if(!this.gitConfig.git_repo_url.trim()){toast('Repository URL is required','error');return;}

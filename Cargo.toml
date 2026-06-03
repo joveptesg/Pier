@@ -110,6 +110,10 @@ hex = "0.4"
 # Tar archive (Docker build context)
 tar = "0.4"
 
+# Glob matching (monorepo watch-paths → selective redeploy). Compiles N patterns
+# into one regex-backed GlobSet answering is_match() in a single pass.
+globset = "0.4.18"
+
 # Gzip (backup compression)
 flate2 = "1"
 

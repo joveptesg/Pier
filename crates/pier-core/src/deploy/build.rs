@@ -56,12 +56,17 @@ pub async fn clone_repo(
 
 /// Build a Docker image from a Dockerfile in the given directory.
 ///
+/// `context_dir` is the build context root (a per-service subdirectory for
+/// monorepo services). `dockerfile_rel` is the Dockerfile path **relative to
+/// that context** (usually `"Dockerfile"`).
+///
 /// `auth_map` provides registry credentials keyed by host — Bollard forwards
 /// them as `X-Registry-Config` so that `FROM` pulls from private registries
 /// succeed. Pass `None` to fall back to the Docker daemon's default auth.
 pub async fn docker_build(
     docker: &Docker,
     context_dir: &Path,
+    dockerfile_rel: &str,
     image_tag: &str,
     auth_map: Option<HashMap<String, DockerCredentials>>,
 ) -> Result<String> {
@@ -70,6 +75,7 @@ pub async fn docker_build(
 
     let options = BuildImageOptions {
         t: Some(image_tag.to_string()),
+        dockerfile: dockerfile_rel.to_string(),
         rm: true,
         forcerm: true,
         ..Default::default()

@@ -98,6 +98,9 @@ hex = { workspace = true }
 # Tar archive (Docker build context)
 tar = { workspace = true }
 
+# Glob matching (monorepo watch-paths → selective redeploy)
+globset = { workspace = true }
+
 # Gzip (backup compression)
 flate2 = { workspace = true }
 

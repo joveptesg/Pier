@@ -1,6 +1,8 @@
 pub mod build;
+pub mod deps;
 pub mod rollback;
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -17,18 +19,36 @@ pub struct CommitInfo {
     pub branch: String,
 }
 
-/// Run the full deploy pipeline for a service.
+/// Run the full deploy pipeline for a service, generating a fresh deployment id.
 ///
-/// 1. Create a `deployments` record (pending)
-/// 2. Clone the repo
-/// 3. Build (Dockerfile or docker-compose)
-/// 4. Swap image and redeploy containers
-/// 5. Record result
+/// Most callers (webhook, manual, redeploy) use this. The authenticated CI
+/// deploy API instead calls [`run_pipeline_with_id`] directly so it can return
+/// the deployment id to the client synchronously, before the build begins.
 pub async fn run_pipeline(
     state: Arc<AppState>,
     service_id: String,
     commit: CommitInfo,
     triggered_by: &str,
+) {
+    let deploy_id = uuid::Uuid::new_v4().to_string();
+    run_pipeline_with_id(state, service_id, commit, triggered_by, deploy_id).await;
+}
+
+/// Run the full deploy pipeline for a service using a caller-supplied
+/// `deploy_id`. The `deployments` row is created under this id, so a caller that
+/// generated the id up front can hand it to the client for status polling.
+///
+/// 1. Create a `deployments` record (building)
+/// 2. Clone the repo
+/// 3. Build (Dockerfile or docker-compose)
+/// 4. Swap image and redeploy containers
+/// 5. Record result
+pub async fn run_pipeline_with_id(
+    state: Arc<AppState>,
+    service_id: String,
+    commit: CommitInfo,
+    triggered_by: &str,
+    deploy_id: String,
 ) {
     let start = Instant::now();
 
@@ -42,7 +62,7 @@ pub async fn run_pipeline(
             }
         };
         db.query_row(
-            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars, compose_path
+            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars, compose_path, root_path
              FROM services WHERE id = ?1",
             [&service_id],
             |row| {
@@ -57,6 +77,7 @@ pub async fn run_pipeline(
                     start_cmd: row.get(7)?,
                     build_env_vars: row.get(8)?,
                     compose_path: row.get(9)?,
+                    root_path: row.get(10)?,
                 })
             },
         )
@@ -71,7 +92,6 @@ pub async fn run_pipeline(
         }
     };
 
-    let deploy_id = uuid::Uuid::new_v4().to_string();
     let sha_short = if commit.sha.len() >= 12 {
         &commit.sha[..12]
     } else {
@@ -173,6 +193,19 @@ pub async fn run_pipeline(
         }
     }
 
+    // Per-service build context: monorepo services declare a `root_path`
+    // subdirectory and everything (dockerfile/compose/railpack) builds from
+    // there. Empty/None → repo root, byte-identical to single-service repos.
+    let context_dir = match service_context_dir(&repo_dir, svc.root_path.as_deref()) {
+        Ok(dir) => dir,
+        Err(e) => {
+            log.push_str(&format!("Invalid root_path: {e}\n"));
+            finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
+            let _ = tokio::fs::remove_dir_all(&repo_dir).await;
+            return;
+        }
+    };
+
     // Build
     log.push_str("Building...\n");
     flush_log(&state, &deploy_id, &log);
@@ -192,8 +225,14 @@ pub async fn run_pipeline(
 
     match strategy {
         "dockerfile" => {
-            match build::docker_build(&state.docker, &repo_dir, &image_tag, build_auth.clone())
-                .await
+            match build::docker_build(
+                &state.docker,
+                &context_dir,
+                "Dockerfile",
+                &image_tag,
+                build_auth.clone(),
+            )
+            .await
             {
                 Ok(output) => {
                     log.push_str(&output);
@@ -249,7 +288,10 @@ pub async fn run_pipeline(
                 .map(|p| p.trim_start_matches('/'))
                 .filter(|p| !p.is_empty())
                 .unwrap_or("docker-compose.yml");
-            let compose_file = repo_dir.join(compose_rel);
+            // compose_path resolves relative to the per-service context dir, so a
+            // monorepo service with root_path="services/web" finds its compose at
+            // services/web/docker-compose.yml.
+            let compose_file = context_dir.join(compose_rel);
             if !compose_file.exists() {
                 log.push_str(&format!("{compose_rel} not found in repo\n"));
                 finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
@@ -267,7 +309,7 @@ pub async fn run_pipeline(
                 .join(&stack_name)
                 .join(".env");
             if stack_env.exists() {
-                let _ = tokio::fs::copy(&stack_env, repo_dir.join(".env")).await;
+                let _ = tokio::fs::copy(&stack_env, context_dir.join(".env")).await;
             }
 
             match tokio::fs::read_to_string(&compose_file).await {
@@ -300,14 +342,17 @@ pub async fn run_pipeline(
                     let mesh_hosts = mesh_hosts_for_inject(&state);
                     let yaml = inject_mesh_extra_hosts_into_services(&yaml, &mesh_hosts);
 
-                    // Move repo contents to stack dir so build context works from persistent location
+                    // Move the per-service context dir to the persistent stack dir
+                    // so the build context works from a stable location. For
+                    // monorepo services this is the subdir (root_path); the rest
+                    // of the clone is cleaned up at the end of the pipeline.
                     let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
                     let _ = tokio::fs::remove_dir_all(&stack_dir).await;
-                    if let Err(e) = tokio::fs::rename(&repo_dir, &stack_dir).await {
+                    if let Err(e) = tokio::fs::rename(&context_dir, &stack_dir).await {
                         // rename may fail across filesystems, fall back to copy
                         log.push_str(&format!("Move repo to stack dir: {e}, trying copy\n"));
                         let _ = tokio::fs::create_dir_all(&stack_dir).await;
-                        let _ = copy_dir_all(&repo_dir, &stack_dir).await;
+                        let _ = copy_dir_all(&context_dir, &stack_dir).await;
                     }
 
                     // Write cleaned compose YAML
@@ -434,7 +479,7 @@ pub async fn run_pipeline(
             // docker-compose branch above.
             let mut line_count: u32 = 0;
             let build_result =
-                build::railpack_build(&repo_dir, &image_tag, &env_vars, start_cmd, |line| {
+                build::railpack_build(&context_dir, &image_tag, &env_vars, start_cmd, |line| {
                     log.push_str(line);
                     log.push('\n');
                     line_count += 1;
@@ -518,12 +563,101 @@ pub async fn run_pipeline(
         tracing::warn!("Failed to regenerate Traefik config for {service_id}: {e}");
     }
 
+    // Record the SHA we just deployed so the webhook can diff against it when a
+    // future push payload can't supply changed files. Only real 40-hex git SHAs
+    // — manual/api/redeploy use synthetic ids (`manual-…`, `api-…`, `dep-…`).
+    if is_real_git_sha(&commit.sha) {
+        if let Ok(db) = state.db.lock() {
+            let _ = db.execute(
+                "UPDATE services SET last_deployed_sha = ?1 WHERE id = ?2",
+                rusqlite::params![commit.sha, service_id],
+            );
+        }
+    }
+
     finish_deployment(&state, &deploy_id, &service_id, "success", &log, start);
 
     // Cleanup temp dir
     let _ = tokio::fs::remove_dir_all(&repo_dir).await;
 
     tracing::info!("Pipeline complete for {service_id}: deploy {deploy_id} succeeded");
+}
+
+/// Resolve the per-service build context directory inside a fresh clone.
+///
+/// `root_path` is an optional repo-relative subdirectory (the monorepo case).
+/// `None`/empty → the repo root itself. Rejects absolute paths and `..`
+/// traversal so a typo'd or malicious value can't escape the cloned tree.
+fn service_context_dir(repo_dir: &Path, root_path: Option<&str>) -> Result<PathBuf> {
+    let rel = root_path.map(|p| p.trim().trim_matches('/')).unwrap_or("");
+    if rel.is_empty() {
+        return Ok(repo_dir.to_path_buf());
+    }
+    let rel_path = Path::new(rel);
+    let escapes = rel_path.is_absolute()
+        || rel_path.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir | std::path::Component::Prefix(_)
+            )
+        });
+    if escapes {
+        anyhow::bail!("root_path must be a repo-relative subdirectory without '..' (got '{rel}')");
+    }
+    Ok(repo_dir.join(rel_path))
+}
+
+/// True for a full 40-char hex git SHA (not a synthetic `manual-…`/`api-…`/
+/// `dep-…` id). Used to decide whether a deployed commit is a real, fetchable
+/// git object worth recording as `services.last_deployed_sha`.
+pub(crate) fn is_real_git_sha(sha: &str) -> bool {
+    sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Resolve the authenticated clone URL + configured branch for a service by id.
+///
+/// Thin wrapper over [`resolve_clone_url`] for callers (e.g. the webhook diff
+/// path) that only hold a service id, not a loaded `ServiceInfo`.
+pub(crate) async fn resolve_clone_url_for_service(
+    state: &AppState,
+    service_id: &str,
+) -> Result<(String, String)> {
+    let (git_repo_url, git_branch, git_source_id): (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT git_repo_url, git_branch, git_source_id FROM services WHERE id = ?1",
+            [service_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?
+    };
+    let branch = git_branch
+        .clone()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "main".to_string());
+    // `resolve_clone_url` only reads git_repo_url + git_source_id; the rest of
+    // ServiceInfo is irrelevant here (and marked dead_code-allowed).
+    let svc = ServiceInfo {
+        name: String::new(),
+        git_repo_url,
+        git_branch,
+        git_source_id,
+        build_strategy: None,
+        compose_content: None,
+        current_image: None,
+        start_cmd: None,
+        build_env_vars: None,
+        compose_path: None,
+        root_path: None,
+    };
+    let url = resolve_clone_url(state, &svc).await?;
+    Ok((url, branch))
 }
 
 /// Clone the service's git repo (HEAD of the configured branch) into a temp
@@ -538,7 +672,7 @@ pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Resul
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars, compose_path
+            "SELECT name, git_repo_url, git_branch, git_source_id, build_strategy, compose_content, image, start_cmd, build_env_vars, compose_path, root_path
              FROM services WHERE id = ?1",
             [service_id],
             |row| {
@@ -553,6 +687,7 @@ pub async fn fetch_compose_from_git(state: &AppState, service_id: &str) -> Resul
                     start_cmd: row.get(7)?,
                     build_env_vars: row.get(8)?,
                     compose_path: row.get(9)?,
+                    root_path: row.get(10)?,
                 })
             },
         )?
@@ -2287,6 +2422,10 @@ struct ServiceInfo {
     /// docker-compose strategy. May carry a leading `/`. `None` → default
     /// `docker-compose.yml`. Ignored for dockerfile/railpack strategies.
     compose_path: Option<String>,
+    /// Optional subdirectory within the repo that becomes the build context
+    /// root for ALL strategies (the monorepo case). `None`/'' → repo root.
+    /// compose/dockerfile paths resolve relative to this directory.
+    root_path: Option<String>,
 }
 
 #[cfg(test)]

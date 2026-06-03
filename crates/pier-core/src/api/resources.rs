@@ -3156,7 +3156,7 @@ pub async fn get_git_config(
 
     let config = db
         .query_row(
-            "SELECT git_repo_url, git_branch, git_source_id, build_strategy, git_webhook_secret
+            "SELECT git_repo_url, git_branch, git_source_id, build_strategy, git_webhook_secret, root_path, watch_paths
              FROM services WHERE id = ?1",
             [&id],
             |row| {
@@ -3166,6 +3166,8 @@ pub async fn get_git_config(
                     "git_source_id": row.get::<_, Option<String>>(2)?,
                     "build_strategy": row.get::<_, Option<String>>(3)?,
                     "webhook_secret": row.get::<_, Option<String>>(4)?,
+                    "root_path": row.get::<_, Option<String>>(5)?,
+                    "watch_paths": row.get::<_, Option<String>>(6)?,
                 }))
             },
         )
@@ -3193,15 +3195,32 @@ pub async fn update_git_config(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
+    // Normalize blank → NULL so an empty root/watch means "repo root" and
+    // "watch everything" (the back-compat defaults), not a literal empty path.
+    let root_path = body
+        .root_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let watch_paths = body
+        .watch_paths
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
     let rows = db.execute(
-        "UPDATE services SET git_repo_url = ?1, git_branch = ?2, git_source_id = ?3, build_strategy = ?4, git_webhook_secret = ?5, updated_at = datetime('now')
-         WHERE id = ?6",
+        "UPDATE services SET git_repo_url = ?1, git_branch = ?2, git_source_id = ?3, build_strategy = ?4, git_webhook_secret = ?5, root_path = ?6, watch_paths = ?7, updated_at = datetime('now')
+         WHERE id = ?8",
         rusqlite::params![
             body.git_repo_url,
             body.git_branch.unwrap_or_else(|| "main".to_string()),
             body.git_source_id,
             body.build_strategy.unwrap_or_else(|| "dockerfile".to_string()),
             webhook_secret,
+            root_path,
+            watch_paths,
             id,
         ],
     )?;
@@ -3223,6 +3242,12 @@ pub struct UpdateGitConfigRequest {
     pub git_source_id: Option<String>,
     pub build_strategy: Option<String>,
     pub webhook_secret: Option<String>,
+    /// Monorepo: subdirectory within the repo that becomes the build context
+    /// root. Blank/absent → repo root.
+    pub root_path: Option<String>,
+    /// Monorepo: newline-separated globset patterns; a push redeploys this
+    /// service only if a changed file matches. Blank/absent → watch everything.
+    pub watch_paths: Option<String>,
 }
 
 /// PUT /api/v1/resources/{id}/port-public — toggle public exposure of one

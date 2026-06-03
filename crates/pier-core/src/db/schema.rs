@@ -1460,6 +1460,75 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_db_query_log_service ON db_query_log(service_id);
     "#,
+    // Migration 64: Monorepo selective redeploy — per-service build root,
+    // watch globs, and a robust diff base.
+    //
+    // A single git repo can back N services (no UNIQUE on git_repo_url). Until
+    // now a push rebuilt the whole repo for the one service the webhook matched
+    // (LIMIT 1) and ignored which files changed. These three columns let the
+    // webhook fan out to every service on the repo and redeploy only the ones
+    // whose watched paths actually changed, each built from its own subdir.
+    //
+    //   * root_path         — subdirectory within the repo that becomes the
+    //                         Docker build context root (and the base that
+    //                         compose/dockerfile paths resolve against). NULL or
+    //                         '' = repo root → byte-identical context for every
+    //                         existing single-service repo.
+    //   * watch_paths       — newline-separated globset patterns (same textarea
+    //                         convention as build_env_vars). A push triggers the
+    //                         service only if a changed file matches. NULL/'' =
+    //                         watch everything (the critical back-compat default,
+    //                         so existing repos keep deploying on ANY push). When
+    //                         root_path is set but watch_paths is empty, the
+    //                         webhook derives `{root_path}/**`.
+    //   * last_deployed_sha — SHA of the last SUCCESSFUL deploy; the diff base
+    //                         when the webhook payload can't supply changed files
+    //                         (truncated push / force-push / missing `before`).
+    //                         Its own column rather than MAX(deployments.commit_sha)
+    //                         because manual/redeploy write synthetic non-git SHAs
+    //                         (`manual-xxxx`, `api-xxxx`); we only ever store real
+    //                         40-hex SHAs here so the base is always fetchable.
+    //
+    // All three NULLable → metadata-only ALTER, no backfill; existing rows read
+    // NULL and behave exactly as before.
+    r#"
+    ALTER TABLE services ADD COLUMN root_path TEXT;
+    ALTER TABLE services ADD COLUMN watch_paths TEXT;
+    ALTER TABLE services ADD COLUMN last_deployed_sha TEXT;
+    "#,
+    // Migration 65: explicit, operator-declared service dependency graph.
+    //
+    // A row (service_id, depends_on_service_id) means "service_id depends_on
+    // depends_on_service_id" — i.e. when the dependency is (re)deployed because
+    // a push touched its watched paths, the dependent must redeploy too. The
+    // webhook fan-out expands the directly-affected set with the reverse-edge
+    // closure of this table before spawning pipelines.
+    //
+    // This is a DECLARED graph (debuggable, opt-in) — NOT nx/turbo content-hash
+    // inference. An empty table == today's behavior (purely additive). Teams
+    // that run nx/turbo should instead drive the per-service CI deploy API,
+    // which already computes the affected-with-dependents set.
+    //
+    //   * CHECK blocks self-loops at write time. Longer cycles (A→B→A) aren't
+    //     prevented here — the closure walk is cycle-safe via a visited set.
+    //   * ON DELETE CASCADE on BOTH FKs: removing a service clears its edges in
+    //     both directions, so no dangling references survive.
+    //   * The reverse index (depends_on) backs the closure BFS's hot query
+    //     ("who depends on X") without table scans.
+    r#"
+    CREATE TABLE IF NOT EXISTS service_dependencies (
+        id                    TEXT PRIMARY KEY NOT NULL,
+        service_id            TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        depends_on_service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+        created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (service_id, depends_on_service_id),
+        CHECK (service_id <> depends_on_service_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_service_deps_service
+        ON service_dependencies(service_id);
+    CREATE INDEX IF NOT EXISTS idx_service_deps_depends_on
+        ON service_dependencies(depends_on_service_id);
+    "#,
 ];
 
 /// Run all pending database migrations.
