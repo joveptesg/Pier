@@ -399,6 +399,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         .route("/resources/{id}/db-browser/rows", get(db_browser::rows))
         .route(
+            "/resources/{id}/db-browser/rows/update",
+            post(db_browser::update_row),
+        )
+        .route(
             "/resources/{id}/db-browser/query",
             post(db_browser::run_query),
         )

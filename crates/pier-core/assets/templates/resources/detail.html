@@ -801,7 +801,7 @@
                                     <template x-for="(row, ri) in (dbb.rows ? dbb.rows.rows : [])" :key="ri">
                                         <tr class="border-t border-gray-100 dark:border-gray-800/50">
                                             <template x-for="(cell, ci) in row" :key="ci">
-                                                <td @click="openCell(dbb.rows.columns[ci], cell)"
+                                                <td @click="openCell(ri, ci)"
                                                     class="px-3 py-1.5 font-mono whitespace-nowrap max-w-[320px] truncate cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
                                                     :class="cell === null ? 'text-gray-400 italic' : 'text-gray-800 dark:text-gray-200'"
                                                     :title="cell === null ? 'NULL' : 'Click to view'"
@@ -824,17 +824,35 @@
                             </div>
                         </div>
 
-                        <!-- Cell viewer -->
+                        <!-- Cell viewer + inline edit -->
                         <div x-show="dbb.cell.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" @click="dbb.cell.open = false" @keydown.escape.window="dbb.cell.open = false">
                             <div @click.stop class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
                                 <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-800">
                                     <h3 class="text-sm font-mono text-gray-900 dark:text-gray-100 truncate" x-text="dbb.cell.col"></h3>
                                     <div class="flex items-center gap-2 shrink-0">
+                                        <button x-show="!dbb.cell.editing && pkCols().length" @click="startCellEdit()" class="text-xs px-2 py-1 rounded border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30">Edit</button>
+                                        <span x-show="!pkCols().length" class="text-[11px] text-gray-400">read-only (no PK)</span>
                                         <button @click="copyText(dbb.cell.value)" class="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Copy</button>
                                         <button @click="dbb.cell.open = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
                                     </div>
                                 </div>
-                                <pre class="text-xs font-mono p-4 overflow-auto whitespace-pre-wrap break-all" :class="dbb.cell.value === null ? 'text-gray-400 italic' : 'text-gray-800 dark:text-gray-200'" x-text="cellPretty()"></pre>
+
+                                <!-- View mode -->
+                                <pre x-show="!dbb.cell.editing" class="text-xs font-mono p-4 overflow-auto whitespace-pre-wrap break-all" :class="dbb.cell.value === null ? 'text-gray-400 italic' : 'text-gray-800 dark:text-gray-200'" x-text="cellPretty()"></pre>
+
+                                <!-- Edit mode -->
+                                <div x-show="dbb.cell.editing" x-cloak class="p-4 space-y-2 overflow-auto">
+                                    <div x-show="dbb.cell.draft === null" class="text-xs text-gray-400 italic px-1 py-6 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded-lg">NULL</div>
+                                    <textarea x-show="dbb.cell.draft !== null" x-model="dbb.cell.draft" rows="6" spellcheck="false" class="w-full font-mono text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2"></textarea>
+                                    <div x-show="dbb.cell.error" x-cloak class="text-xs text-red-600 dark:text-red-400 break-words" x-text="dbb.cell.error"></div>
+                                    <div class="flex items-center gap-2">
+                                        <button @click="saveCell()" :disabled="dbb.cell.saving" class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"><span x-show="!dbb.cell.saving">Save</span><span x-show="dbb.cell.saving" x-cloak>Saving…</span></button>
+                                        <button @click="dbb.cell.editing = false; dbb.cell.draft = dbb.cell.value; dbb.cell.error = ''" class="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+                                        <button x-show="dbb.cell.draft !== null" @click="setCellNull()" class="ml-auto text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Set NULL</button>
+                                        <button x-show="dbb.cell.draft === null" @click="dbb.cell.draft = ''" class="ml-auto text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">Set value</button>
+                                    </div>
+                                    <p class="text-[11px] text-gray-400">Updates <span class="font-mono" x-text="dbb.selSchema + '.' + dbb.selTable"></span> by primary key · Editor · audited.</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2187,7 +2205,7 @@ function resourceDetail(id) {
         dbList: [], dbLoading: false, dbCreating: false,
         // Read-only data browser (Data tab)
         dbbView: 'data',
-        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, sort: '', dir: 'asc', maxed: false, filter: { col: '', op: 'eq', val: '' }, cell: { open: false, col: '', value: null }, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
+        dbb: { loading: false, error: '', databases: [], database: '', schemas: [], selSchema: '', selTable: '', structure: null, rows: null, gridLoading: false, limit: 50, offset: 0, sort: '', dir: 'asc', maxed: false, filter: { col: '', op: 'eq', val: '' }, cell: { open: false, col: '', value: null, ri: -1, ci: -1, draft: null, editing: false, saving: false, error: '' }, runnerOpen: false, runner: { sql: '', running: false, result: null, error: '' } },
         redis: { db: 0, pattern: '*', keys: [], cursor: 0, selKey: '', value: null, loading: false, error: '', cmd: '', cmdResult: null, cmdRunning: false, keyspace: {} },
         mon: { ws: null, live: false, lines: [], filter: '', autoscroll: true },
         mongo: { databases: [], database: '', collections: [], collection: '', docs: null, loading: false, error: '', skip: 0, limit: 20, shellOpen: false, script: '', scriptOut: '', scriptRunning: false },
@@ -2464,8 +2482,11 @@ function resourceDetail(id) {
             if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
             return String(n);
         },
-        // ── Cell viewer ──
-        openCell(col, value) { this.dbb.cell = { open: true, col, value }; },
+        // ── Cell viewer + inline edit (B1) ──
+        openCell(ri, ci) {
+            const r = this.dbb.rows;
+            this.dbb.cell = { open: true, ri, ci, col: r.columns[ci], value: r.rows[ri][ci], draft: r.rows[ri][ci], editing: false, saving: false, error: '' };
+        },
         cellPretty() {
             const v = this.dbb.cell.value;
             if (v === null || v === undefined) return 'NULL';
@@ -2473,6 +2494,22 @@ function resourceDetail(id) {
             return String(v);
         },
         copyText(t) { try { navigator.clipboard.writeText(t == null ? '' : String(t)); } catch (e) {} },
+        pkCols() { return ((this.dbb.structure && this.dbb.structure.columns) || []).filter(c => c.is_pk).map(c => c.name); },
+        startCellEdit() { const c = this.dbb.cell; c.error = ''; if (c.draft === null) c.draft = ''; c.editing = true; },
+        setCellNull() { this.dbb.cell.draft = null; },
+        async saveCell() {
+            const c = this.dbb.cell; const pks = this.pkCols();
+            if (!pks.length) { c.error = 'Table has no primary key — not editable.'; return; }
+            const cols = this.dbb.rows.columns; const pk = {};
+            for (const p of pks) { const idx = cols.indexOf(p); pk[p] = idx >= 0 ? this.dbb.rows.rows[c.ri][idx] : null; }
+            c.saving = true; c.error = '';
+            try {
+                await api(`/api/v1/resources/${this.id}/db-browser/rows/update`, { method: 'POST', body: JSON.stringify({ database: this.dbb.database, schema: this.dbb.selSchema, table: this.dbb.selTable, pk, column: c.col, value: c.draft }) });
+                this.dbb.rows.rows[c.ri][c.ci] = c.draft;
+                c.value = c.draft; c.editing = false;
+            } catch (e) { c.error = e.message || 'Update failed'; }
+            finally { c.saving = false; }
+        },
         // ── Export current page ──
         exportRows(fmt) {
             const r = this.dbb.rows; if (!r) return;

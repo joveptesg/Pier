@@ -738,6 +738,158 @@ pub async fn rows(
     })))
 }
 
+// ── Row editing (Phase B) ────────────────────────────────────────────────────
+
+/// All column names for a table, in ordinal order.
+async fn fetch_cols(
+    db: &mut Db,
+    engine: Engine,
+    schema: &str,
+    table: &str,
+) -> AppResult<Vec<String>> {
+    let sql = format!(
+        "SELECT column_name FROM information_schema.columns
+         WHERE table_schema = {} AND table_name = {} ORDER BY ordinal_position",
+        engine.quote_literal(schema),
+        engine.quote_literal(table),
+    );
+    let grid = db.fetch_text(&sql).await.map_err(db_err)?;
+    Ok(grid
+        .iter()
+        .filter_map(|r| r.first().cloned().flatten())
+        .collect())
+}
+
+/// Primary-key column names for a table (empty if it has none).
+async fn fetch_pk_cols(
+    db: &mut Db,
+    engine: Engine,
+    schema: &str,
+    table: &str,
+) -> AppResult<Vec<String>> {
+    let sql = format!(
+        "SELECT kcu.column_name
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+         WHERE tc.constraint_type = 'PRIMARY KEY'
+           AND tc.table_schema = {} AND tc.table_name = {}",
+        engine.quote_literal(schema),
+        engine.quote_literal(table),
+    );
+    let grid = db.fetch_text(&sql).await.map_err(db_err)?;
+    Ok(grid
+        .iter()
+        .filter_map(|r| r.first().cloned().flatten())
+        .collect())
+}
+
+#[derive(Deserialize)]
+pub struct UpdateRowRequest {
+    pub database: Option<String>,
+    pub schema: String,
+    pub table: String,
+    /// Full primary key of the row to update (column → value). Must match the
+    /// table's PK columns exactly so it targets exactly one row.
+    pub pk: std::collections::HashMap<String, Option<String>>,
+    /// Column to set, and its new value (`None` = SQL NULL).
+    pub column: String,
+    pub value: Option<String>,
+}
+
+/// POST /api/v1/resources/{id}/db-browser/rows/update — set one column of one
+/// row, identified by its full primary key. `Editor+`, audited in `db_query_log`.
+pub async fn update_row(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateRowRequest>,
+) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
+    let target = resolve_target(&state, &id)?;
+    let engine = target.engine;
+    let database = body
+        .database
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| target.default_db.clone());
+
+    let mut db = connect(&state, &target, &database).await?;
+    ensure_table_exists(&mut db, engine, &body.schema, &body.table).await?;
+
+    let cols = fetch_cols(&mut db, engine, &body.schema, &body.table).await?;
+    if !cols.contains(&body.column) {
+        return Err(AppError::BadRequest(format!(
+            "Unknown column {}",
+            body.column
+        )));
+    }
+
+    let pk_cols = fetch_pk_cols(&mut db, engine, &body.schema, &body.table).await?;
+    if pk_cols.is_empty() {
+        return Err(AppError::BadRequest(
+            "This table has no primary key, so rows can't be edited safely.".into(),
+        ));
+    }
+    // The supplied key must be exactly the table's PK (no more, no less) so the
+    // UPDATE can only ever touch a single row.
+    if body.pk.len() != pk_cols.len() || !pk_cols.iter().all(|c| body.pk.contains_key(c)) {
+        return Err(AppError::BadRequest(
+            "The row key must match the table's primary key columns.".into(),
+        ));
+    }
+
+    let set_val = match body.value.as_deref() {
+        Some(v) => engine.quote_literal(v),
+        None => "NULL".to_string(),
+    };
+    let where_sql = pk_cols
+        .iter()
+        .map(|c| {
+            let ident = engine.quote_ident(c);
+            match body.pk.get(c).and_then(|v| v.as_deref()) {
+                Some(v) => format!("{ident} = {}", engine.quote_literal(v)),
+                None => format!("{ident} IS NULL"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+
+    let qualified = format!(
+        "{}.{}",
+        engine.quote_ident(&body.schema),
+        engine.quote_ident(&body.table)
+    );
+    let sql = format!(
+        "UPDATE {qualified} SET {} = {set_val} WHERE {where_sql}",
+        engine.quote_ident(&body.column)
+    );
+
+    let started = Instant::now();
+    let result = db.exec(&sql).await;
+    let duration_ms = started.elapsed().as_millis() as i64;
+    let (status, affected, error) = match &result {
+        Ok(n) => ("ok", Some(*n as i64), None),
+        Err(e) => ("error", None, Some(e.to_string())),
+    };
+    log_query(
+        &state,
+        &id,
+        &user,
+        &database,
+        &sql,
+        "write",
+        status,
+        affected,
+        duration_ms,
+        error.as_deref(),
+    );
+
+    let affected = result.map_err(db_err)? as i64;
+    Ok(Json(serde_json::json!({ "rows_affected": affected })))
+}
+
 // ── SQL runner ──────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
