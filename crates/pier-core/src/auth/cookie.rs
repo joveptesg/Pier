@@ -47,13 +47,26 @@ pub fn clear_session_cookies(state: &SharedState) -> Vec<String> {
 }
 
 fn build_session_cookie_str(name: &str, value: &str, max_age_secs: i64, tls_off: bool) -> String {
-    let secure = if tls_off { "" } else { "Secure; " };
+    // A `__Host-`-prefixed cookie is rejected by the browser unless it is
+    // `Secure` (and host-only with `Path=/`, which we always emit). When the
+    // operator keeps the default `__Host-` name we therefore force `Secure`
+    // even under `tls_mode == Off`: in a TLS-terminating-proxy setup the
+    // browser-facing hop is still HTTPS, so the cookie is valid and sent back.
+    // Only a plain (non-`__Host-`) name honours the `tls_off` opt-out.
+    let force_secure = name.starts_with("__Host-");
+    let secure = if tls_off && !force_secure {
+        ""
+    } else {
+        "Secure; "
+    };
     format!("{name}={value}; Path=/; HttpOnly; {secure}SameSite=Lax; Max-Age={max_age_secs}")
 }
 
 fn clear_session_cookies_str(name: &str, tls_off: bool) -> Vec<String> {
     let primary = build_session_cookie_str(name, "", 0, tls_off);
-    if tls_off {
+    // A `__Host-` cookie is always Secure + host-only, so a single matching
+    // clear is exact — no insecure sibling can exist to need a backstop.
+    if tls_off || name.starts_with("__Host-") {
         vec![primary]
     } else {
         let without_secure = format!("{name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
@@ -107,5 +120,28 @@ mod tests {
     fn cookie_name_is_honoured() {
         let v = build_session_cookie_str("custom_name", "v", 0, true);
         assert!(v.starts_with("custom_name=v;"), "v = {v}");
+    }
+
+    #[test]
+    fn host_prefixed_cookie_forces_secure_even_when_tls_off() {
+        // `tls_off == true` would normally drop `Secure`, but a `__Host-` name
+        // must keep it or the browser rejects the cookie outright.
+        let v = build_session_cookie_str("__Host-pier_session", "abc", 3600, true);
+        assert!(v.contains("Secure"), "v = {v}");
+        assert!(v.contains("Path=/"), "v = {v}");
+        assert!(v.contains("HttpOnly"), "v = {v}");
+        // `__Host-` also forbids a Domain attribute — we never emit one.
+        assert!(!v.contains("Domain"), "v = {v}");
+    }
+
+    #[test]
+    fn host_prefixed_clear_emits_single_secure_variant() {
+        // Even with TLS terminated in-process (tls_off == false) the legacy
+        // non-Secure backstop is skipped for `__Host-` names: an insecure
+        // sibling can't exist, and emitting one would be a rejected cookie.
+        let cookies = clear_session_cookies_str("__Host-pier_session", false);
+        assert_eq!(cookies.len(), 1, "cookies = {cookies:?}");
+        assert!(cookies[0].contains("Secure"), "cookies = {cookies:?}");
+        assert!(cookies[0].contains("Max-Age=0"), "cookies = {cookies:?}");
     }
 }

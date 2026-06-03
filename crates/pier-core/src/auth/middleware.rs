@@ -1,12 +1,15 @@
 use axum::extract::{OriginalUri, Request, State};
-use axum::http::header::{AUTHORIZATION, COOKIE, SET_COOKIE};
+use axum::http::header::{AUTHORIZATION, COOKIE, SET_COOKIE, USER_AGENT};
 use axum::http::HeaderValue;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use base64::Engine;
 
+use std::time::Duration;
+use tokio::time::sleep;
+
 use crate::auth::api_token;
-use crate::auth::cookie::clear_session_cookies;
+use crate::auth::cookie::{build_session_cookie, clear_session_cookies};
 use crate::auth::password;
 use crate::auth::rbac::GlobalRole;
 use crate::error::AppError;
@@ -55,6 +58,61 @@ fn parse_basic(header: &str) -> Option<(String, String)> {
         return None;
     }
     Some((user.to_string(), pass.to_string()))
+}
+
+/// Extract every value of the session cookie from a raw `Cookie:` header.
+///
+/// A site can legitimately carry MORE THAN ONE cookie with the same name —
+/// RFC 6265 allows it when they differ by `Domain` or `Path`. A browser sends
+/// them all in a single header, e.g. `pier_session=dead; other=x; pier_session=live`.
+/// Returning every distinct non-empty value (in header order) lets the caller
+/// authenticate on whichever one maps to a live session instead of being held
+/// hostage by header order. Picking only the first entry let a stale shadow
+/// cookie (scoped to a parent `Domain` or an old `Path`, which our clear-cookie
+/// backstop can't evict) mask the live one — bouncing the operator to `/login`
+/// until they manually wiped all cookies.
+fn session_cookie_values<'a>(cookie_header: &'a str, name: &str) -> Vec<&'a str> {
+    let prefix = format!("{name}=");
+    let mut out = Vec::new();
+    for part in cookie_header.split(';') {
+        let part = part.trim();
+        if let Some(v) = part.strip_prefix(&prefix) {
+            if !v.is_empty() && !out.contains(&v) {
+                out.push(v);
+            }
+        }
+    }
+    out
+}
+
+/// Coarse device signature for a `User-Agent`: drop version numbers (digits and
+/// dots) and lower-case the rest, so a routine browser auto-update (Chrome 120 →
+/// 121) keeps the same fingerprint while a real browser/OS swap changes it. Used
+/// to bind a session to the device it was created on.
+fn ua_fingerprint(ua: &str) -> String {
+    let mut out = String::with_capacity(ua.len());
+    let mut prev_space = false;
+    for c in ua.chars() {
+        if c.is_ascii_digit() || c == '.' {
+            continue;
+        }
+        if c.is_whitespace() {
+            if !prev_space && !out.is_empty() {
+                out.push(' ');
+                prev_space = true;
+            }
+            continue;
+        }
+        out.push(c.to_ascii_lowercase());
+        prev_space = false;
+    }
+    out.trim_end().to_string()
+}
+
+/// Build a comma-separated `?,?,…` placeholder list of length `n` for an SQL
+/// `IN (...)` clause.
+fn sql_in_placeholders(n: usize) -> String {
+    (0..n).map(|_| "?").collect::<Vec<_>>().join(",")
 }
 
 /// User info extracted from a valid session, stored in request extensions.
@@ -266,65 +324,163 @@ pub async fn require_auth(
         }
     }
 
-    // 3. Fall back to session cookie.
-    let session_id = req
+    // 3. Fall back to session cookie(s).
+    //
+    // The browser may present several `pier_session` cookies at once (a live
+    // one plus stale shadows scoped to a parent `Domain`/old `Path`). They all
+    // arrive in this one header, so we collect EVERY value and try each against
+    // the DB — authenticating on the first that maps to a live session rather
+    // than trusting header order. See `session_cookie_values` for why.
+    let cookie_header = req
         .headers()
         .get(COOKIE)
         .and_then(|v| v.to_str().ok())
-        .and_then(|cookies| {
-            cookies.split(';').find_map(|c| {
-                let c = c.trim();
-                c.strip_prefix(&format!("{}=", state.config.session_cookie))
-            })
-        });
+        .unwrap_or("");
+    // Collect to owned strings so no immutable borrow of `req` lingers into the
+    // `req.extensions_mut()` call below.
+    let candidates: Vec<String> =
+        session_cookie_values(cookie_header, &state.config.session_cookie)
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
 
-    let session_id = match session_id {
-        Some(id) if !id.is_empty() => id.to_string(),
-        _ => {
-            return if is_api {
-                Err(AppError::Unauthorized)
-            } else {
-                Ok(Redirect::to(&login_redirect_target(&req)).into_response())
-            };
-        }
-    };
+    if candidates.is_empty() {
+        return if is_api {
+            Err(AppError::Unauthorized)
+        } else {
+            Ok(Redirect::to(&login_redirect_target(&req)).into_response())
+        };
+    }
 
-    // Look up session and user in DB
-    let auth_user = {
+    // Evaluated alongside the idle/expiry check below: the absolute lifetime cap
+    // (a session may never live past `created_at + abs_max`, even with sliding)
+    // and the device fingerprint of THIS request (a session is bound to the
+    // browser/OS it was created on). Computed up front so no borrow of `req`
+    // lingers into the `req.extensions_mut()` call later.
+    let abs_max = state.config.session_abs_max_hours.max(1) as i64;
+    let req_ua_fp = ua_fingerprint(
+        req.headers()
+            .get(USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or(""),
+    );
+
+    // Look up each candidate session in the DB; the first live one wins.
+    let (auth_user, session_refreshed) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock poisoned: {e}"))?;
 
-        let sid = session_id.clone();
-        let result = db.query_row(
-            "SELECT u.id, u.username, u.role, u.global_role
-             FROM sessions s
-             JOIN users u ON s.user_id = u.id
-             WHERE s.id = ?1
-               AND s.expires_at > datetime('now')
-               AND u.is_active = 1",
-            [&session_id],
-            |row| {
-                let global_role_str: String = row.get(3)?;
-                Ok(AuthUser {
-                    id: row.get(0)?,
-                    username: row.get(1)?,
-                    role: row.get(2)?,
-                    global_role: GlobalRole::parse(&global_role_str).unwrap_or(GlobalRole::User),
-                    session_id: sid.clone(),
-                    is_peer: false,
-                })
-            },
-        );
+        let mut found: Option<AuthUser> = None;
+        for sid in &candidates {
+            let result = db.query_row(
+                "SELECT u.id, u.username, u.role, u.global_role, s.user_agent
+                 FROM sessions s
+                 JOIN users u ON s.user_id = u.id
+                 WHERE s.id = ?1
+                   AND s.expires_at > datetime('now')
+                   AND s.created_at > datetime('now', '-' || ?2 || ' hours')
+                   AND u.is_active = 1",
+                rusqlite::params![sid, abs_max],
+                |row| {
+                    let global_role_str: String = row.get(3)?;
+                    let stored_ua: Option<String> = row.get(4)?;
+                    Ok((
+                        AuthUser {
+                            id: row.get(0)?,
+                            username: row.get(1)?,
+                            role: row.get(2)?,
+                            global_role: GlobalRole::parse(&global_role_str)
+                                .unwrap_or(GlobalRole::User),
+                            session_id: sid.clone(),
+                            is_peer: false,
+                        },
+                        stored_ua,
+                    ))
+                },
+            );
+            if let Ok((user, stored_ua)) = result {
+                // Device binding: if the request's UA fingerprint no longer
+                // matches the one the session was minted with, the cookie is
+                // being replayed from a different browser/OS — revoke it rather
+                // than honour it. Version bumps are stripped by `ua_fingerprint`,
+                // so routine browser updates don't trip this.
+                let stored_fp = stored_ua.as_deref().map(ua_fingerprint).unwrap_or_default();
+                if !req_ua_fp.is_empty() && !stored_fp.is_empty() && stored_fp != req_ua_fp {
+                    let _ = db.execute("DELETE FROM sessions WHERE id = ?1", [sid]);
+                    tracing::info!(
+                        path = %full_path,
+                        "auth: session device/User-Agent changed; revoking session"
+                    );
+                    break; // `found` stays None → clear cookie + redirect below
+                }
+                found = Some(user);
+                break;
+            }
+        }
 
-        match result {
-            Ok(user) => user,
-            Err(_) => {
-                // Cookie was sent but no live session matches it. Tell the
-                // browser to drop the dead cookie so the next request comes
-                // in clean — otherwise the operator can get stuck in a
-                // /login bounce that only manual cookie-clearing fixes.
+        match found {
+            Some(user) => {
+                // Sliding expiration: once a session is past the halfway point
+                // of its TTL, roll `expires_at` forward so an actively-used
+                // session never expires mid-flight. The `WHERE` guard bounds
+                // this to at most one write per ~half-TTL window per session,
+                // not one per request, and the `created_at` guard refuses to
+                // slide a session past its absolute lifetime. A non-zero row
+                // count means we extended it — so we refresh the cookie too.
+                let ttl = state.config.session_ttl_hours.max(1) as i64;
+                let half_ttl_min = (ttl * 60) / 2;
+                let extended = db
+                    .execute(
+                        "UPDATE sessions \
+                         SET expires_at = datetime('now', '+' || ?2 || ' hours') \
+                         WHERE id = ?1 \
+                           AND expires_at < datetime('now', '+' || ?3 || ' minutes') \
+                           AND created_at > datetime('now', '-' || ?4 || ' hours')",
+                        rusqlite::params![user.session_id, ttl, half_ttl_min, abs_max],
+                    )
+                    .unwrap_or(0);
+                (user, extended > 0)
+            }
+            None => {
+                // Cookie(s) were sent but none map to a live session. Log it so
+                // the next occurrence is self-explaining in journalctl, then
+                // tell the browser to drop the dead cookie(s) — otherwise the
+                // operator can get stuck in a /login bounce that only manual
+                // cookie-clearing fixes. We log only an 8-char prefix of the
+                // session id, never the full secret.
+                let first_prefix: String = candidates
+                    .first()
+                    .map(|s| s.chars().take(8).collect())
+                    .unwrap_or_default();
+                tracing::info!(
+                    candidate_cookies = candidates.len(),
+                    first_id_prefix = %first_prefix,
+                    path = %full_path,
+                    is_api,
+                    "auth: session cookie(s) present but none mapped to a live session; clearing and redirecting to login"
+                );
+                // Reap the dead value(s) we were just shown so abandoned/expired
+                // rows don't linger. Value-safe: only deletes rows that ACTUALLY
+                // failed validation (expired OR past the absolute lifetime); a
+                // still-live session value riding in the same header for another
+                // logged-in user is excluded by both predicates and survives.
+                let sql = format!(
+                    "DELETE FROM sessions WHERE id IN ({}) \
+                     AND (expires_at <= datetime('now') \
+                          OR created_at <= datetime('now', '-' || ? || ' hours'))",
+                    sql_in_placeholders(candidates.len())
+                );
+                let mut params: Vec<&dyn rusqlite::ToSql> = candidates
+                    .iter()
+                    .map(|s| s as &dyn rusqlite::ToSql)
+                    .collect();
+                params.push(&abs_max);
+                let reaped = db.execute(&sql, params.as_slice()).unwrap_or(0);
+                if reaped > 0 {
+                    tracing::info!(reaped, "auth: deleted dead session row(s) on detection");
+                }
                 let mut response = if is_api {
                     AppError::Unauthorized.into_response()
                 } else {
@@ -336,9 +492,83 @@ pub async fn require_auth(
         }
     };
 
-    // Inject AuthUser into request extensions
+    // Inject AuthUser, run the handler, then — if we just slid the session
+    // forward — re-issue the cookie so its client-side Max-Age tracks the
+    // server-side expiry and the operator stays logged in while actively using
+    // the panel.
+    let refreshed_sid = if session_refreshed {
+        Some(auth_user.session_id.clone())
+    } else {
+        None
+    };
     req.extensions_mut().insert(auth_user);
-    Ok(next.run(req).await)
+    let mut response = next.run(req).await;
+    if let Some(sid) = refreshed_sid {
+        let ttl = state.config.session_ttl_hours.max(1) as i64;
+        if let Ok(v) = HeaderValue::from_str(&build_session_cookie(&state, &sid, ttl * 3600)) {
+            response.headers_mut().append(SET_COOKIE, v);
+        }
+    }
+    Ok(response)
+}
+
+/// Background sweep that deletes session rows past their idle expiry or absolute
+/// lifetime. The opportunistic reap in `require_auth` only removes cookies that
+/// are re-presented; this catches abandoned ones (browser closed, cookie
+/// cleared) so the table doesn't grow without bound. Mirrors
+/// `api::npm_web_login::spawn_sweep_task`.
+pub fn spawn_session_gc_task(state: SharedState) {
+    tokio::spawn(async move {
+        loop {
+            if let Err(e) = session_gc_once(&state).await {
+                tracing::warn!("session GC sweep failed: {e:#}");
+            }
+            sleep(Duration::from_secs(900)).await;
+        }
+    });
+}
+
+async fn session_gc_once(state: &SharedState) -> anyhow::Result<()> {
+    // Operator kill-switch (default on), read fresh each tick so it can be
+    // toggled without a restart — same convention as the rotation/audit jobs.
+    let enabled = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            ["session.gc_enabled"],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+        .map(|v| v != "false" && v != "0")
+        .unwrap_or(true)
+    };
+    if !enabled {
+        return Ok(());
+    }
+
+    let abs_max = state.config.session_abs_max_hours.max(1) as i64;
+    let state_cl = state.clone();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let db = state_cl
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let removed = db.execute(
+            "DELETE FROM sessions \
+             WHERE expires_at <= datetime('now') \
+                OR created_at <= datetime('now', '-' || ?1 || ' hours')",
+            rusqlite::params![abs_max],
+        )?;
+        if removed > 0 {
+            tracing::info!("session GC: swept {removed} dead session row(s)");
+        }
+        Ok(())
+    })
+    .await??;
+    Ok(())
 }
 
 /// Append `Set-Cookie` headers that delete the session cookie on the client.
@@ -416,6 +646,80 @@ mod tests {
         // Strict prefix — `/registryctl` is not the embedded registry.
         assert!(!is_api_path("/registryctl"));
         assert!(!is_api_path("/apiary"));
+    }
+
+    #[test]
+    fn session_cookie_values_extracts_single() {
+        assert_eq!(
+            session_cookie_values("pier_session=abc", "pier_session"),
+            vec!["abc"]
+        );
+        // Surrounded by other cookies, with whitespace after the separator.
+        assert_eq!(
+            session_cookie_values("theme=dark; pier_session=abc; foo=bar", "pier_session"),
+            vec!["abc"]
+        );
+    }
+
+    #[test]
+    fn session_cookie_values_returns_all_duplicates_in_order() {
+        // The regression case: a dead shadow cookie ahead of the live one.
+        // Both must be returned so the caller can try each, instead of being
+        // stuck on the first (dead) value and bouncing to /login.
+        assert_eq!(
+            session_cookie_values(
+                "pier_session=dead; other=x; pier_session=live",
+                "pier_session"
+            ),
+            vec!["dead", "live"]
+        );
+    }
+
+    #[test]
+    fn session_cookie_values_dedupes_and_skips_empty() {
+        assert_eq!(
+            session_cookie_values(
+                "pier_session=a; pier_session=; pier_session=a",
+                "pier_session"
+            ),
+            vec!["a"]
+        );
+    }
+
+    #[test]
+    fn session_cookie_values_ignores_other_names_and_empty_header() {
+        assert!(session_cookie_values("session=abc; csrf=xyz", "pier_session").is_empty());
+        assert!(session_cookie_values("", "pier_session").is_empty());
+        // Honours a custom cookie name.
+        assert_eq!(session_cookie_values("custom=abc", "custom"), vec!["abc"]);
+    }
+
+    #[test]
+    fn ua_fingerprint_ignores_version_bumps() {
+        let chrome120 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
+        let chrome121 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.6167.85 Safari/537.36";
+        // A version bump on the same browser/OS keeps the same fingerprint, so a
+        // routine auto-update does NOT revoke the session.
+        assert_eq!(ua_fingerprint(chrome120), ua_fingerprint(chrome121));
+    }
+
+    #[test]
+    fn ua_fingerprint_distinguishes_browser_and_os() {
+        let chrome_win = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36";
+        let firefox_win = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/121.0";
+        let chrome_linux = "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0 Safari/537.36";
+        assert_ne!(ua_fingerprint(chrome_win), ua_fingerprint(firefox_win));
+        assert_ne!(ua_fingerprint(chrome_win), ua_fingerprint(chrome_linux));
+        // Empty stays empty — the "unknown UA → don't revoke" sentinel.
+        assert!(ua_fingerprint("").is_empty());
+    }
+
+    #[test]
+    fn sql_in_placeholders_shape() {
+        assert_eq!(sql_in_placeholders(1), "?");
+        assert_eq!(sql_in_placeholders(2), "?,?");
+        assert_eq!(sql_in_placeholders(3), "?,?,?");
+        assert_eq!(sql_in_placeholders(0), "");
     }
 
     #[test]

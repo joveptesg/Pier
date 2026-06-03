@@ -22,10 +22,20 @@ pub struct PierConfig {
     pub db_path: PathBuf,
     /// Docker socket path (None = auto-detect)
     pub docker_host: Option<String>,
-    /// Session cookie name
+    /// Session cookie name. Defaults to `__Host-pier_session`: the `__Host-`
+    /// prefix is browser-enforced to be Secure, host-only, and `Path=/`, which
+    /// makes it impossible for a cookie scoped to a parent `Domain` or a
+    /// different `Path` to shadow the live session. Override with a plain name
+    /// only for non-HTTPS setups (the prefix requires Secure).
     pub session_cookie: String,
-    /// Session TTL in hours
+    /// Session TTL in hours. Sessions slide forward on activity (see the auth
+    /// middleware), so this is the *idle* timeout, not a hard cap on a session
+    /// that stays in use.
     pub session_ttl_hours: u64,
+    /// Absolute max session lifetime in hours from `created_at`. Sliding extends
+    /// the idle window but never past this; hitting it forces a fresh login.
+    /// Default 72h (3 days). Env: `PIER_SESSION_ABS_MAX`.
+    pub session_abs_max_hours: u64,
     /// Log level
     pub log_level: String,
     /// Port range start for auto-allocation (default: 10000)
@@ -81,8 +91,9 @@ impl PierConfig {
             data_dir,
             db_path,
             docker_host: std::env::var("PIER_DOCKER_HOST").ok(),
-            session_cookie: env_or("PIER_SESSION_COOKIE", "pier_session"),
-            session_ttl_hours: env_or("PIER_SESSION_TTL", "24").parse().unwrap_or(24),
+            session_cookie: env_or("PIER_SESSION_COOKIE", "__Host-pier_session"),
+            session_ttl_hours: env_or("PIER_SESSION_TTL", "8").parse().unwrap_or(8),
+            session_abs_max_hours: env_or("PIER_SESSION_ABS_MAX", "72").parse().unwrap_or(72),
             log_level: env_or("PIER_LOG_LEVEL", "info"),
             port_range_start: env_or("PIER_PORT_RANGE_START", "10000")
                 .parse()

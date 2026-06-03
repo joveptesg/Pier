@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 
 use axum::extract::{ConnectInfo, Path, State};
-use axum::http::header::{HeaderMap, USER_AGENT};
+use axum::http::header::{HeaderMap, SET_COOKIE, USER_AGENT};
 use axum::response::IntoResponse;
 use axum::Json;
 use rusqlite::OptionalExtension;
@@ -123,13 +123,24 @@ pub async fn change_password(
         rusqlite::params![new_hash, user.id],
     )?;
 
-    // Invalidate sessions other than the caller's — forces re-login everywhere else.
+    // Privilege change → rotate. First invalidate the caller's OTHER sessions
+    // (re-login everywhere else)...
     let revoked = db.execute(
         "DELETE FROM sessions WHERE user_id = ?1 AND id != ?2",
         rusqlite::params![user.id, user.session_id],
     )?;
+    // ...then drop the caller's CURRENT session row so we re-mint a fresh id
+    // below: a leaked/old session id must not survive a password change. An
+    // empty session_id means a token-authenticated caller — nothing to delete.
+    if !user.session_id.is_empty() {
+        db.execute("DELETE FROM sessions WHERE id = ?1", [&user.session_id])?;
+    }
 
     drop(db);
+
+    // Mint a fresh session for the caller (new random id). Must run AFTER
+    // dropping the DB lock — `issue_session` takes the lock itself.
+    let cookie = crate::auth::handlers::issue_session(&state, &user.id, ip, ua.as_deref())?;
 
     audit::log(
         &state,
@@ -140,15 +151,18 @@ pub async fn change_password(
         Some(serde_json::json!({"revoked_sessions": revoked})),
     );
     tracing::info!(
-        "Password changed for user {} ({} other sessions revoked)",
+        "Password changed for user {} (session rotated, {} other sessions revoked)",
         user.username,
         revoked
     );
 
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "revoked_sessions": revoked,
-    })))
+    Ok((
+        [(SET_COOKIE, cookie)],
+        Json(serde_json::json!({
+            "ok": true,
+            "revoked_sessions": revoked,
+        })),
+    ))
 }
 
 /// GET /api/v1/account/sessions — list the caller's active sessions.

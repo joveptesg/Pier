@@ -359,7 +359,7 @@ pub async fn logout(
 }
 
 /// Insert a session row and return the cookie header value.
-fn issue_session(
+pub(crate) fn issue_session(
     state: &SharedState,
     user_id: &str,
     ip: Option<std::net::IpAddr>,

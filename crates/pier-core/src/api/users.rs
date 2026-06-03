@@ -219,6 +219,24 @@ pub async fn update(
             "UPDATE users SET is_active = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![active as i64, target_id],
         )?;
+        if !active {
+            // Offboarding: a deactivated user must lose ALL access immediately,
+            // not merely be blocked at validation time. Delete their sessions and
+            // revoke their API tokens so the cut-off is real (and visible in the
+            // UI/audit), not just an `is_active = 0` guard everyone must remember.
+            let sessions = db.execute("DELETE FROM sessions WHERE user_id = ?1", [&target_id])?;
+            let tokens = db.execute(
+                "UPDATE api_tokens SET revoked_at = ?2 \
+                 WHERE user_id = ?1 AND revoked_at IS NULL",
+                params![target_id, chrono::Utc::now().timestamp()],
+            )?;
+            tracing::info!(
+                user = %target_id,
+                sessions,
+                tokens,
+                "deactivated user; revoked active sessions and API tokens"
+            );
+        }
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
