@@ -1,21 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Projects{% endblock %}
+{% block title %}{{ t('projects_list.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="projectsData()" x-init="init()">
     <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Projects</h2>
-            <p class="text-sm text-gray-500 mt-1">Manage projects and standalone resources</p>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('projects_list.heading') }}</h2>
+            <p class="text-sm text-gray-500 mt-1">{{ t('projects_list.subtitle') }}</p>
         </div>
         <div class="flex items-center gap-2">
             <!-- Federation source filter — visible only once at least one peer has reported data. -->
             <template x-if="peerNames.length > 0">
                 <select x-model="sourceFilter"
                         class="text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg px-2 py-1.5 text-gray-700 dark:text-gray-200">
-                    <option value="all">All servers</option>
-                    <option value="local">This server</option>
+                    <option value="all">{{ t('projects_list.all_servers') }}</option>
+                    <option value="local">{{ t('projects_list.this_server') }}</option>
                     <template x-for="n in peerNames" :key="n">
                         <option :value="'peer:' + n" x-text="n"></option>
                     </template>
@@ -30,7 +30,7 @@
             <button @click="open = !open"
                     class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 rounded-lg text-white transition-colors flex items-center gap-1.5">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                New
+                {{ t('projects_list.new') }}
             </button>
             <div x-show="open" @click.away="open = false" x-cloak
                  x-transition:enter="transition ease-out duration-100"
@@ -39,14 +39,14 @@
                  class="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg z-20 py-1">
                 <button @click="showCreate = true; open = false"
                         class="w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <div class="text-sm font-medium text-gray-900 dark:text-white">Project</div>
-                    <div class="text-xs text-gray-500 mt-0.5">Create a logical group for resources</div>
+                    <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('projects_list.menu_project') }}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">{{ t('projects_list.menu_project_desc') }}</div>
                 </button>
                 <div class="border-t border-gray-200 dark:border-gray-700 my-1"></div>
                 <a href="/resources/new"
                    class="block px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <div class="text-sm font-medium text-gray-900 dark:text-white">Resource</div>
-                    <div class="text-xs text-gray-500 mt-0.5">Deploy a database, application, or service</div>
+                    <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('projects_list.menu_resource') }}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">{{ t('projects_list.menu_resource_desc') }}</div>
                 </a>
             </div>
         </div>
@@ -54,7 +54,7 @@
     </div>
 
     <!-- Loading -->
-    <div x-show="loading" class="text-center py-12 text-gray-500">Loading...</div>
+    <div x-show="loading" class="text-center py-12 text-gray-500">{{ t('common.loading') }}</div>
 
     <!-- Grid -->
     <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -80,16 +80,16 @@
                             <h3 class="text-sm font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate" x-text="p.name"></h3>
                             <span x-show="p.source === 'peer'"
                                   class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300"
-                                  x-text="p.peer_name + ' · federated'"
-                                  :title="'Managed on ' + p.peer_name + '. Opens that server\'s UI.'"></span>
+                                  x-text="p.peer_name + ' · {{ t('projects_list.federated') }}'"
+                                  :title="'{{ t('projects_list.managed_on') }} ' + p.peer_name + '. {{ t('projects_list.opens_server_ui') }}'"></span>
                         </div>
-                        <p class="text-xs text-gray-500 truncate" x-text="p.description || 'No description'"></p>
+                        <p class="text-xs text-gray-500 truncate" x-text="p.description || '{{ t('common.no_description') }}'"></p>
                     </div>
                 </div>
                 <div class="flex items-center gap-4 text-xs text-gray-500 mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-                    <span x-show="p.source === 'local' && p.port_range_start" x-text="'Ports: ' + p.port_range_start + '-' + p.port_range_end"></span>
-                    <span x-show="p.source === 'local'" x-text="'Created: ' + p.created_at"></span>
-                    <span x-show="p.source === 'peer'" x-text="'Synced: ' + formatAgo(p.fetched_at)"></span>
+                    <span x-show="p.source === 'local' && p.port_range_start" x-text="'{{ t('projects_list.ports_label') }} ' + p.port_range_start + '-' + p.port_range_end"></span>
+                    <span x-show="p.source === 'local'" x-text="'{{ t('projects_list.created_label') }} ' + p.created_at"></span>
+                    <span x-show="p.source === 'peer'" x-text="'{{ t('projects_list.synced_label') }} ' + formatAgo(p.fetched_at)"></span>
                 </div>
             </a>
         </template>
@@ -98,7 +98,7 @@
     <!-- Standalone Resources -->
     <template x-if="!loading && resources.length > 0">
         <div>
-            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Standalone Resources</h3>
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ t('projects_list.standalone_resources') }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <template x-for="r in resources" :key="r.id">
                     <a :href="'/resources/' + r.id"
@@ -107,7 +107,7 @@
                         <button x-show="r.primary_domain"
                                 type="button"
                                 @click.stop.prevent="window.open('https://' + r.primary_domain, '_blank', 'noopener')"
-                                :title="'Open https://' + r.primary_domain"
+                                :title="'{{ t('projects_list.open_prefix') }} https://' + r.primary_domain"
                                 class="absolute top-2 right-2 p-1 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -138,7 +138,7 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                               d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2 2 2 0 012 2v1.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                     </svg>
-                                    <span>public</span>
+                                    <span>{{ t('projects_list.public') }}</span>
                                 </span>
                             </div>
                             <span x-show="r.port" class="text-gray-400" x-text="':' + r.port"></span>
@@ -153,8 +153,8 @@
         <div class="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
         </div>
-        <p class="text-gray-500 mb-1">No projects yet</p>
-        <p class="text-sm text-gray-400">Create a project or deploy a resource to get started</p>
+        <p class="text-gray-500 mb-1">{{ t('projects_list.empty_title') }}</p>
+        <p class="text-sm text-gray-400">{{ t('projects_list.empty_subtitle') }}</p>
     </div>
 
     <!-- Create Project Modal -->
@@ -163,32 +163,32 @@
          style="top:0;left:0"
          @click.self="showCreate = false">
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">New Project</h3>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">{{ t('projects_list.modal_title') }}</h3>
                 <div class="space-y-3">
                     <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('projects_list.name_label') }}</label>
                         <input x-model="newProject.name" type="text"
                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                       text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                                placeholder="my-project">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('projects_list.description_label') }}</label>
                         <input x-model="newProject.description" type="text"
                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                       text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                               placeholder="Optional description">
+                               placeholder="{{ t('projects_list.description_placeholder') }}">
                     </div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port Start</label>
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('projects_list.port_start_label') }}</label>
                             <input x-model.number="newProject.port_range_start" type="number"
                                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                           text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                                    placeholder="5000">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port End</label>
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('projects_list.port_end_label') }}</label>
                             <input x-model.number="newProject.port_range_end" type="number"
                                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                           text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
@@ -199,11 +199,11 @@
                 <div class="flex justify-end gap-2 mt-5">
                     <button @click="showCreate = false"
                             class="px-4 py-2 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
-                        Cancel
+                        {{ t('common.cancel') }}
                     </button>
                     <button @click="create()"
                             class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 rounded-lg text-white transition-colors">
-                        Create
+                        {{ t('projects_list.create') }}
                     </button>
                 </div>
             </div>
@@ -288,28 +288,28 @@ function projectsData() {
             return '/projects/' + p.id;
         },
         formatAgo(unixSecs) {
-            if (!unixSecs) return 'never';
+            if (!unixSecs) return '{{ t('projects_list.never') }}';
             const diff = Math.max(0, Math.floor(Date.now() / 1000) - unixSecs);
-            if (diff < 60) return diff + 's ago';
-            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-            return Math.floor(diff / 86400) + 'd ago';
+            if (diff < 60) return diff + 's {{ t('projects_list.ago') }}';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm {{ t('projects_list.ago') }}';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h {{ t('projects_list.ago') }}';
+            return Math.floor(diff / 86400) + 'd {{ t('projects_list.ago') }}';
         },
         get syncSummary() {
             if (!this.federationStatus.length) return '';
             const errs = this.federationStatus.filter(p => p.last_status === 'error').length;
             const okCount = this.federationStatus.filter(p => p.last_status === 'ok').length;
-            if (errs > 0) return errs + ' peer' + (errs === 1 ? '' : 's') + ' offline';
-            if (okCount > 0) return 'Synced ' + okCount + ' peer' + (okCount === 1 ? '' : 's');
-            return 'Sync pending';
+            if (errs > 0) return errs + ' {{ t('projects_list.peer') }}' + (errs === 1 ? '' : '{{ t('projects_list.peer_plural_suffix') }}') + ' {{ t('projects_list.offline') }}';
+            if (okCount > 0) return '{{ t('projects_list.synced') }} ' + okCount + ' {{ t('projects_list.peer') }}' + (okCount === 1 ? '' : '{{ t('projects_list.peer_plural_suffix') }}');
+            return '{{ t('projects_list.sync_pending') }}';
         },
         get syncTooltip() {
             return this.federationStatus.map(p => {
-                const when = p.last_synced_at ? this.formatAgo(p.last_synced_at) : 'never';
+                const when = p.last_synced_at ? this.formatAgo(p.last_synced_at) : '{{ t('projects_list.never') }}';
                 if (p.last_status === 'error') {
-                    return p.peer_name + ': error · ' + (p.last_error || 'unknown');
+                    return p.peer_name + ': {{ t('projects_list.error') }} · ' + (p.last_error || '{{ t('projects_list.unknown') }}');
                 }
-                return p.peer_name + ': last sync ' + when;
+                return p.peer_name + ': {{ t('projects_list.last_sync') }} ' + when;
             }).join('\n');
         },
         async create() {
@@ -318,7 +318,7 @@ function projectsData() {
                     method: 'POST',
                     body: JSON.stringify(this.newProject)
                 });
-                toast('Project created');
+                toast('{{ t('projects_list.project_created') }}');
                 this.showCreate = false;
                 this.newProject = { name: '', description: '', port_range_start: null, port_range_end: null };
                 await this.refresh();

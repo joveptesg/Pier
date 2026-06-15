@@ -118,5 +118,20 @@ mod tests {
             .expect("invitations/accept.html renders");
         assert!(invite.contains("Welcome to Pier"));
         assert!(invite.contains("Account created"));
+
+        for (tpl, needle) in [
+            (
+                "projects/list.html",
+                "Manage projects and standalone resources",
+            ),
+            ("projects/detail.html", "No services in this project"),
+        ] {
+            let out = env
+                .get_template(tpl)
+                .unwrap_or_else(|_| panic!("{tpl} loads"))
+                .render(minijinja::context! { user => "admin", page => "projects" })
+                .unwrap_or_else(|e| panic!("{tpl} renders: {e}"));
+            assert!(out.contains(needle), "{tpl} should contain {needle:?}");
+        }
     }
 }

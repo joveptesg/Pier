@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Project{% endblock %}
+{% block title %}{{ t('projects_detail.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="projectDetail('{{ project_id }}')" x-init="init()"
@@ -11,18 +11,18 @@
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             </a>
             <div>
-                <h2 class="text-xl font-semibold text-gray-900 dark:text-white" x-text="project.name || 'Loading...'"></h2>
+                <h2 class="text-xl font-semibold text-gray-900 dark:text-white" x-text="project.name || '{{ t('common.loading') }}'"></h2>
                 <p class="text-sm text-gray-500" x-text="project.description || ''"></p>
             </div>
         </div>
         <div class="flex items-center gap-2">
             <button @click="editing = !editing"
                     class="px-3 py-1.5 text-xs rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
-                <span x-text="editing ? 'Cancel' : 'Edit'"></span>
+                <span x-text="editing ? '{{ t('common.cancel') }}' : '{{ t('projects_detail.edit') }}'"></span>
             </button>
             <button @click="openDeleteModal()"
                     class="px-3 py-1.5 text-xs rounded-lg bg-red-100 dark:bg-red-600/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-600/30 transition-colors">
-                Delete
+                {{ t('projects_detail.delete') }}
             </button>
         </div>
     </div>
@@ -31,25 +31,25 @@
     <div x-show="editing" x-cloak class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('projects_detail.name') }}</label>
                 <input x-model="editForm.name" type="text"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                               text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('projects_detail.description') }}</label>
                 <input x-model="editForm.description" type="text"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                               text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port Start</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('projects_detail.port_start') }}</label>
                 <input x-model.number="editForm.port_range_start" type="number"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                               text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port End</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('projects_detail.port_end') }}</label>
                 <input x-model.number="editForm.port_range_end" type="number"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                               text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
@@ -57,7 +57,7 @@
         </div>
         <button @click="save()"
                 class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 rounded-lg text-white transition-colors">
-            Save Changes
+            {{ t('projects_detail.save_changes') }}
         </button>
     </div>
 
@@ -65,16 +65,16 @@
     <div x-show="!editing" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-                <span class="text-xs text-gray-500">Port Range</span>
+                <span class="text-xs text-gray-500">{{ t('projects_detail.port_range') }}</span>
                 <p class="text-sm text-gray-800 dark:text-gray-200 mt-1"
-                   x-text="project.port_range_start ? project.port_range_start + ' - ' + project.port_range_end : 'Not set'"></p>
+                   x-text="project.port_range_start ? project.port_range_start + ' - ' + project.port_range_end : '{{ t('projects_detail.not_set') }}'"></p>
             </div>
             <div>
-                <span class="text-xs text-gray-500">Created</span>
+                <span class="text-xs text-gray-500">{{ t('projects_detail.created') }}</span>
                 <p class="text-sm text-gray-800 dark:text-gray-200 mt-1" x-text="project.created_at || '--'"></p>
             </div>
             <div>
-                <span class="text-xs text-gray-500">Services</span>
+                <span class="text-xs text-gray-500">{{ t('projects_detail.services') }}</span>
                 <p class="text-sm text-gray-800 dark:text-gray-200 mt-1" x-text="services.length"></p>
             </div>
         </div>
@@ -83,10 +83,10 @@
     <!-- Services -->
     <div>
         <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Services</h3>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('projects_detail.services') }}</h3>
             <a :href="'/resources/new?project_id=' + id"
                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors">
-                + New Service
+                + {{ t('projects_detail.new_service') }}
             </a>
         </div>
         <div x-show="services.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -97,7 +97,7 @@
                     <button x-show="svc.primary_domain"
                             type="button"
                             @click.stop.prevent="window.open('https://' + svc.primary_domain, '_blank', 'noopener')"
-                            :title="'Open https://' + svc.primary_domain"
+                            :title="'{{ t('projects_detail.open') }} https://' + svc.primary_domain"
                             class="absolute top-2 right-2 p-1 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -128,7 +128,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                           d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2 2 2 0 012 2v1.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                 </svg>
-                                <span>public</span>
+                                <span>{{ t('projects_detail.public') }}</span>
                             </span>
                         </div>
                         <span x-show="svc.port" class="text-gray-400" x-text="':' + svc.port"></span>
@@ -137,7 +137,7 @@
             </template>
         </div>
         <div x-show="services.length === 0" class="text-center py-8 text-gray-500 text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl">
-            No services in this project
+            {{ t('projects_detail.no_services') }}
         </div>
     </div>
 
@@ -145,22 +145,22 @@
     <div>
         <div class="flex items-center justify-between mb-3">
             <div>
-                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Registry credentials</h3>
-                <p class="text-xs text-gray-500 mt-0.5">Project-scoped credentials override global ones for the same registry host.</p>
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('projects_detail.registry_credentials') }}</h3>
+                <p class="text-xs text-gray-500 mt-0.5">{{ t('projects_detail.registry_credentials_desc') }}</p>
             </div>
             <button @click="openCredModal()"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
-                + Add
+                + {{ t('projects_detail.add') }}
             </button>
         </div>
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
             <table class="min-w-full text-sm">
                 <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
                     <tr>
-                        <th class="px-4 py-2 text-left font-medium">Registry</th>
-                        <th class="px-4 py-2 text-left font-medium">Username</th>
-                        <th class="px-4 py-2 text-left font-medium">Label</th>
-                        <th class="px-4 py-2 text-right font-medium">Actions</th>
+                        <th class="px-4 py-2 text-left font-medium">{{ t('projects_detail.registry') }}</th>
+                        <th class="px-4 py-2 text-left font-medium">{{ t('projects_detail.username') }}</th>
+                        <th class="px-4 py-2 text-left font-medium">{{ t('projects_detail.label') }}</th>
+                        <th class="px-4 py-2 text-right font-medium">{{ t('projects_detail.actions') }}</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
@@ -172,19 +172,18 @@
                             <td class="px-4 py-2 text-right">
                                 <button @click="testCred(row)" :disabled="credTestingId === row.id"
                                         class="px-2 py-0.5 text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-50">
-                                    <span x-text="credTestingId === row.id ? '…' : 'Test'"></span>
+                                    <span x-text="credTestingId === row.id ? '…' : '{{ t('projects_detail.test') }}'"></span>
                                 </button>
                                 <button @click="removeCred(row)"
                                         class="ml-1 px-2 py-0.5 text-[11px] font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20 rounded">
-                                    Delete
+                                    {{ t('projects_detail.delete') }}
                                 </button>
                             </td>
                         </tr>
                     </template>
                     <tr x-show="!creds.length" x-cloak>
                         <td colspan="4" class="px-4 py-4 text-center text-xs text-gray-500">
-                            No project-scoped credentials. Falls back to
-                            <a href="/settings/registries" class="text-blue-500 hover:underline">global credentials</a>.
+                            {{ t('projects_detail.no_project_creds') | safe }}
                         </td>
                     </tr>
                 </tbody>
@@ -195,35 +194,35 @@
     <!-- Credentials modal -->
     <div x-show="credModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
         <div class="bg-white dark:bg-gray-900 rounded-xl w-full max-w-md p-6 space-y-4">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add registry credential</h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('projects_detail.add_registry_credential') }}</h3>
             <div class="space-y-3">
                 <label class="block">
-                    <span class="block text-xs text-gray-500 mb-1">Registry host</span>
+                    <span class="block text-xs text-gray-500 mb-1">{{ t('projects_detail.registry_host') }}</span>
                     <input type="text" x-model="credForm.registry" placeholder="ghcr.io"
                            class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
                 </label>
                 <label class="block">
-                    <span class="block text-xs text-gray-500 mb-1">Username</span>
+                    <span class="block text-xs text-gray-500 mb-1">{{ t('projects_detail.username') }}</span>
                     <input type="text" x-model="credForm.username"
                            class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
                 </label>
                 <label class="block">
-                    <span class="block text-xs text-gray-500 mb-1">Password / token</span>
+                    <span class="block text-xs text-gray-500 mb-1">{{ t('projects_detail.password_token') }}</span>
                     <input type="password" x-model="credForm.password"
                            class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
                 </label>
                 <label class="block">
-                    <span class="block text-xs text-gray-500 mb-1">Label (optional)</span>
+                    <span class="block text-xs text-gray-500 mb-1">{{ t('projects_detail.label') }} ({{ t('common.optional') }})</span>
                     <input type="text" x-model="credForm.label"
                            class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
                 </label>
             </div>
             <div class="flex items-center justify-end gap-2">
                 <button @click="credModalOpen=false"
-                        class="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">Cancel</button>
+                        class="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">{{ t('common.cancel') }}</button>
                 <button @click="saveCred()" :disabled="credSaving"
                         class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50">
-                    <span x-text="credSaving ? 'Saving…' : 'Add'"></span>
+                    <span x-text="credSaving ? '{{ t('projects_detail.saving') }}' : '{{ t('projects_detail.add') }}'"></span>
                 </button>
             </div>
         </div>
@@ -235,15 +234,15 @@
          style="top:0;left:0"
          @click.self="showDeleteModal = false">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
-            <h3 class="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">Delete Project</h3>
+            <h3 class="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">{{ t('projects_detail.delete_project') }}</h3>
 
             <!-- Blocked path: services still exist -->
             <template x-if="services.length > 0">
                 <div>
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                        This project has <strong x-text="services.length"></strong>
-                        service<span x-show="services.length !== 1">s</span>.
-                        Delete each service before you can remove the project.
+                        {{ t('projects_detail.has_services_prefix') }} <strong x-text="services.length"></strong>
+                        {{ t('projects_detail.service_singular') }}<span x-show="services.length !== 1">{{ t('projects_detail.service_plural_suffix') }}</span>.
+                        {{ t('projects_detail.delete_services_first') }}
                     </p>
                     <div class="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg p-3 mb-4 max-h-40 overflow-y-auto">
                         <ul class="text-sm font-mono text-gray-700 dark:text-gray-300 space-y-1">
@@ -252,7 +251,7 @@
                                     <span x-text="s.name" class="truncate"></span>
                                     <a :href="'/resources/' + s.id"
                                        class="text-xs text-blue-600 dark:text-blue-400 hover:underline shrink-0">
-                                        Open →
+                                        {{ t('projects_detail.open') }} →
                                     </a>
                                 </li>
                             </template>
@@ -261,7 +260,7 @@
                     <div class="flex justify-end gap-2">
                         <button @click="showDeleteModal = false"
                                 class="px-4 py-2 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
-                            Close
+                            {{ t('projects_detail.close') }}
                         </button>
                     </div>
                 </div>
@@ -270,9 +269,9 @@
             <!-- Confirm path: no services -->
             <template x-if="services.length === 0">
                 <div>
-                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">This will permanently delete the project.</p>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-1">{{ t('projects_detail.permanent_delete_warning') }}</p>
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                        Type <strong class="text-gray-900 dark:text-white" x-text="project.name"></strong> to confirm:
+                        {{ t('projects_detail.type_to_confirm_prefix') }} <strong class="text-gray-900 dark:text-white" x-text="project.name"></strong> {{ t('projects_detail.type_to_confirm_suffix') }}
                     </p>
                     <input x-model="deleteConfirmName" type="text"
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
@@ -280,24 +279,24 @@
                            :placeholder="project.name">
 
                     <div x-show="requirePwOnDelete" class="mt-3">
-                        <label class="block text-xs text-gray-500 mb-1">Account password</label>
+                        <label class="block text-xs text-gray-500 mb-1">{{ t('projects_detail.account_password') }}</label>
                         <input x-model="deletePassword" type="password"
                                autocomplete="current-password"
                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                       text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
-                               placeholder="Enter your password">
+                               placeholder="{{ t('projects_detail.enter_password_placeholder') }}">
                     </div>
 
                     <div class="flex justify-end gap-2 mt-5">
                         <button @click="showDeleteModal = false"
                                 class="px-4 py-2 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
-                            Cancel
+                            {{ t('common.cancel') }}
                         </button>
                         <button @click="remove()"
                                 :disabled="!canDelete || deleting"
                                 :class="canDelete && !deleting ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'"
                                 class="px-4 py-2 text-sm font-medium rounded-lg transition-colors">
-                            <span x-text="deleting ? 'Deleting…' : 'Delete'"></span>
+                            <span x-text="deleting ? '{{ t('projects_detail.deleting') }}' : '{{ t('projects_detail.delete') }}'"></span>
                         </button>
                     </div>
                 </div>
@@ -358,7 +357,7 @@ function projectDetail(id) {
                     this.editForm = { ...this.project };
                 }
             } catch (e) {
-                toast('Failed to load project', 'error');
+                toast('{{ t('projects_detail.toast_load_failed') }}', 'error');
             }
         },
         async loadCreds() {
@@ -381,13 +380,13 @@ function projectDetail(id) {
                 });
                 if (!r.ok) throw new Error((await r.json()).error || ('HTTP ' + r.status));
                 this.credModalOpen = false;
-                toast('Credential added');
+                toast('{{ t('projects_detail.toast_cred_added') }}');
                 await this.loadCreds();
             } catch (e) { toast(e.message, 'error'); }
             this.credSaving = false;
         },
         async removeCred(row) {
-            if (!confirm('Delete credentials for ' + row.registry + '?')) return;
+            if (!confirm('{{ t('projects_detail.confirm_delete_cred_prefix') }}' + row.registry + '?')) return;
             try {
                 const r = await fetch('/api/v1/registries/' + row.id, { method: 'DELETE' });
                 if (!r.ok) throw new Error((await r.json()).error || ('HTTP ' + r.status));
@@ -399,7 +398,7 @@ function projectDetail(id) {
             try {
                 const r = await fetch('/api/v1/registries/' + row.id + '/test', { method: 'POST' });
                 const j = await r.json();
-                toast(j.ok ? 'Connection OK' : ('Failed: ' + (j.error || 'unknown')), j.ok ? 'success' : 'error');
+                toast(j.ok ? '{{ t('projects_detail.toast_connection_ok') }}' : ('{{ t('projects_detail.toast_failed_prefix') }}' + (j.error || '{{ t('projects_detail.unknown') }}')), j.ok ? 'success' : 'error');
             } catch (e) { toast(e.message, 'error'); }
             this.credTestingId = null;
         },
@@ -409,7 +408,7 @@ function projectDetail(id) {
                     method: 'PUT',
                     body: JSON.stringify(this.editForm)
                 });
-                toast('Project updated');
+                toast('{{ t('projects_detail.toast_project_updated') }}');
                 this.editing = false;
                 await this.refresh();
             } catch (e) {
@@ -436,7 +435,7 @@ function projectDetail(id) {
                     body: JSON.stringify({ password: this.deletePassword || null }),
                 });
                 this.showDeleteModal = false;
-                toast('Project deleted');
+                toast('{{ t('projects_detail.toast_project_deleted') }}');
                 window.location.href = '/projects';
             } catch (e) {
                 toast(e.message, 'error');

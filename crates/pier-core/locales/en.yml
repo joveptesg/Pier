@@ -185,6 +185,100 @@ invite:
   go_to_login: Go to login
   accept_failed: Failed to accept invitation
 
+# Projects list (projects/list.html).
+projects_list:
+  title: Projects
+  heading: Projects
+  subtitle: Manage projects and standalone resources
+  all_servers: All servers
+  this_server: This server
+  new: New
+  menu_project: Project
+  menu_project_desc: Create a logical group for resources
+  menu_resource: Resource
+  menu_resource_desc: Deploy a database, application, or service
+  federated: federated
+  managed_on: Managed on
+  opens_server_ui: Opens that server's UI.
+  ports_label: 'Ports:'
+  created_label: 'Created:'
+  synced_label: 'Synced:'
+  standalone_resources: Standalone Resources
+  open_prefix: Open
+  public: public
+  empty_title: No projects yet
+  empty_subtitle: Create a project or deploy a resource to get started
+  modal_title: New Project
+  name_label: Name
+  description_label: Description
+  description_placeholder: Optional description
+  port_start_label: Port Start
+  port_end_label: Port End
+  create: Create
+  never: never
+  ago: ago
+  peer: peer
+  peer_plural_suffix: s
+  offline: offline
+  synced: Synced
+  sync_pending: Sync pending
+  error: error
+  unknown: unknown
+  last_sync: last sync
+  project_created: Project created
+
+# Project detail (projects/detail.html).
+projects_detail:
+  title: Project
+  edit: Edit
+  delete: Delete
+  name: Name
+  description: Description
+  port_start: Port Start
+  port_end: Port End
+  save_changes: Save Changes
+  port_range: Port Range
+  not_set: Not set
+  created: Created
+  services: Services
+  new_service: New Service
+  open: Open
+  public: public
+  no_services: No services in this project
+  registry_credentials: Registry credentials
+  registry_credentials_desc: Project-scoped credentials override global ones for the same registry host.
+  add: Add
+  registry: Registry
+  username: Username
+  label: Label
+  actions: Actions
+  test: Test
+  no_project_creds: 'No project-scoped credentials. Falls back to <a href="/settings/registries" class="text-blue-500 hover:underline">global credentials</a>.'
+  add_registry_credential: Add registry credential
+  registry_host: Registry host
+  password_token: Password / token
+  saving: Saving…
+  delete_project: Delete Project
+  has_services_prefix: This project has
+  service_singular: service
+  service_plural_suffix: s
+  delete_services_first: Delete each service before you can remove the project.
+  close: Close
+  permanent_delete_warning: This will permanently delete the project.
+  type_to_confirm_prefix: Type
+  type_to_confirm_suffix: 'to confirm:'
+  account_password: Account password
+  enter_password_placeholder: Enter your password
+  deleting: Deleting…
+  toast_load_failed: Failed to load project
+  confirm_delete_cred_prefix: 'Delete credentials for '
+  toast_cred_added: Credential added
+  toast_connection_ok: Connection OK
+  toast_failed_prefix: 'Failed: '
+  unknown: unknown
+  toast_project_updated: Project updated
+  toast_project_deleted: Project deleted
+
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and
 # need a stable `%{name}` interpolation sample (no section-1 screen has one yet).
