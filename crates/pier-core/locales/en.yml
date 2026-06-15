@@ -1631,6 +1631,584 @@ compose_editor:
   toast_saved: Stack saved
   toast_deployed: Stack deployed
 
+# Settings — main (settings/index.html).
+settings_index:
+  page_title: Settings
+  heading: Settings
+  subheading: Application configuration
+  general_title: General
+  app_url: Application URL
+  app_url_desc: The URL used to access Pier
+  timezone: Timezone
+  timezone_desc: Used for notifications and timestamps.
+  timezone_now: 'Now: '
+  cleanup_title: System Cleanup
+  build_cache: Build Cache
+  build_cache_desc: Unused Docker build layers
+  clean: Clean
+  dangling_images: Dangling Images
+  dangling_images_desc: Untagged images not used by containers
+  stopped_containers: Stopped Containers
+  stopped_containers_desc: Containers that are not running
+  railpack_buildkit_cache: Railpack BuildKit cache
+  railpack_buildkit_cache_desc: Layer cache used by Auto-build (Railpack) — lives inside the buildkit container, separate from Docker
+  cleaning: Cleaning...
+  clean_all: Clean All
+  auto_cleanup: Auto Cleanup
+  enable_scheduled_cleanup: Enable scheduled cleanup
+  enable_scheduled_cleanup_desc: Automatically clean Docker resources
+  interval: Interval
+  every_12_hours: Every 12 hours
+  every_24_hours: Every 24 hours
+  every_48_hours: Every 48 hours
+  every_7_days: Every 7 days
+  unused_images: Unused Images
+  autobuild_title: Auto-build (Railpack)
+  autobuild_desc: Controls how many Railpack builds can run in parallel. Each build can use several GB of RAM during compilation, so the default cap of 1 is a safe choice for small VPS hosts. Raise it only if your host has spare capacity.
+  currently_running: Currently running
+  currently_running_desc: Active permit count in the live semaphore
+  parallel_build_one: ' parallel build'
+  parallel_build_other: ' parallel builds'
+  max_parallel_builds: Max parallel builds
+  saved_value_range: 'Saved value (applied on next pier-core restart). Range:'
+  saving: Saving…
+  save: Save
+  env_override_notice: '<strong>Managed by environment variable.</strong> <code class="text-[11px]">PIER_RAILPACK_MAX_PARALLEL_BUILDS</code> is set in the systemd unit, so the saved value is ignored. Unset the env var and restart pier-core to use the UI value.'
+  restart_required: Restart required.
+  restart_required_saved: Saved value
+  restart_required_differs: differs from the live runtime value
+  restart_required_run: Run
+  restart_required_take_effect: on the host for the change to take effect.
+  what_is_this: What is this?
+  federation_intro: 'Federation works in two directions. This tab is about the <strong>incoming</strong> direction — giving another pier-core the right to control this one.'
+  federation_outgoing: '<strong>Outgoing</strong> (controlling other servers from here) is managed on the <a href="/servers" class="text-blue-500 hover:underline">Servers</a> page via the "Peer core" kind.'
+  federation_incoming: '<strong>Incoming</strong> is here: you issue a token and hand it to the operator of another pier-core. They paste it into their own "Add Server → Peer core" form, and their panel gains admin-equivalent access to yours over REST.'
+  tokens_grant_admin: Tokens grant full admin rights — revoke any time; this core keeps working autonomously either way.
+  protocol_note: 'Protocol: requests authenticated with the <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">X-Pier-Peer-Token</code> header match a row in <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">peer_grants</code> and are treated as an admin session for that call.'
+  issued_tokens: Issued tokens
+  issue_token: Issue Token
+  col_name: Name
+  col_status: Status
+  col_last_used: Last used
+  col_from_ip: From IP
+  col_actions: Actions
+  status_active: active
+  status_revoked: revoked
+  revoke: Revoke
+  no_tokens: No tokens issued yet.
+  issue_peer_token: Issue peer token
+  issue_peer_token_desc: Generate a long-lived token that authorizes another pier-core to manage this panel via its API.
+  name_placeholder: HQ panel
+  generate: Generate
+  token_issued: Token issued
+  token_shown_once: This token is shown only once. Copy it now.
+  done: Done
+  profile: Profile
+  username: Username
+  email: Email
+  role: Role
+  member_since: Member since
+  last_login: Last login
+  change_password: Change password
+  current_password: Current password
+  new_password: New password (min 8 chars)
+  confirm_new_password: Confirm new password
+  all_sessions_logged_out: All other active sessions will be logged out.
+  updating: Updating…
+  update_password: Update password
+  active_sessions: Active sessions
+  logout_everywhere_else: Logout everywhere else
+  col_device: Device
+  col_ip: IP
+  col_started: Started
+  this_session: This session
+  no_active_sessions: No active sessions.
+  account_security: Account security
+  two_factor_auth: Two-factor authentication
+  audit_log: Audit log
+  delete_confirmation: Delete confirmation
+  require_account_password: Require account password
+  require_account_password_desc: Prompt for your password when deleting projects, services, or databases. Applies to every admin on this instance.
+  danger_zone: Danger Zone
+  reset_data: Reset Data
+  reset_data_desc: Delete all projects, resources, and settings
+  coming_soon: Coming soon
+  tab_general: General
+  tab_cleanup: Cleanup
+  tab_railpack: Auto-build (Railpack)
+  tab_external_access: External Access
+  tab_account: Account
+  tab_security: Security
+  tab_danger: Danger
+  name_required: Name required
+  confirm_revoke_token: 'Revoke token "%{name}"?'
+  token_revoked: Token revoked
+  failed_load_railpack: Failed to load Railpack settings
+  must_be_between: Must be between %{min} and %{max}
+  saved_restart_required: Saved — restart required
+  saved: Saved
+  save_failed: Save failed
+  done_refreshing: Done! Refreshing...
+  cleanup_complete: Cleanup complete
+  error_prefix: 'Error: '
+  unknown: Unknown
+  passwords_no_match: Passwords do not match
+  password_too_short: Password must be at least 8 characters
+  current_password_incorrect: Current password is incorrect
+  failed: Failed
+  password_updated: Password updated — other sessions logged out
+  confirm_revoke_session: Revoke this session?
+  session_revoked: Session revoked
+  confirm_logout_others: Log out all other sessions?
+  sessions_revoked_count: Revoked %{count} session(s)
+
+# Settings — system logs (settings/logs.html).
+settings_logs:
+  title: System Logs
+  heading: System Logs
+  lines_suffix: lines
+  no_units: 'No allow-listed systemd units are installed on this host (<code class="px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-xs">pier</code>, <code class="px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-xs">pier-agent</code>).'
+  unit_title: Unit
+  period_title: Period
+  period_5min: 5 min
+  period_15min: 15 min
+  period_1h: 1 hour
+  period_6h: 6 hours
+  period_24h: 24 hours
+  period_7d: 7 days
+  period_all: All
+  lines_title: Lines
+  lines_30: 30 lines
+  lines_100: 100 lines
+  lines_500: 500 lines
+  lines_1000: 1000 lines
+  lines_5000: 5000 lines
+  priority_title: Priority
+  priority_all: All levels
+  priority_err: Errors
+  priority_warning: Warning+
+  priority_info: Info+
+  priority_debug: Debug+
+  refresh_title: Refresh snapshot
+  live: Live
+  paused: Paused
+  clear_title: Clear buffer
+  clear: Clear
+  copy_title: Copy to clipboard
+  download_title: Download .log
+  streaming: streaming
+  snapshot: snapshot
+  empty: No log lines for the selected filter.
+  ws_connect_failed: 'WebSocket connect failed: %{message}'
+
+# Settings — notifications (settings/notifications.html).
+settings_notifications:
+  title: Notifications
+  heading: Notifications
+  subtitle: Get notified about your infrastructure.
+  no_channel_warning: No channel is enabled yet. Toggles below will fire but silently skip delivery.
+  last_prefix: 'last: '
+  tab_alerts: Alerts
+  email_subtitle: Deliver alerts via SMTP, Brevo API or Resend API.
+  from_name_label: From name
+  from_address_label: From address
+  send_alerts_to_label: Send alerts to
+  delivery_driver_label: Delivery driver
+  host_label: Host
+  port_label: Port
+  encryption_label: Encryption
+  encryption_none: None
+  username_label: Username
+  password_label: Password
+  saved_badge: saved
+  password_keep_placeholder: Leave blank to keep stored password
+  smtp_password_placeholder: SMTP password
+  timeout_label: Timeout (s)
+  brevo_api_key_label: Brevo API key
+  key_keep_placeholder: Leave blank to keep stored key
+  brevo_help: 'Create a transactional API key at <span class="font-mono">app.brevo.com/settings/keys/api</span>.'
+  resend_api_key_label: Resend API key
+  resend_help: 'Create an API key at <span class="font-mono">resend.com/api-keys</span>.'
+  saving: Saving...
+  save: Save
+  sending: Sending...
+  send_test_email: Send test email
+  send_test: Send test
+  telegram_subtitle: Send alerts to a Telegram chat via a bot.
+  bot_token_label: Bot token
+  bot_token_keep_placeholder: Leave blank to keep the stored token
+  telegram_help: Create via @BotFather in Telegram. Tokens are encrypted and never shown back.
+  chat_id_label: Chat ID
+  chat_id_placeholder: '-1001234567890 or @channelname'
+  discord_subtitle: Send alerts to a Discord channel via an incoming webhook.
+  webhook_url_label: Webhook URL
+  url_keep_placeholder: Leave blank to keep stored URL
+  discord_help: Server Settings → Integrations → Webhooks → New Webhook → Copy URL.
+  ping_channel_label: 'Ping channel (<span class="font-mono">@here</span>) on firing alerts'
+  slack_subtitle: Send alerts to a Slack channel via an incoming webhook.
+  slack_help: Create via Slack App → Incoming Webhooks → Activate → Add New Webhook to Workspace.
+  group_deployments: Deployments
+  group_backups: Backups
+  group_server: Server
+  metric_disk: Disk
+  metric_heartbeat: heartbeat
+  metric_container_cpu: container CPU
+  metric_container_ram: container RAM
+  metric_days_left: days left
+  metric_deploy_failure: deployment failure
+  metric_deploy_success: deployment success
+  metric_backup_failure: backup failure
+  metric_backup_success: backup success
+  metric_container_status: container status change
+  metric_docker_cleanup_success: docker cleanup completion
+  metric_docker_cleanup_failure: docker cleanup failure
+  metric_server_reachable: server coming back online
+  fires_on_every: Fires on every %{label}
+  unit_days: ' days'
+  sustained_suffix: ' for %{min} min'
+  load_alerts_failed: 'Failed to load alerts: '
+  threshold_updated: Threshold updated
+  update_failed: 'Update failed: '
+  load_telegram_failed: 'Failed to load telegram: '
+  status_saved: Saved
+  enter_telegram_first: Enter bot_token and chat_id first
+  test_notification_sent: Test notification sent
+  test_failed: 'Test failed: '
+  load_email_failed: 'Failed to load email: '
+  test_email_sent: Test email sent
+  load_discord_failed: 'Failed to load discord: '
+  enter_discord_first: Enter a Discord webhook URL first
+  test_discord_sent: Test Discord message sent
+  load_slack_failed: 'Failed to load slack: '
+  enter_slack_first: Enter a Slack webhook URL first
+  test_slack_sent: Test Slack message sent
+
+# Settings — updates (settings/updates.html).
+settings_updates:
+  page_title: Updates
+  heading: Updates
+  subheading: Manage Pier version and update preferences
+  current_version: Current Version
+  version_label: Version
+  version_desc: Installed Pier version
+  build_date_label: Binary Build Date
+  build_date_desc: When this binary was compiled
+  uptime_label: Uptime
+  uptime_desc: Time since last restart
+  update_check: Update Check
+  latest_build: Latest Build
+  badge_update_available: Update available
+  badge_up_to_date: Up to date
+  checking: Checking...
+  check_for_updates: Check for Updates
+  new_version_available: New version available
+  build_prefix: 'Build:'
+  download_size_prefix: 'Download size:'
+  install_update_label: Install Update
+  install_update_desc: Pier will restart automatically after update
+  update_and_restart: Update & Restart
+  update_complete_title: Update complete
+  update_complete_desc: Pier has been updated successfully.
+  update_failed: Update failed
+  check_failed_title: Check failed
+  update_settings: Update Settings
+  update_mode_label: Update Mode
+  update_mode_desc: Choose how Pier handles available updates
+  mode_auto_label: Automatic
+  mode_auto_desc: Download and install updates automatically
+  mode_notify_label: Notify only
+  mode_notify_desc: Check for updates and notify, but don't install automatically
+  mode_manual_label: Manual
+  mode_manual_desc: Only check and install updates when triggered manually
+  auto_check_label: Auto-check for updates
+  auto_check_desc: Periodically check for new versions in the background
+  settings_saved: Settings saved
+  saving: Saving...
+  save_settings: Save Settings
+  check_status_initial: 'Click "Check for Updates" to check'
+  unknown: Unknown
+  unknown_lower: unknown
+  unavailable: Unavailable
+  load_settings_failed: Failed to load update settings
+  check_failed_status: Check failed
+  new_build_available: 'New build available: %{build}'
+  running_latest: You are running the latest version
+  check_updates_failed: 'Failed to check for updates: %{error}'
+  confirm_install: Pier will download the update and restart. Continue?
+  progress_downloading: Downloading update...
+  progress_downloading_detail: This may take a moment depending on your connection
+  progress_installing: Installing update...
+  progress_installing_detail: Applying update and preparing to restart
+  progress_restarting: Restarting Pier...
+  progress_restarting_detail: The server is restarting. Please wait...
+  progress_reconnecting: Reconnecting...
+  update_failed_fallback: Update failed
+  update_request_failed: 'Update request failed: %{error}'
+  progress_complete: Update complete!
+  progress_complete_detail: Pier has been updated successfully
+  reconnect_timeout: Pier may still be restarting. Try refreshing the page manually.
+  save_settings_failed: Failed to save settings
+  save_failed: 'Failed to save: %{error}'
+
+# Account security / 2FA (account/security.html).
+account_security:
+  title: Security
+  heading: Security
+  subtitle: Two-factor authentication (TOTP) for your account.
+  tfa_title: Two-Factor Authentication
+  not_enabled: Not enabled. Adds a one-time code from an authenticator app to each login.
+  enabled_since: Enabled since
+  recovery_codes_left: recovery codes left.
+  enable_2fa: Enable 2FA
+  disable_2fa: Disable 2FA
+  step1_scan: 1. Scan with an authenticator app
+  enter_secret_manually: 'Or enter this secret manually:'
+  step2_save_codes: 2. Save your recovery codes
+  save_codes_hint: Store these somewhere safe. Each can be used once to log in if you lose access to your authenticator.
+  step3_verify: 3. Verify with the current code
+  confirm: Confirm
+  disable_hint: Enter a current TOTP code or one of your recovery codes to confirm.
+  disable_placeholder: 123456 or XXXX-XXXX-XXXX
+  disable: Disable
+  setup_failed: setup failed
+  verify_failed: verify failed
+  disable_failed: disable failed
+  notice_enabled: 2FA enabled — your next login will require a code.
+  notice_disabled: 2FA disabled.
+
+# Audit log (audit/index.html).
+audit_index:
+  title: Audit Log
+  heading: Audit Log
+  subtitle: Authentication and session events for this server.
+  refresh: Refresh
+  filter_event_type: Event type
+  filter_all: All
+  filter_ip_prefix: IP prefix
+  filter_since: Since (UTC)
+  filter_until: Until (UTC)
+  col_when: When (UTC)
+  col_event: Event
+  col_user: User
+  col_ip: IP
+  col_ua: UA
+  col_details: Details
+  empty: No events match these filters.
+  prev: Prev
+  next: Next
+  pagination_range: '<span x-text="offset + 1"></span>–<span x-text="Math.min(offset + events.length, total)"></span> of <span x-text="total"></span>'
+
+# Team management (team/index.html).
+team_index:
+  title: Team
+  heading: Team
+  subtitle: 'Invite teammates and manage their global roles. Project-specific access is set on each project''s <span class="font-medium">Members</span> tab.'
+  invite_user_button: + Invite user
+  col_user: User
+  col_role: Role
+  col_status: Status
+  col_2fa: 2FA
+  col_joined: Joined
+  col_actions: Actions
+  status_active: Active
+  status_disabled: Disabled
+  twofa_on: 'On'
+  change_role: Change role
+  delete: Delete
+  empty_users: No users yet.
+  invite_modal_title: Invite user
+  email_label: Email
+  default_role_label: Default global role
+  role_option_user: User (no system privileges)
+  role_option_admin: Admin (Owner-only)
+  link_expires_label: Link expires (hours)
+  create_invite: Create invite
+  working: Working…
+  invite_link_intro: Send this one-time link to
+  invite_link_warning: It will not be shown again.
+  expires_in_prefix: Expires in
+  expires_in_suffix: hours.
+  done: Done
+  toast_load_failed: Failed to load
+  toast_invite_failed: Invite failed
+  confirm_delete_user: Delete %{username}? This cannot be undone.
+  toast_user_deleted: User deleted
+  toast_delete_failed: Delete failed
+  prompt_new_role: 'New global role for %{username} (owner/admin/user):'
+  toast_role_updated: Role updated
+  toast_role_change_failed: Role change failed
+
+# Tasks list (tasks/list.html).
+tasks_list:
+  title: Tasks
+  heading: Tasks
+  subtitle: Saved shell tasks and a global history of every run. Use a template for repeatable jobs, or fire an ad-hoc command for one-offs.
+  new_template: + New template
+  run_ad_hoc: Run ad-hoc command
+  templates: Templates
+  col_name: Name
+  col_command: Command
+  col_timeout: Timeout
+  col_actions: Actions
+  run: Run
+  delete: Delete
+  no_templates: No templates yet.
+  recent_runs: Recent runs
+  col_status: Status
+  col_server: Server
+  col_triggered_by: Triggered by
+  col_started: Started
+  no_runs: No runs yet.
+  new_template_title: New task template
+  field_name: Name
+  field_command: Command
+  field_default_timeout: Default timeout (seconds)
+  save: Save
+  working: Working…
+  run_template_title: Run template
+  run_ad_hoc_title: Run ad-hoc command
+  field_server: Server
+  select_server_placeholder: "— select —"
+  field_timeout: Timeout (seconds)
+  starting: Starting…
+  toast_load_failed: Failed to load
+  toast_template_saved: Template saved
+  toast_save_failed: Save failed
+  confirm_delete_template: 'Delete template "%{name}"?'
+  toast_template_deleted: Template deleted
+  toast_delete_failed: Delete failed
+  toast_start_failed: Failed to start
+
+# Task run detail (tasks/run_detail.html).
+tasks_run_detail:
+  title: Task Run
+  back_to_tasks: Tasks
+  heading: Task run
+  label_server: Server
+  label_triggered_by: Triggered by
+  label_exit_code: Exit code
+  label_started: Started
+  label_finished: Finished
+  label_timeout: Timeout
+  label_command: Command
+  label_error: Error
+  empty_output: (empty)
+  load_failed: Failed to load
+  confirm_cancel: Cancel this run?
+  cancel_requested: Cancel requested
+  cancel_failed: Cancel failed
+
+# Schedules list (schedules/list.html).
+schedules_list:
+  title: Schedules
+  heading: Schedules
+  intro: "Cron-driven jobs. Today the unified runner fires task templates; backup and cleanup schedules are listed here for visibility but still managed by their legacy loops."
+  new_schedule_button: + New schedule
+  col_name: Name
+  col_action: Action
+  col_cron: Cron
+  col_next_run: Next run
+  col_last_status: Last status
+  col_actions: Actions
+  badge_system: system
+  status_never: never
+  action_run_now: Run now
+  action_disable: Disable schedule
+  action_enable: Enable schedule
+  action_delete: Delete schedule
+  action_system_locked: System schedule (cannot be deleted)
+  empty: No schedules yet.
+  modal_title: New schedule
+  field_name: Name
+  field_action: Action
+  action_option_task: Run task template
+  action_help: "Backup and cleanup schedules also fire from the unified runner, but they're created elsewhere (resource page / cleanup settings)."
+  field_template: Task template
+  field_server: Server
+  select_placeholder: "— select —"
+  field_cron: Cron expression
+  next_runs_label: "Next runs:"
+  field_timezone: Timezone
+  submit_create: Create
+  submit_working: Working…
+  toast_load_failed: Failed to load
+  cron_invalid: invalid expression
+  toast_pick_template_server: Pick a template and a server
+  toast_created: Schedule created
+  toast_create_failed: Create failed
+  toast_toggle_failed: Toggle failed
+  toast_run_status: Run %{status}
+  toast_run_failed: Run failed
+  confirm_delete: 'Delete schedule "%{name}"?'
+  toast_deleted: Schedule deleted
+  toast_delete_failed: Delete failed
+
+# Architecture canvas (canvas.html).
+canvas:
+  title: Architecture
+  dashboard: Dashboard
+  architecture: Architecture
+  services_suffix: services
+  create: Create
+  show_dependency_arrows: Show dependency arrows
+  deps: Deps
+  zoom_in: Zoom in
+  zoom_out: Zoom out
+  fit_to_view: Fit to view
+  fit: Fit
+  create_resource: Create Resource
+  what_to_deploy: What do you want to deploy?
+  databases: Databases
+  services: Services
+  deploy: Deploy
+  auto_generated_if_empty: Auto-generated if empty
+  generate: Generate
+  project: Project
+  no_project: No project
+  network: Network
+  default_suffix: default
+  deploying: Deploying...
+  deployed: Deployed!
+  deploy_failed: Deploy Failed
+  starting_deployment: Starting deployment...
+  open_details: Open Details
+  done: Done
+  back_to_config: Back to Config
+  start: Start
+  stop: Stop
+  restart: Restart
+  redeploy: Redeploy
+  live: Live
+  cpu_usage: CPU Usage
+  memory_usage: Memory Usage
+  network_io: Network I/O
+  disk_io: Disk I/O
+  legend_running: Running
+  legend_failed: Failed
+  legend_deploying: Deploying
+  legend_stopped: Stopped
+  action_initiated: "%{action} initiated"
+  failed_to_load_template: Failed to load template
+  name_is_required: Name is required
+  log_deploying: 'Deploying %{template} "%{name}"...'
+  log_creating_resource: Creating resource...
+  log_container_created: Container created successfully
+  log_deployment_log_header: Deployment Log
+  log_no_output: No output
+  log_deployed_successfully: "%{name} deployed successfully!"
+  toast_deployed: "%{name} deployed"
+  log_deploy_failed: "Deploy failed: %{error}"
+
+# Support modal partial (partials/support_modal.html).
+support_modal:
+  close: Close
+  heading: Love Pier? Support our work.
+  body_profitable: 'We are already profitable thanks to <span class="font-semibold text-gray-900 dark:text-white">YOU</span> but&hellip;'
+  body_features: We would like to make more cool features.
+  body_help: For this we need your help to support our work financially.
+  maybe_next_time: Maybe next time
+  support_project: Support project
+
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and
 # need a stable `%{name}` interpolation sample (no section-1 screen has one yet).

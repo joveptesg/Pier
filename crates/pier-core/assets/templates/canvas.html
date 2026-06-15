@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Architecture{% endblock %}
+{% block title %}{{ t('canvas.title') }}{% endblock %}
 
 {% block content %}
 <div x-data="canvasApp()" x-init="init()" class="absolute inset-0 overflow-hidden select-none bg-gray-100 dark:bg-[#0a0e17]"
@@ -11,36 +11,36 @@
         <div class="flex items-center gap-3">
             <a href="/" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                Dashboard
+                {{ t('canvas.dashboard') }}
             </a>
             <span class="text-gray-300 dark:text-gray-700">|</span>
-            <h2 class="text-sm font-medium text-gray-900 dark:text-white">Architecture</h2>
-            <span class="text-xs text-gray-400 dark:text-gray-500" x-text="resources.length + ' services'"></span>
+            <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ t('canvas.architecture') }}</h2>
+            <span class="text-xs text-gray-400 dark:text-gray-500" x-text="resources.length + ' {{ t('canvas.services_suffix') }}'"></span>
         </div>
         <div class="flex items-center gap-2">
             <button @click="createModal.show = true; loadCatalog()"
                     class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"/></svg>
-                Create
+                {{ t('canvas.create') }}
             </button>
             <span class="text-gray-300 dark:text-gray-700 ml-2">|</span>
-            <label class="flex items-center gap-1.5 cursor-pointer select-none" title="Show dependency arrows">
+            <label class="flex items-center gap-1.5 cursor-pointer select-none" title="{{ t('canvas.show_dependency_arrows') }}">
                 <div class="relative">
                     <input type="checkbox" x-model="showDeps" @change="renderSvgEdges()" class="sr-only peer">
                     <div class="w-8 h-4 bg-gray-300 dark:bg-gray-700 rounded-full peer-checked:bg-blue-500 transition-colors"></div>
                     <div class="absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
                 </div>
-                <span class="text-[11px] text-gray-500 dark:text-gray-400">Deps</span>
+                <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ t('canvas.deps') }}</span>
             </label>
             <span class="text-gray-300 dark:text-gray-700">|</span>
             <span class="text-xs text-gray-400 dark:text-gray-500" x-text="Math.round(zoom * 100) + '%'"></span>
-            <button @click="zoomIn()" class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Zoom in">
+            <button @click="zoomIn()" class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" title="{{ t('canvas.zoom_in') }}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"/></svg>
             </button>
-            <button @click="zoomOut()" class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Zoom out">
+            <button @click="zoomOut()" class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" title="{{ t('canvas.zoom_out') }}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"/></svg>
             </button>
-            <button @click="resetView()" class="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-gray-700 rounded" title="Fit to view">Fit</button>
+            <button @click="resetView()" class="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-gray-700 rounded" title="{{ t('canvas.fit_to_view') }}">{{ t('canvas.fit') }}</button>
         </div>
     </div>
 
@@ -150,10 +150,10 @@
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
             <!-- Step 1: Choose template -->
             <div x-show="createModal.step === 'catalog'" class="p-5">
-                <h3 class="text-lg font-semibold text-white mb-1">Create Resource</h3>
-                <p class="text-xs text-gray-500 mb-4">What do you want to deploy?</p>
+                <h3 class="text-lg font-semibold text-white mb-1">{{ t('canvas.create_resource') }}</h3>
+                <p class="text-xs text-gray-500 mb-4">{{ t('canvas.what_to_deploy') }}</p>
                 <div class="space-y-1">
-                    <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-2">Databases</p>
+                    <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-2">{{ t('canvas.databases') }}</p>
                     <template x-for="item in catalogItems.filter(i => i.category === 'database')" :key="item.id">
                         <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                             <div class="w-6 h-6 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
@@ -165,7 +165,7 @@
                             </div>
                         </button>
                     </template>
-                    <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-3">Services</p>
+                    <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 pt-3">{{ t('canvas.services') }}</p>
                     <template x-for="item in catalogItems.filter(i => i.category === 'service')" :key="item.id">
                         <button @click="selectTemplate(item.id)" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                             <div class="w-6 h-6 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
@@ -198,7 +198,7 @@
                     <button @click="createModal.step = 'catalog'" class="text-gray-400 hover:text-white">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                     </button>
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Deploy <span x-text="createModal.template?.name"></span></h3>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('canvas.deploy') }} <span x-text="createModal.template?.name"></span></h3>
                 </div>
                 <div class="space-y-3">
                     <template x-for="field in createModal.template?.fields || []" :key="field.key">
@@ -214,10 +214,10 @@
                             </template>
                             <template x-if="field.type === 'password'">
                                 <div class="flex gap-2">
-                                    <input x-model="createModal.form[field.key]" type="text" :placeholder="field.placeholder || 'Auto-generated if empty'"
+                                    <input x-model="createModal.form[field.key]" type="text" :placeholder="field.placeholder || '{{ t('canvas.auto_generated_if_empty') }}'"
                                            class="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                                     <button @click="createModal.form[field.key] = generatePassword(32)"
-                                            class="px-2 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">Generate</button>
+                                            class="px-2 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-xs text-gray-300">{{ t('canvas.generate') }}</button>
                                 </div>
                             </template>
                             <template x-if="field.type !== 'select' && field.type !== 'password'">
@@ -228,10 +228,10 @@
                     </template>
                     <!-- Project selector -->
                     <div>
-                        <label class="block text-xs font-medium text-gray-400 mb-1">Project (optional)</label>
+                        <label class="block text-xs font-medium text-gray-400 mb-1">{{ t('canvas.project') }} ({{ t('common.optional') }})</label>
                         <select x-model="createModal.projectId"
                                 class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                            <option value="">No project</option>
+                            <option value="">{{ t('canvas.no_project') }}</option>
                             <template x-for="p in createModal.projects || []" :key="p.id">
                                 <option :value="p.id" x-text="p.name"></option>
                             </template>
@@ -239,21 +239,21 @@
                     </div>
                     <!-- Network selector -->
                     <div>
-                        <label class="block text-xs font-medium text-gray-400 mb-1">Network</label>
+                        <label class="block text-xs font-medium text-gray-400 mb-1">{{ t('canvas.network') }}</label>
                         <select x-model="createModal.networkId"
                                 class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                             <template x-for="n in networks" :key="n.id">
-                                <option :value="n.id" x-text="n.name + (n.is_default ? ' (default)' : '')"></option>
+                                <option :value="n.id" x-text="n.name + (n.is_default ? ' ({{ t('canvas.default_suffix') }})' : '')"></option>
                             </template>
                         </select>
                     </div>
                 </div>
                 <div class="flex justify-end gap-2 mt-5">
                     <button @click="createModal.show = false; createModal.step = 'catalog'"
-                            class="px-4 py-2 text-sm text-gray-400 hover:text-white">Cancel</button>
+                            class="px-4 py-2 text-sm text-gray-400 hover:text-white">{{ t('common.cancel') }}</button>
                     <button @click="deployFromCanvas()" :disabled="createModal.deploying"
                             class="px-5 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors">
-                        <span x-text="createModal.deploying ? 'Deploying...' : 'Deploy'"></span>
+                        <span x-text="createModal.deploying ? '{{ t('canvas.deploying') }}' : '{{ t('canvas.deploy') }}'"></span>
                     </button>
                 </div>
             </div>
@@ -264,24 +264,24 @@
                     <div class="flex items-center gap-2">
                         <div class="w-2 h-2 rounded-full animate-pulse"
                              :class="createModal.deployStatus === 'success' ? 'bg-green-500' : createModal.deployStatus === 'failed' ? 'bg-red-500' : 'bg-blue-500'"></div>
-                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="createModal.deployStatus === 'success' ? 'Deployed!' : createModal.deployStatus === 'failed' ? 'Deploy Failed' : 'Deploying...'"></h3>
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="createModal.deployStatus === 'success' ? '{{ t('canvas.deployed') }}' : createModal.deployStatus === 'failed' ? '{{ t('canvas.deploy_failed') }}' : '{{ t('canvas.deploying') }}'"></h3>
                     </div>
                     <span class="text-xs text-gray-500" x-text="createModal.template?.name"></span>
                 </div>
                 <div class="bg-black rounded-lg p-3 font-mono text-[11px] text-gray-300 max-h-[50vh] overflow-y-auto whitespace-pre-wrap" x-ref="deployLogBox"
-                     x-text="createModal.deployLog || 'Starting deployment...'"></div>
+                     x-text="createModal.deployLog || '{{ t('canvas.starting_deployment') }}'"></div>
                 <div class="flex justify-end gap-2 mt-4">
                     <template x-if="createModal.deployStatus === 'success'">
                         <div class="flex gap-2">
                             <a :href="'/resources/' + createModal.deployedId"
-                               class="px-4 py-2 text-sm text-blue-400 hover:text-blue-300">Open Details</a>
+                               class="px-4 py-2 text-sm text-blue-400 hover:text-blue-300">{{ t('canvas.open_details') }}</a>
                             <button @click="createModal.show = false; createModal.step = 'catalog'; createModal.deployLog = ''"
-                                    class="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg">Done</button>
+                                    class="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg">{{ t('canvas.done') }}</button>
                         </div>
                     </template>
                     <template x-if="createModal.deployStatus === 'failed'">
                         <button @click="createModal.step = 'config'; createModal.deployLog = ''; createModal.deployStatus = ''"
-                                class="px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white rounded-lg">Back to Config</button>
+                                class="px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white rounded-lg">{{ t('canvas.back_to_config') }}</button>
                     </template>
                 </div>
             </div>
@@ -295,20 +295,20 @@
          class="fixed z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl py-1 min-w-[160px]">
         <button @click="doAction('start')" class="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
-            Start</button>
+            {{ t('canvas.start') }}</button>
         <button @click="doAction('stop')" class="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
-            Stop</button>
+            {{ t('canvas.stop') }}</button>
         <button @click="doAction('restart')" class="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            Restart</button>
+            {{ t('canvas.restart') }}</button>
         <button @click="doAction('redeploy')" class="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-            Redeploy</button>
+            {{ t('canvas.redeploy') }}</button>
         <div class="border-t border-gray-200 dark:border-gray-700 my-1"></div>
         <a :href="'/resources/' + contextMenu.id" class="block px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2">
             <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            Open Details</a>
+            {{ t('canvas.open_details') }}</a>
     </div>
 
     <!-- Fullscreen Stats Panel -->
@@ -319,10 +319,10 @@
             <div class="flex items-center gap-3">
                 <img :src="'/static/icons/' + (statsPopup.card?.catalog_id || 'docker') + '.svg'" class="w-6 h-6" onerror="this.style.display='none'">
                 <span class="text-base font-semibold text-white" x-text="statsPopup.card?.name"></span>
-                <span class="flex items-center gap-1 text-[10px] text-green-400"><span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Live</span>
+                <span class="flex items-center gap-1 text-[10px] text-green-400"><span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> {{ t('canvas.live') }}</span>
             </div>
             <div class="flex items-center gap-3">
-                <a :href="'/resources/' + statsPopup.card?.id" class="text-xs text-blue-400 hover:text-blue-300">Open Details</a>
+                <a :href="'/resources/' + statsPopup.card?.id" class="text-xs text-blue-400 hover:text-blue-300">{{ t('canvas.open_details') }}</a>
                 <button @click="closeStats()" class="text-gray-400 hover:text-white transition-colors">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
@@ -340,28 +340,28 @@
         <div x-show="!statsPopup.loading && statsPopup.data && !statsPopup.data.error" class="flex-1 grid grid-cols-2 gap-px bg-gray-800 p-px overflow-hidden">
             <div class="bg-[#0a0e17] p-4 flex flex-col">
                 <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-white">CPU Usage</span>
+                    <span class="text-sm font-medium text-white">{{ t('canvas.cpu_usage') }}</span>
                     <span class="font-mono text-sm text-blue-400" x-text="(statsPopup.data?.cpu_percent || 0).toFixed(1) + '%'"></span>
                 </div>
                 <div id="chart-cpu" class="flex-1" style="min-height:200px"></div>
             </div>
             <div class="bg-[#0a0e17] p-4 flex flex-col">
                 <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-white">Memory Usage</span>
+                    <span class="text-sm font-medium text-white">{{ t('canvas.memory_usage') }}</span>
                     <span class="font-mono text-sm text-green-400" x-text="formatBytes(statsPopup.data?.memory_usage) + ' / ' + formatBytes(statsPopup.data?.memory_limit)"></span>
                 </div>
                 <div id="chart-mem" class="flex-1" style="min-height:200px"></div>
             </div>
             <div class="bg-[#0a0e17] p-4 flex flex-col">
                 <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-white">Network I/O</span>
+                    <span class="text-sm font-medium text-white">{{ t('canvas.network_io') }}</span>
                     <span class="font-mono text-xs text-gray-400" x-text="'↑ ' + formatBytes(statsPopup.data?.network_tx) + '  ↓ ' + formatBytes(statsPopup.data?.network_rx)"></span>
                 </div>
                 <div id="chart-net" class="flex-1" style="min-height:200px"></div>
             </div>
             <div class="bg-[#0a0e17] p-4 flex flex-col">
                 <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-white">Disk I/O</span>
+                    <span class="text-sm font-medium text-white">{{ t('canvas.disk_io') }}</span>
                     <span class="font-mono text-xs text-gray-400" x-text="'R: ' + formatBytes(statsPopup.data?.disk_read) + '  W: ' + formatBytes(statsPopup.data?.disk_write)"></span>
                 </div>
                 <div id="chart-disk" class="flex-1" style="min-height:200px"></div>
@@ -371,10 +371,10 @@
 
     <!-- Legend -->
     <div class="absolute bottom-3 left-3 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border border-gray-200 dark:border-gray-800/50 rounded-lg px-3 py-2 text-[10px] text-gray-500 flex items-center gap-3">
-        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> Running</span>
-        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> Failed</span>
-        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Deploying</span>
-        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Stopped</span>
+        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> {{ t('canvas.legend_running') }}</span>
+        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> {{ t('canvas.legend_failed') }}</span>
+        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> {{ t('canvas.legend_deploying') }}</span>
+        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span> {{ t('canvas.legend_stopped') }}</span>
     </div>
 </div>
 
@@ -915,7 +915,7 @@ function canvasApp() {
             if (!id) return;
             try {
                 await api('/api/v1/resources/' + id + '/' + action, { method: 'POST' });
-                toast(action + ' initiated');
+                toast('{{ t('canvas.action_initiated') }}'.replace('%{action}', action));
                 setTimeout(() => this.refreshStatus(), 2000);
             } catch (e) { toast(e.message, 'error'); }
         },
@@ -947,25 +947,25 @@ function canvasApp() {
                     }
                 }
                 this.createModal.step = 'config';
-            } catch (e) { toast('Failed to load template', 'error'); }
+            } catch (e) { toast('{{ t('canvas.failed_to_load_template') }}', 'error'); }
         },
         async deployFromCanvas() {
             const m = this.createModal;
             const name = m.form.name?.trim();
-            if (!name) { toast('Name is required', 'error'); return; }
+            if (!name) { toast('{{ t('canvas.name_is_required') }}', 'error'); return; }
             m.deploying = true;
             m.step = 'deploying';
-            m.deployLog = `Deploying ${m.template.name} "${name}"...\n`;
+            m.deployLog = '{{ t('canvas.log_deploying') }}'.replace('%{template}', m.template.name).replace('%{name}', name) + '\n';
             m.deployStatus = 'deploying';
             m.deployedId = null;
 
             try {
-                m.deployLog += `Creating resource...\n`;
+                m.deployLog += '{{ t('canvas.log_creating_resource') }}' + '\n';
                 const result = await api('/api/v1/resources', { method: 'POST', body: JSON.stringify({
                     catalog_id: m.template.id, name, network_id: m.networkId || null, project_id: m.projectId || null, config: { ...m.form },
                 }) });
                 m.deployedId = result.id;
-                m.deployLog += `Container created successfully\n`;
+                m.deployLog += '{{ t('canvas.log_container_created') }}' + '\n';
 
                 // Fetch deployment logs
                 if (result.id) {
@@ -973,18 +973,18 @@ function canvasApp() {
                         const logs = await fetch('/api/v1/resources/' + result.id + '/deployment-logs').then(r => r.json());
                         if (logs && logs.length > 0) {
                             const lastLog = logs[logs.length - 1];
-                            m.deployLog += `\n--- Deployment Log ---\n${lastLog.output || 'No output'}\n`;
+                            m.deployLog += '\n--- {{ t('canvas.log_deployment_log_header') }} ---\n' + (lastLog.output || '{{ t('canvas.log_no_output') }}') + '\n';
                         }
                     } catch {}
                 }
 
-                m.deployLog += `\n✓ ${name} deployed successfully!\n`;
+                m.deployLog += '\n✓ ' + '{{ t('canvas.log_deployed_successfully') }}'.replace('%{name}', name) + '\n';
                 m.deployStatus = 'success';
-                toast(name + ' deployed');
+                toast('{{ t('canvas.toast_deployed') }}'.replace('%{name}', name));
                 await this.loadData();
                 this.buildCanvas();
             } catch (e) {
-                m.deployLog += `\n✗ Deploy failed: ${e.message}\n`;
+                m.deployLog += '\n✗ ' + '{{ t('canvas.log_deploy_failed') }}'.replace('%{error}', e.message) + '\n';
                 m.deployStatus = 'failed';
                 toast(e.message, 'error');
             }

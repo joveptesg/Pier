@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Task Run{% endblock %}
+{% block title %}{{ t('tasks_run_detail.title') }}{% endblock %}
 
 {% block content %}
 <div x-data='runDetail({{ run_id | tojson }})' x-init="load()" class="p-6 max-w-7xl space-y-4">
     <div class="flex items-center justify-between">
         <div>
-            <a href="/tasks" class="text-xs text-gray-500 hover:text-blue-600">← Tasks</a>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white mt-1">Task run</h2>
+            <a href="/tasks" class="text-xs text-gray-500 hover:text-blue-600">← {{ t('tasks_run_detail.back_to_tasks') }}</a>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white mt-1">{{ t('tasks_run_detail.heading') }}</h2>
         </div>
         <div class="flex items-center gap-3">
             <span class="inline-block px-3 py-1 text-xs rounded-full font-medium"
@@ -15,24 +15,24 @@
             <button x-show="run && (run.status === 'running' || run.status === 'pending')" x-cloak
                     @click="cancel()"
                     class="px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">
-                Cancel
+                {{ t('common.cancel') }}
             </button>
         </div>
     </div>
 
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-        <div><div class="text-xs text-gray-500">Server</div><div x-text="run?.server_id"></div></div>
-        <div><div class="text-xs text-gray-500">Triggered by</div><div x-text="run?.triggered_by"></div></div>
-        <div><div class="text-xs text-gray-500">Exit code</div><div x-text="run?.exit_code ?? '—'"></div></div>
-        <div><div class="text-xs text-gray-500">Started</div><div x-text="run?.started_at"></div></div>
-        <div><div class="text-xs text-gray-500">Finished</div><div x-text="run?.finished_at || '—'"></div></div>
-        <div><div class="text-xs text-gray-500">Timeout</div><div x-text="(run?.timeout_sec ?? 0) + 's'"></div></div>
+        <div><div class="text-xs text-gray-500">{{ t('tasks_run_detail.label_server') }}</div><div x-text="run?.server_id"></div></div>
+        <div><div class="text-xs text-gray-500">{{ t('tasks_run_detail.label_triggered_by') }}</div><div x-text="run?.triggered_by"></div></div>
+        <div><div class="text-xs text-gray-500">{{ t('tasks_run_detail.label_exit_code') }}</div><div x-text="run?.exit_code ?? '—'"></div></div>
+        <div><div class="text-xs text-gray-500">{{ t('tasks_run_detail.label_started') }}</div><div x-text="run?.started_at"></div></div>
+        <div><div class="text-xs text-gray-500">{{ t('tasks_run_detail.label_finished') }}</div><div x-text="run?.finished_at || '—'"></div></div>
+        <div><div class="text-xs text-gray-500">{{ t('tasks_run_detail.label_timeout') }}</div><div x-text="(run?.timeout_sec ?? 0) + 's'"></div></div>
         <div class="col-span-2">
-            <div class="text-xs text-gray-500">Command</div>
+            <div class="text-xs text-gray-500">{{ t('tasks_run_detail.label_command') }}</div>
             <pre class="text-xs font-mono bg-gray-50 dark:bg-gray-800 rounded p-2 mt-1 whitespace-pre-wrap" x-text="run?.command_snapshot"></pre>
         </div>
         <div class="col-span-2" x-show="run?.error_message" x-cloak>
-            <div class="text-xs text-red-500">Error</div>
+            <div class="text-xs text-red-500">{{ t('tasks_run_detail.label_error') }}</div>
             <div class="text-xs text-red-600 dark:text-red-400" x-text="run?.error_message"></div>
         </div>
     </div>
@@ -43,7 +43,7 @@
             <span class="text-xs text-gray-400" x-text="(run?.stdout?.length || 0) + ' bytes'"></span>
         </div>
         <pre class="text-xs font-mono bg-gray-900 text-gray-100 p-4 overflow-x-auto max-h-[60vh] whitespace-pre-wrap"
-             x-text="run?.stdout || '(empty)'"></pre>
+             x-text="run?.stdout || '{{ t('tasks_run_detail.empty_output') }}'"></pre>
     </div>
 
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden"
@@ -67,7 +67,7 @@ function runDetail(runId) {
             try {
                 this.run = await api(`/api/v1/tasks/runs/${this.runId}`);
             } catch (e) {
-                toast(e.message || 'Failed to load', 'error');
+                toast(e.message || '{{ t('tasks_run_detail.load_failed') }}', 'error');
                 return;
             }
             // Poll while not terminal. Stop the interval once the run finishes.
@@ -92,13 +92,13 @@ function runDetail(runId) {
             };
         },
         async cancel() {
-            if (!confirm('Cancel this run?')) return;
+            if (!confirm('{{ t('tasks_run_detail.confirm_cancel') }}')) return;
             try {
                 await api(`/api/v1/tasks/runs/${this.runId}/cancel`, { method: 'POST' });
-                toast('Cancel requested');
+                toast('{{ t('tasks_run_detail.cancel_requested') }}');
                 await this.poll();
             } catch (e) {
-                toast(e.message || 'Cancel failed', 'error');
+                toast(e.message || '{{ t('tasks_run_detail.cancel_failed') }}', 'error');
             }
         },
     };

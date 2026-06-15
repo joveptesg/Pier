@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Notifications{% endblock %}
+{% block title %}{{ t('settings_notifications.title') }}{% endblock %}
 
 {% block content %}
 <div x-data="notificationsPage()" x-init="init()" class="p-6 space-y-6">
     <!-- Header -->
     <div>
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Notifications</h2>
-        <p class="text-sm text-gray-500 mt-0.5">Get notified about your infrastructure.</p>
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('settings_notifications.heading') }}</h2>
+        <p class="text-sm text-gray-500 mt-0.5">{{ t('settings_notifications.subtitle') }}</p>
     </div>
 
     <!-- Tabs -->
@@ -26,7 +26,7 @@
     <!-- ── Tab: Alerts ───────────────────────────────────────────────────── -->
     <div x-show="tab === 'alerts'" x-cloak class="space-y-4">
         <div x-show="!anyChannelActive()" x-cloak class="px-3 py-2 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500">
-            No channel is enabled yet. Toggles below will fire but silently skip delivery.
+            {{ t('settings_notifications.no_channel_warning') }}
         </div>
         <template x-for="group in groupedRules()" :key="group.label">
             <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
@@ -58,7 +58,7 @@
                                         <span class="text-[11px] text-gray-500 w-3" x-text="metricUnit(rule.metric)"></span>
                                     </div>
                                 </template>
-                                <span x-show="rule.last_triggered_at" x-cloak class="text-[11px] text-gray-400" x-text="'last: ' + rule.last_triggered_at"></span>
+                                <span x-show="rule.last_triggered_at" x-cloak class="text-[11px] text-gray-400" x-text="'{{ t('settings_notifications.last_prefix') }}' + rule.last_triggered_at"></span>
                                 <button @click="togglePreset(rule)" :disabled="togglingId === rule.id" type="button"
                                         class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-50"
                                         :class="rule.enabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-700'">
@@ -71,7 +71,7 @@
                 </div>
             </div>
         </template>
-        <div x-show="rules.length === 0" class="py-6 text-center text-sm text-gray-500">Loading…</div>
+        <div x-show="rules.length === 0" class="py-6 text-center text-sm text-gray-500">{{ t('common.loading') }}</div>
     </div>
 
     <!-- ── Tab: Email ────────────────────────────────────────────────────── -->
@@ -80,7 +80,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-sm font-medium text-gray-900 dark:text-white">Email</h3>
-                    <p class="text-xs text-gray-500 mt-0.5">Deliver alerts via SMTP, Brevo API or Resend API.</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_notifications.email_subtitle') }}</p>
                 </div>
                 <button @click="toggleEmailEnabled()" type="button"
                         class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
@@ -92,24 +92,24 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">From name</label>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_notifications.from_name_label') }}</label>
                     <input type="text" x-model="email.from_name" placeholder="Pier"
                            class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">From address</label>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_notifications.from_address_label') }}</label>
                     <input type="email" x-model="email.from_address" placeholder="pier@example.com"
                            class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                 </div>
                 <div class="md:col-span-2">
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Send alerts to</label>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_notifications.send_alerts_to_label') }}</label>
                     <input type="email" x-model="email.to_address" placeholder="ops@example.com"
                            class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                 </div>
             </div>
 
             <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Delivery driver</label>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">{{ t('settings_notifications.delivery_driver_label') }}</label>
                 <div class="grid grid-cols-3 gap-2">
                     <template x-for="d in ['smtp','brevo','resend']" :key="d">
                         <button @click="email.driver = d" type="button"
@@ -126,40 +126,40 @@
             <!-- SMTP fields -->
             <div x-show="email.driver === 'smtp'" x-cloak class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div class="md:col-span-2">
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Host</label>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_notifications.host_label') }}</label>
                     <input type="text" x-model="email.smtp.host" placeholder="smtp.mailgun.org"
                            class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Port</label>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_notifications.port_label') }}</label>
                     <input type="number" x-model.number="email.smtp.port" min="1" max="65535"
                            class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Encryption</label>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_notifications.encryption_label') }}</label>
                     <select x-model="email.smtp.encryption"
                             class="w-full text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                         <option value="starttls">StartTLS</option>
                         <option value="tls">TLS</option>
-                        <option value="none">None</option>
+                        <option value="none">{{ t('settings_notifications.encryption_none') }}</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_notifications.username_label') }}</label>
                     <input type="text" x-model="email.smtp.username"
                            class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                 </div>
                 <div>
                     <div class="flex items-center gap-2 mb-1">
-                        <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Password</label>
-                        <span x-show="email.smtp.has_password" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ saved</span>
+                        <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('settings_notifications.password_label') }}</label>
+                        <span x-show="email.smtp.has_password" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ {{ t('settings_notifications.saved_badge') }}</span>
                     </div>
                     <input type="password" x-model="email.smtp.password"
-                           :placeholder="email.smtp.has_password ? 'Leave blank to keep stored password' : 'SMTP password'"
+                           :placeholder="email.smtp.has_password ? '{{ t('settings_notifications.password_keep_placeholder') }}' : '{{ t('settings_notifications.smtp_password_placeholder') }}'"
                            class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Timeout (s)</label>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_notifications.timeout_label') }}</label>
                     <input type="number" x-model.number="email.smtp.timeout" min="1" max="300"
                            class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                 </div>
@@ -168,35 +168,35 @@
             <!-- Brevo fields -->
             <div x-show="email.driver === 'brevo'" x-cloak>
                 <div class="flex items-center gap-2 mb-1">
-                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Brevo API key</label>
-                    <span x-show="email.brevo.has_api_key" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ saved</span>
+                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('settings_notifications.brevo_api_key_label') }}</label>
+                    <span x-show="email.brevo.has_api_key" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ {{ t('settings_notifications.saved_badge') }}</span>
                 </div>
                 <input type="password" x-model="email.brevo.api_key"
-                       :placeholder="email.brevo.has_api_key ? 'Leave blank to keep stored key' : 'xkeysib-...'"
+                       :placeholder="email.brevo.has_api_key ? '{{ t('settings_notifications.key_keep_placeholder') }}' : 'xkeysib-...'"
                        class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
-                <p class="text-[11px] text-gray-500 mt-1">Create a transactional API key at <span class="font-mono">app.brevo.com/settings/keys/api</span>.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('settings_notifications.brevo_help') | safe }}</p>
             </div>
 
             <!-- Resend fields -->
             <div x-show="email.driver === 'resend'" x-cloak>
                 <div class="flex items-center gap-2 mb-1">
-                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Resend API key</label>
-                    <span x-show="email.resend.has_api_key" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ saved</span>
+                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('settings_notifications.resend_api_key_label') }}</label>
+                    <span x-show="email.resend.has_api_key" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ {{ t('settings_notifications.saved_badge') }}</span>
                 </div>
                 <input type="password" x-model="email.resend.api_key"
-                       :placeholder="email.resend.has_api_key ? 'Leave blank to keep stored key' : 're_...'"
+                       :placeholder="email.resend.has_api_key ? '{{ t('settings_notifications.key_keep_placeholder') }}' : 're_...'"
                        class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
-                <p class="text-[11px] text-gray-500 mt-1">Create an API key at <span class="font-mono">resend.com/api-keys</span>.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('settings_notifications.resend_help') | safe }}</p>
             </div>
 
             <div class="flex items-center gap-2 pt-2">
                 <button @click="saveEmail()" :disabled="saving"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50">
-                    <span x-text="saving ? 'Saving...' : 'Save'"></span>
+                    <span x-text="saving ? '{{ t('settings_notifications.saving') }}' : '{{ t('settings_notifications.save') }}'"></span>
                 </button>
                 <button @click="testEmail()" :disabled="testing || !email.has_config"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
-                    <span x-text="testing ? 'Sending...' : 'Send test email'"></span>
+                    <span x-text="testing ? '{{ t('settings_notifications.sending') }}' : '{{ t('settings_notifications.send_test_email') }}'"></span>
                 </button>
                 <span x-show="saveStatus" x-cloak class="text-xs" :class="saveError ? 'text-red-500' : 'text-green-500'" x-text="saveStatus"></span>
             </div>
@@ -209,7 +209,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-sm font-medium text-gray-900 dark:text-white">Telegram</h3>
-                    <p class="text-xs text-gray-500 mt-0.5">Send alerts to a Telegram chat via a bot.</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_notifications.telegram_subtitle') }}</p>
                 </div>
                 <button @click="toggleTelegramEnabled()" type="button"
                         class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
@@ -223,21 +223,21 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                     <div class="flex items-center gap-2 mb-1">
-                        <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Bot token</label>
+                        <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('settings_notifications.bot_token_label') }}</label>
                         <span x-show="telegram.has_config" x-cloak
                               class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">
-                            ✓ saved
+                            ✓ {{ t('settings_notifications.saved_badge') }}
                         </span>
                     </div>
                     <input type="password" x-model="telegramForm.bot_token"
-                           :placeholder="telegram.has_config ? 'Leave blank to keep the stored token' : '123456:ABC-DEF...'"
+                           :placeholder="telegram.has_config ? '{{ t('settings_notifications.bot_token_keep_placeholder') }}' : '123456:ABC-DEF...'"
                            class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
-                    <p class="text-[11px] text-gray-500 mt-1">Create via @BotFather in Telegram. Tokens are encrypted and never shown back.</p>
+                    <p class="text-[11px] text-gray-500 mt-1">{{ t('settings_notifications.telegram_help') | safe }}</p>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Chat ID</label>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_notifications.chat_id_label') }}</label>
                     <input type="text" x-model="telegramForm.chat_id"
-                           placeholder="-1001234567890 or @channelname"
+                           :placeholder="'{{ t('settings_notifications.chat_id_placeholder') }}'"
                            class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
                 </div>
             </div>
@@ -245,11 +245,11 @@
             <div class="flex items-center gap-2 pt-2">
                 <button @click="saveTelegram()" :disabled="saving"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50">
-                    <span x-text="saving ? 'Saving...' : 'Save'"></span>
+                    <span x-text="saving ? '{{ t('settings_notifications.saving') }}' : '{{ t('settings_notifications.save') }}'"></span>
                 </button>
                 <button @click="testTelegram()" :disabled="testing || !telegram.has_config"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
-                    <span x-text="testing ? 'Sending...' : 'Send test'"></span>
+                    <span x-text="testing ? '{{ t('settings_notifications.sending') }}' : '{{ t('settings_notifications.send_test') }}'"></span>
                 </button>
                 <span x-show="saveStatus" x-cloak class="text-xs" :class="saveError ? 'text-red-500' : 'text-green-500'" x-text="saveStatus"></span>
             </div>
@@ -262,7 +262,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-sm font-medium text-gray-900 dark:text-white">Discord</h3>
-                    <p class="text-xs text-gray-500 mt-0.5">Send alerts to a Discord channel via an incoming webhook.</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_notifications.discord_subtitle') }}</p>
                 </div>
                 <button @click="toggleDiscordEnabled()" type="button"
                         class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
@@ -274,29 +274,29 @@
 
             <div>
                 <div class="flex items-center gap-2 mb-1">
-                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Webhook URL</label>
-                    <span x-show="discord.has_config" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ saved</span>
+                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('settings_notifications.webhook_url_label') }}</label>
+                    <span x-show="discord.has_config" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ {{ t('settings_notifications.saved_badge') }}</span>
                 </div>
                 <input type="password" x-model="discordForm.webhook_url"
-                       :placeholder="discord.has_config ? 'Leave blank to keep stored URL' : 'https://discord.com/api/webhooks/...'"
+                       :placeholder="discord.has_config ? '{{ t('settings_notifications.url_keep_placeholder') }}' : 'https://discord.com/api/webhooks/...'"
                        class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
-                <p class="text-[11px] text-gray-500 mt-1">Server Settings → Integrations → Webhooks → New Webhook → Copy URL.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('settings_notifications.discord_help') }}</p>
             </div>
 
             <label class="flex items-center gap-2">
                 <input type="checkbox" x-model="discordForm.ping"
                        class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                <span class="text-sm text-gray-900 dark:text-white">Ping channel (<span class="font-mono">@here</span>) on firing alerts</span>
+                <span class="text-sm text-gray-900 dark:text-white">{{ t('settings_notifications.ping_channel_label') | safe }}</span>
             </label>
 
             <div class="flex items-center gap-2 pt-2">
                 <button @click="saveDiscord()" :disabled="saving"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50">
-                    <span x-text="saving ? 'Saving...' : 'Save'"></span>
+                    <span x-text="saving ? '{{ t('settings_notifications.saving') }}' : '{{ t('settings_notifications.save') }}'"></span>
                 </button>
                 <button @click="testDiscord()" :disabled="testing || !discord.has_config"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
-                    <span x-text="testing ? 'Sending...' : 'Send test'"></span>
+                    <span x-text="testing ? '{{ t('settings_notifications.sending') }}' : '{{ t('settings_notifications.send_test') }}'"></span>
                 </button>
                 <span x-show="saveStatus" x-cloak class="text-xs" :class="saveError ? 'text-red-500' : 'text-green-500'" x-text="saveStatus"></span>
             </div>
@@ -309,7 +309,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-sm font-medium text-gray-900 dark:text-white">Slack</h3>
-                    <p class="text-xs text-gray-500 mt-0.5">Send alerts to a Slack channel via an incoming webhook.</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_notifications.slack_subtitle') }}</p>
                 </div>
                 <button @click="toggleSlackEnabled()" type="button"
                         class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
@@ -321,23 +321,23 @@
 
             <div>
                 <div class="flex items-center gap-2 mb-1">
-                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Webhook URL</label>
-                    <span x-show="slack.has_config" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ saved</span>
+                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('settings_notifications.webhook_url_label') }}</label>
+                    <span x-show="slack.has_config" x-cloak class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">✓ {{ t('settings_notifications.saved_badge') }}</span>
                 </div>
                 <input type="password" x-model="slackForm.webhook_url"
-                       :placeholder="slack.has_config ? 'Leave blank to keep stored URL' : 'https://hooks.slack.com/services/...'"
+                       :placeholder="slack.has_config ? '{{ t('settings_notifications.url_keep_placeholder') }}' : 'https://hooks.slack.com/services/...'"
                        class="w-full text-sm font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-900 dark:text-white">
-                <p class="text-[11px] text-gray-500 mt-1">Create via Slack App → Incoming Webhooks → Activate → Add New Webhook to Workspace.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('settings_notifications.slack_help') }}</p>
             </div>
 
             <div class="flex items-center gap-2 pt-2">
                 <button @click="saveSlack()" :disabled="saving"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50">
-                    <span x-text="saving ? 'Saving...' : 'Save'"></span>
+                    <span x-text="saving ? '{{ t('settings_notifications.saving') }}' : '{{ t('settings_notifications.save') }}'"></span>
                 </button>
                 <button @click="testSlack()" :disabled="testing || !slack.has_config"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
-                    <span x-text="testing ? 'Sending...' : 'Send test'"></span>
+                    <span x-text="testing ? '{{ t('settings_notifications.sending') }}' : '{{ t('settings_notifications.send_test') }}'"></span>
                 </button>
                 <span x-show="saveStatus" x-cloak class="text-xs" :class="saveError ? 'text-red-500' : 'text-green-500'" x-text="saveStatus"></span>
             </div>
@@ -356,7 +356,7 @@ function notificationsPage() {
     return {
         tab: 'alerts',
         tabs: [
-            { id: 'alerts',   label: 'Alerts',   enabled: false },
+            { id: 'alerts',   label: '{{ t('settings_notifications.tab_alerts') }}',   enabled: false },
             { id: 'email',    label: 'Email',    enabled: false },
             { id: 'telegram', label: 'Telegram', enabled: false },
             { id: 'discord',  label: 'Discord',  enabled: false },
@@ -425,7 +425,7 @@ function notificationsPage() {
         async loadRules() {
             try {
                 this.rules = await fetch('/api/v1/notifications/alerts').then(r => r.json());
-            } catch (e) { this.showToast('Failed to load alerts: ' + e.message, true); }
+            } catch (e) { this.showToast('{{ t('settings_notifications.load_alerts_failed') }}' + e.message, true); }
         },
 
         groupedRules() {
@@ -433,6 +433,11 @@ function notificationsPage() {
                 'Deployments': [],
                 'Backups': [],
                 'Server': [],
+            };
+            const groupLabels = {
+                'Deployments': '{{ t('settings_notifications.group_deployments') }}',
+                'Backups': '{{ t('settings_notifications.group_backups') }}',
+                'Server': '{{ t('settings_notifications.group_server') }}',
             };
             const deploy = new Set(['deploy_status', 'deploy_success']);
             const backup = new Set(['backup_status', 'backup_success']);
@@ -443,31 +448,31 @@ function notificationsPage() {
             }
             return Object.entries(buckets)
                 .filter(([, arr]) => arr.length > 0)
-                .map(([label, rules]) => ({ label, rules }));
+                .map(([key, rules]) => ({ label: groupLabels[key], rules }));
         },
 
         formatRuleHint(rule) {
             const labels = {
-                'cpu': 'CPU', 'ram': 'RAM', 'disk': 'Disk',
-                'agent_offline': 'heartbeat',
-                'container_cpu': 'container CPU',
-                'container_ram': 'container RAM',
-                'ssl_expiry': 'days left',
-                'deploy_status': 'deployment failure',
-                'deploy_success': 'deployment success',
-                'backup_status': 'backup failure',
-                'backup_success': 'backup success',
-                'container_status': 'container status change',
-                'docker_cleanup_success': 'docker cleanup completion',
-                'docker_cleanup_failure': 'docker cleanup failure',
-                'server_reachable': 'server coming back online',
+                'cpu': 'CPU', 'ram': 'RAM', 'disk': '{{ t('settings_notifications.metric_disk') }}',
+                'agent_offline': '{{ t('settings_notifications.metric_heartbeat') }}',
+                'container_cpu': '{{ t('settings_notifications.metric_container_cpu') }}',
+                'container_ram': '{{ t('settings_notifications.metric_container_ram') }}',
+                'ssl_expiry': '{{ t('settings_notifications.metric_days_left') }}',
+                'deploy_status': '{{ t('settings_notifications.metric_deploy_failure') }}',
+                'deploy_success': '{{ t('settings_notifications.metric_deploy_success') }}',
+                'backup_status': '{{ t('settings_notifications.metric_backup_failure') }}',
+                'backup_success': '{{ t('settings_notifications.metric_backup_success') }}',
+                'container_status': '{{ t('settings_notifications.metric_container_status') }}',
+                'docker_cleanup_success': '{{ t('settings_notifications.metric_docker_cleanup_success') }}',
+                'docker_cleanup_failure': '{{ t('settings_notifications.metric_docker_cleanup_failure') }}',
+                'server_reachable': '{{ t('settings_notifications.metric_server_reachable') }}',
             };
             const label = labels[rule.metric] || rule.metric;
             if (rule.threshold === null || rule.threshold === undefined) {
-                return 'Fires on every ' + label;
+                return '{{ t('settings_notifications.fires_on_every') }}'.replace('%{label}', label);
             }
-            const unit = ['cpu','ram','disk','container_cpu','container_ram'].includes(rule.metric) ? '%' : (rule.metric === 'ssl_expiry' ? ' days' : '');
-            const sustained = rule.duration_secs > 0 ? ` for ${Math.round(rule.duration_secs/60)} min` : '';
+            const unit = ['cpu','ram','disk','container_cpu','container_ram'].includes(rule.metric) ? '%' : (rule.metric === 'ssl_expiry' ? '{{ t('settings_notifications.unit_days') }}' : '');
+            const sustained = rule.duration_secs > 0 ? '{{ t('settings_notifications.sustained_suffix') }}'.replace('%{min}', Math.round(rule.duration_secs/60)) : '';
             const op = rule.comparison === 'lt' ? '<' : rule.comparison === 'gt' ? '>' : '=';
             return `${label} ${op} ${rule.threshold}${unit}${sustained}`;
         },
@@ -500,8 +505,8 @@ function notificationsPage() {
                 });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                this.showToast('Threshold updated');
-            } catch (e) { this.showToast('Update failed: ' + e.message, true); }
+                this.showToast('{{ t('settings_notifications.threshold_updated') }}');
+            } catch (e) { this.showToast('{{ t('settings_notifications.update_failed') }}' + e.message, true); }
             this.savingThresholdId = null;
         },
 
@@ -513,7 +518,7 @@ function notificationsPage() {
                 if (this.telegram.has_config && !this.telegramForm.chat_id) {
                     this.telegramForm.chat_id = r.chat_id || '';
                 }
-            } catch (e) { this.showToast('Failed to load telegram: ' + e.message, true); }
+            } catch (e) { this.showToast('{{ t('settings_notifications.load_telegram_failed') }}' + e.message, true); }
         },
 
         async saveTelegram() {
@@ -528,7 +533,7 @@ function notificationsPage() {
                 });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                this.saveStatus = 'Saved';
+                this.saveStatus = '{{ t('settings_notifications.status_saved') }}';
                 this.telegramForm.bot_token = '';
                 await this.loadTelegram(); this.updateTabBadges();
             } catch (e) { this.saveStatus = e.message; this.saveError = true; }
@@ -539,7 +544,7 @@ function notificationsPage() {
         async toggleTelegramEnabled() {
             const target = !this.telegram.enabled;
             if (target && !this.telegram.has_config && !(this.telegramForm.bot_token && this.telegramForm.chat_id)) {
-                this.showToast('Enter bot_token and chat_id first', true);
+                this.showToast('{{ t('settings_notifications.enter_telegram_first') }}', true);
                 return;
             }
             try {
@@ -564,8 +569,8 @@ function notificationsPage() {
                 const r = await fetch('/api/v1/notifications/channels/telegram/test', { method: 'POST' });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                this.showToast('Test notification sent');
-            } catch (e) { this.showToast('Test failed: ' + e.message, true); }
+                this.showToast('{{ t('settings_notifications.test_notification_sent') }}');
+            } catch (e) { this.showToast('{{ t('settings_notifications.test_failed') }}' + e.message, true); }
             this.testing = false;
         },
 
@@ -591,7 +596,7 @@ function notificationsPage() {
                     brevo:  { api_key: '', has_api_key: !!r.brevo?.has_api_key },
                     resend: { api_key: '', has_api_key: !!r.resend?.has_api_key },
                 };
-            } catch (e) { this.showToast('Failed to load email: ' + e.message, true); }
+            } catch (e) { this.showToast('{{ t('settings_notifications.load_email_failed') }}' + e.message, true); }
         },
 
         buildEmailBody() {
@@ -629,7 +634,7 @@ function notificationsPage() {
                 });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                this.saveStatus = 'Saved';
+                this.saveStatus = '{{ t('settings_notifications.status_saved') }}';
                 this.email.smtp.password = '';
                 this.email.brevo.api_key = '';
                 this.email.resend.api_key = '';
@@ -664,8 +669,8 @@ function notificationsPage() {
                 const r = await fetch('/api/v1/notifications/channels/email/test', { method: 'POST' });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                this.showToast('Test email sent');
-            } catch (e) { this.showToast('Test failed: ' + e.message, true); }
+                this.showToast('{{ t('settings_notifications.test_email_sent') }}');
+            } catch (e) { this.showToast('{{ t('settings_notifications.test_failed') }}' + e.message, true); }
             this.testing = false;
         },
 
@@ -675,7 +680,7 @@ function notificationsPage() {
                 const r = await fetch('/api/v1/notifications/channels/discord').then(r => r.json());
                 this.discord = { enabled: !!r.enabled, has_config: !!r.has_config, ping: !!r.ping };
                 this.discordForm.ping = !!r.ping;
-            } catch (e) { this.showToast('Failed to load discord: ' + e.message, true); }
+            } catch (e) { this.showToast('{{ t('settings_notifications.load_discord_failed') }}' + e.message, true); }
         },
 
         buildDiscordBody() {
@@ -693,7 +698,7 @@ function notificationsPage() {
                 });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                this.saveStatus = 'Saved';
+                this.saveStatus = '{{ t('settings_notifications.status_saved') }}';
                 this.discordForm.webhook_url = '';
                 await this.loadDiscord(); this.updateTabBadges();
             } catch (e) { this.saveStatus = e.message; this.saveError = true; }
@@ -704,7 +709,7 @@ function notificationsPage() {
         async toggleDiscordEnabled() {
             const target = !this.discord.enabled;
             if (target && !this.discord.has_config && !this.discordForm.webhook_url) {
-                this.showToast('Enter a Discord webhook URL first', true);
+                this.showToast('{{ t('settings_notifications.enter_discord_first') }}', true);
                 return;
             }
             try {
@@ -728,8 +733,8 @@ function notificationsPage() {
                 const r = await fetch('/api/v1/notifications/channels/discord/test', { method: 'POST' });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                this.showToast('Test Discord message sent');
-            } catch (e) { this.showToast('Test failed: ' + e.message, true); }
+                this.showToast('{{ t('settings_notifications.test_discord_sent') }}');
+            } catch (e) { this.showToast('{{ t('settings_notifications.test_failed') }}' + e.message, true); }
             this.testing = false;
         },
 
@@ -738,7 +743,7 @@ function notificationsPage() {
             try {
                 const r = await fetch('/api/v1/notifications/channels/slack').then(r => r.json());
                 this.slack = { enabled: !!r.enabled, has_config: !!r.has_config };
-            } catch (e) { this.showToast('Failed to load slack: ' + e.message, true); }
+            } catch (e) { this.showToast('{{ t('settings_notifications.load_slack_failed') }}' + e.message, true); }
         },
 
         buildSlackBody() {
@@ -756,7 +761,7 @@ function notificationsPage() {
                 });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                this.saveStatus = 'Saved';
+                this.saveStatus = '{{ t('settings_notifications.status_saved') }}';
                 this.slackForm.webhook_url = '';
                 await this.loadSlack(); this.updateTabBadges();
             } catch (e) { this.saveStatus = e.message; this.saveError = true; }
@@ -767,7 +772,7 @@ function notificationsPage() {
         async toggleSlackEnabled() {
             const target = !this.slack.enabled;
             if (target && !this.slack.has_config && !this.slackForm.webhook_url) {
-                this.showToast('Enter a Slack webhook URL first', true);
+                this.showToast('{{ t('settings_notifications.enter_slack_first') }}', true);
                 return;
             }
             try {
@@ -791,8 +796,8 @@ function notificationsPage() {
                 const r = await fetch('/api/v1/notifications/channels/slack/test', { method: 'POST' });
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-                this.showToast('Test Slack message sent');
-            } catch (e) { this.showToast('Test failed: ' + e.message, true); }
+                this.showToast('{{ t('settings_notifications.test_slack_sent') }}');
+            } catch (e) { this.showToast('{{ t('settings_notifications.test_failed') }}' + e.message, true); }
             this.testing = false;
         },
 

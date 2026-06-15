@@ -1,23 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Tasks{% endblock %}
+{% block title %}{{ t('tasks_list.title') }}{% endblock %}
 
 {% block content %}
 <div x-data="tasksList()" x-init="load()" class="p-6 max-w-7xl space-y-6">
     <div class="flex items-end justify-between gap-4">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Tasks</h2>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('tasks_list.heading') }}</h2>
             <p class="text-sm text-gray-500 mt-1">
-                Saved shell tasks and a global history of every run. Use a template for repeatable jobs, or fire an ad-hoc command for one-offs.
+                {{ t('tasks_list.subtitle') }}
             </p>
         </div>
         <div class="flex gap-2">
             <button @click="showTemplate = true; templateResult = null"
                     class="px-3 py-1.5 text-sm font-medium border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
-                + New template
+                {{ t('tasks_list.new_template') }}
             </button>
             <button @click="openRun({template:null})"
                     class="px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
-                Run ad-hoc command
+                {{ t('tasks_list.run_ad_hoc') }}
             </button>
         </div>
     </div>
@@ -25,16 +25,16 @@
     <!-- ── Templates ────────────────────────────────────────── -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
         <div class="px-4 py-2 border-b border-gray-100 dark:border-gray-800/50 text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Templates
+            {{ t('tasks_list.templates') }}
         </div>
-        <div x-show="loading" class="p-6 text-sm text-gray-500">Loading…</div>
+        <div x-show="loading" class="p-6 text-sm text-gray-500">{{ t('common.loading') }}</div>
         <table x-show="!loading && templates.length" x-cloak class="w-full text-sm">
             <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase text-gray-500">
                 <tr>
-                    <th class="text-left px-4 py-2">Name</th>
-                    <th class="text-left px-4 py-2">Command</th>
-                    <th class="text-left px-4 py-2">Timeout</th>
-                    <th class="text-right px-4 py-2">Actions</th>
+                    <th class="text-left px-4 py-2">{{ t('tasks_list.col_name') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('tasks_list.col_command') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('tasks_list.col_timeout') }}</th>
+                    <th class="text-right px-4 py-2">{{ t('tasks_list.col_actions') }}</th>
                 </tr>
             </thead>
             <tbody>
@@ -46,32 +46,32 @@
                         <td class="px-4 py-3 text-xs text-gray-500" x-text="t.default_timeout_sec + 's'"></td>
                         <td class="px-4 py-3 text-right space-x-2">
                             <button @click="openRun({template:t})"
-                                    class="text-xs text-blue-600 hover:text-blue-700">Run</button>
+                                    class="text-xs text-blue-600 hover:text-blue-700">{{ t('tasks_list.run') }}</button>
                             <button @click="removeTemplate(t)"
-                                    class="text-xs text-gray-500 hover:text-red-600">Delete</button>
+                                    class="text-xs text-gray-500 hover:text-red-600">{{ t('tasks_list.delete') }}</button>
                         </td>
                     </tr>
                 </template>
             </tbody>
         </table>
         <div x-show="!loading && !templates.length" x-cloak class="p-6 text-sm text-gray-500">
-            No templates yet.
+            {{ t('tasks_list.no_templates') }}
         </div>
     </div>
 
     <!-- ── Recent runs ───────────────────────────────────────── -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
         <div class="px-4 py-2 border-b border-gray-100 dark:border-gray-800/50 text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Recent runs
+            {{ t('tasks_list.recent_runs') }}
         </div>
         <table x-show="!loading && runs.length" x-cloak class="w-full text-sm">
             <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase text-gray-500">
                 <tr>
-                    <th class="text-left px-4 py-2">Status</th>
-                    <th class="text-left px-4 py-2">Command</th>
-                    <th class="text-left px-4 py-2">Server</th>
-                    <th class="text-left px-4 py-2">Triggered by</th>
-                    <th class="text-left px-4 py-2">Started</th>
+                    <th class="text-left px-4 py-2">{{ t('tasks_list.col_status') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('tasks_list.col_command') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('tasks_list.col_server') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('tasks_list.col_triggered_by') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('tasks_list.col_started') }}</th>
                 </tr>
             </thead>
             <tbody>
@@ -93,7 +93,7 @@
             </tbody>
         </table>
         <div x-show="!loading && !runs.length" x-cloak class="p-6 text-sm text-gray-500">
-            No runs yet.
+            {{ t('tasks_list.no_runs') }}
         </div>
     </div>
 
@@ -102,30 +102,30 @@
          class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
         <div @click.outside="showTemplate = false"
              class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 w-full max-w-lg p-6 space-y-4">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white">New task template</h3>
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('tasks_list.new_template_title') }}</h3>
             <div class="space-y-3">
                 <div>
-                    <label class="text-xs text-gray-500">Name</label>
+                    <label class="text-xs text-gray-500">{{ t('tasks_list.field_name') }}</label>
                     <input type="text" x-model="templateForm.name"
                            class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
                 </div>
                 <div>
-                    <label class="text-xs text-gray-500">Command</label>
+                    <label class="text-xs text-gray-500">{{ t('tasks_list.field_command') }}</label>
                     <textarea rows="5" x-model="templateForm.command"
                               class="w-full px-3 py-2 mt-1 text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
                               placeholder="echo hello"></textarea>
                 </div>
                 <div>
-                    <label class="text-xs text-gray-500">Default timeout (seconds)</label>
+                    <label class="text-xs text-gray-500">{{ t('tasks_list.field_default_timeout') }}</label>
                     <input type="number" min="1" max="86400" x-model.number="templateForm.default_timeout_sec"
                            class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
                 </div>
                 <div class="flex justify-end gap-2 pt-2">
-                    <button @click="showTemplate = false" class="px-3 py-1.5 text-sm text-gray-600">Cancel</button>
+                    <button @click="showTemplate = false" class="px-3 py-1.5 text-sm text-gray-600">{{ t('common.cancel') }}</button>
                     <button @click="saveTemplate()" :disabled="templateBusy"
                             class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
-                        <span x-show="!templateBusy">Save</span>
-                        <span x-show="templateBusy">Working…</span>
+                        <span x-show="!templateBusy">{{ t('tasks_list.save') }}</span>
+                        <span x-show="templateBusy">{{ t('tasks_list.working') }}</span>
                     </button>
                 </div>
             </div>
@@ -138,36 +138,36 @@
         <div @click.outside="showRun = false"
              class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 w-full max-w-lg p-6 space-y-4">
             <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-                <span x-show="runForm.template_id" x-cloak>Run template</span>
-                <span x-show="!runForm.template_id" x-cloak>Run ad-hoc command</span>
+                <span x-show="runForm.template_id" x-cloak>{{ t('tasks_list.run_template_title') }}</span>
+                <span x-show="!runForm.template_id" x-cloak>{{ t('tasks_list.run_ad_hoc_title') }}</span>
             </h3>
             <div class="space-y-3">
                 <div>
-                    <label class="text-xs text-gray-500">Server</label>
+                    <label class="text-xs text-gray-500">{{ t('tasks_list.field_server') }}</label>
                     <select x-model="runForm.server_id"
                             class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-                        <option value="">— select —</option>
+                        <option value="">{{ t('tasks_list.select_server_placeholder') }}</option>
                         <template x-for="s in servers" :key="s.id">
                             <option :value="s.id" x-text="s.name + ' (' + s.host + ')'"></option>
                         </template>
                     </select>
                 </div>
                 <div>
-                    <label class="text-xs text-gray-500">Command</label>
+                    <label class="text-xs text-gray-500">{{ t('tasks_list.field_command') }}</label>
                     <textarea rows="6" x-model="runForm.command"
                               class="w-full px-3 py-2 mt-1 text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"></textarea>
                 </div>
                 <div>
-                    <label class="text-xs text-gray-500">Timeout (seconds)</label>
+                    <label class="text-xs text-gray-500">{{ t('tasks_list.field_timeout') }}</label>
                     <input type="number" min="1" max="86400" x-model.number="runForm.timeout_sec"
                            class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
                 </div>
                 <div class="flex justify-end gap-2 pt-2">
-                    <button @click="showRun = false" class="px-3 py-1.5 text-sm text-gray-600">Cancel</button>
+                    <button @click="showRun = false" class="px-3 py-1.5 text-sm text-gray-600">{{ t('common.cancel') }}</button>
                     <button @click="submitRun()" :disabled="runBusy || !runForm.server_id || !runForm.command"
                             class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
-                        <span x-show="!runBusy">Run</span>
-                        <span x-show="runBusy">Starting…</span>
+                        <span x-show="!runBusy">{{ t('tasks_list.run') }}</span>
+                        <span x-show="runBusy">{{ t('tasks_list.starting') }}</span>
                     </button>
                 </div>
             </div>
@@ -204,7 +204,7 @@ function tasksList() {
                     this._interval = setInterval(() => this.refreshRuns(), 3000);
                 }
             } catch (e) {
-                toast(e.message || 'Failed to load', 'error');
+                toast(e.message || '{{ t('tasks_list.toast_load_failed') }}', 'error');
             } finally {
                 this.loading = false;
             }
@@ -245,22 +245,22 @@ function tasksList() {
                 });
                 this.showTemplate = false;
                 this.templateForm = { name: '', command: '', default_timeout_sec: 1800 };
-                toast('Template saved');
+                toast('{{ t('tasks_list.toast_template_saved') }}');
                 await this.load();
             } catch (e) {
-                toast(e.message || 'Save failed', 'error');
+                toast(e.message || '{{ t('tasks_list.toast_save_failed') }}', 'error');
             } finally {
                 this.templateBusy = false;
             }
         },
         async removeTemplate(t) {
-            if (!confirm(`Delete template "${t.name}"?`)) return;
+            if (!confirm('{{ t('tasks_list.confirm_delete_template') }}'.replace('%{name}', t.name))) return;
             try {
                 await api(`/api/v1/tasks/templates/${t.id}`, { method: 'DELETE' });
-                toast('Template deleted');
+                toast('{{ t('tasks_list.toast_template_deleted') }}');
                 await this.load();
             } catch (e) {
-                toast(e.message || 'Delete failed', 'error');
+                toast(e.message || '{{ t('tasks_list.toast_delete_failed') }}', 'error');
             }
         },
         async submitRun() {
@@ -280,7 +280,7 @@ function tasksList() {
                 this.showRun = false;
                 window.location = `/tasks/runs/${res.id}`;
             } catch (e) {
-                toast(e.message || 'Failed to start', 'error');
+                toast(e.message || '{{ t('tasks_list.toast_start_failed') }}', 'error');
             } finally {
                 this.runBusy = false;
             }

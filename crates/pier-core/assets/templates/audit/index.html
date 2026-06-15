@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Audit Log{% endblock %}
+{% block title %}{{ t('audit_index.title') }}{% endblock %}
 
 {% block content %}
 <div x-data="auditPage()" x-init="load()" class="p-6 space-y-4">
     <div class="flex items-start justify-between gap-4">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Audit Log</h2>
-            <p class="text-sm text-gray-500 mt-1">Authentication and session events for this server.</p>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('audit_index.heading') }}</h2>
+            <p class="text-sm text-gray-500 mt-1">{{ t('audit_index.subtitle') }}</p>
         </div>
         <button @click="load()" :disabled="loading"
                 class="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg disabled:opacity-50">
-            Refresh
+            {{ t('audit_index.refresh') }}
         </button>
     </div>
 
@@ -18,10 +18,10 @@
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Event type</label>
+                <label class="block text-xs font-medium text-gray-500 mb-1">{{ t('audit_index.filter_event_type') }}</label>
                 <select x-model="filters.event_type" @change="load()"
                         class="w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100">
-                    <option value="">All</option>
+                    <option value="">{{ t('audit_index.filter_all') }}</option>
                     <option value="login_success">login_success</option>
                     <option value="login_failure">login_failure</option>
                     <option value="login_totp_required">login_totp_required</option>
@@ -37,17 +37,17 @@
                 </select>
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">IP prefix</label>
+                <label class="block text-xs font-medium text-gray-500 mb-1">{{ t('audit_index.filter_ip_prefix') }}</label>
                 <input x-model="filters.ip" @keydown.enter="load()" placeholder="e.g. 192.168"
                        class="w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 font-mono">
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Since (UTC)</label>
+                <label class="block text-xs font-medium text-gray-500 mb-1">{{ t('audit_index.filter_since') }}</label>
                 <input x-model="filters.since" @change="load()" type="datetime-local"
                        class="w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100">
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1">Until (UTC)</label>
+                <label class="block text-xs font-medium text-gray-500 mb-1">{{ t('audit_index.filter_until') }}</label>
                 <input x-model="filters.until" @change="load()" type="datetime-local"
                        class="w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100">
             </div>
@@ -60,12 +60,12 @@
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase text-gray-500">
                     <tr>
-                        <th class="px-4 py-2 text-left">When (UTC)</th>
-                        <th class="px-4 py-2 text-left">Event</th>
-                        <th class="px-4 py-2 text-left">User</th>
-                        <th class="px-4 py-2 text-left">IP</th>
-                        <th class="px-4 py-2 text-left">UA</th>
-                        <th class="px-4 py-2 text-left">Details</th>
+                        <th class="px-4 py-2 text-left">{{ t('audit_index.col_when') }}</th>
+                        <th class="px-4 py-2 text-left">{{ t('audit_index.col_event') }}</th>
+                        <th class="px-4 py-2 text-left">{{ t('audit_index.col_user') }}</th>
+                        <th class="px-4 py-2 text-left">{{ t('audit_index.col_ip') }}</th>
+                        <th class="px-4 py-2 text-left">{{ t('audit_index.col_ua') }}</th>
+                        <th class="px-4 py-2 text-left">{{ t('audit_index.col_details') }}</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
@@ -83,7 +83,7 @@
                         </tr>
                     </template>
                     <tr x-show="!loading && events.length === 0" x-cloak>
-                        <td colspan="6" class="px-4 py-12 text-center text-sm text-gray-400">No events match these filters.</td>
+                        <td colspan="6" class="px-4 py-12 text-center text-sm text-gray-400">{{ t('audit_index.empty') }}</td>
                     </tr>
                 </tbody>
             </table>
@@ -92,17 +92,16 @@
         <!-- Pagination -->
         <div class="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500">
             <span>
-                <span x-text="offset + 1"></span>–<span x-text="Math.min(offset + events.length, total)"></span>
-                of <span x-text="total"></span>
+                {{ t('audit_index.pagination_range') | safe }}
             </span>
             <div class="flex gap-2">
                 <button @click="prevPage()" :disabled="offset === 0 || loading"
                         class="px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-40">
-                    Prev
+                    {{ t('audit_index.prev') }}
                 </button>
                 <button @click="nextPage()" :disabled="offset + events.length >= total || loading"
                         class="px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-40">
-                    Next
+                    {{ t('audit_index.next') }}
                 </button>
             </div>
         </div>

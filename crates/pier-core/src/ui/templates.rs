@@ -159,6 +159,34 @@ mod tests {
             ("images/list.html", "Docker images on this host"),
             ("compose/list.html", "Docker Compose deployments"),
             ("compose/editor.html", "Compose YAML"),
+            ("settings/index.html", "Application configuration"),
+            ("settings/logs.html", "System Logs"),
+            (
+                "settings/notifications.html",
+                "Get notified about your infrastructure.",
+            ),
+            (
+                "settings/updates.html",
+                "Manage Pier version and update preferences",
+            ),
+            (
+                "account/security.html",
+                "Two-factor authentication (TOTP) for your account.",
+            ),
+            (
+                "audit/index.html",
+                "Authentication and session events for this server.",
+            ),
+            (
+                "team/index.html",
+                "Invite teammates and manage their global roles.",
+            ),
+            (
+                "tasks/list.html",
+                "Saved shell tasks and a global history of every run.",
+            ),
+            ("schedules/list.html", "Cron-driven jobs."),
+            ("canvas.html", "What do you want to deploy?"),
         ] {
             let out = env
                 .get_template(tpl)
@@ -167,9 +195,11 @@ mod tests {
                     user => "admin",
                     page => "projects",
                     catalog_id => "docker",
-                    // Minimal mock for templates that `| tojson` a server object
-                    // into Alpine x-data (e.g. packages/detail.html).
+                    // Minimal mocks for templates that `| tojson` a server object
+                    // into Alpine x-data (packages/detail.html) or take the
+                    // `| length` of a server list (settings/logs.html).
                     package => minijinja::context! { name => "demo", unpublished => false },
+                    units => Vec::<&str>::new(),
                 })
                 .unwrap_or_else(|e| panic!("{tpl} renders: {e}"));
             assert!(out.contains(needle), "{tpl} should contain {needle:?}");
@@ -182,5 +212,20 @@ mod tests {
             .render(minijinja::context! {})
             .expect("catalog_info_modal renders");
         assert!(modal.contains("No extended description available for this template yet."));
+    }
+
+    /// Every embedded template must compile (parse) — context-free coverage that
+    /// catches a malformed `{{ t(...) }}` in any template, including ones the
+    /// render test above doesn't exercise with a tailored context.
+    #[test]
+    fn all_templates_parse() {
+        let mut env = Environment::new();
+        env.add_function("t", crate::i18n::translate);
+        for path in TemplateAssets::iter() {
+            let file = TemplateAssets::get(&path).expect("embedded asset");
+            let content = std::str::from_utf8(file.data.as_ref()).expect("utf8 template");
+            env.add_template_owned(path.to_string(), content.to_string())
+                .unwrap_or_else(|e| panic!("template {path} failed to parse: {e}"));
+        }
     }
 }

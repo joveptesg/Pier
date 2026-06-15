@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Updates{% endblock %}
+{% block title %}{{ t('settings_updates.page_title') }}{% endblock %}
 
 {% block content %}
 <div x-data="updatesPage()" x-init="init()" class="p-6 space-y-6">
@@ -9,35 +9,35 @@
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         </a>
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Updates</h2>
-            <p class="text-sm text-gray-500 mt-0.5">Manage Pier version and update preferences</p>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('settings_updates.heading') }}</h2>
+            <p class="text-sm text-gray-500 mt-0.5">{{ t('settings_updates.subheading') }}</p>
         </div>
     </div>
 
     <!-- Current Version -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Current Version</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('settings_updates.current_version') }}</h3>
         <div class="space-y-4">
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Version</p>
-                    <p class="text-xs text-gray-500 mt-0.5">Installed Pier version</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_updates.version_label') }}</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_updates.version_desc') }}</p>
                 </div>
                 <span class="text-sm font-mono text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg">{{ version }}</span>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Binary Build Date</p>
-                    <p class="text-xs text-gray-500 mt-0.5">When this binary was compiled</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_updates.build_date_label') }}</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_updates.build_date_desc') }}</p>
                 </div>
                 <span class="text-sm font-mono text-gray-600 dark:text-gray-400" x-text="buildDate"></span>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Uptime</p>
-                    <p class="text-xs text-gray-500 mt-0.5">Time since last restart</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_updates.uptime_label') }}</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_updates.uptime_desc') }}</p>
                 </div>
                 <span class="text-sm font-mono text-gray-600 dark:text-gray-400" x-text="uptime"></span>
             </div>
@@ -46,24 +46,24 @@
 
     <!-- Update Check -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Update Check</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('settings_updates.update_check') }}</h3>
         <div class="space-y-4">
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Latest Build</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_updates.latest_build') }}</p>
                     <p class="text-xs text-gray-500 mt-0.5" x-text="checkStatus"></p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span x-show="updateAvailable" x-cloak class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400">Update available</span>
-                    <span x-show="!updateAvailable && !checking && checked" x-cloak class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">Up to date</span>
+                    <span x-show="updateAvailable" x-cloak class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400">{{ t('settings_updates.badge_update_available') }}</span>
+                    <span x-show="!updateAvailable && !checking && checked" x-cloak class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">{{ t('settings_updates.badge_up_to_date') }}</span>
                     <button @click="checkForUpdates()" :disabled="checking"
                             class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
                             :class="checking ? 'bg-gray-200 dark:bg-gray-800 text-gray-400 cursor-wait' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'">
                         <span x-show="checking" class="flex items-center gap-1.5">
                             <svg class="w-3 h-3 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                            Checking...
+                            {{ t('settings_updates.checking') }}
                         </span>
-                        <span x-show="!checking">Check for Updates</span>
+                        <span x-show="!checking">{{ t('settings_updates.check_for_updates') }}</span>
                     </button>
                 </div>
             </div>
@@ -75,13 +75,13 @@
                         <div class="flex items-start gap-3">
                             <svg class="w-5 h-5 text-blue-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/></svg>
                             <div class="flex-1 min-w-0">
-                                <p class="text-sm font-medium text-blue-900 dark:text-blue-300">New version available</p>
+                                <p class="text-sm font-medium text-blue-900 dark:text-blue-300">{{ t('settings_updates.new_version_available') }}</p>
                                 <div class="mt-2 space-y-1">
                                     <p class="text-xs text-blue-700 dark:text-blue-400">
-                                        Build: <span class="font-mono" x-text="latestBuild"></span>
+                                        {{ t('settings_updates.build_prefix') }} <span class="font-mono" x-text="latestBuild"></span>
                                     </p>
                                     <p x-show="updateSize" class="text-xs text-blue-700 dark:text-blue-400">
-                                        Download size: <span class="font-mono" x-text="formatBytes(updateSize)"></span>
+                                        {{ t('settings_updates.download_size_prefix') }} <span class="font-mono" x-text="formatBytes(updateSize)"></span>
                                     </p>
                                 </div>
                             </div>
@@ -91,12 +91,12 @@
                     <!-- Update Now button -->
                     <div class="flex items-center justify-between" x-show="!updating && !updateComplete">
                         <div>
-                            <p class="text-sm text-gray-900 dark:text-white">Install Update</p>
-                            <p class="text-xs text-gray-500 mt-0.5">Pier will restart automatically after update</p>
+                            <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_updates.install_update_label') }}</p>
+                            <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_updates.install_update_desc') }}</p>
                         </div>
                         <button @click="installUpdate()" :disabled="updating"
                                 class="px-4 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors">
-                            Update & Restart
+                            {{ t('settings_updates.update_and_restart') }}
                         </button>
                     </div>
 
@@ -120,8 +120,8 @@
                     <div x-show="updateComplete" x-cloak class="flex items-center gap-3 bg-green-50 dark:bg-green-500/5 border border-green-200 dark:border-green-500/20 rounded-lg p-4">
                         <svg class="w-5 h-5 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         <div>
-                            <p class="text-sm font-medium text-green-900 dark:text-green-300">Update complete</p>
-                            <p class="text-xs text-green-700 dark:text-green-400">Pier has been updated successfully.</p>
+                            <p class="text-sm font-medium text-green-900 dark:text-green-300">{{ t('settings_updates.update_complete_title') }}</p>
+                            <p class="text-xs text-green-700 dark:text-green-400">{{ t('settings_updates.update_complete_desc') }}</p>
                         </div>
                     </div>
 
@@ -129,7 +129,7 @@
                     <div x-show="updateError" x-cloak class="flex items-center gap-3 bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20 rounded-lg p-4">
                         <svg class="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         <div>
-                            <p class="text-sm font-medium text-red-900 dark:text-red-300">Update failed</p>
+                            <p class="text-sm font-medium text-red-900 dark:text-red-300">{{ t('settings_updates.update_failed') }}</p>
                             <p class="text-xs text-red-700 dark:text-red-400" x-text="updateError"></p>
                         </div>
                     </div>
@@ -141,7 +141,7 @@
                 <div class="flex items-center gap-3 bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20 rounded-lg p-4">
                     <svg class="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     <div>
-                        <p class="text-sm font-medium text-red-900 dark:text-red-300">Check failed</p>
+                        <p class="text-sm font-medium text-red-900 dark:text-red-300">{{ t('settings_updates.check_failed_title') }}</p>
                         <p class="text-xs text-red-700 dark:text-red-400" x-text="checkError"></p>
                     </div>
                 </div>
@@ -151,20 +151,20 @@
 
     <!-- Update Settings -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Update Settings</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('settings_updates.update_settings') }}</h3>
         <div class="space-y-4">
             <!-- Update Mode -->
             <div class="py-2">
-                <p class="text-sm text-gray-900 dark:text-white mb-1">Update Mode</p>
-                <p class="text-xs text-gray-500 mb-3">Choose how Pier handles available updates</p>
+                <p class="text-sm text-gray-900 dark:text-white mb-1">{{ t('settings_updates.update_mode_label') }}</p>
+                <p class="text-xs text-gray-500 mb-3">{{ t('settings_updates.update_mode_desc') }}</p>
                 <div class="space-y-2">
                     <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
                            :class="settings.mode === 'auto' ? 'border-blue-300 dark:border-blue-500/40 bg-blue-50/50 dark:bg-blue-500/5' : 'border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50'">
                         <input type="radio" name="update_mode" value="auto" x-model="settings.mode"
                                class="mt-0.5 text-blue-600 focus:ring-blue-500">
                         <div>
-                            <p class="text-sm font-medium text-gray-900 dark:text-white">Automatic</p>
-                            <p class="text-xs text-gray-500 mt-0.5">Download and install updates automatically</p>
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('settings_updates.mode_auto_label') }}</p>
+                            <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_updates.mode_auto_desc') }}</p>
                         </div>
                     </label>
                     <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
@@ -172,8 +172,8 @@
                         <input type="radio" name="update_mode" value="notify" x-model="settings.mode"
                                class="mt-0.5 text-blue-600 focus:ring-blue-500">
                         <div>
-                            <p class="text-sm font-medium text-gray-900 dark:text-white">Notify only</p>
-                            <p class="text-xs text-gray-500 mt-0.5">Check for updates and notify, but don't install automatically</p>
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('settings_updates.mode_notify_label') }}</p>
+                            <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_updates.mode_notify_desc') }}</p>
                         </div>
                     </label>
                     <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
@@ -181,8 +181,8 @@
                         <input type="radio" name="update_mode" value="manual" x-model="settings.mode"
                                class="mt-0.5 text-blue-600 focus:ring-blue-500">
                         <div>
-                            <p class="text-sm font-medium text-gray-900 dark:text-white">Manual</p>
-                            <p class="text-xs text-gray-500 mt-0.5">Only check and install updates when triggered manually</p>
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('settings_updates.mode_manual_label') }}</p>
+                            <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_updates.mode_manual_desc') }}</p>
                         </div>
                     </label>
                 </div>
@@ -193,8 +193,8 @@
             <!-- Auto-check toggle -->
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Auto-check for updates</p>
-                    <p class="text-xs text-gray-500 mt-0.5">Periodically check for new versions in the background</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_updates.auto_check_label') }}</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_updates.auto_check_desc') }}</p>
                 </div>
                 <button @click="settings.auto_check = !settings.auto_check" type="button"
                         class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
@@ -212,14 +212,14 @@
                 <div>
                     <p x-show="settingsSaved" x-cloak class="text-xs text-green-500 flex items-center gap-1">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                        Settings saved
+                        {{ t('settings_updates.settings_saved') }}
                     </p>
                     <p x-show="settingsError" x-cloak class="text-xs text-red-400" x-text="settingsError"></p>
                 </div>
                 <button @click="saveSettings()" :disabled="savingSettings"
                         class="px-4 py-1.5 text-xs font-medium rounded-lg transition-colors"
                         :class="savingSettings ? 'bg-blue-400 text-white cursor-wait' : 'bg-blue-600 hover:bg-blue-700 text-white'">
-                    <span x-text="savingSettings ? 'Saving...' : 'Save Settings'"></span>
+                    <span x-text="savingSettings ? '{{ t('settings_updates.saving') }}' : '{{ t('settings_updates.save_settings') }}'"></span>
                 </button>
             </div>
         </div>
@@ -230,8 +230,8 @@
 function updatesPage() {
     return {
         // Version info
-        buildDate: 'Loading...',
-        uptime: 'Loading...',
+        buildDate: '{{ t('common.loading') }}',
+        uptime: '{{ t('common.loading') }}',
         _uptimeSeconds: 0,
         _uptimeInterval: null,
 
@@ -241,7 +241,7 @@ function updatesPage() {
         updateAvailable: false,
         latestBuild: '',
         updateSize: 0,
-        checkStatus: 'Click "Check for Updates" to check',
+        checkStatus: '{{ t('settings_updates.check_status_initial') }}',
         checkError: '',
 
         // Update install
@@ -267,7 +267,7 @@ function updatesPage() {
         async loadSystemInfo() {
             try {
                 const r = await fetch('/api/v1/system/info').then(r => r.json());
-                this.buildDate = r.build_date || 'Unknown';
+                this.buildDate = r.build_date || '{{ t('settings_updates.unknown') }}';
                 this._uptimeSeconds = r.uptime_seconds || 0;
                 this.uptime = this.formatUptime(this._uptimeSeconds);
                 this._uptimeInterval = setInterval(() => {
@@ -275,8 +275,8 @@ function updatesPage() {
                     this.uptime = this.formatUptime(this._uptimeSeconds);
                 }, 1000);
             } catch {
-                this.buildDate = 'Unavailable';
-                this.uptime = 'Unavailable';
+                this.buildDate = '{{ t('settings_updates.unavailable') }}';
+                this.uptime = '{{ t('settings_updates.unavailable') }}';
             }
         },
 
@@ -287,7 +287,7 @@ function updatesPage() {
                 this.settings.auto_check = r.auto_check !== false;
                 this.settingsLoaded = true;
             } catch {
-                this.settingsError = 'Failed to load update settings';
+                this.settingsError = '{{ t('settings_updates.load_settings_failed') }}';
             }
         },
 
@@ -300,55 +300,55 @@ function updatesPage() {
                 const r = await fetch('/api/v1/system/update-check').then(r => r.json());
                 if (r.error) {
                     this.checkError = r.error;
-                    this.checkStatus = 'Check failed';
+                    this.checkStatus = '{{ t('settings_updates.check_failed_status') }}';
                 } else {
                     this.updateAvailable = r.available || false;
                     this.latestBuild = r.latest_build || '';
                     this.updateSize = r.size || 0;
                     this.checkStatus = r.available
-                        ? 'New build available: ' + (r.latest_build || 'unknown')
-                        : 'You are running the latest version';
+                        ? '{{ t('settings_updates.new_build_available') }}'.replace('%{build}', r.latest_build || '{{ t('settings_updates.unknown_lower') }}')
+                        : '{{ t('settings_updates.running_latest') }}';
                 }
             } catch (e) {
-                this.checkError = 'Failed to check for updates: ' + e.message;
-                this.checkStatus = 'Check failed';
+                this.checkError = '{{ t('settings_updates.check_updates_failed') }}'.replace('%{error}', e.message);
+                this.checkStatus = '{{ t('settings_updates.check_failed_status') }}';
             }
             this.checking = false;
             this.checked = true;
         },
 
         async installUpdate() {
-            if (!confirm('Pier will download the update and restart. Continue?')) return;
+            if (!confirm('{{ t('settings_updates.confirm_install') }}')) return;
             this.updating = true;
             this.updateError = '';
             this.updateComplete = false;
-            this.progressMessage = 'Downloading update...';
-            this.progressDetail = 'This may take a moment depending on your connection';
+            this.progressMessage = '{{ t('settings_updates.progress_downloading') }}';
+            this.progressDetail = '{{ t('settings_updates.progress_downloading_detail') }}';
             this.progressPercent = 20;
 
             try {
                 const r = await fetch('/api/v1/system/update', { method: 'POST' }).then(r => r.json());
                 if (r.ok) {
-                    this.progressMessage = 'Installing update...';
-                    this.progressDetail = 'Applying update and preparing to restart';
+                    this.progressMessage = '{{ t('settings_updates.progress_installing') }}';
+                    this.progressDetail = '{{ t('settings_updates.progress_installing_detail') }}';
                     this.progressPercent = 60;
 
                     await this.sleep(1500);
-                    this.progressMessage = 'Restarting Pier...';
-                    this.progressDetail = 'The server is restarting. Please wait...';
+                    this.progressMessage = '{{ t('settings_updates.progress_restarting') }}';
+                    this.progressDetail = '{{ t('settings_updates.progress_restarting_detail') }}';
                     this.progressPercent = 80;
 
                     await this.sleep(2000);
                     this.progressPercent = 90;
-                    this.progressDetail = 'Reconnecting...';
+                    this.progressDetail = '{{ t('settings_updates.progress_reconnecting') }}';
                     this.pollReconnect();
                 } else {
                     this.updating = false;
-                    this.updateError = r.message || 'Update failed';
+                    this.updateError = r.message || '{{ t('settings_updates.update_failed_fallback') }}';
                 }
             } catch (e) {
                 this.updating = false;
-                this.updateError = 'Update request failed: ' + e.message;
+                this.updateError = '{{ t('settings_updates.update_request_failed') }}'.replace('%{error}', e.message);
             }
         },
 
@@ -359,8 +359,8 @@ function updatesPage() {
                     const r = await fetch('/api/v1/health');
                     if (r.ok) {
                         this.progressPercent = 100;
-                        this.progressMessage = 'Update complete!';
-                        this.progressDetail = 'Pier has been updated successfully';
+                        this.progressMessage = '{{ t('settings_updates.progress_complete') }}';
+                        this.progressDetail = '{{ t('settings_updates.progress_complete_detail') }}';
                         await this.sleep(1000);
                         this.updating = false;
                         this.updateComplete = true;
@@ -375,7 +375,7 @@ function updatesPage() {
                     setTimeout(poll, 2000);
                 } else {
                     this.updating = false;
-                    this.updateError = 'Pier may still be restarting. Try refreshing the page manually.';
+                    this.updateError = '{{ t('settings_updates.reconnect_timeout') }}';
                 }
             };
             // Start polling after a short delay to give the server time to shut down
@@ -396,10 +396,10 @@ function updatesPage() {
                     this.settingsSaved = true;
                     setTimeout(() => this.settingsSaved = false, 3000);
                 } else {
-                    this.settingsError = r.message || 'Failed to save settings';
+                    this.settingsError = r.message || '{{ t('settings_updates.save_settings_failed') }}';
                 }
             } catch (e) {
-                this.settingsError = 'Failed to save: ' + e.message;
+                this.settingsError = '{{ t('settings_updates.save_failed') }}'.replace('%{error}', e.message);
             }
             this.savingSettings = false;
         },

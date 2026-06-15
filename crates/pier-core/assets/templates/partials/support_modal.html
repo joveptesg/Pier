@@ -12,28 +12,28 @@
     <div class="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl p-7">
         <button @click="dismiss()"
                 class="absolute top-3 right-3 p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                aria-label="Close">
+                aria-label="{{ t('support_modal.close') }}">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
 
-        <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-3 pr-6">Love Pier? Support our work.</h3>
+        <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-3 pr-6">{{ t('support_modal.heading') }}</h3>
 
         <div class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed mb-6 space-y-2">
-            <p>We are already profitable thanks to <span class="font-semibold text-gray-900 dark:text-white">YOU</span> but&hellip;</p>
-            <p>We would like to make more cool features.</p>
-            <p>For this we need your help to support our work financially.</p>
+            <p>{{ t('support_modal.body_profitable') | safe }}</p>
+            <p>{{ t('support_modal.body_features') }}</p>
+            <p>{{ t('support_modal.body_help') }}</p>
         </div>
 
         <div class="flex items-center justify-between gap-3">
             <button @click="dismiss()"
                     class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
-                Maybe next time
+                {{ t('support_modal.maybe_next_time') }}
             </button>
             <a href="https://pier.team/sponsor"
                target="_blank"
                rel="noopener"
                class="inline-flex items-center px-5 py-2.5 bg-pier-600 hover:bg-pier-700 text-white text-sm font-medium rounded-lg transition-colors">
-                Support project
+                {{ t('support_modal.support_project') }}
             </a>
         </div>
     </div>

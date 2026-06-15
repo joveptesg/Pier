@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Settings{% endblock %}
+{% block title %}{{ t('settings_index.page_title') }}{% endblock %}
 
 {% block content %}
 <div x-data="settingsPage()" x-init="init()" class="p-6 space-y-6">
     <!-- Header -->
     <div>
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Settings</h2>
-        <p class="text-sm text-gray-500 mt-1">Application configuration</p>
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('settings_index.heading') }}</h2>
+        <p class="text-sm text-gray-500 mt-1">{{ t('settings_index.subheading') }}</p>
     </div>
 
     <!-- Tabs -->
@@ -25,22 +25,22 @@
     <!-- ── Tab: General ──────────────────────────────────────── -->
     <div x-show="tab === 'general'" x-cloak x-data="generalSettings()" x-init="load()"
          class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">General</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('settings_index.general_title') }}</h3>
         <div class="space-y-4">
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Application URL</p>
-                    <p class="text-xs text-gray-500 mt-0.5">The URL used to access Pier</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.app_url') }}</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_index.app_url_desc') }}</p>
                 </div>
                 <span class="text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg" x-text="appUrl"></span>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2 gap-3">
                 <div class="min-w-0">
-                    <p class="text-sm text-gray-900 dark:text-white">Timezone</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.timezone') }}</p>
                     <p class="text-xs text-gray-500 mt-0.5">
-                        Used for notifications and timestamps.
-                        <span x-show="tzNow" x-cloak class="ml-1 font-mono text-gray-400" x-text="'Now: ' + tzNow"></span>
+                        {{ t('settings_index.timezone_desc') }}
+                        <span x-show="tzNow" x-cloak class="ml-1 font-mono text-gray-400" x-text="'{{ t('settings_index.timezone_now') }}' + tzNow"></span>
                     </p>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
@@ -59,14 +59,14 @@
     <!-- ── Tab: Cleanup ──────────────────────────────────────── -->
     <div x-show="tab === 'cleanup'" x-cloak x-data="cleanupApp()" x-init="loadInfo(); loadSettings()"
          class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">System Cleanup</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('settings_index.cleanup_title') }}</h3>
 
         <!-- Current Usage -->
         <div class="space-y-2 mb-5">
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Build Cache</p>
-                    <p class="text-xs text-gray-500">Unused Docker build layers</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.build_cache') }}</p>
+                    <p class="text-xs text-gray-500">{{ t('settings_index.build_cache_desc') }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <span x-show="infoLoading" x-cloak class="inline-flex items-center">
@@ -74,14 +74,14 @@
                     </span>
                     <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-yellow-500" x-text="fmtB(info.build_cache)"></span>
                     <button @click="runCleanup(['build_cache'])" :disabled="cleaning || infoLoading"
-                            class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-yellow-100 dark:hover:bg-yellow-900/20 hover:text-yellow-600 rounded transition-colors disabled:opacity-50">Clean</button>
+                            class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-yellow-100 dark:hover:bg-yellow-900/20 hover:text-yellow-600 rounded transition-colors disabled:opacity-50">{{ t('settings_index.clean') }}</button>
                 </div>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Dangling Images</p>
-                    <p class="text-xs text-gray-500">Untagged images not used by containers</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.dangling_images') }}</p>
+                    <p class="text-xs text-gray-500">{{ t('settings_index.dangling_images_desc') }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <span x-show="infoLoading" x-cloak class="inline-flex items-center">
@@ -89,14 +89,14 @@
                     </span>
                     <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-blue-400" x-text="fmtB(info.images_reclaimable)"></span>
                     <button @click="runCleanup(['images'])" :disabled="cleaning || infoLoading"
-                            class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900/20 hover:text-blue-600 rounded transition-colors disabled:opacity-50">Clean</button>
+                            class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900/20 hover:text-blue-600 rounded transition-colors disabled:opacity-50">{{ t('settings_index.clean') }}</button>
                 </div>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Stopped Containers</p>
-                    <p class="text-xs text-gray-500">Containers that are not running</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.stopped_containers') }}</p>
+                    <p class="text-xs text-gray-500">{{ t('settings_index.stopped_containers_desc') }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <span x-show="infoLoading" x-cloak class="inline-flex items-center">
@@ -104,14 +104,14 @@
                     </span>
                     <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-gray-400" x-text="fmtB(info.containers_size)"></span>
                     <button @click="runCleanup(['containers'])" :disabled="cleaning || infoLoading"
-                            class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50">Clean</button>
+                            class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50">{{ t('settings_index.clean') }}</button>
                 </div>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Railpack BuildKit cache</p>
-                    <p class="text-xs text-gray-500">Layer cache used by Auto-build (Railpack) — lives inside the buildkit container, separate from Docker</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.railpack_buildkit_cache') }}</p>
+                    <p class="text-xs text-gray-500">{{ t('settings_index.railpack_buildkit_cache_desc') }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <span x-show="infoLoading" x-cloak class="inline-flex items-center">
@@ -119,7 +119,7 @@
                     </span>
                     <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-purple-500" x-text="fmtB(info.buildkit_cache)"></span>
                     <button @click="runCleanup(['railpack_buildkit_cache'])" :disabled="cleaning || infoLoading"
-                            class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-purple-100 dark:hover:bg-purple-900/20 hover:text-purple-600 rounded transition-colors disabled:opacity-50">Clean</button>
+                            class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-purple-100 dark:hover:bg-purple-900/20 hover:text-purple-600 rounded transition-colors disabled:opacity-50">{{ t('settings_index.clean') }}</button>
                 </div>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
@@ -127,19 +127,19 @@
                 <span class="text-xs text-gray-500" x-text="cleanMsg"></span>
                 <button @click="runCleanup(['build_cache','images','containers','railpack_buildkit_cache'])" :disabled="cleaning || infoLoading"
                         class="px-3 py-1.5 text-xs font-medium bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors disabled:opacity-50">
-                    <span x-text="cleaning ? 'Cleaning...' : 'Clean All'"></span>
+                    <span x-text="cleaning ? '{{ t('settings_index.cleaning') }}' : '{{ t('settings_index.clean_all') }}'"></span>
                 </button>
             </div>
         </div>
 
         <!-- Auto Cleanup Settings -->
         <div class="border-t border-gray-200 dark:border-gray-800 pt-4">
-            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Auto Cleanup</h4>
+            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{{ t('settings_index.auto_cleanup') }}</h4>
             <div class="space-y-3">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-gray-900 dark:text-white">Enable scheduled cleanup</p>
-                        <p class="text-xs text-gray-500">Automatically clean Docker resources</p>
+                        <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.enable_scheduled_cleanup') }}</p>
+                        <p class="text-xs text-gray-500">{{ t('settings_index.enable_scheduled_cleanup_desc') }}</p>
                     </div>
                     <label class="relative cursor-pointer">
                         <input type="checkbox" x-model="settings.enabled" @change="saveSettings()" class="sr-only peer">
@@ -149,31 +149,31 @@
                 </div>
                 <div x-show="settings.enabled" class="space-y-3 pl-0">
                     <div class="flex items-center justify-between">
-                        <span class="text-sm text-gray-600 dark:text-gray-400">Interval</span>
+                        <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('settings_index.interval') }}</span>
                         <select x-model="settings.interval_hours" @change="saveSettings()"
                                 class="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-gray-900 dark:text-gray-100">
-                            <option value="12">Every 12 hours</option>
-                            <option value="24">Every 24 hours</option>
-                            <option value="48">Every 48 hours</option>
-                            <option value="168">Every 7 days</option>
+                            <option value="12">{{ t('settings_index.every_12_hours') }}</option>
+                            <option value="24">{{ t('settings_index.every_24_hours') }}</option>
+                            <option value="48">{{ t('settings_index.every_48_hours') }}</option>
+                            <option value="168">{{ t('settings_index.every_7_days') }}</option>
                         </select>
                     </div>
                     <div class="space-y-2">
                         <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                             <input type="checkbox" x-model="settings.prune_build_cache" @change="saveSettings()" class="rounded border-gray-300 dark:border-gray-600 text-blue-500">
-                            Build Cache
+                            {{ t('settings_index.build_cache') }}
                         </label>
                         <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                             <input type="checkbox" x-model="settings.prune_images" @change="saveSettings()" class="rounded border-gray-300 dark:border-gray-600 text-blue-500">
-                            Unused Images
+                            {{ t('settings_index.unused_images') }}
                         </label>
                         <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                             <input type="checkbox" x-model="settings.prune_containers" @change="saveSettings()" class="rounded border-gray-300 dark:border-gray-600 text-blue-500">
-                            Stopped Containers
+                            {{ t('settings_index.stopped_containers') }}
                         </label>
                         <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                             <input type="checkbox" x-model="settings.prune_railpack_buildkit" @change="saveSettings()" class="rounded border-gray-300 dark:border-gray-600 text-blue-500">
-                            Railpack BuildKit cache
+                            {{ t('settings_index.railpack_buildkit_cache') }}
                         </label>
                     </div>
                 </div>
@@ -185,40 +185,38 @@
     <div x-show="tab === 'railpack'" x-cloak x-data="railpackSettings()" x-init="load()"
          class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-5">
         <div>
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Auto-build (Railpack)</h3>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('settings_index.autobuild_title') }}</h3>
             <p class="text-xs text-gray-500 mt-1">
-                Controls how many Railpack builds can run in parallel. Each build can use several
-                GB of RAM during compilation, so the default cap of 1 is a safe choice for small
-                VPS hosts. Raise it only if your host has spare capacity.
+                {{ t('settings_index.autobuild_desc') }}
             </p>
         </div>
 
-        <div x-show="loading" class="text-sm text-gray-400">Loading…</div>
+        <div x-show="loading" class="text-sm text-gray-400">{{ t('common.loading') }}</div>
 
         <div x-show="!loading" class="space-y-4">
             <!-- Current runtime value -->
             <div class="flex items-center justify-between py-2">
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Currently running</p>
-                    <p class="text-xs text-gray-500 mt-0.5">Active permit count in the live semaphore</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.currently_running') }}</p>
+                    <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_index.currently_running_desc') }}</p>
                 </div>
                 <span class="text-sm font-mono text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-lg"
-                      x-text="runtimeValue + ' parallel build' + (runtimeValue === 1 ? '' : 's')"></span>
+                      x-text="runtimeValue + (runtimeValue === 1 ? '{{ t('settings_index.parallel_build_one') }}' : '{{ t('settings_index.parallel_build_other') }}')"></span>
             </div>
 
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
 
             <!-- Editable saved value -->
             <div>
-                <label class="block text-sm text-gray-900 dark:text-white mb-1">Max parallel builds</label>
-                <p class="text-xs text-gray-500 mb-2">Saved value (applied on next pier-core restart). Range: <span x-text="min"></span>–<span x-text="max"></span>.</p>
+                <label class="block text-sm text-gray-900 dark:text-white mb-1">{{ t('settings_index.max_parallel_builds') }}</label>
+                <p class="text-xs text-gray-500 mb-2">{{ t('settings_index.saved_value_range') }} <span x-text="min"></span>–<span x-text="max"></span>.</p>
                 <div class="flex items-center gap-2">
                     <input type="number" :min="min" :max="max" x-model.number="saved"
                            :disabled="envOverride || saving"
                            class="w-32 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50">
                     <button @click="save()" :disabled="envOverride || saving || saved === lastSavedServerValue"
                             class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-white transition-colors">
-                        <span x-text="saving ? 'Saving…' : 'Save'"></span>
+                        <span x-text="saving ? '{{ t('settings_index.saving') }}' : '{{ t('settings_index.save') }}'"></span>
                     </button>
                     <span x-show="savedMessage" x-cloak class="text-xs" :class="saveError ? 'text-red-500' : 'text-green-500'" x-text="savedMessage"></span>
                 </div>
@@ -227,9 +225,7 @@
             <!-- Env-override notice (takes precedence over DB) -->
             <div x-show="envOverride" x-cloak class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/30 rounded-lg p-3">
                 <p class="text-xs text-blue-700 dark:text-blue-300">
-                    <strong>Managed by environment variable.</strong>
-                    <code class="text-[11px]">PIER_RAILPACK_MAX_PARALLEL_BUILDS</code> is set in the systemd unit,
-                    so the saved value is ignored. Unset the env var and restart pier-core to use the UI value.
+                    {{ t('settings_index.env_override_notice') | safe }}
                 </p>
             </div>
 
@@ -237,9 +233,8 @@
             <div x-show="!envOverride && saved !== runtimeValue && saved === lastSavedServerValue" x-cloak
                  class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 rounded-lg p-3">
                 <p class="text-xs text-amber-700 dark:text-amber-300">
-                    <strong>Restart required.</strong> Saved value (<span x-text="saved"></span>) differs from the
-                    live runtime value (<span x-text="runtimeValue"></span>). Run
-                    <code class="text-[11px]">systemctl restart pier</code> on the host for the change to take effect.
+                    <strong>{{ t('settings_index.restart_required') }}</strong> {{ t('settings_index.restart_required_saved') }} (<span x-text="saved"></span>) {{ t('settings_index.restart_required_differs') }} (<span x-text="runtimeValue"></span>). {{ t('settings_index.restart_required_run') }}
+                    <code class="text-[11px]">systemctl restart pier</code> {{ t('settings_index.restart_required_take_effect') }}
                 </p>
             </div>
         </div>
@@ -249,42 +244,41 @@
     <div x-show="tab === 'external-access'" x-cloak x-data="externalAccess()" x-init="load()"
          class="space-y-6">
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">What is this?</h3>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ t('settings_index.what_is_this') }}</h3>
             <div class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
                 <p>
-                    Federation works in two directions. This tab is about the <strong>incoming</strong>
-                    direction — giving another pier-core the right to control this one.
+                    {{ t('settings_index.federation_intro') | safe }}
                 </p>
                 <ul class="list-disc ml-5 space-y-1">
-                    <li><strong>Outgoing</strong> (controlling other servers from here) is managed on the <a href="/servers" class="text-blue-500 hover:underline">Servers</a> page via the "Peer core" kind.</li>
-                    <li><strong>Incoming</strong> is here: you issue a token and hand it to the operator of another pier-core. They paste it into their own "Add Server → Peer core" form, and their panel gains admin-equivalent access to yours over REST.</li>
+                    <li>{{ t('settings_index.federation_outgoing') | safe }}</li>
+                    <li>{{ t('settings_index.federation_incoming') | safe }}</li>
                 </ul>
                 <p>
-                    Tokens grant full admin rights — revoke any time; this core keeps working autonomously either way.
+                    {{ t('settings_index.tokens_grant_admin') }}
                 </p>
                 <p class="text-xs text-gray-500">
-                    Protocol: requests authenticated with the <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">X-Pier-Peer-Token</code> header match a row in <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">peer_grants</code> and are treated as an admin session for that call.
+                    {{ t('settings_index.protocol_note') | safe }}
                 </p>
             </div>
         </div>
 
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
             <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800/50">
-                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Issued tokens</h3>
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('settings_index.issued_tokens') }}</h3>
                 <button @click="showIssue = true; form.name = ''; lastToken = ''"
                         class="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                    Issue Token
+                    {{ t('settings_index.issue_token') }}
                 </button>
             </div>
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wide text-gray-500">
                     <tr>
-                        <th class="text-left px-4 py-3 font-medium">Name</th>
-                        <th class="text-left px-4 py-3 font-medium">Status</th>
-                        <th class="text-left px-4 py-3 font-medium">Last used</th>
-                        <th class="text-left px-4 py-3 font-medium">From IP</th>
-                        <th class="text-right px-4 py-3 font-medium">Actions</th>
+                        <th class="text-left px-4 py-3 font-medium">{{ t('settings_index.col_name') }}</th>
+                        <th class="text-left px-4 py-3 font-medium">{{ t('settings_index.col_status') }}</th>
+                        <th class="text-left px-4 py-3 font-medium">{{ t('settings_index.col_last_used') }}</th>
+                        <th class="text-left px-4 py-3 font-medium">{{ t('settings_index.col_from_ip') }}</th>
+                        <th class="text-right px-4 py-3 font-medium">{{ t('settings_index.col_actions') }}</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
@@ -294,17 +288,17 @@
                             <td class="px-4 py-3">
                                 <span class="inline-flex items-center gap-1.5 text-xs" :class="g.is_active ? 'text-green-600 dark:text-green-400' : 'text-gray-400'">
                                     <span class="w-2 h-2 rounded-full" :class="g.is_active ? 'bg-green-500' : 'bg-gray-400'"></span>
-                                    <span x-text="g.is_active ? 'active' : 'revoked'"></span>
+                                    <span x-text="g.is_active ? '{{ t('settings_index.status_active') }}' : '{{ t('settings_index.status_revoked') }}'"></span>
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-gray-600 dark:text-gray-400" x-text="g.last_used_at || '—'"></td>
                             <td class="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono" x-text="g.last_used_ip || '—'"></td>
                             <td class="px-4 py-3 text-right">
-                                <button @click="revoke(g.id, g.name)" class="text-xs text-red-500 hover:text-red-700">Revoke</button>
+                                <button @click="revoke(g.id, g.name)" class="text-xs text-red-500 hover:text-red-700">{{ t('settings_index.revoke') }}</button>
                             </td>
                         </tr>
                     </template>
-                    <tr x-show="grants.length === 0"><td colspan="5" class="text-center py-6 text-sm text-gray-500">No tokens issued yet.</td></tr>
+                    <tr x-show="grants.length === 0"><td colspan="5" class="text-center py-6 text-sm text-gray-500">{{ t('settings_index.no_tokens') }}</td></tr>
                 </tbody>
             </table>
         </div>
@@ -314,30 +308,30 @@
             <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4" @click.stop>
                 <template x-if="!lastToken">
                     <div class="space-y-4">
-                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Issue peer token</h3>
-                        <p class="text-sm text-gray-500">Generate a long-lived token that authorizes another pier-core to manage this panel via its API.</p>
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('settings_index.issue_peer_token') }}</h3>
+                        <p class="text-sm text-gray-500">{{ t('settings_index.issue_peer_token_desc') }}</p>
                         <div>
-                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
-                            <input x-model="form.name" type="text" placeholder="HQ panel"
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('settings_index.col_name') }}</label>
+                            <input x-model="form.name" type="text" placeholder="{{ t('settings_index.name_placeholder') }}"
                                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div class="flex justify-end gap-2 pt-2">
-                            <button @click="showIssue = false" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
-                            <button @click="issue()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">Generate</button>
+                            <button @click="showIssue = false" class="px-4 py-2 text-sm text-gray-500">{{ t('common.cancel') }}</button>
+                            <button @click="issue()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">{{ t('settings_index.generate') }}</button>
                         </div>
                     </div>
                 </template>
                 <template x-if="lastToken">
                     <div class="space-y-4">
-                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Token issued</h3>
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('settings_index.token_issued') }}</h3>
                         <div class="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/30 rounded-lg p-4">
-                            <p class="text-xs font-medium text-yellow-800 dark:text-yellow-400 mb-2">This token is shown only once. Copy it now.</p>
+                            <p class="text-xs font-medium text-yellow-800 dark:text-yellow-400 mb-2">{{ t('settings_index.token_shown_once') }}</p>
                             <div class="bg-white dark:bg-gray-800 rounded px-3 py-2 border border-yellow-200 dark:border-yellow-600/30">
                                 <code class="text-sm font-mono text-yellow-900 dark:text-yellow-300 break-all select-all" x-text="lastToken"></code>
                             </div>
                         </div>
                         <div class="flex justify-end pt-2">
-                            <button @click="showIssue = false; lastToken = ''" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">Done</button>
+                            <button @click="showIssue = false; lastToken = ''" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">{{ t('settings_index.done') }}</button>
                         </div>
                     </div>
                 </template>
@@ -349,29 +343,29 @@
     <div x-show="tab === 'account'" x-cloak x-data="accountPanel()" x-init="load()" class="space-y-6">
         <!-- Profile info -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Profile</h3>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('settings_index.profile') }}</h3>
             <dl class="divide-y divide-gray-100 dark:divide-gray-800/50 text-sm">
                 <div class="flex items-center justify-between py-2.5">
-                    <dt class="text-gray-500">Username</dt>
+                    <dt class="text-gray-500">{{ t('settings_index.username') }}</dt>
                     <dd class="text-gray-900 dark:text-white" x-text="profile.username || '—'"></dd>
                 </div>
                 <div class="flex items-center justify-between py-2.5">
-                    <dt class="text-gray-500">Email</dt>
+                    <dt class="text-gray-500">{{ t('settings_index.email') }}</dt>
                     <dd class="text-gray-900 dark:text-white" x-text="profile.email || '—'"></dd>
                 </div>
                 <div class="flex items-center justify-between py-2.5">
-                    <dt class="text-gray-500">Role</dt>
+                    <dt class="text-gray-500">{{ t('settings_index.role') }}</dt>
                     <dd>
                         <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400"
                               x-text="profile.role || '—'"></span>
                     </dd>
                 </div>
                 <div class="flex items-center justify-between py-2.5">
-                    <dt class="text-gray-500">Member since</dt>
+                    <dt class="text-gray-500">{{ t('settings_index.member_since') }}</dt>
                     <dd class="text-gray-900 dark:text-white" x-text="fmtDate(profile.created_at)"></dd>
                 </div>
                 <div class="flex items-center justify-between py-2.5">
-                    <dt class="text-gray-500">Last login</dt>
+                    <dt class="text-gray-500">{{ t('settings_index.last_login') }}</dt>
                     <dd class="text-gray-900 dark:text-white" x-text="fmtDate(profile.last_login_at)"></dd>
                 </div>
             </dl>
@@ -379,28 +373,28 @@
 
         <!-- Change password -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Change password</h3>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('settings_index.change_password') }}</h3>
             <div class="space-y-3 max-w-md">
                 <label class="block">
-                    <span class="block text-xs text-gray-500 mb-1">Current password</span>
+                    <span class="block text-xs text-gray-500 mb-1">{{ t('settings_index.current_password') }}</span>
                     <input type="password" x-model="pw.current" autocomplete="current-password"
                            class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
                 </label>
                 <label class="block">
-                    <span class="block text-xs text-gray-500 mb-1">New password (min 8 chars)</span>
+                    <span class="block text-xs text-gray-500 mb-1">{{ t('settings_index.new_password') }}</span>
                     <input type="password" x-model="pw.next" autocomplete="new-password"
                            class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
                 </label>
                 <label class="block">
-                    <span class="block text-xs text-gray-500 mb-1">Confirm new password</span>
+                    <span class="block text-xs text-gray-500 mb-1">{{ t('settings_index.confirm_new_password') }}</span>
                     <input type="password" x-model="pw.confirm" autocomplete="new-password"
                            class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-900 dark:text-white">
                 </label>
-                <p class="text-xs text-gray-500">All other active sessions will be logged out.</p>
+                <p class="text-xs text-gray-500">{{ t('settings_index.all_sessions_logged_out') }}</p>
                 <div>
                     <button @click="changePassword()" :disabled="pwSaving"
                             class="px-3 py-1.5 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50">
-                        <span x-text="pwSaving ? 'Updating…' : 'Update password'"></span>
+                        <span x-text="pwSaving ? '{{ t('settings_index.updating') }}' : '{{ t('settings_index.update_password') }}'"></span>
                     </button>
                 </div>
             </div>
@@ -409,19 +403,19 @@
         <!-- Active sessions -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
             <div class="flex items-center justify-between px-5 py-4">
-                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Active sessions</h3>
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('settings_index.active_sessions') }}</h3>
                 <button @click="revokeOthers()" :disabled="sessionsBusy || sessions.length < 2"
                         class="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-50">
-                    Logout everywhere else
+                    {{ t('settings_index.logout_everywhere_else') }}
                 </button>
             </div>
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
                     <tr>
-                        <th class="px-4 py-2 text-left font-medium">Device</th>
-                        <th class="px-4 py-2 text-left font-medium">IP</th>
-                        <th class="px-4 py-2 text-left font-medium">Started</th>
-                        <th class="px-4 py-2 text-right font-medium">Actions</th>
+                        <th class="px-4 py-2 text-left font-medium">{{ t('settings_index.col_device') }}</th>
+                        <th class="px-4 py-2 text-left font-medium">{{ t('settings_index.col_ip') }}</th>
+                        <th class="px-4 py-2 text-left font-medium">{{ t('settings_index.col_started') }}</th>
+                        <th class="px-4 py-2 text-right font-medium">{{ t('settings_index.col_actions') }}</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
@@ -431,16 +425,16 @@
                             <td class="px-4 py-2 font-mono text-gray-600 dark:text-gray-400" x-text="s.ip_address || '—'"></td>
                             <td class="px-4 py-2 text-xs text-gray-500" x-text="fmtDate(s.created_at)"></td>
                             <td class="px-4 py-2 text-right">
-                                <span x-show="s.is_current" class="text-[11px] px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">This session</span>
+                                <span x-show="s.is_current" class="text-[11px] px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">{{ t('settings_index.this_session') }}</span>
                                 <button x-show="!s.is_current" @click="revoke(s.id)" :disabled="sessionsBusy"
                                         class="px-2 py-0.5 text-[11px] font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/20 rounded">
-                                    Revoke
+                                    {{ t('settings_index.revoke') }}
                                 </button>
                             </td>
                         </tr>
                     </template>
                     <tr x-show="!sessions.length" x-cloak>
-                        <td colspan="4" class="px-4 py-4 text-center text-xs text-gray-500">No active sessions.</td>
+                        <td colspan="4" class="px-4 py-4 text-center text-xs text-gray-500">{{ t('settings_index.no_active_sessions') }}</td>
                     </tr>
                 </tbody>
             </table>
@@ -451,14 +445,14 @@
     <div x-show="tab === 'security'" x-cloak x-data="securityPanel()" x-init="load()" class="space-y-6">
         <!-- 2FA + Audit Log shortcuts (own pages, not inlined) -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Account security</h3>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ t('settings_index.account_security') }}</h3>
             <div class="space-y-2 text-sm">
                 <a href="/account/security" class="flex items-center justify-between py-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded px-2 -mx-2">
-                    <span class="text-gray-900 dark:text-white">Two-factor authentication</span>
+                    <span class="text-gray-900 dark:text-white">{{ t('settings_index.two_factor_auth') }}</span>
                     <span class="text-gray-400">→</span>
                 </a>
                 <a href="/audit" class="flex items-center justify-between py-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded px-2 -mx-2">
-                    <span class="text-gray-900 dark:text-white">Audit log</span>
+                    <span class="text-gray-900 dark:text-white">{{ t('settings_index.audit_log') }}</span>
                     <span class="text-gray-400">→</span>
                 </a>
             </div>
@@ -466,13 +460,12 @@
 
         <!-- Delete confirmation toggle -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Delete confirmation</h3>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ t('settings_index.delete_confirmation') }}</h3>
             <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
-                    <p class="text-sm text-gray-900 dark:text-white">Require account password</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.require_account_password') }}</p>
                     <p class="text-xs text-gray-500 mt-0.5">
-                        Prompt for your password when deleting projects, services, or databases.
-                        Applies to every admin on this instance.
+                        {{ t('settings_index.require_account_password_desc') }}
                     </p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
@@ -491,15 +484,15 @@
     <!-- ── Tab: Danger ───────────────────────────────────────── -->
     <div x-show="tab === 'danger'" x-cloak
          class="bg-white dark:bg-gray-900 border border-red-200 dark:border-red-500/20 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-red-600 dark:text-red-400 mb-4">Danger Zone</h3>
+        <h3 class="text-sm font-medium text-red-600 dark:text-red-400 mb-4">{{ t('settings_index.danger_zone') }}</h3>
         <div class="flex items-center justify-between py-2">
             <div>
-                <p class="text-sm text-gray-900 dark:text-white">Reset Data</p>
-                <p class="text-xs text-gray-500 mt-0.5">Delete all projects, resources, and settings</p>
+                <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.reset_data') }}</p>
+                <p class="text-xs text-gray-500 mt-0.5">{{ t('settings_index.reset_data_desc') }}</p>
             </div>
             <button disabled
                     class="px-3 py-1.5 text-xs font-medium bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-not-allowed opacity-50">
-                Coming soon
+                {{ t('settings_index.coming_soon') }}
             </button>
         </div>
     </div>
@@ -509,13 +502,13 @@
 function settingsPage() {
     return {
         tabs: [
-            { id: 'general',         label: 'General' },
-            { id: 'cleanup',         label: 'Cleanup' },
-            { id: 'railpack',        label: 'Auto-build (Railpack)' },
-            { id: 'external-access', label: 'External Access' },
-            { id: 'account',         label: 'Account' },
-            { id: 'security',        label: 'Security' },
-            { id: 'danger',          label: 'Danger' },
+            { id: 'general',         label: '{{ t('settings_index.tab_general') }}' },
+            { id: 'cleanup',         label: '{{ t('settings_index.tab_cleanup') }}' },
+            { id: 'railpack',        label: '{{ t('settings_index.tab_railpack') }}' },
+            { id: 'external-access', label: '{{ t('settings_index.tab_external_access') }}' },
+            { id: 'account',         label: '{{ t('settings_index.tab_account') }}' },
+            { id: 'security',        label: '{{ t('settings_index.tab_security') }}' },
+            { id: 'danger',          label: '{{ t('settings_index.tab_danger') }}' },
         ],
         tab: 'general',
         init() {
@@ -545,7 +538,7 @@ function externalAccess() {
             catch { this.grants = []; }
         },
         async issue() {
-            if (!this.form.name.trim()) { toast('Name required', 'error'); return; }
+            if (!this.form.name.trim()) { toast('{{ t('settings_index.name_required') }}', 'error'); return; }
             try {
                 const res = await api('/api/v1/grants', { method: 'POST', body: JSON.stringify({ name: this.form.name.trim() }) });
                 this.lastToken = res.token || '';
@@ -553,8 +546,8 @@ function externalAccess() {
             } catch (e) { toast(e.message, 'error'); }
         },
         async revoke(id, name) {
-            if (!confirm('Revoke token "' + name + '"?')) return;
-            try { await api('/api/v1/grants/' + id, { method: 'DELETE' }); toast('Token revoked'); await this.load(); }
+            if (!confirm('{{ t('settings_index.confirm_revoke_token') }}'.replace('%{name}', name))) return;
+            try { await api('/api/v1/grants/' + id, { method: 'DELETE' }); toast('{{ t('settings_index.token_revoked') }}'); await this.load(); }
             catch (e) { toast(e.message, 'error'); }
         },
     };
@@ -582,7 +575,7 @@ function railpackSettings() {
                 this.min = r.min;
                 this.max = r.max;
             } catch (e) {
-                toast('Failed to load Railpack settings', 'error');
+                toast('{{ t('settings_index.failed_load_railpack') }}', 'error');
             }
             this.loading = false;
         },
@@ -590,7 +583,7 @@ function railpackSettings() {
             const v = parseInt(this.saved, 10);
             if (Number.isNaN(v) || v < this.min || v > this.max) {
                 this.saveError = true;
-                this.savedMessage = `Must be between ${this.min} and ${this.max}`;
+                this.savedMessage = '{{ t('settings_index.must_be_between') }}'.replace('%{min}', this.min).replace('%{max}', this.max);
                 return;
             }
             this.saving = true;
@@ -602,10 +595,10 @@ function railpackSettings() {
                     body: JSON.stringify({ max_parallel_builds: v }),
                 });
                 this.lastSavedServerValue = res.saved;
-                this.savedMessage = res.restart_required ? 'Saved — restart required' : 'Saved';
+                this.savedMessage = res.restart_required ? '{{ t('settings_index.saved_restart_required') }}' : '{{ t('settings_index.saved') }}';
             } catch (e) {
                 this.saveError = true;
-                this.savedMessage = e.message || 'Save failed';
+                this.savedMessage = e.message || '{{ t('settings_index.save_failed') }}';
             }
             this.saving = false;
             // Clear the success message after a few seconds for cleanliness.
@@ -647,7 +640,7 @@ function generalSettings() {
                 const j = await r.json();
                 if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
                 this.tzNow = j.now || '';
-                this.tzStatus = 'Saved';
+                this.tzStatus = '{{ t('settings_index.saved') }}';
             } catch (e) { this.tzStatus = e.message; this.tzError = true; }
             this.savingTz = false;
             setTimeout(() => { this.tzStatus = ''; }, 3000);
@@ -679,17 +672,17 @@ function cleanupApp() {
             } catch {}
         },
         async runCleanup(targets) {
-            this.cleaning = true; this.cleanMsg = 'Cleaning...';
+            this.cleaning = true; this.cleanMsg = '{{ t('settings_index.cleaning') }}';
             try {
                 await fetch('/api/v1/system/cleanup', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ targets }),
                 }).then(r => r.json());
-                this.cleanMsg = 'Done! Refreshing...';
+                this.cleanMsg = '{{ t('settings_index.done_refreshing') }}';
                 await this.loadInfo();
-                this.cleanMsg = 'Cleanup complete';
+                this.cleanMsg = '{{ t('settings_index.cleanup_complete') }}';
                 setTimeout(() => this.cleanMsg = '', 3000);
-            } catch (e) { this.cleanMsg = 'Error: ' + e.message; }
+            } catch (e) { this.cleanMsg = '{{ t('settings_index.error_prefix') }}' + e.message; }
             this.cleaning = false;
         },
     };
@@ -719,11 +712,11 @@ function securityPanel() {
                     method: 'PUT',
                     body: JSON.stringify({ require_password_on_delete: this.requirePwOnDelete }),
                 });
-                this.status = 'Saved';
+                this.status = '{{ t('settings_index.saved') }}';
                 setTimeout(() => this.status = '', 1500);
             } catch (e) {
                 this.error = true;
-                this.status = e.message || 'Save failed';
+                this.status = e.message || '{{ t('settings_index.save_failed') }}';
                 // Revert the visual toggle to the server-truth on failure.
                 await this.load();
             }
@@ -754,7 +747,7 @@ function accountPanel() {
             try { return new Date(s.endsWith('Z') ? s : s + 'Z').toLocaleString(); } catch { return s; }
         },
         shortUA(ua) {
-            if (!ua) return 'Unknown';
+            if (!ua) return '{{ t('settings_index.unknown') }}';
             const m = ua.match(/(Chrome|Firefox|Safari|Edge|Opera)[\/\s](\d+)/);
             const os = ua.match(/(Windows|Mac|Linux|Android|iOS|iPhone|iPad)/);
             const browser = m ? (m[1] + ' ' + m[2]) : ua.slice(0, 40);
@@ -763,11 +756,11 @@ function accountPanel() {
 
         async changePassword() {
             if (this.pw.next !== this.pw.confirm) {
-                toast('Passwords do not match', 'error');
+                toast('{{ t('settings_index.passwords_no_match') }}', 'error');
                 return;
             }
             if (this.pw.next.length < 8) {
-                toast('Password must be at least 8 characters', 'error');
+                toast('{{ t('settings_index.password_too_short') }}', 'error');
                 return;
             }
             this.pwSaving = true;
@@ -778,10 +771,10 @@ function accountPanel() {
                     body: JSON.stringify({ current_password: this.pw.current, new_password: this.pw.next }),
                 });
                 const j = await r.json();
-                if (r.status === 401) { toast('Current password is incorrect', 'error'); }
-                else if (!r.ok) { toast(j.error || 'Failed', 'error'); }
+                if (r.status === 401) { toast('{{ t('settings_index.current_password_incorrect') }}', 'error'); }
+                else if (!r.ok) { toast(j.error || '{{ t('settings_index.failed') }}', 'error'); }
                 else {
-                    toast('Password updated — other sessions logged out');
+                    toast('{{ t('settings_index.password_updated') }}');
                     this.pw = { current: '', next: '', confirm: '' };
                     await this.loadSessions();
                 }
@@ -790,26 +783,26 @@ function accountPanel() {
         },
 
         async revoke(id) {
-            if (!confirm('Revoke this session?')) return;
+            if (!confirm('{{ t('settings_index.confirm_revoke_session') }}')) return;
             this.sessionsBusy = true;
             try {
                 const r = await fetch('/api/v1/account/sessions/' + id, { method: 'DELETE' });
-                if (!r.ok) throw new Error((await r.json()).error || 'Failed');
+                if (!r.ok) throw new Error((await r.json()).error || '{{ t('settings_index.failed') }}');
                 await this.loadSessions();
-                toast('Session revoked');
+                toast('{{ t('settings_index.session_revoked') }}');
             } catch (e) { toast(e.message, 'error'); }
             this.sessionsBusy = false;
         },
 
         async revokeOthers() {
-            if (!confirm('Log out all other sessions?')) return;
+            if (!confirm('{{ t('settings_index.confirm_logout_others') }}')) return;
             this.sessionsBusy = true;
             try {
                 const r = await fetch('/api/v1/account/sessions/revoke-others', { method: 'POST' });
                 const j = await r.json();
-                if (!r.ok) throw new Error(j.error || 'Failed');
+                if (!r.ok) throw new Error(j.error || '{{ t('settings_index.failed') }}');
                 await this.loadSessions();
-                toast('Revoked ' + (j.revoked || 0) + ' session(s)');
+                toast('{{ t('settings_index.sessions_revoked_count') }}'.replace('%{count}', (j.revoked || 0)));
             } catch (e) { toast(e.message, 'error'); }
             this.sessionsBusy = false;
         },

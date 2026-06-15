@@ -1,32 +1,32 @@
 {% extends "base.html" %}
-{% block title %}Schedules{% endblock %}
+{% block title %}{{ t('schedules_list.title') }}{% endblock %}
 
 {% block content %}
 <div x-data="schedulesPage()" x-init="load()" class="p-6 max-w-7xl space-y-6">
     <div class="flex items-end justify-between gap-4">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Schedules</h2>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('schedules_list.heading') }}</h2>
             <p class="text-sm text-gray-500 mt-1">
-                Cron-driven jobs. Today the unified runner fires task templates; backup and cleanup schedules are listed here for visibility but still managed by their legacy loops.
+                {{ t('schedules_list.intro') }}
             </p>
         </div>
         <button @click="openCreate()"
                 class="px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
-            + New schedule
+            {{ t('schedules_list.new_schedule_button') }}
         </button>
     </div>
 
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
-        <div x-show="loading" class="p-6 text-sm text-gray-500">Loading…</div>
+        <div x-show="loading" class="p-6 text-sm text-gray-500">{{ t('common.loading') }}</div>
         <table x-show="!loading && schedules.length" x-cloak class="w-full text-sm">
             <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase text-gray-500">
                 <tr>
-                    <th class="text-left px-4 py-2">Name</th>
-                    <th class="text-left px-4 py-2">Action</th>
-                    <th class="text-left px-4 py-2">Cron</th>
-                    <th class="text-left px-4 py-2">Next run</th>
-                    <th class="text-left px-4 py-2">Last status</th>
-                    <th class="text-right px-4 py-2">Actions</th>
+                    <th class="text-left px-4 py-2">{{ t('schedules_list.col_name') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('schedules_list.col_action') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('schedules_list.col_cron') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('schedules_list.col_next_run') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('schedules_list.col_last_status') }}</th>
+                    <th class="text-right px-4 py-2">{{ t('schedules_list.col_actions') }}</th>
                 </tr>
             </thead>
             <tbody>
@@ -40,26 +40,26 @@
                             <span class="inline-block px-2 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                                   x-text="s.action_type"></span>
                             <span x-show="s.is_system" x-cloak
-                                  class="ml-1 inline-block px-2 py-0.5 text-[10px] rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">system</span>
+                                  class="ml-1 inline-block px-2 py-0.5 text-[10px] rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">{{ t('schedules_list.badge_system') }}</span>
                         </td>
                         <td class="px-4 py-3 text-xs font-mono text-gray-600 dark:text-gray-300" x-text="s.cron_expression"></td>
                         <td class="px-4 py-3 text-xs text-gray-500" x-text="s.next_run_at || '—'"></td>
                         <td class="px-4 py-3 text-xs">
                             <span x-show="s.last_status" :class="statusClasses(s.last_status)"
                                   class="px-2 py-0.5 rounded-full" x-text="s.last_status"></span>
-                            <span x-show="!s.last_status" class="text-gray-400">never</span>
+                            <span x-show="!s.last_status" class="text-gray-400">{{ t('schedules_list.status_never') }}</span>
                         </td>
                         <td class="px-4 py-3 text-right">
                             <div class="flex justify-end items-center gap-1">
                                 <!-- Run now -->
                                 <button @click="runNow(s)"
-                                        :title="'Run now — ' + s.name"
+                                        :title="'{{ t('schedules_list.action_run_now') }} — ' + s.name"
                                         class="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                                 </button>
                                 <!-- Enable / Disable toggle -->
                                 <button @click="toggle(s)"
-                                        :title="s.enabled ? 'Disable schedule' : 'Enable schedule'"
+                                        :title="s.enabled ? '{{ t('schedules_list.action_disable') }}' : '{{ t('schedules_list.action_enable') }}'"
                                         class="p-1.5 rounded transition-colors"
                                         :class="s.enabled
                                             ? 'text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/30'
@@ -74,12 +74,12 @@
                                 </button>
                                 <!-- Delete (non-system only) -->
                                 <button x-show="!s.is_system" @click="remove(s)"
-                                        title="Delete schedule"
+                                        :title="'{{ t('schedules_list.action_delete') }}'"
                                         class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                 </button>
                                 <!-- System badge — non-deletable rows show a lock-icon hint instead -->
-                                <span x-show="s.is_system" title="System schedule (cannot be deleted)"
+                                <span x-show="s.is_system" :title="'{{ t('schedules_list.action_system_locked') }}'"
                                       class="p-1.5 text-gray-300 dark:text-gray-600">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                                 </span>
@@ -90,7 +90,7 @@
             </tbody>
         </table>
         <div x-show="!loading && !schedules.length" x-cloak class="p-6 text-sm text-gray-500">
-            No schedules yet.
+            {{ t('schedules_list.empty') }}
         </div>
     </div>
 
@@ -99,67 +99,67 @@
          class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
         <div @click.outside="showCreate = false"
              class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 w-full max-w-lg p-6 space-y-4">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white">New schedule</h3>
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('schedules_list.modal_title') }}</h3>
             <div class="space-y-3">
                 <div>
-                    <label class="text-xs text-gray-500">Name</label>
+                    <label class="text-xs text-gray-500">{{ t('schedules_list.field_name') }}</label>
                     <input type="text" x-model="form.name"
                            class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
                 </div>
                 <div>
-                    <label class="text-xs text-gray-500">Action</label>
+                    <label class="text-xs text-gray-500">{{ t('schedules_list.field_action') }}</label>
                     <select x-model="form.action_type"
                             class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-                        <option value="task">Run task template</option>
+                        <option value="task">{{ t('schedules_list.action_option_task') }}</option>
                     </select>
                     <p class="text-[11px] text-gray-500 mt-1">
-                        Backup and cleanup schedules also fire from the unified runner, but they're created elsewhere (resource page / cleanup settings).
+                        {{ t('schedules_list.action_help') }}
                     </p>
                 </div>
                 <div x-show="form.action_type === 'task'">
-                    <label class="text-xs text-gray-500">Task template</label>
+                    <label class="text-xs text-gray-500">{{ t('schedules_list.field_template') }}</label>
                     <select x-model="form.template_id"
                             class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-                        <option value="">— select —</option>
+                        <option value="">{{ t('schedules_list.select_placeholder') }}</option>
                         <template x-for="t in templates" :key="t.id">
                             <option :value="t.id" x-text="t.name"></option>
                         </template>
                     </select>
                 </div>
                 <div x-show="form.action_type === 'task'">
-                    <label class="text-xs text-gray-500">Server</label>
+                    <label class="text-xs text-gray-500">{{ t('schedules_list.field_server') }}</label>
                     <select x-model="form.server_id"
                             class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-                        <option value="">— select —</option>
+                        <option value="">{{ t('schedules_list.select_placeholder') }}</option>
                         <template x-for="s in servers" :key="s.id">
                             <option :value="s.id" x-text="s.name + ' (' + s.host + ')'"></option>
                         </template>
                     </select>
                 </div>
                 <div>
-                    <label class="text-xs text-gray-500">Cron expression</label>
+                    <label class="text-xs text-gray-500">{{ t('schedules_list.field_cron') }}</label>
                     <input type="text" x-model="form.cron_expression" @input.debounce.300ms="validateCron()"
                            class="w-full px-3 py-2 mt-1 text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
                            placeholder="0 2 * * *  or  @hourly">
                     <p class="text-[11px] text-red-500 mt-1" x-show="cronError" x-text="cronError"></p>
                     <div class="text-[11px] text-gray-500 mt-1" x-show="cronPreview.length && !cronError" x-cloak>
-                        Next runs:
+                        {{ t('schedules_list.next_runs_label') }}
                         <ul class="ml-3 list-disc">
                             <template x-for="t in cronPreview" :key="t"><li x-text="t"></li></template>
                         </ul>
                     </div>
                 </div>
                 <div>
-                    <label class="text-xs text-gray-500">Timezone</label>
+                    <label class="text-xs text-gray-500">{{ t('schedules_list.field_timezone') }}</label>
                     <input type="text" x-model="form.timezone" @input.debounce.300ms="validateCron()"
                            class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
                 </div>
                 <div class="flex justify-end gap-2 pt-2">
-                    <button @click="showCreate = false" class="px-3 py-1.5 text-sm text-gray-600">Cancel</button>
+                    <button @click="showCreate = false" class="px-3 py-1.5 text-sm text-gray-600">{{ t('common.cancel') }}</button>
                     <button @click="submit()" :disabled="busy || cronError"
                             class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
-                        <span x-show="!busy">Create</span>
-                        <span x-show="busy">Working…</span>
+                        <span x-show="!busy">{{ t('schedules_list.submit_create') }}</span>
+                        <span x-show="busy">{{ t('schedules_list.submit_working') }}</span>
                     </button>
                 </div>
             </div>
@@ -198,7 +198,7 @@ function schedulesPage() {
                 this.templates = t;
                 this.servers = sv;
             } catch (e) {
-                toast(e.message || 'Failed to load', 'error');
+                toast(e.message || '{{ t('schedules_list.toast_load_failed') }}', 'error');
             } finally {
                 this.loading = false;
             }
@@ -241,7 +241,7 @@ function schedulesPage() {
                 this.cronError = '';
                 this.cronPreview = r.next_runs || [];
             } catch (e) {
-                this.cronError = e.message || 'invalid expression';
+                this.cronError = e.message || '{{ t('schedules_list.cron_invalid') }}';
                 this.cronPreview = [];
             }
         },
@@ -252,7 +252,7 @@ function schedulesPage() {
                 let action_config = {};
                 if (this.form.action_type === 'task') {
                     if (!this.form.template_id || !this.form.server_id) {
-                        toast('Pick a template and a server', 'error');
+                        toast('{{ t('schedules_list.toast_pick_template_server') }}', 'error');
                         this.busy = false;
                         return;
                     }
@@ -272,10 +272,10 @@ function schedulesPage() {
                     }),
                 });
                 this.showCreate = false;
-                toast('Schedule created');
+                toast('{{ t('schedules_list.toast_created') }}');
                 await this.load();
             } catch (e) {
-                toast(e.message || 'Create failed', 'error');
+                toast(e.message || '{{ t('schedules_list.toast_create_failed') }}', 'error');
             } finally {
                 this.busy = false;
             }
@@ -286,7 +286,7 @@ function schedulesPage() {
                 await api(`/api/v1/schedules/${s.id}/${path}`, { method: 'POST' });
                 await this.load();
             } catch (e) {
-                toast(e.message || 'Toggle failed', 'error');
+                toast(e.message || '{{ t('schedules_list.toast_toggle_failed') }}', 'error');
             }
         },
         async runNow(s) {
@@ -295,21 +295,21 @@ function schedulesPage() {
                 if (r.task_run_id) {
                     window.location = `/tasks/runs/${r.task_run_id}`;
                 } else {
-                    toast(`Run ${r.status}`);
+                    toast('{{ t('schedules_list.toast_run_status') }}'.replace('%{status}', r.status));
                     await this.load();
                 }
             } catch (e) {
-                toast(e.message || 'Run failed', 'error');
+                toast(e.message || '{{ t('schedules_list.toast_run_failed') }}', 'error');
             }
         },
         async remove(s) {
-            if (!confirm(`Delete schedule "${s.name}"?`)) return;
+            if (!confirm('{{ t('schedules_list.confirm_delete') }}'.replace('%{name}', s.name))) return;
             try {
                 await api(`/api/v1/schedules/${s.id}`, { method: 'DELETE' });
-                toast('Schedule deleted');
+                toast('{{ t('schedules_list.toast_deleted') }}');
                 await this.load();
             } catch (e) {
-                toast(e.message || 'Delete failed', 'error');
+                toast(e.message || '{{ t('schedules_list.toast_delete_failed') }}', 'error');
             }
         },
     };

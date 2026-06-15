@@ -1,33 +1,33 @@
 {% extends "base.html" %}
-{% block title %}Team{% endblock %}
+{% block title %}{{ t('team_index.title') }}{% endblock %}
 
 {% block content %}
 <div x-data="teamPage()" x-init="load()" class="p-6 max-w-7xl space-y-6">
     <div class="flex items-end justify-between gap-4">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Team</h2>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('team_index.heading') }}</h2>
             <p class="text-sm text-gray-500 mt-1">
-                Invite teammates and manage their global roles. Project-specific access is set on each project's <span class="font-medium">Members</span> tab.
+                {{ t('team_index.subtitle') | safe }}
             </p>
         </div>
         <button @click="showInvite = true; inviteResult = null"
                 class="px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
-            + Invite user
+            {{ t('team_index.invite_user_button') }}
         </button>
     </div>
 
     <!-- ── Users table ──────────────────────────────────────── -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
-        <div x-show="loading" class="p-6 text-sm text-gray-500">Loading…</div>
+        <div x-show="loading" class="p-6 text-sm text-gray-500">{{ t('common.loading') }}</div>
         <table x-show="!loading && users.length" x-cloak class="w-full text-sm">
             <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase text-gray-500 dark:text-gray-400">
                 <tr>
-                    <th class="text-left px-4 py-2">User</th>
-                    <th class="text-left px-4 py-2">Role</th>
-                    <th class="text-left px-4 py-2">Status</th>
-                    <th class="text-left px-4 py-2">2FA</th>
-                    <th class="text-left px-4 py-2">Joined</th>
-                    <th class="text-right px-4 py-2">Actions</th>
+                    <th class="text-left px-4 py-2">{{ t('team_index.col_user') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('team_index.col_role') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('team_index.col_status') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('team_index.col_2fa') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('team_index.col_joined') }}</th>
+                    <th class="text-right px-4 py-2">{{ t('team_index.col_actions') }}</th>
                 </tr>
             </thead>
             <tbody>
@@ -47,24 +47,24 @@
                                   x-text="u.global_role"></span>
                         </td>
                         <td class="px-4 py-3 text-gray-600 dark:text-gray-300"
-                            x-text="u.is_active ? 'Active' : 'Disabled'"></td>
+                            x-text="u.is_active ? '{{ t('team_index.status_active') }}' : '{{ t('team_index.status_disabled') }}'"></td>
                         <td class="px-4 py-3 text-gray-600 dark:text-gray-300"
-                            x-text="u.has_2fa ? 'On' : '—'"></td>
+                            x-text="u.has_2fa ? '{{ t('team_index.twofa_on') }}' : '—'"></td>
                         <td class="px-4 py-3 text-xs text-gray-500" x-text="u.created_at"></td>
                         <td class="px-4 py-3 text-right space-x-1">
                             <button x-show="me && me.global_role === 'owner' && u.id !== me.id"
                                     @click="openRoleEdit(u)"
-                                    class="text-xs text-gray-500 hover:text-blue-600 dark:hover:text-blue-400">Change role</button>
+                                    class="text-xs text-gray-500 hover:text-blue-600 dark:hover:text-blue-400">{{ t('team_index.change_role') }}</button>
                             <button x-show="u.id !== (me && me.id)"
                                     @click="removeUser(u)"
-                                    class="text-xs text-gray-500 hover:text-red-600 dark:hover:text-red-400">Delete</button>
+                                    class="text-xs text-gray-500 hover:text-red-600 dark:hover:text-red-400">{{ t('team_index.delete') }}</button>
                         </td>
                     </tr>
                 </template>
             </tbody>
         </table>
         <div x-show="!loading && !users.length" x-cloak class="p-6 text-sm text-gray-500">
-            No users yet.
+            {{ t('team_index.empty_users') }}
         </div>
     </div>
 
@@ -73,36 +73,36 @@
          class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
         <div @click.outside="showInvite = false; inviteResult = null"
              class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 w-full max-w-md p-6 space-y-4">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white">Invite user</h3>
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('team_index.invite_modal_title') }}</h3>
             <template x-if="!inviteResult">
                 <div class="space-y-3">
                     <div>
-                        <label class="text-xs text-gray-500 dark:text-gray-400">Email</label>
+                        <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('team_index.email_label') }}</label>
                         <input type="email" x-model="inviteForm.email"
                                class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                placeholder="alice@example.com">
                     </div>
                     <div>
-                        <label class="text-xs text-gray-500 dark:text-gray-400">Default global role</label>
+                        <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('team_index.default_role_label') }}</label>
                         <select x-model="inviteForm.global_role"
                                 class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-                            <option value="user">User (no system privileges)</option>
-                            <option value="admin">Admin (Owner-only)</option>
+                            <option value="user">{{ t('team_index.role_option_user') }}</option>
+                            <option value="admin">{{ t('team_index.role_option_admin') }}</option>
                         </select>
                     </div>
                     <div>
-                        <label class="text-xs text-gray-500 dark:text-gray-400">Link expires (hours)</label>
+                        <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('team_index.link_expires_label') }}</label>
                         <input type="number" min="1" max="168" x-model.number="inviteForm.ttl_hours"
                                class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
                     </div>
                     <div class="flex justify-end gap-2 pt-2">
                         <button @click="showInvite = false"
-                                class="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300">Cancel</button>
+                                class="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300">{{ t('common.cancel') }}</button>
                         <button @click="sendInvite()"
                                 :disabled="inviteBusy"
                                 class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
-                            <span x-show="!inviteBusy">Create invite</span>
-                            <span x-show="inviteBusy">Working…</span>
+                            <span x-show="!inviteBusy">{{ t('team_index.create_invite') }}</span>
+                            <span x-show="inviteBusy">{{ t('team_index.working') }}</span>
                         </button>
                     </div>
                 </div>
@@ -110,21 +110,21 @@
             <template x-if="inviteResult">
                 <div class="space-y-3">
                     <p class="text-sm text-gray-600 dark:text-gray-300">
-                        Send this one-time link to <span class="font-medium" x-text="inviteResult.email"></span>.
-                        It will not be shown again.
+                        {{ t('team_index.invite_link_intro') }} <span class="font-medium" x-text="inviteResult.email"></span>.
+                        {{ t('team_index.invite_link_warning') }}
                     </p>
                     <div class="flex items-stretch border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                         <code class="flex-1 px-3 py-2 text-xs bg-gray-50 dark:bg-gray-800 overflow-x-auto whitespace-nowrap"
                               x-text="window.location.origin + inviteResult.invite_url"></code>
                         <button @click="copyText(window.location.origin + inviteResult.invite_url)"
-                                class="px-3 text-xs bg-blue-600 hover:bg-blue-700 text-white">Copy</button>
+                                class="px-3 text-xs bg-blue-600 hover:bg-blue-700 text-white">{{ t('common.copy') }}</button>
                     </div>
                     <p class="text-xs text-gray-500">
-                        Expires in <span x-text="inviteResult.ttl_hours"></span> hours.
+                        {{ t('team_index.expires_in_prefix') }} <span x-text="inviteResult.ttl_hours"></span> {{ t('team_index.expires_in_suffix') }}
                     </p>
                     <div class="flex justify-end pt-2">
                         <button @click="showInvite = false; inviteResult = null; load()"
-                                class="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg">Done</button>
+                                class="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg">{{ t('team_index.done') }}</button>
                     </div>
                 </div>
             </template>
@@ -152,7 +152,7 @@ function teamPage() {
                 this.users = users;
                 this.me = me;
             } catch (e) {
-                toast(e.message || 'Failed to load', 'error');
+                toast(e.message || '{{ t('team_index.toast_load_failed') }}', 'error');
             } finally {
                 this.loading = false;
             }
@@ -166,33 +166,33 @@ function teamPage() {
                     body: JSON.stringify(this.inviteForm),
                 });
             } catch (e) {
-                toast(e.message || 'Invite failed', 'error');
+                toast(e.message || '{{ t('team_index.toast_invite_failed') }}', 'error');
             } finally {
                 this.inviteBusy = false;
             }
         },
         async removeUser(u) {
-            if (!confirm(`Delete ${u.username}? This cannot be undone.`)) return;
+            if (!confirm('{{ t('team_index.confirm_delete_user') }}'.replace('%{username}', u.username))) return;
             try {
                 await api(`/api/v1/users/${u.id}`, { method: 'DELETE' });
-                toast('User deleted');
+                toast('{{ t('team_index.toast_user_deleted') }}');
                 await this.load();
             } catch (e) {
-                toast(e.message || 'Delete failed', 'error');
+                toast(e.message || '{{ t('team_index.toast_delete_failed') }}', 'error');
             }
         },
         async openRoleEdit(u) {
-            const next = prompt(`New global role for ${u.username} (owner/admin/user):`, u.global_role);
+            const next = prompt('{{ t('team_index.prompt_new_role') }}'.replace('%{username}', u.username), u.global_role);
             if (!next || next === u.global_role) return;
             try {
                 await api(`/api/v1/users/${u.id}/role`, {
                     method: 'PUT',
                     body: JSON.stringify({ global_role: next }),
                 });
-                toast('Role updated');
+                toast('{{ t('team_index.toast_role_updated') }}');
                 await this.load();
             } catch (e) {
-                toast(e.message || 'Role change failed', 'error');
+                toast(e.message || '{{ t('team_index.toast_role_change_failed') }}', 'error');
             }
         },
     };
