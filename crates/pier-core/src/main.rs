@@ -12,6 +12,7 @@ mod docker;
 mod error;
 mod federation;
 mod git;
+mod i18n;
 mod network;
 mod proxy;
 mod registry;
@@ -22,6 +23,11 @@ mod tasks;
 mod timezone;
 mod tls;
 mod ui;
+
+// Load the embedded translation catalog (`crates/pier-core/locales/*.yml`).
+// English is the source/fallback locale. Must live at the crate root so the
+// `t!` macro can resolve `crate::_rust_i18n_translate` anywhere in the crate.
+rust_i18n::i18n!("locales", fallback = "en");
 
 use std::sync::{Arc, Mutex};
 

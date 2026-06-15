@@ -64,6 +64,10 @@ sysinfo = "0.38.3"
 minijinja = { version = "2.19", features = ["loader", "json"] }
 rust-embed = { version = "8.11", features = ["compression"] }
 
+# i18n — admin panel localization. English is the source locale; translations
+# live in `crates/pier-core/locales/*.yml` and are embedded at compile time.
+rust-i18n = "4.1"
+
 # Auth & Crypto
 bcrypt = "0.19"
 rand = "0.10"

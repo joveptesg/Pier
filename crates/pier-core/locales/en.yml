@@ -1,0 +1,14 @@
+# English — source locale for the Pier admin panel.
+#
+# This is the canonical catalog: every user-facing string lives here as a key.
+# Other languages are added later as sibling files (`ru.yml`, `zh-CN.yml`, …);
+# missing keys fall back to this file (`i18n!(.., fallback = "en")`).
+#
+# Key convention: <area>.<screen>.<element>. Shared words go under `common.*`.
+# Interpolation uses `%{name}` placeholders; the MiniJinja `t()` bridge fills
+# them from template kwargs.
+
+# --- Step 1 spike fixtures (temporary; removed once the real catalog lands) ---
+spike:
+  plain: Spike works
+  interp: "Hello, %{name}"

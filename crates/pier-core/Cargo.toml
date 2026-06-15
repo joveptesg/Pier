@@ -52,6 +52,9 @@ sysinfo = { workspace = true }
 minijinja = { workspace = true }
 rust-embed = { workspace = true }
 
+# i18n — admin panel localization (English source locale)
+rust-i18n = { workspace = true }
+
 # Auth & Crypto
 bcrypt = { workspace = true }
 rand = { workspace = true }
