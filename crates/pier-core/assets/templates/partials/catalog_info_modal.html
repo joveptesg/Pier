@@ -9,7 +9,7 @@
          @click.stop>
         <button @click="closeInfo()"
                 class="absolute top-3 right-3 p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                aria-label="Close">
+                aria-label="{{ t('catalog_info_modal.close') }}">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -29,7 +29,7 @@
             <template x-for="(para, idx) in infoParagraphs" :key="idx">
                 <p x-text="para"></p>
             </template>
-            <p x-show="infoParagraphs.length === 0" class="italic text-gray-500" x-text="'No extended description available for this template yet.'"></p>
+            <p x-show="infoParagraphs.length === 0" class="italic text-gray-500" x-text="'{{ t('catalog_info_modal.no_extended_description') }}'"></p>
         </div>
 
         <template x-if="infoItem?.tags?.length">
@@ -44,11 +44,11 @@
         <div class="mt-6 flex items-center justify-end gap-2 border-t border-gray-200 dark:border-gray-800 pt-4">
             <button @click="closeInfo()"
                     class="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors">
-                Close
+                {{ t('catalog_info_modal.close') }}
             </button>
             <a :href="'/resources/new/' + infoItem?.id + projectQuery"
                class="px-3 py-1.5 text-sm font-medium bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-md hover:bg-gray-700 dark:hover:bg-gray-100 transition-colors">
-                Deploy this service →
+                {{ t('catalog_info_modal.deploy_this_service') }} →
             </a>
         </div>
     </div>

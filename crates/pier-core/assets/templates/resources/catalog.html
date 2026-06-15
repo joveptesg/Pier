@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}New Resource{% endblock %}
+{% block title %}{{ t('resources_catalog.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="catalogData()" x-init="init()">
@@ -10,8 +10,8 @@
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             </a>
             <div>
-                <h2 class="text-xl font-semibold text-gray-900 dark:text-white">New Resource</h2>
-                <p class="text-sm text-gray-500 mt-0.5">Select a resource to deploy on your server</p>
+                <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('resources_catalog.heading') }}</h2>
+                <p class="text-sm text-gray-500 mt-0.5">{{ t('resources_catalog.subtitle') }}</p>
             </div>
         </div>
     </div>
@@ -20,7 +20,7 @@
     <div class="flex items-center gap-3">
         <div class="flex-1 relative">
             <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            <input x-model="search" type="text" placeholder="Search..."
+            <input x-model="search" type="text" placeholder="{{ t('resources_catalog.search_placeholder') }}"
                    @keydown.slash.window.prevent="$el.focus()"
                    class="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg
                           text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
@@ -28,23 +28,23 @@
         <select x-model="filter"
                 class="px-3 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg
                        text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">All categories</option>
-            <option value="git">Git Based</option>
-            <option value="application">Docker Based</option>
-            <option value="database">Databases</option>
-            <option value="service">Services</option>
+            <option value="">{{ t('resources_catalog.filter_all') }}</option>
+            <option value="git">{{ t('resources_catalog.category_git') }}</option>
+            <option value="application">{{ t('resources_catalog.category_docker') }}</option>
+            <option value="database">{{ t('resources_catalog.category_databases') }}</option>
+            <option value="service">{{ t('resources_catalog.category_services') }}</option>
         </select>
     </div>
 
     <!-- Loading -->
-    <div x-show="loading" class="text-center py-12 text-gray-500">Loading catalog...</div>
+    <div x-show="loading" class="text-center py-12 text-gray-500">{{ t('resources_catalog.loading') }}</div>
 
     <!-- Catalog Grid -->
     <div x-show="!loading" class="space-y-8">
 
         <!-- Git Based -->
         <div x-show="filteredByCategory('git').length > 0">
-            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Git Based</h3>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ t('resources_catalog.category_git') }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('git')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
@@ -53,7 +53,7 @@
                         <button
                             @click.stop.prevent="openInfo(item)"
                             class="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors z-10"
-                            :aria-label="'About ' + item.name">
+                            :aria-label="'{{ t('resources_catalog.about_aria') }} ' + item.name">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
@@ -74,7 +74,7 @@
 
         <!-- Docker Based -->
         <div x-show="filteredByCategory('application').length > 0">
-            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Docker Based</h3>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ t('resources_catalog.category_docker') }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('application')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
@@ -83,7 +83,7 @@
                         <button
                             @click.stop.prevent="openInfo(item)"
                             class="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors z-10"
-                            :aria-label="'About ' + item.name">
+                            :aria-label="'{{ t('resources_catalog.about_aria') }} ' + item.name">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
@@ -104,7 +104,7 @@
 
         <!-- Databases -->
         <div x-show="filteredByCategory('database').length > 0">
-            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Databases</h3>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ t('resources_catalog.category_databases') }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('database')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
@@ -113,7 +113,7 @@
                         <button
                             @click.stop.prevent="openInfo(item)"
                             class="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors z-10"
-                            :aria-label="'About ' + item.name">
+                            :aria-label="'{{ t('resources_catalog.about_aria') }} ' + item.name">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
@@ -134,7 +134,7 @@
 
         <!-- Services -->
         <div x-show="filteredByCategory('service').length > 0">
-            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Services</h3>
+            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{{ t('resources_catalog.category_services') }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <template x-for="item in filteredByCategory('service')" :key="item.id">
                     <a :href="'/resources/new/' + item.id + projectQuery"
@@ -143,7 +143,7 @@
                         <button
                             @click.stop.prevent="openInfo(item)"
                             class="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors z-10"
-                            :aria-label="'About ' + item.name">
+                            :aria-label="'{{ t('resources_catalog.about_aria') }} ' + item.name">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
@@ -164,13 +164,12 @@
 
         <!-- Empty state -->
         <div x-show="filtered().length === 0" class="text-center py-12 text-gray-500">
-            <p>No templates match your search</p>
+            <p>{{ t('resources_catalog.empty_state') }}</p>
         </div>
 
         <!-- Trademarks -->
         <p class="text-xs text-gray-400 dark:text-gray-600 text-center pt-4">
-            The respective trademarks mentioned in this page are owned by the respective companies,
-            and use of them does not imply any affiliation or endorsement.
+            {{ t('resources_catalog.trademarks_note') }}
         </p>
     </div>
 
@@ -191,7 +190,7 @@ function catalogData() {
             try {
                 this.items = await fetch('/api/v1/catalog').then(r => r.json());
             } catch (e) {
-                toast('Failed to load catalog', 'error');
+                toast('{{ t('resources_catalog.load_failed') }}', 'error');
             }
             this.loading = false;
         },

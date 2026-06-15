@@ -526,6 +526,596 @@ servers_detail:
   toast_token_rotated: Token rotated; agent is restarting
   toast_rotate_failed: "Rotate failed:"
 
+# Resource catalog picker (resources/catalog.html).
+resources_catalog:
+  title: New Resource
+  heading: New Resource
+  subtitle: Select a resource to deploy on your server
+  search_placeholder: Search...
+  filter_all: All categories
+  category_git: Git Based
+  category_docker: Docker Based
+  category_databases: Databases
+  category_services: Services
+  loading: Loading catalog...
+  about_aria: About
+  empty_state: No templates match your search
+  trademarks_note: The respective trademarks mentioned in this page are owned by the respective companies, and use of them does not imply any affiliation or endorsement.
+  load_failed: Failed to load catalog
+
+# Resource creation wizard (resources/create.html).
+resources_create:
+  page_title: Deploy Resource
+  deploy_heading: Deploy
+  loading_template: Loading template...
+  service_name_label: Service Name
+  service_name_fallback: service
+  service_name_hint: Name used for the container and stack
+  railpack_first_build_title: First build may take 1–10 minutes
+  railpack_first_build_body: "Railpack downloads dependencies and compiles your project from source. Peak RAM usage: Node ~3 GB, Python ~4 GB, Rust ~8 GB. The buildkit container holds layer cache between builds so subsequent deploys are much faster."
+  railpack_low_ram_title: "Your server has only %{ram} GB RAM"
+  railpack_low_ram_body: 'Railpack builds will likely fail with out-of-memory errors on this host. Recommended: <strong>4 GB+ RAM</strong> (8 GB for Rust projects). Lighter alternatives that work fine on small VPS: <a href="/resources/new/dockerfile" class="underline hover:no-underline">Dockerfile</a>, <a href="/resources/new/docker-image" class="underline hover:no-underline">Docker Image</a>, or <a href="/resources/new/docker-compose" class="underline hover:no-underline">Docker Compose</a>.'
+  railpack_pick_github: Pick from a connected GitHub App
+  railpack_pick_github_note: (optional — leave blank for public repos)
+  github_app_source_label: GitHub App source
+  source_none_option: "— None (public repo, or paste URL below) —"
+  add_source_button: + Add
+  railpack_no_sources: 'No GitHub App sources configured. <a href="/sources" class="underline">Connect one</a> to deploy private repos.'
+  repository_label: Repository
+  select_repository_option: Select a repository...
+  private_suffix: (private)
+  loading_repositories: Loading repositories...
+  repo_filled_hint: URL and branch filled below — adjust port / start command as needed.
+  auto_generated_placeholder: Auto-generated if empty
+  generate_button: Generate
+  railpack_start_cmd_hint: "Leave empty to let Railpack auto-detect from your project (e.g. <code>npm start</code> for Node, <code>python app.py</code> for Python). Override only if you need a custom entry point."
+  railpack_env_vars_hint: "One <code>KEY=VALUE</code> per line. Available during <em>build</em> only — for runtime env use the Environment tab after the service is created. Comments (<code>#</code>) and blank lines are ignored."
+  deployment_mode_label: Deployment Mode
+  standalone_button: Standalone
+  cluster_button: Cluster
+  cluster_unavailable_hint: Add remote servers to enable cluster mode
+  number_of_nodes_label: Number of Nodes
+  nodes_suffix: nodes
+  node_distribution_label: Node Distribution
+  node_primary: Primary
+  node_replica: Replica
+  local_suffix: (local)
+  select_github_app_label: Select a GitHub App
+  select_github_app_source_option: Select a GitHub App source...
+  wizard_no_sources: 'No GitHub App sources. <a href="/sources" class="underline">Connect one first</a>.'
+  pick_from_list_button: Pick from list
+  enter_url_manually_button: Enter URL manually
+  already_deployed_suffix: "— already deployed"
+  repos_already_deployed_hint: repository(ies) already deployed on this Pier — you can deploy them again (e.g. a different compose file).
+  change_repos_github: Change Repositories on GitHub ↗
+  manual_url_hint: Must be a repository your GitHub App installation can access. Authentication uses the selected source above.
+  configuration_heading: Configuration
+  branch_label: Branch
+  loading_branches: Loading branches...
+  build_pack_label: Build Pack
+  build_pack_railpack_option: Railpack (Auto-build)
+  dockerfile_path_label: Dockerfile Path
+  compose_location_label: Compose Location
+  port_label: Port
+  wizard_railpack_note: Railpack auto-detects the language and start command. First build can take 1-10 minutes and needs ~4 GB RAM (8 GB for Rust). For overrides (start command / build-time env vars), use the standalone Railpack template.
+  project_label: Project (optional)
+  no_project_option: No project
+  network_label: Network
+  default_suffix: (default)
+  target_server_label: Target Server
+  local_dash_suffix: "— local"
+  offline_suffix: "[offline]"
+  target_server_hint: Server where the resource will be deployed
+  host_port_label: Host Port (optional)
+  host_port_auto_placeholder: auto
+  host_port_hint: "Leave empty for auto: Pier tries the standard port (e.g. 5432 for Postgres), falls back to its pool if taken."
+  btn_creating: Creating...
+  btn_continue: Continue
+  btn_deploy_cluster: Deploy Cluster
+  btn_deploy: Deploy
+  toast_load_failed: Failed to load template
+  toast_name_required: Name is required
+  toast_select_source_first: Select a GitHub App source first
+  err_invalid_url: Enter a full HTTPS URL like
+  toast_repo_url_invalid: Repository URL is invalid
+  toast_deployed_success: deployed successfully
+  toast_resource_exists: 'Resource "%{name}" already exists — opening it'
+
+# Catalog info modal partial (partials/catalog_info_modal.html).
+catalog_info_modal:
+  close: Close
+  no_extended_description: No extended description available for this template yet.
+  deploy_this_service: Deploy this service
+
+# Resource detail (resources/detail.html). Large multi-tab screen.
+resources_detail:
+  page_title: Resource
+  rename_hint: Double-click to rename
+  save: Save
+  deploying: deploying
+  redeploy: Redeploy
+  force_deploy: Force deploy (without cache)
+  deploy: Deploy
+  start: Start
+  stop: Stop
+  restart: Restart
+  env_dirty_title: Environment changes not applied
+  env_dirty_desc: The running container still uses the previous values. Redeploy to apply the new environment.
+  redeploy_now: Redeploy now
+  tab_overview: Overview
+  tab_databases: Databases
+  tab_data: Data
+  tab_monitor: Monitor
+  tab_environment: Environment
+  tab_domains: Domains
+  tab_scale: Scale
+  tab_git: Git
+  tab_deployments: Deployments
+  tab_logs: Logs
+  tab_backups: Backups
+  tab_danger: Danger Zone
+  cluster_nodes: Cluster Nodes
+  nodes: nodes
+  add_node: + Add Node
+  remove_node: "- Remove Node"
+  primary: Primary
+  replica: Replica
+  ports: Ports
+  public: Public
+  local: Local
+  domains_plural: domains
+  domain_singular: domain
+  replicas_load_balanced: replicas &mdash; Traefik load-balances internally
+  no_ports: No ports allocated
+  public_port: Public Port
+  make_public: Make it publicly available
+  make_public_desc: "Raw TCP exposure (e.g. DB clients) via direct Docker port binding. Toggling recreates this service's container (~3 s downtime); the platform stays online. For HTTP access, use the Domains tab."
+  recreating_container: Recreating service container with new port binding...
+  reachable_via: Reachable via
+  domain_label: domain
+  reachable_via_suffix: (HTTPS through Traefik). This toggle only affects raw TCP exposure — domains stay live regardless. Manage them in the Domains section below.
+  details: Details
+  image: Image
+  mode: Mode
+  mode_cluster: Cluster
+  mode_standalone: Standalone
+  created: Created
+  project: Project
+  network: Network
+  domains: Domains
+  multi_service: multi-service
+  reload_compose_title: Re-read docker-compose.yml from git and refresh port_allocations + Traefik routes (no rebuild)
+  reload_from_git: ↻ Reload from git
+  reloading: Reloading...
+  add_domain: + Add Domain
+  manage_in_domains_tab: Manage in Domains tab →
+  no_domains: No domains configured
+  th_domain: Domain
+  th_target: Target
+  th_status: Status
+  th_ssl: SSL
+  th_actions: Actions
+  auto: auto
+  inactive: inactive
+  active: active
+  activate_domain: Activate domain
+  deactivate_domain: Deactivate domain
+  edit_domain_title: Edit (path, strip prefix)
+  remove_domain_title: Remove domain (destructive)
+  internal_network: Internal Network
+  internal_network_hint: Use these to connect services within Docker network (pier-net)
+  connection_urls: Connection URLs
+  hide_passwords: Hide passwords
+  show_passwords: Show passwords
+  hide: Hide
+  show: Show
+  host_from_server: Host (from server)
+  docker_from_containers: Docker (from containers in pier-net)
+  public_from_anywhere: Public (from anywhere)
+  advanced: Advanced
+  auto_deploy: Auto Deploy
+  auto_deploy_desc: Automatically deploy when a git push is received
+  force_https: Force HTTPS
+  force_https_desc: Redirect HTTP to HTTPS for all domains
+  docker_compose: Docker Compose
+  raw: raw
+  load_from_git: Load from Git
+  compose_empty_hint: 'Deploy to see compose content, or click "Load from Git" to preview.'
+  command: Command
+  editor_audited_suffix: · Editor · audited
+  run: Run
+  scan: Scan
+  no_keys: No keys in this DB.
+  load_more: Load more…
+  select_key: Select a key to view its value.
+  th_field: Field
+  th_value: Value
+  th_member: Member
+  th_score: Score
+  mongo_shell: Mongo Shell
+  running_ellipsis: Running…
+  database: Database
+  no_collections: No collections.
+  select_collection: Select a collection to view documents.
+  skip: skip
+  total: total
+  prev: Prev
+  next: Next
+  no_documents: No documents.
+  sql_runner: SQL Runner
+  sql_editor_role_hint: Editor role required. Statements are audited.
+  history: History
+  history_load_title: Click to load into the runner
+  rows: rows
+  no_history: No history yet.
+  rows_affected: row(s) affected
+  rows_count: row(s)
+  truncated_1000: "— truncated to first 1000"
+  export: "Export:"
+  no_rows_returned: No rows returned.
+  exit_fullscreen: Exit full screen
+  fullscreen: Full screen
+  minimize: Minimize
+  maximize: Maximize
+  no_tables: no tables
+  rows_estimate: rows (estimate)
+  no_tables_in_db: No tables in this database.
+  select_table: Select a table to view its structure and data.
+  view_data: Data
+  view_structure: Structure
+  th_column: Column
+  th_type: Type
+  th_nullable: Nullable
+  th_default: Default
+  primary_key: Primary key
+  "yes": "YES"
+  "no": "NO"
+  add_row: + Row
+  filter_column: "— filter column —"
+  value_placeholder: value
+  apply: Apply
+  clear: Clear
+  click_to_view: Click to view
+  no_rows: No rows.
+  of: of
+  edit: Edit
+  delete_row: Delete row
+  confirm_delete: Confirm delete
+  read_only_no_pk: read-only (no PK)
+  saving: Saving…
+  set_null: Set NULL
+  set_value: Set value
+  updates_by_pk_prefix: Updates
+  updates_by_pk_suffix: by primary key · Editor · audited.
+  insert_row: "Insert row —"
+  default_prefix: "default: "
+  null_default: NULL / default
+  insert: Insert
+  inserting: Inserting…
+  empty_db_default: Empty = DB default · Editor · audited
+  monitor_intro: "<strong>MONITOR</strong> streams every command (and its data) the server runs — so you can see ephemeral / short-TTL key activity that the Data tab's snapshot and the Docker logs never show. <strong>Editor only · audited.</strong> It adds load to Redis while running — keep it open only while debugging; <strong>Stop</strong> closes the stream and removes the load immediately."
+  live: live
+  monitor_filter_placeholder: "filter (e.g. foooh:)"
+  autoscroll: autoscroll
+  monitor_idle_hint: 'Press <strong>Start</strong> to stream live Redis commands. Trigger activity in your app and watch the keys (e.g. <span class="font-mono">"SET" "foooh:…"</span>) appear in real time, with the DB index in brackets.'
+  databases: Databases
+  create_database_btn: + Create Database
+  th_database: Database
+  th_owner: Owner
+  th_password: Password
+  th_size: Size
+  th_connection_url: Connection URL
+  restore_from_file: Restore from file
+  change_password_title: Change password
+  delete_database_title: Delete database
+  no_databases: No databases found
+  create_database: Create Database
+  database_name: Database Name
+  username: Username
+  password: Password
+  auto_generated_placeholder: Auto-generated if empty
+  generate: Generate
+  postgis_extensions: PostGIS extensions
+  creating: Creating...
+  create: Create
+  change_password: Change Password
+  database_colon: "Database:"
+  user_colon: "User:"
+  new_password: New Password
+  changing: Changing...
+  restore_database: Restore Database
+  owner_colon: "Owner:"
+  restore_warning_prefix: ⚠ The database
+  restore_warning_suffix: will be <strong>dropped and recreated</strong>. All current data will be lost.
+  backup_file: Backup file
+  restore_accepted_hint: "Accepted: .dump (Postgres custom), .sql.gz, .tar.gz cluster, .archive.gz (Mongo). Max 5 GB."
+  restoring: Restoring…
+  restore: Restore
+  env_variables: Environment Variables
+  add: + Add
+  hide_values: Hide Values
+  show_values: Show Values
+  developer_view: Developer view
+  normal_view: Normal view
+  no_env_variables: No environment variables
+  env_dev_hint1: "These variables are auto-injected into every service via <code>env_file: .env</code>. Define <code>environment:</code> in your <code>docker-compose.yml</code> only to override."
+  env_dev_hint2: Inline comments with space before # (e.g., KEY=value #comment) are stripped.
+  reset: Reset
+  save_redeploy: Save & Redeploy
+  add_domain_btn: Add Domain
+  no_domains_service: No domains configured for this service
+  activate: Activate
+  deactivate: Deactivate
+  delete: Delete
+  stack_defines_prefix: This stack defines
+  stack_defines_suffix: services. Each can have its own domain(s); routing goes to the matching container.
+  domains_for: Domains for
+  container_label: "Container:"
+  port_label: · port
+  orphaned_domains: Orphaned domains
+  orphaned_domains_desc: 'These domains reference compose services that no longer exist in <span class="font-mono">docker-compose.yml</span>. Delete or fix the compose file.'
+  scale_load_balancer: Scale &amp; Load Balancer
+  scale_desc1: Run multiple replicas of this service and distribute traffic via Traefik.
+  scale_desc2: The public URL and port stay the same — each replica gets its own internal host port used only for routing.
+  replicas_plural: replicas
+  replica_singular: replica
+  total_replicas: Total replicas
+  strategy: Strategy
+  strategy_round_robin: Round-robin
+  strategy_weighted: Weighted
+  strategy_sticky: Sticky sessions (cookie)
+  session_cookie_name: Session cookie name
+  per_server_placement: Per-server placement
+  per_server_placement_desc: On which servers to run replicas, and how many per server.
+  replicas_label: replicas
+  weight_label: weight
+  running_of_requested: running of %{total} requested
+  running: running
+  applying: Applying…
+  git_configuration: Git Configuration
+  repository_url: Repository URL
+  branch: Branch
+  build_strategy: Build Strategy
+  git_source_optional: Git Source (optional)
+  none_public_repo: None (public repo)
+  monorepo_optional: Monorepo (optional)
+  root_directory: Root directory
+  root_directory_hint: Subdirectory used as the build context. Empty = repo root.
+  watch_paths: Watch paths
+  watch_paths_hint: One glob per line. A push redeploys this service only if a changed file matches. Empty = derive from root directory, or watch everything.
+  save_git_config: Save Git Config
+  dependencies: Dependencies
+  dependencies_desc: When one of these is redeployed by a push, this service redeploys too. Same project only.
+  remove: Remove
+  no_dependencies: No dependencies declared.
+  select_service: Select a service…
+  webhook: Webhook
+  github_webhook_url: GitHub Webhook URL
+  gitlab_webhook_url: GitLab Webhook URL
+  webhook_secret: Webhook Secret
+  compose_in_git: docker-compose.yml in git
+  compose_live_read_prefix: Live read from
+  compose_live_read_suffix: '<strong>Reload</strong> re-syncs port_allocations + Traefik routes <em>without</em> rebuilding the container — useful when only <span class="font-mono">ports:</span> changed in git.'
+  refresh: Refresh
+  reload_ports_from_git: Reload ports from git
+  compose_refresh_hint: Click <strong>Refresh</strong> to fetch the current file from git.
+  deploy_now: Deploy Now
+  back_to_deployments: Back to deployments
+  cicd_deployments: CI/CD Deployments
+  rollback: Rollback
+  manual_deployment: Manual deployment
+  cancelling: Cancelling…
+  cancel_deploy: Cancel deploy
+  commit: Commit
+  triggered_by: Triggered by
+  duration: Duration
+  started: Started
+  finished: Finished
+  build_log: Build Log
+  autoscroll_bottom: Auto-scroll to bottom
+  copy_log: Copy log
+  page: Page
+  services: Services
+  logs: Logs
+  lines_label: "Lines:"
+  font_label: "Font:"
+  find_in_logs: Find in logs
+  stop_streaming: Stop streaming
+  start_streaming: Start streaming
+  download_logs: Download logs
+  follow_autoscroll: Follow (auto-scroll)
+  no_logs: No logs available
+  matches: matches
+  cluster_wide_backup: Cluster-wide backup
+  backup_desc_mongo: Single archive of the whole instance.
+  backup_desc_sql: Archive containing one dump per database.
+  backup_now: Backup now
+  edit_schedule: Edit schedule
+  configure_schedule: Configure schedule
+  delete_schedule: Delete schedule
+  cron: Cron
+  keep: Keep
+  backups: backups
+  last_run: Last run
+  never: Never
+  next_run: Next run
+  no_cluster_schedule: No cluster-wide schedule configured
+  per_db_schedules: Per-database schedules
+  per_db_schedules_desc: One independent schedule per database. Useful when one DB changes often and others don't.
+  add_schedule: Add schedule
+  th_cron: Cron
+  th_keep: Keep
+  th_last_run: Last run
+  th_next_run: Next run
+  run_now: Run now
+  no_per_db_schedules: No per-database schedules
+  backup_history: Backup history
+  cluster_badge: cluster
+  backup_singular: backup
+  last: last
+  no_backups_yet: No backups yet
+  manual: manual
+  download: Download
+  delete_backup_title: Delete backup (removes from storage)
+  danger_zone: Danger Zone
+  danger_zone_intro: Woah. I hope you know what you are doing.
+  delete_resource: Delete Resource
+  delete_resource_desc: This will stop your containers, delete all related data, etc. Beware! There is no coming back!
+  for: for
+  domain_supports_hint: "Supports: domain, https://domain, https://domain/path"
+  strip_path_prefix: Strip path prefix before forwarding
+  strip_checked_default: "Checked (default):"
+  strip_checked_text_prefix: backend receives requests at
+  strip_checked_text_mid: "— the"
+  strip_checked_text_suffix: prefix is stripped.
+  strip_unchecked: "Unchecked:"
+  strip_unchecked_text_prefix: backend receives
+  strip_unchecked_text_suffix: as-is. Use this when your backend's router itself listens on that path (Telegram-style webhook bots).
+  edit_domain: Edit Domain
+  path_prefix: Path prefix
+  path_prefix_placeholder: /api/v1 (or empty)
+  path_prefix_hint: Routes only requests matching this path. Empty = whole host.
+  strip_checked: "Checked:"
+  edit_strip_checked_text: 'backend receives requests at <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800">/</code> (prefix stripped).'
+  edit_strip_unchecked_text_prefix: backend receives the full path as-is (e.g.
+  edit_strip_unchecked_text_suffix: ") — use for Telegram-style webhooks whose router already includes the prefix."
+  hosts_databases_prefix: This service hosts
+  user_database_label: user database
+  hosts_databases_suffix: Delete each database before you can remove the service.
+  open_databases_tab: Open Databases tab
+  delete_permanent_warning: This will permanently stop and remove the container.
+  type_to_confirm_prefix: Type
+  type_to_confirm_suffix: "to confirm:"
+  account_password: Account password
+  enter_password_placeholder: Enter your password
+  delete_volumes: Also delete volumes (permanent data loss)
+  delete_s3_backups: Also delete S3 backups (cannot be recovered)
+  deleting: Deleting…
+  delete_db_warning: This will <strong>DROP DATABASE</strong> and remove its owner user from the container.
+  delete_db_s3_backups: Also delete S3 backups for this database
+  delete_db_s3_backups_hint: Cluster-wide backups (covering all databases) are kept either way.
+  restoring_from_prefix: Restoring from backup started at
+  source_label: "Source:"
+  cluster_wide_archive: cluster-wide archive
+  target_database: Target database
+  select_database: Select database...
+  target_database_hint: Must already exist in the Databases tab. Its owner credentials are reused.
+  restore_drop_warning_prefix: This will <strong>DROP</strong> the target database and replace it with the backup's contents. Data currently in
+  restore_drop_warning_suffix: will be lost.
+  to_confirm: to confirm
+  make_private_title: Make service private?
+  make_private_desc: "Disabling public access will <strong>remove the following domain(s)</strong> and tear down their HTTPS routes:"
+  make_private_note: The raw TCP port (if any) will also be closed. This is reversible — you can re-add domains later.
+  remove_domains_disable: Remove domains and disable
+  cluster_schedule_title: Cluster-wide backup schedule
+  per_db_schedule_title_prefix: "Per-database schedule: "
+  per_db_schedule_title: Per-database schedule
+  s3_storage: S3 Storage
+  select_storage: Select storage...
+  schedule: Schedule
+  cron_daily_2am: Daily at 2:00 AM
+  cron_weekly_sunday: Weekly (Sunday 2:00 AM)
+  cron_every_6h: Every 6 hours
+  cron_every_hour: Every hour
+  retention: Retention (backups to keep)
+  ext_postgis_hint: "Core: geometries, ST_* functions (required for the rest)"
+  ext_postgis_topology_hint: Topology schemas and topology-aware geometry types
+  ext_postgis_raster_hint: Raster data type and analysis functions
+  ext_fuzzystrmatch_hint: soundex, levenshtein — fuzzy string matching
+  ext_tiger_geocoder_hint: "US-only: address geocoder based on US Census TIGER data"
+  cluster_wide: Cluster-wide
+  err_conflict: Conflict
+  toast_public_enabled: Public access enabled (port %{port})
+  toast_public_disabled: Public access disabled
+  toast_public_port_updated: Public port updated to %{port}
+  confirm_change_network: Change network? This will redeploy the service.
+  toast_network_changed: Network changed
+  err_db_connect: Failed to connect to the database.
+  err_load_tables: Failed to load tables.
+  err_no_pk_editable: Table has no primary key — not editable.
+  err_update_failed: Update failed
+  err_no_pk: Table has no primary key.
+  err_delete_failed: Delete failed
+  err_enter_value: Enter at least one value (or mark a column NULL).
+  err_insert_failed: Insert failed
+  err_monitor_failed: "Monitor failed: "
+  err_load_keys: Failed to load keys.
+  err_mongo_connect: Failed to connect to MongoDB.
+  no_output: (no output)
+  confirm_destructive_sql: This looks like a destructive statement (DROP/TRUNCATE, or DELETE/UPDATE without WHERE). Run it anyway?
+  err_query_failed: Query failed
+  toast_all_fields_required: All fields required
+  toast_database_created: Database %{name} created
+  toast_database_deleted: Database deleted
+  toast_password_required: Password is required
+  toast_password_changed: Password changed
+  toast_choose_backup_file: Choose a backup file first
+  toast_database_restored: Database restored
+  toast_restore_failed: "Restore failed: "
+  building: Building...
+  toast_load_resource_failed: Failed to load resource
+  action_add_node: add a node
+  action_remove_node: remove a node
+  confirm_scale_cluster: "Scale cluster: %{action}? New count: %{count}"
+  toast_cluster_scaled: Cluster scaled to %{count} nodes
+  strategy_desc_round_robin: Requests cycle evenly across replicas. Simple and predictable — best when replicas are identical and stateless.
+  strategy_desc_weighted: Each replica gets traffic proportional to its weight. Useful when replicas run on servers with different capacity.
+  strategy_desc_sticky: Traefik sets a cookie on the first request and pins every subsequent request from that client to the same replica. Required for in-memory HTTP sessions or long-lived WebSocket connections.
+  toast_min_replica: At least 1 replica required
+  toast_sticky_cookie_required: Sticky strategy requires a cookie name
+  toast_scaled_to: Scaled to %{count} replica%{plural}
+  err_scale_failed: Scale failed
+  toast_saved_redeploying: Saved & redeploying...
+  toast_env_saved: Environment saved — redeploy to apply
+  toast_select_s3: Select an S3 storage
+  toast_select_database: Select a database
+  toast_schedule_saved: Schedule saved
+  confirm_delete_schedule: Delete this schedule? Existing backups in S3 are not removed.
+  toast_schedule_deleted: Schedule deleted
+  toast_backup_started: Backup started
+  confirm_delete_backup: Delete backup from %{when}? This removes the object from S3 too.
+  toast_backup_deleted: Backup deleted
+  toast_restore_complete: Restore complete
+  toast_resource_started: Resource started
+  toast_resource_stopped: Resource stopped
+  toast_resource_restarted: Resource restarted
+  toast_redeploying: Redeploying...
+  toast_force_deploying: Force deploying...
+  toast_resource_deleted: Resource deleted
+  log_not_deployed: Service not deployed yet
+  log_container_not_found: "Container not found: %{name}"
+  log_load_failed: Failed to load logs
+  no_log_output: No log output
+  toast_domain_required: Domain is required
+  toast_domain_added: Domain added
+  confirm_remove_domain: Remove this domain?
+  toast_domain_removed: Domain removed
+  toast_domain_activated: Domain activated — SSL provisioning
+  toast_domain_deactivated: Domain deactivated
+  confirm_deactivate_domain: Deactivate %{name}? Traefik route is removed but the SSL cert stays cached for instant reactivation.
+  toast_domain_updated: Domain updated
+  toast_pick_service: Pick a service
+  toast_dependency_added: Dependency added
+  toast_dependency_removed: Dependency removed
+  toast_repo_url_required: Repository URL is required
+  toast_git_config_saved: Git config saved
+  confirm_manual_deploy: Start a new deployment from the configured git repo?
+  toast_deploy_started: Deploy started
+  confirm_reload_compose: Reload compose from git? Ports and Traefik routes will be re-synced (the running container is NOT rebuilt).
+  toast_compose_reloaded: Compose reloaded — ports and Traefik routes refreshed
+  toast_no_git_source: No git source configured
+  toast_detected_ports: "Detected ports: "
+  toast_name_required: Name is required
+  confirm_rename: Rename will restart the container. Continue?
+  toast_service_renamed: Service renamed
+  enabled: enabled
+  disabled: disabled
+  confirm_cancel_deploy: Cancel this deployment? The build task may still finish in the background, but the deployment will be marked cancelled.
+  toast_deployment_cancelled: Deployment cancelled
+  err_cancel_failed: Cancel failed
+  confirm_rollback: Rollback to the previous version?
+  toast_rollback_started: Rollback started
+
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and
 # need a stable `%{name}` interpolation sample (no section-1 screen has one yet).

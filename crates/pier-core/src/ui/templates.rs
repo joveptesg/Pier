@@ -127,13 +127,27 @@ mod tests {
             ("projects/detail.html", "No services in this project"),
             ("servers/list.html", "Mesh Network"),
             ("servers/detail.html", "Connection Info"),
+            (
+                "resources/catalog.html",
+                "Select a resource to deploy on your server",
+            ),
+            ("resources/create.html", "Deployment Mode"),
+            ("resources/detail.html", "Danger Zone"),
         ] {
             let out = env
                 .get_template(tpl)
                 .unwrap_or_else(|_| panic!("{tpl} loads"))
-                .render(minijinja::context! { user => "admin", page => "servers" })
+                .render(minijinja::context! { user => "admin", page => "projects", catalog_id => "docker" })
                 .unwrap_or_else(|e| panic!("{tpl} renders: {e}"));
             assert!(out.contains(needle), "{tpl} should contain {needle:?}");
         }
+
+        // Partial rendered standalone (no base layout).
+        let modal = env
+            .get_template("partials/catalog_info_modal.html")
+            .expect("catalog_info_modal loads")
+            .render(minijinja::context! {})
+            .expect("catalog_info_modal renders");
+        assert!(modal.contains("No extended description available for this template yet."));
     }
 }

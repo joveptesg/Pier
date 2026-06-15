@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Deploy Resource{% endblock %}
+{% block title %}{{ t('resources_create.page_title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="createResource('{{ catalog_id }}', {{ host_total_ram_gb }})" x-init="init()">
@@ -10,14 +10,14 @@
         </a>
         <div>
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
-                Deploy <span x-text="template.name || 'Loading...'"></span>
+                {{ t('resources_create.deploy_heading') }} <span x-text="template.name || '{{ t('common.loading') }}'"></span>
             </h2>
             <p class="text-sm text-gray-500 mt-0.5" x-text="template.description || ''"></p>
         </div>
     </div>
 
     <!-- Loading -->
-    <div x-show="loading" class="text-center py-12 text-gray-500">Loading template...</div>
+    <div x-show="loading" class="text-center py-12 text-gray-500">{{ t('resources_create.loading_template') }}</div>
 
     <!-- Form -->
     <div x-show="!loading" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6 max-w-2xl">
@@ -25,22 +25,20 @@
             <!-- Service Name (first field, visible for all non-git-github-app types) -->
             <template x-if="catalogId !== 'git-github-app'">
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Service Name</label>
-                    <input x-model="form.name" type="text" :placeholder="(template.name || 'service') + '-xxxxx'"
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_create.service_name_label') }}</label>
+                    <input x-model="form.name" type="text" :placeholder="(template.name || '{{ t('resources_create.service_name_fallback') }}') + '-xxxxx'"
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                   text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                    <p class="text-xs text-gray-400 mt-0.5">Name used for the container and stack</p>
+                    <p class="text-xs text-gray-400 mt-0.5">{{ t('resources_create.service_name_hint') }}</p>
                 </div>
             </template>
 
             <!-- Railpack: general info callout (always shown when railpack selected) -->
             <template x-if="catalogId === 'railpack'">
                 <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 rounded-lg p-3 space-y-1">
-                    <p class="text-sm font-medium text-amber-800 dark:text-amber-200">First build may take 1–10 minutes</p>
+                    <p class="text-sm font-medium text-amber-800 dark:text-amber-200">{{ t('resources_create.railpack_first_build_title') }}</p>
                     <p class="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-                        Railpack downloads dependencies and compiles your project from source. Peak RAM usage:
-                        Node ~3 GB, Python ~4 GB, Rust ~8 GB. The buildkit container holds layer cache between
-                        builds so subsequent deploys are much faster.
+                        {{ t('resources_create.railpack_first_build_body') }}
                     </p>
                 </div>
             </template>
@@ -49,14 +47,10 @@
             <template x-if="catalogId === 'railpack' && hostRamGb > 0 && hostRamGb < 4">
                 <div class="bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800/40 rounded-lg p-3 space-y-1.5">
                     <p class="text-sm font-semibold text-red-800 dark:text-red-200">
-                        ⚠ Your server has only <span x-text="hostRamGb"></span> GB RAM
+                        ⚠ <span x-text="'{{ t('resources_create.railpack_low_ram_title') }}'.replace('%{ram}', hostRamGb)"></span>
                     </p>
                     <p class="text-xs text-red-700 dark:text-red-300 leading-relaxed">
-                        Railpack builds will likely fail with out-of-memory errors on this host. Recommended:
-                        <strong>4 GB+ RAM</strong> (8 GB for Rust projects). Lighter alternatives that work fine
-                        on small VPS: <a href="/resources/new/dockerfile" class="underline hover:no-underline">Dockerfile</a>,
-                        <a href="/resources/new/docker-image" class="underline hover:no-underline">Docker Image</a>, or
-                        <a href="/resources/new/docker-compose" class="underline hover:no-underline">Docker Compose</a>.
+                        {{ t('resources_create.railpack_low_ram_body') | safe }}
                     </p>
                 </div>
             </template>
@@ -64,34 +58,34 @@
             <!-- Railpack: optional GitHub App repo picker (auto-fills git_url + branch below) -->
             <template x-if="catalogId === 'railpack'">
                 <div class="space-y-2 bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
-                    <p class="text-xs font-medium text-gray-700 dark:text-gray-300">Pick from a connected GitHub App <span class="font-normal text-gray-400">(optional — leave blank for public repos)</span></p>
+                    <p class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('resources_create.railpack_pick_github') }} <span class="font-normal text-gray-400">{{ t('resources_create.railpack_pick_github_note') }}</span></p>
                     <div>
-                        <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">GitHub App source</label>
+                        <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t('resources_create.github_app_source_label') }}</label>
                         <div class="flex gap-2">
                             <select x-model="sourceId"
                                     class="flex-1 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">— None (public repo, or paste URL below) —</option>
+                                <option value="">{{ t('resources_create.source_none_option') }}</option>
                                 <template x-for="src in sources" :key="src.id">
                                     <option :value="src.id" x-text="src.name"></option>
                                 </template>
                             </select>
-                            <a href="/sources" class="px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-lg whitespace-nowrap flex items-center">+ Add</a>
+                            <a href="/sources" class="px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-lg whitespace-nowrap flex items-center">{{ t('resources_create.add_source_button') }}</a>
                         </div>
                         <p x-show="sources.length === 0" class="text-[11px] text-gray-400 mt-1">
-                            No GitHub App sources configured. <a href="/sources" class="underline">Connect one</a> to deploy private repos.
+                            {{ t('resources_create.railpack_no_sources') | safe }}
                         </p>
                     </div>
                     <div x-show="sourceId">
-                        <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">Repository</label>
+                        <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ t('resources_create.repository_label') }}</label>
                         <select x-model="selectedRepo" @change="onRepoSelected()"
                                 class="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option value="">Select a repository...</option>
+                            <option value="">{{ t('resources_create.select_repository_option') }}</option>
                             <template x-for="repo in sourceRepos" :key="repo.full_name">
-                                <option :value="repo.full_name" x-text="repo.full_name + (repo.is_private ? ' (private)' : '')"></option>
+                                <option :value="repo.full_name" x-text="repo.full_name + (repo.is_private ? ' {{ t('resources_create.private_suffix') }}' : '')"></option>
                             </template>
                         </select>
-                        <p x-show="loadingRepos" class="text-[11px] text-gray-400 mt-1">Loading repositories...</p>
-                        <p x-show="!loadingRepos && selectedRepo" class="text-[11px] text-green-600 dark:text-green-400 mt-1">URL and branch filled below — adjust port / start command as needed.</p>
+                        <p x-show="loadingRepos" class="text-[11px] text-gray-400 mt-1">{{ t('resources_create.loading_repositories') }}</p>
+                        <p x-show="!loadingRepos && selectedRepo" class="text-[11px] text-green-600 dark:text-green-400 mt-1">{{ t('resources_create.repo_filled_hint') }}</p>
                     </div>
                 </div>
             </template>
@@ -122,14 +116,14 @@
                     <template x-if="field.type === 'password'">
                         <div class="flex gap-2">
                             <input type="text" x-model="form[field.key]"
-                                   :placeholder="field.auto_generate ? 'Auto-generated if empty' : ''"
+                                   :placeholder="field.auto_generate ? '{{ t('resources_create.auto_generated_placeholder') }}' : ''"
                                    class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                           text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono">
                             <button x-show="field.auto_generate" type="button"
                                     @click="form[field.key] = generatePwd()"
                                     class="px-3 py-2 text-xs font-medium bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600
                                            rounded-lg text-gray-600 dark:text-gray-300 transition-colors whitespace-nowrap">
-                                Generate
+                                {{ t('resources_create.generate_button') }}
                             </button>
                         </div>
                     </template>
@@ -157,14 +151,12 @@
                     <!-- Railpack-specific per-field hints -->
                     <template x-if="catalogId === 'railpack' && field.key === 'start_cmd'">
                         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            Leave empty to let Railpack auto-detect from your project (e.g. <code>npm start</code> for Node,
-                            <code>python app.py</code> for Python). Override only if you need a custom entry point.
+                            {{ t('resources_create.railpack_start_cmd_hint') | safe }}
                         </p>
                     </template>
                     <template x-if="catalogId === 'railpack' && field.key === 'env_vars'">
                         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            One <code>KEY=VALUE</code> per line. Available during <em>build</em> only — for runtime env
-                            use the Environment tab after the service is created. Comments (<code>#</code>) and blank lines are ignored.
+                            {{ t('resources_create.railpack_env_vars_hint') | safe }}
                         </p>
                     </template>
                 </div>
@@ -174,14 +166,14 @@
             <template x-if="template.cluster && template.cluster.supported">
                 <div class="space-y-4 pt-2 border-t border-gray-200 dark:border-gray-800">
                     <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Deployment Mode</label>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">{{ t('resources_create.deployment_mode_label') }}</label>
                         <div class="flex gap-2">
                             <button type="button" @click="deploymentMode = 'standalone'"
                                     :class="deploymentMode === 'standalone'
                                         ? 'bg-blue-600 text-white border-blue-600'
                                         : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-gray-400'"
                                     class="flex-1 px-4 py-2.5 text-sm font-medium border rounded-lg transition-colors">
-                                Standalone
+                                {{ t('resources_create.standalone_button') }}
                             </button>
                             <button type="button"
                                     @click="clusterAvailable && (deploymentMode = 'cluster')"
@@ -192,11 +184,11 @@
                                             ? 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-gray-400'
                                             : 'bg-gray-100 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 border-gray-200 dark:border-gray-800 cursor-not-allowed'"
                                     class="flex-1 px-4 py-2.5 text-sm font-medium border rounded-lg transition-colors">
-                                Cluster
+                                {{ t('resources_create.cluster_button') }}
                             </button>
                         </div>
                         <p x-show="!clusterAvailable" class="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
-                            Add remote servers to enable cluster mode
+                            {{ t('resources_create.cluster_unavailable_hint') }}
                         </p>
                     </div>
 
@@ -206,7 +198,7 @@
                             <!-- Node count -->
                             <div>
                                 <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-                                    Number of Nodes
+                                    {{ t('resources_create.number_of_nodes_label') }}
                                     <span class="text-xs text-gray-400 font-normal"
                                           x-text="'(' + template.cluster.min_nodes + '-' + template.cluster.max_nodes + ')'"></span>
                                 </label>
@@ -214,14 +206,14 @@
                                         class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                                text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                                     <template x-for="n in nodeCountOptions" :key="n">
-                                        <option :value="n" x-text="n + ' nodes'" :selected="n === nodeCount"></option>
+                                        <option :value="n" x-text="n + ' {{ t('resources_create.nodes_suffix') }}'" :selected="n === nodeCount"></option>
                                     </template>
                                 </select>
                             </div>
 
                             <!-- Node distribution -->
                             <div>
-                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Node Distribution</label>
+                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">{{ t('resources_create.node_distribution_label') }}</label>
                                 <div class="space-y-2">
                                     <template x-for="(nd, idx) in nodeDistribution" :key="idx">
                                         <div class="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
@@ -229,13 +221,13 @@
                                                 <span class="w-6 h-6 rounded-full text-xs font-medium flex items-center justify-center"
                                                       :class="idx === 0 ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'"
                                                       x-text="idx + 1"></span>
-                                                <span class="text-sm text-gray-700 dark:text-gray-300" x-text="idx === 0 ? 'Primary' : 'Replica ' + idx"></span>
+                                                <span class="text-sm text-gray-700 dark:text-gray-300" x-text="idx === 0 ? '{{ t('resources_create.node_primary') }}' : '{{ t('resources_create.node_replica') }} ' + idx"></span>
                                             </div>
                                             <select x-model="nd.server_id"
                                                     class="flex-1 px-2 py-1.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md
                                                            text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm">
                                                 <template x-for="srv in servers" :key="srv.id">
-                                                    <option :value="srv.id" x-text="srv.name + (srv.is_local ? ' (local)' : '')"></option>
+                                                    <option :value="srv.id" x-text="srv.name + (srv.is_local ? ' {{ t('resources_create.local_suffix') }}' : '')"></option>
                                                 </template>
                                             </select>
                                         </div>
@@ -257,36 +249,36 @@
                 <div class="space-y-4">
                     <!-- Step 1: Select GitHub App Source -->
                     <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Select a GitHub App</label>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_create.select_github_app_label') }}</label>
                         <div class="flex gap-2">
                             <select x-model="sourceId"
                                     class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">Select a GitHub App source...</option>
+                                <option value="">{{ t('resources_create.select_github_app_source_option') }}</option>
                                 <template x-for="src in sources" :key="src.id">
                                     <option :value="src.id" x-text="src.name"></option>
                                 </template>
                             </select>
-                            <a href="/sources" class="px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-lg whitespace-nowrap flex items-center">+ Add</a>
+                            <a href="/sources" class="px-3 py-2 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 rounded-lg whitespace-nowrap flex items-center">{{ t('resources_create.add_source_button') }}</a>
                         </div>
                         <p x-show="sources.length === 0" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                            No GitHub App sources. <a href="/sources" class="underline">Connect one first</a>.
+                            {{ t('resources_create.wizard_no_sources') | safe }}
                         </p>
                     </div>
 
                     <!-- Step 2: Select Repository (picker OR manual URL) -->
                     <div x-show="sourceId">
                         <div class="flex items-center justify-between mb-1">
-                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400">Repository</label>
+                            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400">{{ t('resources_create.repository_label') }}</label>
                             <div class="inline-flex rounded-lg border border-gray-300 dark:border-gray-700 p-0.5 bg-gray-50 dark:bg-gray-800">
                                 <button type="button" @click="repoInputMode = 'pick'"
                                         :class="repoInputMode === 'pick' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400'"
                                         class="px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors">
-                                    Pick from list
+                                    {{ t('resources_create.pick_from_list_button') }}
                                 </button>
                                 <button type="button" @click="repoInputMode = 'manual'"
                                         :class="repoInputMode === 'manual' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400'"
                                         class="px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors">
-                                    Enter URL manually
+                                    {{ t('resources_create.enter_url_manually_button') }}
                                 </button>
                             </div>
                         </div>
@@ -295,16 +287,16 @@
                         <div x-show="repoInputMode === 'pick'">
                             <select x-model="selectedRepo" @change="onRepoSelected()"
                                     class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">Select a repository...</option>
+                                <option value="">{{ t('resources_create.select_repository_option') }}</option>
                                 <template x-for="repo in sourceRepos" :key="repo.full_name">
                                     <option :value="repo.full_name"
-                                            x-text="repo.full_name + (repo.is_private ? ' (private)' : '') + (deployedRepos.has(repo.full_name) ? ' — already deployed (' + deployedRepos.get(repo.full_name) + ')' : '')"></option>
+                                            x-text="repo.full_name + (repo.is_private ? ' {{ t('resources_create.private_suffix') }}' : '') + (deployedRepos.has(repo.full_name) ? ' {{ t('resources_create.already_deployed_suffix') }} (' + deployedRepos.get(repo.full_name) + ')' : '')"></option>
                                 </template>
                             </select>
-                            <p x-show="loadingRepos" class="text-xs text-gray-400 mt-1">Loading repositories...</p>
-                            <p x-show="deployedRepos.size > 0 && !loadingRepos" class="text-[11px] text-gray-400 mt-1" x-text="deployedRepos.size + ' repository(ies) already deployed on this Pier — you can deploy them again (e.g. a different compose file).'"></p>
+                            <p x-show="loadingRepos" class="text-xs text-gray-400 mt-1">{{ t('resources_create.loading_repositories') }}</p>
+                            <p x-show="deployedRepos.size > 0 && !loadingRepos" class="text-[11px] text-gray-400 mt-1" x-text="deployedRepos.size + ' {{ t('resources_create.repos_already_deployed_hint') }}'"></p>
                             <a x-show="sourceId && !loadingRepos" :href="'https://github.com/apps/' + sources.find(s=>s.id===sourceId)?.name?.replace('GitHub App: ','') + '/installations/new'" target="_blank"
-                               class="text-xs text-blue-500 hover:text-blue-400 mt-1 inline-block">Change Repositories on GitHub ↗</a>
+                               class="text-xs text-blue-500 hover:text-blue-400 mt-1 inline-block">{{ t('resources_create.change_repos_github') }}</a>
                         </div>
 
                         <!-- Manual URL mode -->
@@ -312,17 +304,17 @@
                             <input x-model="form.git_url" @input="onManualUrlInput()" @blur="onManualUrlBlur()" type="text"
                                    placeholder="https://github.com/user/repo"
                                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Must be a repository your GitHub App installation can access. Authentication uses the selected source above.</p>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1">{{ t('resources_create.manual_url_hint') }}</p>
                             <p x-show="manualUrlError" x-cloak class="text-[11px] text-red-500 mt-1" x-text="manualUrlError"></p>
                         </div>
                     </div>
 
                     <!-- Step 3: Configuration (compact 2-column grid) -->
                     <div x-show="isRepoReady" class="space-y-3 pt-3 border-t border-gray-200 dark:border-gray-800">
-                        <h4 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Configuration</h4>
+                        <h4 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ t('resources_create.configuration_heading') }}</h4>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Branch</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">{{ t('resources_create.branch_label') }}</label>
                                 <select x-show="repoBranches.length > 0" x-model="form.branch"
                                         class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
                                     <template x-for="b in repoBranches" :key="b">
@@ -332,39 +324,39 @@
                                 <input x-show="repoInputMode === 'manual' && repoBranches.length === 0" x-model="form.branch" type="text"
                                        placeholder="main"
                                        class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
-                                <p x-show="loadingBranches" class="text-[10px] text-gray-400 mt-0.5">Loading branches...</p>
+                                <p x-show="loadingBranches" class="text-[10px] text-gray-400 mt-0.5">{{ t('resources_create.loading_branches') }}</p>
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Build Pack</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">{{ t('resources_create.build_pack_label') }}</label>
                                 <select x-model="form.build_pack"
                                         class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
                                     <option value="dockerfile">Dockerfile</option>
                                     <option value="docker-compose">Docker Compose</option>
-                                    <option value="railpack">Railpack (Auto-build)</option>
+                                    <option value="railpack">{{ t('resources_create.build_pack_railpack_option') }}</option>
                                 </select>
                             </div>
                             <div x-show="form.build_pack === 'dockerfile'">
-                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Dockerfile Path</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">{{ t('resources_create.dockerfile_path_label') }}</label>
                                 <input x-model="form.build_path" type="text" placeholder="/Dockerfile"
                                        class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
                             </div>
                             <div x-show="form.build_pack === 'docker-compose'">
-                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Compose Location</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">{{ t('resources_create.compose_location_label') }}</label>
                                 <input x-model="form.compose_path" type="text" placeholder="/docker-compose.yml"
                                        class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
                             </div>
                             <div x-show="form.build_pack !== 'docker-compose'">
-                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Port</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">{{ t('resources_create.port_label') }}</label>
                                 <input x-model="form.port" type="number" placeholder="3000"
                                        class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
                             </div>
                             <div x-show="form.build_pack === 'railpack'" class="col-span-2 -mt-1">
                                 <p class="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-md px-2 py-1.5">
-                                    Railpack auto-detects the language and start command. First build can take 1-10 minutes and needs ~4 GB RAM (8 GB for Rust). For overrides (start command / build-time env vars), use the standalone Railpack template.
+                                    {{ t('resources_create.wizard_railpack_note') }}
                                 </p>
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Service Name</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">{{ t('resources_create.service_name_label') }}</label>
                                 <input x-model="form.name" type="text" :placeholder="repoNamePlaceholder()"
                                        class="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500">
                             </div>
@@ -375,11 +367,11 @@
 
             <!-- Project selector (optional) -->
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Project (optional)</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_create.project_label') }}</label>
                 <select x-model="projectId"
                         class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                    <option value="">No project</option>
+                    <option value="">{{ t('resources_create.no_project_option') }}</option>
                     <template x-for="p in projects" :key="p.id">
                         <option :value="p.id" x-text="p.name"></option>
                     </template>
@@ -388,49 +380,49 @@
 
             <!-- Network selector -->
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Network</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_create.network_label') }}</label>
                 <select x-model="networkId"
                         class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                     <template x-for="n in networks" :key="n.id">
-                        <option :value="n.id" x-text="n.name + (n.is_default ? ' (default)' : '')"></option>
+                        <option :value="n.id" x-text="n.name + (n.is_default ? ' {{ t('resources_create.default_suffix') }}' : '')"></option>
                     </template>
                 </select>
             </div>
 
             <!-- Target Server selector (only show when multiple servers exist) -->
             <div x-show="servers.length > 1">
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Target Server</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_create.target_server_label') }}</label>
                 <select x-model="serverId"
                         class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
                     <template x-for="s in servers" :key="s.id">
-                        <option :value="s.id" x-text="s.name + ' (' + s.host + ')' + (s.is_local ? ' — local' : '') + (s.status !== 'online' ? ' [offline]' : '')"></option>
+                        <option :value="s.id" x-text="s.name + ' (' + s.host + ')' + (s.is_local ? ' {{ t('resources_create.local_dash_suffix') }}' : '') + (s.status !== 'online' ? ' {{ t('resources_create.offline_suffix') }}' : '')"></option>
                     </template>
                 </select>
-                <p class="text-xs text-gray-400 mt-0.5">Server where the resource will be deployed</p>
+                <p class="text-xs text-gray-400 mt-0.5">{{ t('resources_create.target_server_hint') }}</p>
             </div>
 
             <!-- Host port override (catalog single-port templates only) -->
             <div x-show="(template.ports || []).length === 1 && catalogId !== 'docker-image' && catalogId !== 'git-github-app'">
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Host Port (optional)</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_create.host_port_label') }}</label>
                 <input x-model.number="hostPort" type="number" min="1024" max="65535"
-                       :placeholder="(template.ports && template.ports[0] && template.ports[0][1] && template.ports[0][1].internal) || 'auto'"
+                       :placeholder="(template.ports && template.ports[0] && template.ports[0][1] && template.ports[0][1].internal) || '{{ t('resources_create.host_port_auto_placeholder') }}'"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                <p class="text-xs text-gray-400 mt-0.5">Leave empty for auto: Pier tries the standard port (e.g. 5432 for Postgres), falls back to its pool if taken.</p>
+                <p class="text-xs text-gray-400 mt-0.5">{{ t('resources_create.host_port_hint') }}</p>
             </div>
         </div>
 
         <!-- Actions -->
         <div class="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-800">
             <a href="/resources/new" class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
-                Cancel
+                {{ t('common.cancel') }}
             </a>
             <button @click="deploy()" :disabled="deploying"
                     class="px-5 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
                            rounded-lg text-white transition-colors flex items-center gap-2">
                 <svg x-show="deploying" class="w-4 h-4 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                <span x-text="deploying ? 'Creating...' : (catalogId === 'git-github-app' ? 'Continue' : (deploymentMode === 'cluster' ? 'Deploy Cluster' : 'Deploy'))"></span>
+                <span x-text="deploying ? '{{ t('resources_create.btn_creating') }}' : (catalogId === 'git-github-app' ? '{{ t('resources_create.btn_continue') }}' : (deploymentMode === 'cluster' ? '{{ t('resources_create.btn_deploy_cluster') }}' : '{{ t('resources_create.btn_deploy') }}'))"></span>
             </button>
         </div>
     </div>
@@ -566,7 +558,7 @@ function createResource(catalogId, hostRamGb) {
                     }
                 });
             } catch (e) {
-                toast('Failed to load template', 'error');
+                toast('{{ t('resources_create.toast_load_failed') }}', 'error');
             }
             this.loading = false;
         },
@@ -643,7 +635,7 @@ function createResource(catalogId, hostRamGb) {
             const url = (this.form.git_url || '').trim();
             if (!url) { this.manualUrlError = ''; this.repoBranches = []; return; }
             if (!this.isValidRepoUrl(url)) {
-                this.manualUrlError = 'Enter a full HTTPS URL like https://github.com/user/repo';
+                this.manualUrlError = '{{ t('resources_create.err_invalid_url') }} https://github.com/user/repo';
                 this.repoBranches = [];
                 return;
             }
@@ -681,17 +673,17 @@ function createResource(catalogId, hostRamGb) {
         async deploy() {
             const name = this.form.name;
             if (!name || !name.trim()) {
-                toast('Name is required', 'error');
+                toast('{{ t('resources_create.toast_name_required') }}', 'error');
                 return;
             }
             if (this.catalogId === 'git-github-app' && this.repoInputMode === 'manual') {
                 if (!this.sourceId) {
-                    toast('Select a GitHub App source first', 'error');
+                    toast('{{ t('resources_create.toast_select_source_first') }}', 'error');
                     return;
                 }
                 if (!this.isValidRepoUrl(this.form.git_url)) {
-                    this.manualUrlError = 'Enter a full HTTPS URL like https://github.com/user/repo';
-                    toast('Repository URL is invalid', 'error');
+                    this.manualUrlError = '{{ t('resources_create.err_invalid_url') }} https://github.com/user/repo';
+                    toast('{{ t('resources_create.toast_repo_url_invalid') }}', 'error');
                     return;
                 }
             }
@@ -723,11 +715,11 @@ function createResource(catalogId, hostRamGb) {
                     method: 'POST',
                     body: JSON.stringify(payload),
                 });
-                toast(name + ' deployed successfully');
+                toast(name + ' {{ t('resources_create.toast_deployed_success') }}');
                 window.location.href = '/resources/' + result.id;
             } catch (e) {
                 if (e.code === 'name_conflict' && e.existing_id) {
-                    toast(`Resource "${e.name}" already exists — opening it`, 'error');
+                    toast('{{ t('resources_create.toast_resource_exists') }}'.replace('%{name}', e.name), 'error');
                     setTimeout(() => {
                         window.location.href = '/resources/' + e.existing_id;
                     }, 800);
