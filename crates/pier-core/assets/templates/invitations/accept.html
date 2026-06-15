@@ -1,62 +1,62 @@
 {% extends "auth_base.html" %}
-{% block title %}Accept Invitation{% endblock %}
+{% block title %}{{ t('invite.title') }}{% endblock %}
 
 {% block content %}
 <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6"
      x-data='inviteAccept({{ token | tojson }})' x-init="load()">
 
     <template x-if="loading">
-        <p class="text-sm text-gray-500">Verifying invitation…</p>
+        <p class="text-sm text-gray-500">{{ t('invite.verifying') }}</p>
     </template>
 
     <template x-if="!loading && invalid">
         <div class="space-y-2">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Invitation not valid</h2>
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('invite.invalid_title') }}</h2>
             <p class="text-sm text-gray-500">
-                This link has expired, been used, or never existed. Ask whoever invited you to send a new one.
+                {{ t('invite.invalid_desc') }}
             </p>
-            <a href="/login" class="inline-block text-sm text-blue-600 hover:underline pt-2">Back to login</a>
+            <a href="/login" class="inline-block text-sm text-blue-600 hover:underline pt-2">{{ t('invite.back_to_login') }}</a>
         </div>
     </template>
 
     <template x-if="!loading && !invalid && !accepted">
         <form @submit.prevent="submit()" class="space-y-4">
             <div>
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Welcome to Pier</h2>
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('invite.welcome') }}</h2>
                 <p class="text-sm text-gray-500 mt-1">
-                    You were invited as <span class="font-medium" x-text="email"></span>
+                    {{ t('invite.invited_as') }} <span class="font-medium" x-text="email"></span>
                     (<span x-text="default_global_role"></span>).
-                    Choose a username and password to finish setting up your account.
+                    {{ t('invite.choose_credentials') }}
                 </p>
             </div>
             <div>
-                <label class="text-xs text-gray-500 dark:text-gray-400">Username</label>
+                <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('invite.username') }}</label>
                 <input type="text" required minlength="3" x-model="form.username"
                        class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
             <div>
-                <label class="text-xs text-gray-500 dark:text-gray-400">Password</label>
+                <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('invite.password') }}</label>
                 <input type="password" required x-model="form.password"
                        class="w-full px-3 py-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <p class="text-[11px] text-gray-500 mt-1">At least 12 characters, not derived from your username or email.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('invite.password_hint') }}</p>
             </div>
             <div x-show="error" x-cloak class="text-sm text-red-600 dark:text-red-400" x-text="error"></div>
             <button type="submit" :disabled="busy"
                     class="w-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">
-                <span x-show="!busy">Create account</span>
-                <span x-show="busy">Working…</span>
+                <span x-show="!busy">{{ t('invite.create_account') }}</span>
+                <span x-show="busy">{{ t('invite.working') }}</span>
             </button>
         </form>
     </template>
 
     <template x-if="accepted">
         <div class="space-y-3">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Account created</h2>
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('invite.created_title') }}</h2>
             <p class="text-sm text-gray-500">
-                Your account is ready. Sign in with the credentials you just chose.
+                {{ t('invite.created_desc') }}
             </p>
             <a href="/login" class="inline-block px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
-                Go to login
+                {{ t('invite.go_to_login') }}
             </a>
         </div>
     </template>
@@ -95,7 +95,7 @@ function inviteAccept(token) {
                 });
                 this.accepted = true;
             } catch (e) {
-                this.error = e.message || 'Failed to accept invitation';
+                this.error = e.message || '{{ t('invite.accept_failed') }}';
             } finally {
                 this.busy = false;
             }

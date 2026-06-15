@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Authorize CLI{% endblock %}
+{% block title %}{{ t('cli_login.title') }}{% endblock %}
 
 {% block content %}
 <div class="max-w-2xl mx-auto py-10 px-4" x-data="{
@@ -18,7 +18,7 @@
 
     get countdown() {
         const secs = this.expiresAt - Math.floor(Date.now() / 1000);
-        if (secs <= 0) return 'expired';
+        if (secs <= 0) return '{{ t('cli_login.expired_short') }}';
         const m = Math.floor(secs / 60);
         const s = secs % 60;
         return `${m}m ${s.toString().padStart(2, '0')}s`;
@@ -34,12 +34,12 @@
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(data.error || 'Authorization failed');
+                throw new Error(data.error || '{{ t('cli_login.auth_failed') }}');
             }
             this.token = data.token;
             this.status = 'authorized';
         } catch (e) {
-            this.error = e.message || 'Authorization failed';
+            this.error = e.message || '{{ t('cli_login.auth_failed') }}';
         } finally {
             this.loading = false;
         }
@@ -51,39 +51,39 @@
             this.copied = true;
             setTimeout(() => { this.copied = false; }, 1500);
         } catch (e) {
-            this.error = 'Clipboard copy failed — select and copy manually.';
+            this.error = '{{ t('cli_login.clipboard_failed') }}';
         }
     },
 }"
 x-init="setInterval(() => { $nextTick(() => {}); }, 1000)">
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6">
-        <h1 class="text-xl font-semibold text-gray-900 dark:text-white mb-1">Authorize CLI</h1>
+        <h1 class="text-xl font-semibold text-gray-900 dark:text-white mb-1">{{ t('cli_login.title') }}</h1>
         <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
-            A command-line tool is requesting a token to publish or install npm packages from this registry.
+            {{ t('cli_login.request_desc') }}
         </p>
 
         <!-- ── Session details ─────────────────────────────── -->
         <dl class="text-sm bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-2 mb-6">
             <div class="flex items-center justify-between">
-                <dt class="text-gray-500 dark:text-gray-400">Authorizing as</dt>
+                <dt class="text-gray-500 dark:text-gray-400">{{ t('cli_login.authorizing_as') }}</dt>
                 <dd class="font-medium text-gray-900 dark:text-gray-100">{{ user }}</dd>
             </div>
             <div class="flex items-center justify-between">
-                <dt class="text-gray-500 dark:text-gray-400">Hostname</dt>
+                <dt class="text-gray-500 dark:text-gray-400">{{ t('cli_login.hostname') }}</dt>
                 <dd class="font-mono text-gray-900 dark:text-gray-100">{{ hostname or "—" }}</dd>
             </div>
             <div class="flex items-center justify-between">
-                <dt class="text-gray-500 dark:text-gray-400">Source IP</dt>
+                <dt class="text-gray-500 dark:text-gray-400">{{ t('cli_login.source_ip') }}</dt>
                 <dd class="font-mono text-gray-900 dark:text-gray-100">{{ peer_ip or "—" }}</dd>
             </div>
             <div class="flex items-start justify-between gap-4">
-                <dt class="text-gray-500 dark:text-gray-400 flex-shrink-0">User-Agent</dt>
+                <dt class="text-gray-500 dark:text-gray-400 flex-shrink-0">{{ t('cli_login.user_agent') }}</dt>
                 <dd class="font-mono text-xs text-gray-700 dark:text-gray-300 break-all text-right">
                     {{ user_agent or "—" }}
                 </dd>
             </div>
             <div class="flex items-center justify-between">
-                <dt class="text-gray-500 dark:text-gray-400">Expires in</dt>
+                <dt class="text-gray-500 dark:text-gray-400">{{ t('cli_login.expires_in') }}</dt>
                 <dd class="font-mono text-gray-900 dark:text-gray-100" x-text="countdown"></dd>
             </div>
         </dl>
@@ -93,13 +93,13 @@ x-init="setInterval(() => { $nextTick(() => {}); }, 1000)">
             <div class="space-y-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">
-                        Token name <span class="text-gray-400">(optional)</span>
+                        {{ t('cli_login.token_name') }} <span class="text-gray-400">{{ t('common.optional') }}</span>
                     </label>
                     <input x-model="tokenName" type="text"
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                   text-gray-900 dark:text-gray-100 text-sm
                                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                           placeholder="laptop, CI runner, …">
+                           placeholder="{{ t('cli_login.token_name_placeholder') }}">
                 </div>
 
                 <div x-show="error" x-cloak
@@ -110,12 +110,12 @@ x-init="setInterval(() => { $nextTick(() => {}); }, 1000)">
                     <button type="button" @click="authorize()" :disabled="loading"
                             class="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50
                                    rounded-lg text-sm font-medium text-white transition-colors">
-                        <span x-show="!loading">Authorize</span>
-                        <span x-show="loading" x-cloak>Issuing token…</span>
+                        <span x-show="!loading">{{ t('cli_login.authorize') }}</span>
+                        <span x-show="loading" x-cloak>{{ t('cli_login.issuing') }}</span>
                     </button>
                     <a href="/packages"
                        class="py-2.5 px-4 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
-                        Cancel
+                        {{ t('common.cancel') }}
                     </a>
                 </div>
             </div>
@@ -126,34 +126,33 @@ x-init="setInterval(() => { $nextTick(() => {}); }, 1000)">
             <div class="space-y-4">
                 <div class="rounded-lg border border-green-200 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10 p-4">
                     <p class="text-sm font-medium text-green-800 dark:text-green-300">
-                        ✓ CLI authorized
+                        ✓ {{ t('cli_login.authorized') }}
                     </p>
                     <p class="text-xs text-green-700 dark:text-green-400 mt-1">
-                        Your terminal should pick up the token within a few seconds.
-                        If it doesn't, copy the token below and paste it into <code class="font-mono">.npmrc</code>.
+                        {{ t('cli_login.authorized_hint') | safe }}
                     </p>
                 </div>
                 <template x-if="token">
                     <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">Token (fallback)</label>
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ t('cli_login.token_fallback') }}</label>
                         <div class="flex items-center gap-2">
                             <input :value="token" readonly type="text"
                                    class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                                           text-gray-900 dark:text-gray-100 font-mono text-sm select-all">
                             <button type="button" @click="copyToken()"
                                     class="px-3 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
-                                <span x-show="!copied">Copy</span>
-                                <span x-show="copied" x-cloak>Copied!</span>
+                                <span x-show="!copied">{{ t('common.copy') }}</span>
+                                <span x-show="copied" x-cloak>{{ t('common.copied') }}</span>
                             </button>
                         </div>
                         <p class="text-xs text-gray-500 mt-2">
-                            This is the only time the token is shown here. Once the CLI fetches it, the entry is cleared.
+                            {{ t('cli_login.token_once') }}
                         </p>
                     </div>
                 </template>
                 <a href="/packages"
                    class="inline-block py-2 px-4 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
-                    Back to Packages
+                    {{ t('cli_login.back_to_packages') }}
                 </a>
             </div>
         </template>
@@ -161,9 +160,9 @@ x-init="setInterval(() => { $nextTick(() => {}); }, 1000)">
         <!-- ── State: expired ──────────────────────────────── -->
         <template x-if="status === 'expired' || (status === 'pending' && expired)">
             <div class="rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-4">
-                <p class="text-sm font-medium text-amber-800 dark:text-amber-300">Session expired</p>
+                <p class="text-sm font-medium text-amber-800 dark:text-amber-300">{{ t('cli_login.session_expired') }}</p>
                 <p class="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                    Re-run <code class="font-mono">npm login --auth-type=web --registry=…</code> in your terminal to start a fresh session.
+                    {{ t('cli_login.expired_hint') | safe }}
                 </p>
             </div>
         </template>

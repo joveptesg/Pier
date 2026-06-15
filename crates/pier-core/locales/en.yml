@@ -14,6 +14,9 @@ common:
   view_all: View all
   loading: Loading...
   no_description: No description
+  cancel: Cancel
+  copy: Copy
+  optional: (optional)
   # Client-side toast / fetch messages emitted from shared scripts.
   copied: Copied!
   copy_failed: Copy failed
@@ -104,6 +107,83 @@ dashboard:
   volumes: Volumes
   build_cache: Build Cache
   total_disk_usage: Total Docker Disk Usage
+
+# Shared auth-page chrome (auth_base.html).
+auth:
+  tagline: Deploy Anything. Own Everything.
+
+# First-run admin setup (setup.html).
+setup:
+  title: Setup
+  proxy_error_title: Reverse-proxy (Traefik) failed to start
+  proxy_error_hint: "This is often caused by a Docker Hub rate-limit on shared-IP VPSes. To fix it manually, run on the server:"
+  proxy_error_after: "After the restart, Pier brings Traefik back up automatically. This banner disappears on /setup."
+  create_admin: Create Admin Account
+  subtitle: First-time setup. Create the administrator account.
+  username: Username
+  username_placeholder: admin
+  email: Email
+  password: Password
+  generate_password: Generate strong password
+  password_placeholder: Min. 12 characters, mixed
+  confirm_password: Confirm password
+  confirm_placeholder: Re-enter password
+  passwords_no_match: Passwords do not match
+  creating: Creating...
+  strength:
+    very_weak: Very weak
+    weak: Weak
+    fair: Fair
+    good: Good
+    strong: Strong
+  pw_copied: Password copied to clipboard. Save it now — it will not be shown again.
+  pw_generated: Password generated. Copy it from the field — it will not be shown again.
+  fix_fields: Please fix the highlighted fields before continuing.
+  setup_failed: Setup failed
+
+# CLI authorization page for `npm login --auth-type=web` (cli_login.html).
+cli_login:
+  title: Authorize CLI
+  request_desc: A command-line tool is requesting a token to publish or install npm packages from this registry.
+  authorizing_as: Authorizing as
+  hostname: Hostname
+  source_ip: Source IP
+  user_agent: User-Agent
+  expires_in: Expires in
+  expired_short: expired
+  token_name: Token name
+  token_name_placeholder: laptop, CI runner, …
+  authorize: Authorize
+  issuing: Issuing token…
+  authorized: CLI authorized
+  authorized_hint: "Your terminal should pick up the token within a few seconds. If it doesn't, copy the token below and paste it into <code class=\"font-mono\">.npmrc</code>."
+  token_fallback: Token (fallback)
+  token_once: This is the only time the token is shown here. Once the CLI fetches it, the entry is cleared.
+  back_to_packages: Back to Packages
+  session_expired: Session expired
+  expired_hint: "Re-run <code class=\"font-mono\">npm login --auth-type=web --registry=…</code> in your terminal to start a fresh session."
+  auth_failed: Authorization failed
+  clipboard_failed: Clipboard copy failed — select and copy manually.
+
+# Invitation acceptance (invitations/accept.html).
+invite:
+  title: Accept Invitation
+  verifying: Verifying invitation…
+  invalid_title: Invitation not valid
+  invalid_desc: This link has expired, been used, or never existed. Ask whoever invited you to send a new one.
+  back_to_login: Back to login
+  welcome: Welcome to Pier
+  invited_as: You were invited as
+  choose_credentials: Choose a username and password to finish setting up your account.
+  username: Username
+  password: Password
+  password_hint: At least 12 characters, not derived from your username or email.
+  create_account: Create account
+  working: Working…
+  created_title: Account created
+  created_desc: Your account is ready. Sign in with the credentials you just chose.
+  go_to_login: Go to login
+  accept_failed: Failed to accept invitation
 
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and

@@ -1,5 +1,5 @@
 {% extends "auth_base.html" %}
-{% block title %}Setup{% endblock %}
+{% block title %}{{ t('setup.title') }}{% endblock %}
 
 {% block content %}
 {% if proxy_error %}
@@ -7,33 +7,33 @@
     <div class="flex items-start gap-2">
         <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
         <div class="flex-1 min-w-0">
-            <p class="font-semibold">Reverse-proxy (Traefik) failed to start</p>
+            <p class="font-semibold">{{ t('setup.proxy_error_title') }}</p>
             <p class="mt-1 text-xs break-words text-amber-800 dark:text-amber-300">{{ proxy_error }}</p>
-            <p class="mt-3 text-xs">This is often caused by a Docker Hub rate-limit on shared-IP VPSes. To fix it manually, run on the server:</p>
+            <p class="mt-3 text-xs">{{ t('setup.proxy_error_hint') }}</p>
             <pre class="mt-1.5 text-xs bg-amber-100 dark:bg-amber-500/20 p-2 rounded overflow-x-auto"><code>docker pull mirror.gcr.io/library/traefik:v3.7.1
 docker tag mirror.gcr.io/library/traefik:v3.7.1 traefik:v3.7.1
 sudo systemctl restart pier</code></pre>
-            <p class="mt-2 text-xs">After the restart, Pier brings Traefik back up automatically. This banner disappears on /setup.</p>
+            <p class="mt-2 text-xs">{{ t('setup.proxy_error_after') }}</p>
         </div>
     </div>
 </div>
 {% endif %}
 <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6" x-data="setupForm()">
-    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Create Admin Account</h2>
-    <p class="text-sm text-gray-500 mb-6">First-time setup. Create the administrator account.</p>
+    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">{{ t('setup.create_admin') }}</h2>
+    <p class="text-sm text-gray-500 mb-6">{{ t('setup.subtitle') }}</p>
 
     <form @submit.prevent="submit()" class="space-y-4">
         <div>
-            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">Username</label>
+            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ t('setup.username') }}</label>
             <input x-model="username" type="text" required autofocus
                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                           text-gray-900 dark:text-gray-100
                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                           placeholder-gray-400 dark:placeholder-gray-500 text-sm"
-                   placeholder="admin">
+                   placeholder="{{ t('setup.username_placeholder') }}">
         </div>
         <div>
-            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">Email</label>
+            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ t('setup.email') }}</label>
             <input x-model="email" type="email" required
                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                           text-gray-900 dark:text-gray-100
@@ -43,10 +43,10 @@ sudo systemctl restart pier</code></pre>
         </div>
         <div>
             <div class="flex items-center justify-between mb-1.5">
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400">Password</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400">{{ t('setup.password') }}</label>
                 <button type="button" @click="generate()"
                         class="text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
-                    Generate strong password
+                    {{ t('setup.generate_password') }}
                 </button>
             </div>
             <div class="relative">
@@ -56,7 +56,7 @@ sudo systemctl restart pier</code></pre>
                               text-gray-900 dark:text-gray-100 font-mono
                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                               placeholder-gray-400 dark:placeholder-gray-500 text-sm"
-                       placeholder="Min. 12 characters, mixed">
+                       placeholder="{{ t('setup.password_placeholder') }}">
                 <button type="button" @click="showPw = !showPw" tabindex="-1"
                         class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
                     <svg x-show="!showPw" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
@@ -73,16 +73,16 @@ sudo systemctl restart pier</code></pre>
             </div>
         </div>
         <div>
-            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">Confirm password</label>
+            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ t('setup.confirm_password') }}</label>
             <input x-model="confirm" :type="showPw ? 'text' : 'password'" required
                    autocomplete="new-password" spellcheck="false"
                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                           text-gray-900 dark:text-gray-100 font-mono
                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                           placeholder-gray-400 dark:placeholder-gray-500 text-sm"
-                   placeholder="Re-enter password">
+                   placeholder="{{ t('setup.confirm_placeholder') }}">
             <p x-show="confirm.length > 0 && confirm !== password" x-cloak
-               class="mt-1 text-xs text-red-600 dark:text-red-400">Passwords do not match</p>
+               class="mt-1 text-xs text-red-600 dark:text-red-400">{{ t('setup.passwords_no_match') }}</p>
         </div>
 
         <div x-show="notice" x-cloak class="text-sm text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-lg px-3 py-2" x-text="notice"></div>
@@ -91,8 +91,8 @@ sudo systemctl restart pier</code></pre>
         <button type="submit" :disabled="loading || !canSubmit"
                 class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
                        rounded-lg text-sm font-medium text-white transition-colors">
-            <span x-show="!loading">Create Admin Account</span>
-            <span x-show="loading" x-cloak>Creating...</span>
+            <span x-show="!loading">{{ t('setup.create_admin') }}</span>
+            <span x-show="loading" x-cloak>{{ t('setup.creating') }}</span>
         </button>
     </form>
 </div>
@@ -104,7 +104,7 @@ sudo systemctl restart pier</code></pre>
             ...opts,
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Request failed');
+        if (!res.ok) throw new Error(data.error || '{{ t('common.request_failed') }}');
         return data;
     }
 
@@ -186,7 +186,7 @@ sudo systemctl restart pier</code></pre>
                 return Math.max(0, Math.min(4, s));
             },
             get strengthLabel() {
-                return ['Very weak', 'Weak', 'Fair', 'Good', 'Strong'][this.strength] || '';
+                return ['{{ t('setup.strength.very_weak') }}', '{{ t('setup.strength.weak') }}', '{{ t('setup.strength.fair') }}', '{{ t('setup.strength.good') }}', '{{ t('setup.strength.strong') }}'][this.strength] || '';
             },
             get strengthBarColor() {
                 return [
@@ -216,19 +216,19 @@ sudo systemctl restart pier</code></pre>
                 try {
                     if (navigator.clipboard && window.isSecureContext) {
                         await navigator.clipboard.writeText(pw);
-                        this.notice = 'Password copied to clipboard. Save it now — it will not be shown again.';
+                        this.notice = '{{ t('setup.pw_copied') }}';
                     } else {
-                        this.notice = 'Password generated. Copy it from the field — it will not be shown again.';
+                        this.notice = '{{ t('setup.pw_generated') }}';
                     }
                 } catch (_) {
-                    this.notice = 'Password generated. Copy it from the field — it will not be shown again.';
+                    this.notice = '{{ t('setup.pw_generated') }}';
                 }
             },
 
             async submit() {
                 this.error = '';
                 if (!this.canSubmit) {
-                    this.error = 'Please fix the highlighted fields before continuing.';
+                    this.error = '{{ t('setup.fix_fields') }}';
                     return;
                 }
                 this.loading = true;
@@ -251,7 +251,7 @@ sudo systemctl restart pier</code></pre>
                     });
                     window.location.href = '/';
                 } catch (e) {
-                    this.error = e.message || 'Setup failed';
+                    this.error = e.message || '{{ t('setup.setup_failed') }}';
                 } finally {
                     this.loading = false;
                 }

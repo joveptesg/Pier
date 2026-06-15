@@ -88,5 +88,35 @@ mod tests {
             .expect("login.html renders");
         assert!(login.contains("Sign in"));
         assert!(login.contains("Two-factor authentication"));
+        // Tagline comes from the auth_base.html parent layout.
+        assert!(login.contains("Deploy Anything. Own Everything."));
+
+        let setup = env
+            .get_template("setup.html")
+            .expect("setup.html loads")
+            .render(minijinja::context! { setup_token => "tok" })
+            .expect("setup.html renders");
+        assert!(setup.contains("Create Admin Account"));
+        assert!(setup.contains("Generate strong password"));
+
+        let cli = env
+            .get_template("cli_login.html")
+            .expect("cli_login.html loads")
+            .render(minijinja::context! {
+                status => "authorized", session_id => "s", expires_at => 9_999_999_999u64, user => "admin"
+            })
+            .expect("cli_login.html renders");
+        assert!(cli.contains("Authorize CLI"));
+        // A sentence carrying inline markup is rendered with `| safe`, so the
+        // <code> tag survives instead of being HTML-escaped.
+        assert!(cli.contains(r#"<code class="font-mono">.npmrc</code>"#));
+
+        let invite = env
+            .get_template("invitations/accept.html")
+            .expect("invitations/accept.html loads")
+            .render(minijinja::context! { token => "tok" })
+            .expect("invitations/accept.html renders");
+        assert!(invite.contains("Welcome to Pier"));
+        assert!(invite.contains("Account created"));
     }
 }
