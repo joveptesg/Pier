@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Source Details{% endblock %}
+{% block title %}{{ t('sources_detail.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="sourceDetail('{{ source_id }}')" x-init="init()">
@@ -10,13 +10,13 @@
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             </a>
             <div>
-                <h2 class="text-xl font-semibold text-gray-900 dark:text-white" x-text="source.name || 'Loading...'"></h2>
-                <p class="text-sm text-gray-500 mt-0.5" x-text="source.type === 'github-app' ? 'GitHub App for private repositories' : source.type"></p>
+                <h2 class="text-xl font-semibold text-gray-900 dark:text-white" x-text="source.name || '{{ t('common.loading') }}'"></h2>
+                <p class="text-sm text-gray-500 mt-0.5" x-text="source.type === 'github-app' ? '{{ t('sources_detail.github_app_for_private_repos') }}' : source.type"></p>
             </div>
         </div>
         <div class="flex items-center gap-2">
-            <button @click="saveSource()" class="px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Save</button>
-            <button @click="deleteSource()" class="px-3 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">Delete</button>
+            <button @click="saveSource()" class="px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">{{ t('sources_detail.save') }}</button>
+            <button @click="deleteSource()" class="px-3 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">{{ t('sources_detail.delete') }}</button>
         </div>
     </div>
 
@@ -24,20 +24,20 @@
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">App Name</label>
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.app_name') }}</label>
                 <div class="flex items-center gap-2">
                     <input x-model="source.name" type="text"
                            class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100">
                     <a x-show="source.type === 'github-app' && source.app_id"
                        :href="'https://github.com/settings/apps/' + source.name?.replace('GitHub App: ', '')"
-                       target="_blank" class="text-xs text-blue-500 hover:text-blue-400 whitespace-nowrap">Rename ↗</a>
+                       target="_blank" class="text-xs text-blue-500 hover:text-blue-400 whitespace-nowrap">{{ t('sources_detail.rename') }} ↗</a>
                     <a x-show="source.type === 'github-app' && source.app_id"
                        :href="'https://github.com/settings/installations/' + source.installation_id"
-                       target="_blank" class="text-xs text-blue-500 hover:text-blue-400 whitespace-nowrap">Update Repos ↗</a>
+                       target="_blank" class="text-xs text-blue-500 hover:text-blue-400 whitespace-nowrap">{{ t('sources_detail.update_repos') }} ↗</a>
                 </div>
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Type</label>
+                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.type') }}</label>
                 <input :value="source.type" disabled
                        class="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-500">
             </div>
@@ -47,31 +47,31 @@
             <div class="space-y-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">HTML URL</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.html_url') }}</label>
                         <input value="https://github.com" disabled
                                class="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-500 font-mono">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">API URL</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.api_url') }}</label>
                         <input value="https://api.github.com" disabled
                                class="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-500 font-mono">
                     </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">App ID</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.app_id') }}</label>
                         <input :value="source.app_id" disabled
                                class="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 font-mono">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Installation ID</label>
-                        <input :value="source.installation_id || 'Not installed yet'" disabled
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.installation_id') }}</label>
+                        <input :value="source.installation_id || '{{ t('sources_detail.not_installed_yet') }}'" disabled
                                class="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-gray-100 font-mono">
                     </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Client ID</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.client_id') }}</label>
                         <div class="flex items-center gap-1">
                             <input :type="showSecrets.client_id ? 'text' : 'password'" :value="source.client_id || ''" disabled
                                    class="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100">
@@ -81,7 +81,7 @@
                         </div>
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Client Secret</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.client_secret') }}</label>
                         <div class="flex items-center gap-1">
                             <input :type="showSecrets.client_secret ? 'text' : 'password'" :value="source.client_secret || ''" disabled
                                    class="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100">
@@ -91,7 +91,7 @@
                         </div>
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Webhook Secret</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.webhook_secret') }}</label>
                         <div class="flex items-center gap-1">
                             <input :type="showSecrets.webhook ? 'text' : 'password'" :value="source.webhook_secret || ''" disabled
                                    class="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100">
@@ -108,12 +108,12 @@
         <template x-if="source.type !== 'github-app'">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Base URL</label>
+                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.base_url') }}</label>
                     <input :value="source.url" disabled
                            class="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created</label>
+                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('sources_detail.created') }}</label>
                     <input :value="source.created_at" disabled
                            class="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-500">
                 </div>
@@ -125,12 +125,12 @@
     <div x-show="source.type === 'github-app' && source.installation_id" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
         <div class="flex items-center justify-between mb-3">
             <div>
-                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Repositories</h3>
-                <p class="text-xs text-gray-400">Repositories accessible via this GitHub App.</p>
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">{{ t('sources_detail.repositories') }}</h3>
+                <p class="text-xs text-gray-400">{{ t('sources_detail.repositories_accessible') }}</p>
             </div>
             <button @click="loadRepos()" :disabled="loadingRepos"
                     class="px-3 py-1.5 text-xs font-medium bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors">
-                <span x-text="loadingRepos ? 'Loading...' : 'Refresh'"></span>
+                <span x-text="loadingRepos ? '{{ t('common.loading') }}' : '{{ t('sources_detail.refresh') }}'"></span>
             </button>
         </div>
         <div x-show="repos.length > 0" class="space-y-1 max-h-[300px] overflow-y-auto">
@@ -139,35 +139,35 @@
                     <div class="flex items-center gap-2 min-w-0">
                         <svg class="w-4 h-4 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
                         <a :href="repo.url" target="_blank" class="text-sm text-blue-600 dark:text-blue-400 hover:underline truncate" x-text="repo.full_name"></a>
-                        <span x-show="repo.is_private" class="text-[10px] px-1 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded">private</span>
+                        <span x-show="repo.is_private" class="text-[10px] px-1 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded">{{ t('sources_detail.private') }}</span>
                     </div>
                     <span class="text-[10px] text-gray-400 shrink-0 ml-2" x-text="repo.default_branch"></span>
                 </div>
             </template>
         </div>
-        <p x-show="repos.length === 0 && !loadingRepos" class="text-sm text-gray-400 text-center py-4">No repositories. Click Refresh or update installation.</p>
+        <p x-show="repos.length === 0 && !loadingRepos" class="text-sm text-gray-400 text-center py-4">{{ t('sources_detail.no_repositories') }}</p>
     </div>
 
     <!-- Installation needed notice -->
     <div x-show="source.type === 'github-app' && !source.installation_id" class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">Installation Required</h3>
-        <p class="text-xs text-yellow-700 dark:text-yellow-300 mb-3">This GitHub App needs to be installed on your repositories. After installation, the installation ID will be saved automatically via webhook.</p>
+        <h3 class="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">{{ t('sources_detail.installation_required') }}</h3>
+        <p class="text-xs text-yellow-700 dark:text-yellow-300 mb-3">{{ t('sources_detail.installation_required_note') }}</p>
         <a :href="'https://github.com/apps/' + (source.name?.replace('GitHub App: ', '') || '') + '/installations/new'"
            target="_blank"
-           class="px-3 py-1.5 text-xs font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg inline-block">Install on Repositories →</a>
+           class="px-3 py-1.5 text-xs font-medium bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg inline-block">{{ t('sources_detail.install_on_repositories') }} →</a>
     </div>
 
     <!-- Resources using this source -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Resources</h3>
-        <p class="text-xs text-gray-400 mb-3">Services deployed using this source.</p>
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{{ t('sources_detail.resources') }}</h3>
+        <p class="text-xs text-gray-400 mb-3">{{ t('sources_detail.resources_note') }}</p>
         <div x-show="resources.length > 0" class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
                     <tr class="border-b border-gray-200 dark:border-gray-800">
-                        <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Name</th>
-                        <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Status</th>
-                        <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">Type</th>
+                        <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('sources_detail.col_name') }}</th>
+                        <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('sources_detail.col_status') }}</th>
+                        <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('sources_detail.col_type') }}</th>
                         <th class="text-right py-2 px-2 text-xs font-medium text-gray-500"></th>
                     </tr>
                 </thead>
@@ -180,16 +180,16 @@
                                       :class="r.status === 'running' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'"
                                       x-text="r.status"></span>
                             </td>
-                            <td class="py-2 px-2 text-xs text-gray-500" x-text="r.catalog_id || 'Application'"></td>
+                            <td class="py-2 px-2 text-xs text-gray-500" x-text="r.catalog_id || '{{ t('sources_detail.application') }}'"></td>
                             <td class="py-2 px-2 text-right">
-                                <a :href="'/resources/' + r.id" class="text-xs text-blue-500 hover:text-blue-400">Open →</a>
+                                <a :href="'/resources/' + r.id" class="text-xs text-blue-500 hover:text-blue-400">{{ t('sources_detail.open') }} →</a>
                             </td>
                         </tr>
                     </template>
                 </tbody>
             </table>
         </div>
-        <p x-show="resources.length === 0" class="text-sm text-gray-400 text-center py-4">No resources using this source yet</p>
+        <p x-show="resources.length === 0" class="text-sm text-gray-400 text-center py-4">{{ t('sources_detail.no_resources') }}</p>
     </div>
 </div>
 
@@ -207,7 +207,7 @@ function sourceDetail(sourceId) {
                 this.source = data.source || {};
                 this.resources = data.resources || [];
                 if (this.source.installation_id) this.loadRepos();
-            } catch (e) { toast('Failed to load source', 'error'); }
+            } catch (e) { toast('{{ t('sources_detail.failed_to_load_source') }}', 'error'); }
         },
         async loadRepos() {
             this.loadingRepos = true;
@@ -218,15 +218,15 @@ function sourceDetail(sourceId) {
         },
         async saveSource() {
             // For now just save the name
-            toast('Source saved');
+            toast('{{ t('sources_detail.source_saved') }}');
         },
         async deleteSource() {
             const name = this.source.name || '';
-            const input = prompt('Type "' + name + '" to confirm deletion:');
-            if (input !== name) { if (input !== null) toast('Name does not match', 'error'); return; }
+            const input = prompt('{{ t('sources_detail.confirm_deletion') }}'.replace('%{name}', name));
+            if (input !== name) { if (input !== null) toast('{{ t('sources_detail.name_does_not_match') }}', 'error'); return; }
             try {
                 await api('/api/v1/sources/' + sourceId, { method: 'DELETE' });
-                toast('Source deleted');
+                toast('{{ t('sources_detail.source_deleted') }}');
                 window.location.href = '/sources';
             } catch (e) { toast(e.message, 'error'); }
         },

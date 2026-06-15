@@ -133,6 +133,18 @@ mod tests {
             ),
             ("resources/create.html", "Deployment Mode"),
             ("resources/detail.html", "Danger Zone"),
+            ("sources/list.html", "Git sources for your applications"),
+            ("sources/detail.html", "Source Details"),
+            (
+                "registries/index.html",
+                "Sign in to private container registries so deploys can pull images.",
+            ),
+            ("packages/list.html", "npm Packages"),
+            ("packages/detail.html", "All packages"),
+            (
+                "s3/list.html",
+                "S3-compatible storage for database backups and file storage",
+            ),
         ] {
             let out = env
                 .get_template(tpl)

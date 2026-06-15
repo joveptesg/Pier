@@ -1116,6 +1116,276 @@ resources_detail:
   confirm_rollback: Rollback to the previous version?
   toast_rollback_started: Rollback started
 
+# Git sources list (sources/list.html).
+sources_list:
+  title: Sources
+  heading: Sources
+  subtitle: Git sources for your applications
+  connect_github: Connect GitHub
+  add_source: Add Source
+  empty_title: No sources configured
+  empty_description: Connect your Git repositories to deploy applications directly from source code.
+  remove: Remove
+  modal_title: Add Git Source
+  name_label: Name
+  name_placeholder: My GitHub
+  type_label: Type
+  type_github: GitHub (PAT)
+  type_github_app: GitHub App
+  type_gitlab: GitLab
+  type_bitbucket: Bitbucket
+  type_custom: Custom Git
+  base_url_label: Base URL / Organization
+  access_token_label: Access Token
+  app_id_label: App ID
+  installation_id_label: Installation ID
+  private_key_label: Private Key (PEM)
+  github_app_help: "Create a GitHub App at github.com/settings/apps. Select repositories you want to grant access to during installation."
+  project_label: Project
+  all_projects: All projects
+  save: Save
+  err_name_required: Name is required
+  err_github_app_required: "App ID, Installation ID, and Private Key are required"
+  err_url_required: URL is required
+  err_connect_github: Failed to connect GitHub
+  confirm_remove: Remove this source?
+  toast_added: Source added
+  toast_removed: Source removed
+
+# Git source detail (sources/detail.html).
+sources_detail:
+  title: Source Details
+  github_app_for_private_repos: GitHub App for private repositories
+  save: Save
+  delete: Delete
+  app_name: App Name
+  rename: Rename
+  update_repos: Update Repos
+  type: Type
+  html_url: HTML URL
+  api_url: API URL
+  app_id: App ID
+  installation_id: Installation ID
+  not_installed_yet: Not installed yet
+  client_id: Client ID
+  client_secret: Client Secret
+  webhook_secret: Webhook Secret
+  base_url: Base URL
+  created: Created
+  repositories: Repositories
+  repositories_accessible: Repositories accessible via this GitHub App.
+  refresh: Refresh
+  private: private
+  no_repositories: No repositories. Click Refresh or update installation.
+  installation_required: Installation Required
+  installation_required_note: This GitHub App needs to be installed on your repositories. After installation, the installation ID will be saved automatically via webhook.
+  install_on_repositories: Install on Repositories
+  resources: Resources
+  resources_note: Services deployed using this source.
+  col_name: Name
+  col_status: Status
+  col_type: Type
+  application: Application
+  open: Open
+  no_resources: No resources using this source yet
+  failed_to_load_source: Failed to load source
+  source_saved: Source saved
+  confirm_deletion: 'Type "%{name}" to confirm deletion:'
+  name_does_not_match: Name does not match
+  source_deleted: Source deleted
+
+# Registry credentials (registries/index.html).
+registries_index:
+  title: Registry Credentials
+  heading: Registry Credentials
+  subtitle: Sign in to private container registries so deploys can pull images.
+  add_docker_hub: + Add Docker Hub
+  add_registry: Add registry
+  scope_all: All
+  scope_global_only: Global only
+  col_registry: Registry
+  col_username: Username
+  col_scope: Scope
+  col_label: Label
+  col_updated: Updated
+  col_actions: Actions
+  badge_global: Global
+  badge_project: Project
+  testing: Testing…
+  test: Test
+  edit: Edit
+  delete: Delete
+  empty_state: No registry credentials yet.
+  modal_title_edit: Edit registry
+  modal_title_add: Add registry
+  field_registry_host: Registry host
+  field_username: Username
+  field_password_edit: New password / token (leave blank to keep)
+  field_password_add: Password / token
+  field_label: Label (optional)
+  field_label_placeholder: CI token
+  saving: Saving…
+  save: Save
+  add: Add
+  toast_saved: Saved
+  toast_deleted: Deleted
+  toast_connection_ok: Connection OK
+  toast_failed: "Failed: %{error}"
+  unknown_error: unknown
+  confirm_delete: Delete credentials for %{registry}?
+
+# npm packages list (packages/list.html).
+packages_list:
+  title: Packages
+  heading: npm Packages
+  subtitle: 'Embedded npm-compatible registry served at <code class="text-xs font-mono">/registry/npm/</code>.'
+  configure_client: Configure your client
+  in_your_npmrc: 'In your project''s <code class="font-mono">.npmrc</code>:'
+  always_auth_note: '<code class="font-mono">always-auth=true</code> is required for yarn 1.x (it skips the Bearer token on GET otherwise). npm, pnpm, and bun ignore it harmlessly.'
+  col_package: Package
+  col_latest: Latest
+  col_versions: Versions
+  col_total_size: Total size
+  col_updated: Updated
+  badge_unpublished: Unpublished
+  badge_deprecated: Deprecated
+  badge_deprecated_title: The latest version is deprecated.
+  bytes_unit: bytes
+  empty_packages: 'No packages yet. Run <code class="font-mono text-gray-700 dark:text-gray-300">npm publish</code> against this registry to see them here.'
+  tokens_intro: Bearer tokens for the npm registry, CI runners, and external integrations.
+  new_token: + New token
+  copy_token_warning: Copy this token now — it won't be shown again.
+  dismiss: Dismiss
+  create_token: Create a token
+  token_name_placeholder: e.g. CI publish token
+  creating: Creating…
+  create: Create
+  col_name: Name
+  col_prefix: Prefix
+  col_created: Created
+  col_last_used: Last used
+  col_actions: Actions
+  never: Never
+  revoke: Revoke
+  empty_tokens: 'No tokens yet. Click <strong>+ New token</strong> above to create one.'
+  proxy_intro: Mirror public packages from an upstream registry.
+  proxy_help: 'When enabled, a request for a package not yet in this registry transparently fetches the packument from the upstream URL (defaults to <code>registry.npmjs.org</code>), caches it locally with <code>is_proxy = 1</code>, and lazily downloads tarballs on first access. Private publishes are unaffected — they always win over a proxy entry.'
+  enable_proxy: Enable upstream proxy
+  upstream_url: Upstream URL
+  packument_ttl: Packument TTL (seconds)
+  max_cache_size: Max cache size (MiB, 0 = unlimited)
+  max_cache_help: 'Background GC drops oldest tarballs once the total exceeds this cap. Rough guide: a single <code>npm install next</code> needs ~100 MiB; a small team — 2–5 GiB; CI / shared mirror — 20+ GiB. Leave 0 for unlimited (recommended on hosts with plenty of disk).'
+  cached_packages_suffix: cached package(s)
+  on_disk_suffix: on disk
+  saving: Saving…
+  save: Save
+  mirror_intro: Packages cached from the upstream registry.
+  mirror_help: Each row is a public package this Pier has fetched at least once. Tarballs are pulled lazily — only the versions clients actually installed land on disk. Metadata-only versions live in SQLite and don't count toward the cache size cap.
+  pinned_only: Pinned only
+  refreshing: Refreshing…
+  refresh: Refresh
+  col_versions_cached: Versions cached
+  col_tarballs_on_disk: Tarballs on disk
+  col_last_fetched: Last fetched
+  unpin: Unpin
+  pin: Pin
+  empty_mirror: 'No packages cached from upstream yet. Run <code class="font-mono">npm install &lt;pkg&gt;</code> against this registry to populate the cache.'
+  s3_intro: Cold-tier storage for tarballs.
+  s3_help: Pick an S3-compatible storage to mirror published tarballs to. Tarballs are still served from the local FS at low latency — S3 is the durability backstop and lets you re-hydrate after a VPS reinstall. Leave unset to disable mirroring.
+  mirror_tarballs_to: Mirror tarballs to
+  s3_disabled_option: "— Disabled (no mirroring) —"
+  empty_s3: 'No S3 storages defined yet. Create one under <a href="/s3" class="text-blue-500 hover:underline">S3 Storages</a> first.'
+  tab_packages: Packages
+  tab_mirror: Mirror
+  tab_tokens: Manage tokens
+  tab_proxy: Upstream proxy
+  tab_s3: S3 configure
+  revoke_confirm: 'Revoke token "%{name}"? Clients using it will fail to authenticate.'
+  err_create_token: failed to create token
+  err_save: failed to save
+  saved: Saved
+
+# npm package detail (packages/detail.html).
+packages_detail:
+  title_suffix: Packages
+  back_all_packages: All packages
+  badge_unpublished: Unpublished
+  badge_deprecated: Deprecated
+  latest_deprecated_title: The `latest` version is deprecated.
+  latest_label: "Latest:"
+  versions_plural: versions
+  versions_singular: version
+  bytes_total: bytes total
+  dist_tags_heading: Dist-tags
+  dist_tags_manage_html: 'Manage with <code class="font-mono text-gray-700 dark:text-gray-300">npm dist-tag add/rm</code> in your terminal.'
+  versions_heading_downloaded: Downloaded versions
+  versions_heading: Versions
+  manifest_only_note: 'more cached as metadata only · tarballs land on disk when a client installs them.'
+  unpublish_package_btn: Unpublish package
+  col_version: Version
+  col_size: Size
+  col_integrity: Integrity
+  col_published: Published
+  col_cold_tier: Cold-tier
+  col_actions: Actions
+  badge_deprecated_inline: deprecated
+  bytes_unit: bytes
+  cold_tier_uploaded: Uploaded
+  cold_tier_fs_only: FS only
+  undeprecate_btn: Un-deprecate
+  deprecate_btn: Deprecate
+  unpublish_btn: Unpublish
+  no_tarballs_cached: No tarballs cached locally yet.
+  download_latest: Download latest
+  proxy_run_prefix: Or run
+  proxy_run_suffix: against this registry. Tarballs are pulled lazily — only versions clients actually request land on disk.
+  fetching_upstream: Fetching from upstream…
+  downloaded_version: '✓ Downloaded %{version} (%{size} KiB)'
+  reloading: Reloading…
+  fetch_failed: 'fetch failed (%{status})'
+  downloaded_reloading: Downloaded — reloading…
+  request_method_failed: '%{method} %{path} failed (%{status})'
+  deprecate_prompt: 'Deprecation message for %{name}@%{version}:'
+  deprecate_prompt_default: use the latest version
+  unpublish_version_confirm: 'Unpublish %{name}@%{version}? Installs of this exact version will start failing.'
+  unpublish_package_confirm: 'Unpublish ALL versions of %{name}? The package will return 404 to every install until you re-publish it.'
+
+# S3 storages list (s3/list.html).
+s3_list:
+  page_title: S3 Storages
+  title: S3 Storages
+  subtitle: S3-compatible storage for database backups and file storage
+  add_storage: Add Storage
+  empty_title: No S3 storages configured
+  empty_desc: Add S3-compatible storage (AWS S3, MinIO, Backblaze B2, etc.) for automated database backups.
+  test_connection: Test connection
+  test: Test
+  edit: Edit
+  remove: Remove
+  modal_edit_title: Edit S3 Storage
+  modal_add_title: Add S3 Storage
+  label_name: Name
+  placeholder_name: My S3 Backup
+  label_type: Type
+  type_s3: S3 Compatible
+  label_storage_hostname: Storage Hostname
+  label_endpoint: Endpoint
+  label_region: Region
+  label_bucket: Bucket
+  label_key_prefix: Key prefix
+  key_prefix_help: First folder inside the bucket — e.g. server name. Leave empty to write to the bucket root.
+  label_access_key: Access Key
+  label_secret_key: Secret Key
+  placeholder_secret_keep: Leave empty to keep current
+  placeholder_secret: secret
+  save: Save
+  toast_required: Name, endpoint, and bucket are required
+  toast_updated: Storage updated
+  toast_added: Storage added
+  toast_connection_ok: Connection successful
+  confirm_remove: Remove this S3 storage?
+  toast_removed: Storage removed
+
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and
 # need a stable `%{name}` interpolation sample (no section-1 screen has one yet).

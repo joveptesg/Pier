@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}S3 Storages{% endblock %}
+{% block title %}{{ t('s3_list.page_title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="s3Data()" x-init="init()">
     <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">S3 Storages</h2>
-            <p class="text-sm text-gray-500 mt-0.5">S3-compatible storage for database backups and file storage</p>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('s3_list.title') }}</h2>
+            <p class="text-sm text-gray-500 mt-0.5">{{ t('s3_list.subtitle') }}</p>
         </div>
         <button @click="resetForm(); showAdd = true"
                 class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            Add Storage
+            {{ t('s3_list.add_storage') }}
         </button>
     </div>
 
@@ -21,8 +21,8 @@
         <div class="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
             <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>
         </div>
-        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-1">No S3 storages configured</h3>
-        <p class="text-sm text-gray-500 max-w-sm mx-auto">Add S3-compatible storage (AWS S3, MinIO, Backblaze B2, etc.) for automated database backups.</p>
+        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-1">{{ t('s3_list.empty_title') }}</h3>
+        <p class="text-sm text-gray-500 max-w-sm mx-auto">{{ t('s3_list.empty_desc') }}</p>
     </div>
 
     <!-- Storages List -->
@@ -40,20 +40,20 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-1">
-                        <button @click="testConnection(s.id)" title="Test connection"
+                        <button @click="testConnection(s.id)" title="{{ t('s3_list.test_connection') }}"
                                 class="p-1.5 rounded-md text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-600/10 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                            <span class="sr-only">Test</span>
+                            <span class="sr-only">{{ t('s3_list.test') }}</span>
                         </button>
-                        <button @click="editStorage(s)" title="Edit"
+                        <button @click="editStorage(s)" title="{{ t('s3_list.edit') }}"
                                 class="p-1.5 rounded-md text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                            <span class="sr-only">Edit</span>
+                            <span class="sr-only">{{ t('s3_list.edit') }}</span>
                         </button>
-                        <button @click="removeStorage(s.id)" title="Remove"
+                        <button @click="removeStorage(s.id)" title="{{ t('s3_list.remove') }}"
                                 class="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-600/10 transition-colors">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M10 7V4a1 1 0 011-1h2a1 1 0 011 1v3"/></svg>
-                            <span class="sr-only">Remove</span>
+                            <span class="sr-only">{{ t('s3_list.remove') }}</span>
                         </button>
                     </div>
                 </div>
@@ -64,62 +64,62 @@
     <!-- Add/Edit Storage Modal -->
     <div x-show="showAdd" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="closeModal()">
             <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="editingId ? 'Edit S3 Storage' : 'Add S3 Storage'"></h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="editingId ? '{{ t('s3_list.modal_edit_title') }}' : '{{ t('s3_list.modal_add_title') }}'"></h3>
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
-                    <input x-model="form.name" type="text" placeholder="My S3 Backup"
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('s3_list.label_name') }}</label>
+                    <input x-model="form.name" type="text" placeholder="{{ t('s3_list.placeholder_name') }}"
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Type</label>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('s3_list.label_type') }}</label>
                     <select x-model="form.storage_type"
                             class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="s3">S3 Compatible</option>
+                        <option value="s3">{{ t('s3_list.type_s3') }}</option>
                         <option value="bunny">Bunny.net</option>
                     </select>
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1" x-text="form.storage_type === 'bunny' ? 'Storage Hostname' : 'Endpoint'"></label>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1" x-text="form.storage_type === 'bunny' ? '{{ t('s3_list.label_storage_hostname') }}' : '{{ t('s3_list.label_endpoint') }}'"></label>
                     <input x-model="form.endpoint" type="text" placeholder="s3.amazonaws.com"
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Region</label>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('s3_list.label_region') }}</label>
                     <input x-model="form.region" type="text" placeholder="us-east-1"
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Bucket</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('s3_list.label_bucket') }}</label>
                 <input x-model="form.bucket" type="text" placeholder="pier-backups"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    Key prefix <span class="text-gray-400 font-normal">(optional)</span>
+                    {{ t('s3_list.label_key_prefix') }} <span class="text-gray-400 font-normal">({{ t('common.optional') }})</span>
                 </label>
                 <input x-model="form.key_prefix" type="text" placeholder="pier-backups"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <p class="text-xs text-gray-500 mt-1">First folder inside the bucket — e.g. server name. Leave empty to write to the bucket root.</p>
+                <p class="text-xs text-gray-500 mt-1">{{ t('s3_list.key_prefix_help') }}</p>
             </div>
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Access Key</label>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('s3_list.label_access_key') }}</label>
                     <input x-model="form.access_key" type="text" placeholder="AKIA..."
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Secret Key</label>
-                    <input x-model="form.secret_key" type="password" :placeholder="editingId ? 'Leave empty to keep current' : 'secret'"
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('s3_list.label_secret_key') }}</label>
+                    <input x-model="form.secret_key" type="password" :placeholder="editingId ? '{{ t('s3_list.placeholder_secret_keep') }}' : '{{ t('s3_list.placeholder_secret') }}'"
                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
             </div>
             <div class="flex justify-end gap-2 pt-2">
-                <button @click="closeModal()" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200">Cancel</button>
-                <button @click="saveStorage()" class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Save</button>
+                <button @click="closeModal()" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200">{{ t('common.cancel') }}</button>
+                <button @click="saveStorage()" class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">{{ t('s3_list.save') }}</button>
             </div>
             </div>
         </div>
@@ -164,7 +164,7 @@ function s3Data() {
         },
         async saveStorage() {
             if (!this.form.name || !this.form.endpoint || !this.form.bucket) {
-                toast('Name, endpoint, and bucket are required', 'error'); return;
+                toast('{{ t('s3_list.toast_required') }}', 'error'); return;
             }
             try {
                 if (this.editingId) {
@@ -172,13 +172,13 @@ function s3Data() {
                         method: 'PUT',
                         body: JSON.stringify(this.form),
                     });
-                    toast('Storage updated');
+                    toast('{{ t('s3_list.toast_updated') }}');
                 } else {
                     await api('/api/v1/s3', {
                         method: 'POST',
                         body: JSON.stringify(this.form),
                     });
-                    toast('Storage added');
+                    toast('{{ t('s3_list.toast_added') }}');
                 }
                 this.closeModal();
                 await this.init();
@@ -187,14 +187,14 @@ function s3Data() {
         async testConnection(id) {
             try {
                 await api('/api/v1/s3/' + id + '/test', { method: 'POST' });
-                toast('Connection successful');
+                toast('{{ t('s3_list.toast_connection_ok') }}');
             } catch (e) { toast(e.message, 'error'); }
         },
         async removeStorage(id) {
-            if (!confirm('Remove this S3 storage?')) return;
+            if (!confirm('{{ t('s3_list.confirm_remove') }}')) return;
             try {
                 await api('/api/v1/s3/' + id, { method: 'DELETE' });
-                toast('Storage removed');
+                toast('{{ t('s3_list.toast_removed') }}');
                 await this.init();
             } catch (e) { toast(e.message, 'error'); }
         }

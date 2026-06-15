@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ package.name }} — Packages{% endblock %}
+{% block title %}{{ package.name }} — {{ t('packages_detail.title_suffix') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="packageDetail({
@@ -9,7 +9,7 @@
     <!-- ── Header ──────────────────────────────────────────── -->
     <div class="flex items-start justify-between gap-4">
         <div>
-            <a id="back-to-packages" href="/packages" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">← All packages</a>
+            <a id="back-to-packages" href="/packages" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">← {{ t('packages_detail.back_all_packages') }}</a>
             <script>
                 // Restore the tab the operator was on (set by list.html via
                 // $watch('tab', …)). Fallback to the default Packages tab.
@@ -23,24 +23,24 @@
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white font-mono mt-1 flex items-center gap-2">
                 <span>{{ package.name }}</span>
                 {% if package.unpublished %}
-                <span class="text-[10px] px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400 font-sans">Unpublished</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400 font-sans">{{ t('packages_detail.badge_unpublished') }}</span>
                 {% elif package.latest_deprecated %}
-                <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 font-sans" title="The `latest` version is deprecated.">Deprecated</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 font-sans" title="{{ t('packages_detail.latest_deprecated_title') }}">{{ t('packages_detail.badge_deprecated') }}</span>
                 {% endif %}
             </h2>
             {% if package.description %}<p class="text-sm text-gray-500 mt-1">{{ package.description }}</p>{% endif %}
         </div>
         <div class="text-right text-xs text-gray-500 space-y-0.5">
-            <p>Latest: {% if package.latest_version %}<span class="font-mono text-gray-700 dark:text-gray-300">{{ package.latest_version }}</span>{% else %}—{% endif %}</p>
-            <p>{{ package.version_count }} version{% if package.version_count != 1 %}s{% endif %}</p>
-            <p>{{ package.total_size }} bytes total</p>
+            <p>{{ t('packages_detail.latest_label') }} {% if package.latest_version %}<span class="font-mono text-gray-700 dark:text-gray-300">{{ package.latest_version }}</span>{% else %}—{% endif %}</p>
+            <p>{{ package.version_count }} {% if package.version_count != 1 %}{{ t('packages_detail.versions_plural') }}{% else %}{{ t('packages_detail.versions_singular') }}{% endif %}</p>
+            <p>{{ package.total_size }} {{ t('packages_detail.bytes_total') }}</p>
         </div>
     </div>
 
     <!-- ── dist-tags ───────────────────────────────────────── -->
     {% if dist_tags %}
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
-        <p class="text-xs uppercase tracking-wider text-gray-500 mb-2">Dist-tags</p>
+        <p class="text-xs uppercase tracking-wider text-gray-500 mb-2">{{ t('packages_detail.dist_tags_heading') }}</p>
         <div class="flex flex-wrap gap-2">
             {% for entry in dist_tags %}
             <span class="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
@@ -51,7 +51,7 @@
             {% endfor %}
         </div>
         <p class="text-xs text-gray-500 mt-2">
-            Manage with <code class="font-mono text-gray-700 dark:text-gray-300">npm dist-tag add/rm</code> in your terminal.
+            {{ t('packages_detail.dist_tags_manage_html') | safe }}
         </p>
     </div>
     {% endif %}
@@ -77,28 +77,28 @@
         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800/50">
             <div>
                 <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {% if package.is_proxy %}Downloaded versions{% else %}Versions{% endif %}
+                    {% if package.is_proxy %}{{ t('packages_detail.versions_heading_downloaded') }}{% else %}{{ t('packages_detail.versions_heading') }}{% endif %}
                 </p>
                 {% if manifest_only_count > 0 %}
-                <p class="text-[11px] text-gray-500 mt-0.5">+{{ manifest_only_count }} more cached as metadata only · tarballs land on disk when a client installs them.</p>
+                <p class="text-[11px] text-gray-500 mt-0.5">+{{ manifest_only_count }} {{ t('packages_detail.manifest_only_note') }}</p>
                 {% endif %}
             </div>
             {% if not package.unpublished %}
             <button type="button" @click="unpublishPackage()"
                     class="text-[11px] font-medium px-2.5 py-1 rounded bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20">
-                Unpublish package
+                {{ t('packages_detail.unpublish_package_btn') }}
             </button>
             {% endif %}
         </div>
         <table class="min-w-full text-sm">
             <thead class="bg-gray-50 dark:bg-gray-800/50 text-xs uppercase tracking-wider text-gray-500">
                 <tr>
-                    <th class="px-4 py-3 text-left font-medium">Version</th>
-                    <th class="px-4 py-3 text-left font-medium">Size</th>
-                    <th class="px-4 py-3 text-left font-medium">Integrity</th>
-                    <th class="px-4 py-3 text-left font-medium">Published</th>
-                    <th class="px-4 py-3 text-left font-medium">Cold-tier</th>
-                    <th class="px-4 py-3 text-right font-medium">Actions</th>
+                    <th class="px-4 py-3 text-left font-medium">{{ t('packages_detail.col_version') }}</th>
+                    <th class="px-4 py-3 text-left font-medium">{{ t('packages_detail.col_size') }}</th>
+                    <th class="px-4 py-3 text-left font-medium">{{ t('packages_detail.col_integrity') }}</th>
+                    <th class="px-4 py-3 text-left font-medium">{{ t('packages_detail.col_published') }}</th>
+                    <th class="px-4 py-3 text-left font-medium">{{ t('packages_detail.col_cold_tier') }}</th>
+                    <th class="px-4 py-3 text-right font-medium">{{ t('packages_detail.col_actions') }}</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100 dark:divide-gray-800/50">
@@ -107,17 +107,17 @@
                     <td class="px-4 py-3 font-mono text-gray-900 dark:text-white">
                         {{ v.version }}
                         {% if v.deprecated %}
-                        <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400" :title="{{ v.deprecated | tojson }}">deprecated</span>
+                        <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400" :title="{{ v.deprecated | tojson }}">{{ t('packages_detail.badge_deprecated_inline') }}</span>
                         {% endif %}
                     </td>
-                    <td class="px-4 py-3 text-gray-500">{{ v.size }} bytes</td>
+                    <td class="px-4 py-3 text-gray-500">{{ v.size }} {{ t('packages_detail.bytes_unit') }}</td>
                     <td class="px-4 py-3 text-xs font-mono text-gray-500 truncate max-w-xs" title="{{ v.sha512 }}">{{ v.sha512[0:24] }}…</td>
                     <td class="px-4 py-3 text-xs text-gray-500">{{ v.published_at }}</td>
                     <td class="px-4 py-3">
                         {% if v.s3_uploaded %}
-                        <span class="text-[11px] px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-700 dark:text-green-400">Uploaded</span>
+                        <span class="text-[11px] px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-700 dark:text-green-400">{{ t('packages_detail.cold_tier_uploaded') }}</span>
                         {% else %}
-                        <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500">FS only</span>
+                        <span class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500">{{ t('packages_detail.cold_tier_fs_only') }}</span>
                         {% endif %}
                     </td>
                     <td class="px-4 py-3 text-right">
@@ -126,17 +126,17 @@
                             {% if v.deprecated %}
                             <button type="button" @click="deprecateVersion({{ v.version | tojson }}, '')"
                                     class="text-[11px] font-medium px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">
-                                Un-deprecate
+                                {{ t('packages_detail.undeprecate_btn') }}
                             </button>
                             {% else %}
                             <button type="button" @click="deprecateVersionPrompt({{ v.version | tojson }})"
                                     class="text-[11px] font-medium px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20">
-                                Deprecate
+                                {{ t('packages_detail.deprecate_btn') }}
                             </button>
                             {% endif %}
                             <button type="button" @click="unpublishVersion({{ v.version | tojson }})"
                                     class="text-[11px] font-medium px-2 py-0.5 rounded bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20">
-                                Unpublish
+                                {{ t('packages_detail.unpublish_btn') }}
                             </button>
                         </div>
                         {% endif %}
@@ -147,7 +147,7 @@
         </table>
         {% if package.is_proxy and not versions %}
         <div class="px-4 py-6 text-center text-xs text-gray-500 space-y-3">
-            <p>No tarballs cached locally yet.</p>
+            <p>{{ t('packages_detail.no_tarballs_cached') }}</p>
             {% if package.latest_version %}
             <div class="flex flex-col items-center justify-center gap-2">
                 <button type="button" id="proxy-dl-btn"
@@ -158,12 +158,12 @@
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
                     </svg>
-                    <span id="proxy-dl-label">Download latest ({{ package.latest_version }})</span>
+                    <span id="proxy-dl-label">{{ t('packages_detail.download_latest') }} ({{ package.latest_version }})</span>
                 </button>
                 <p id="proxy-dl-status" class="text-[11px] font-mono"></p>
             </div>
             {% endif %}
-            <p>Or run <code class="font-mono">npm install {{ package.name }}</code> against this registry. Tarballs are pulled lazily — only versions clients actually request land on disk.</p>
+            <p>{{ t('packages_detail.proxy_run_prefix') }} <code class="font-mono">npm install {{ package.name }}</code> {{ t('packages_detail.proxy_run_suffix') }}</p>
         </div>
         <script>
             async function pierProxyDownload(btn) {
@@ -173,7 +173,7 @@
                 const status = document.getElementById('proxy-dl-status');
                 btn.disabled = true;
                 spinner.style.display = 'inline-block';
-                label.textContent = 'Fetching from upstream…';
+                label.textContent = '{{ t('packages_detail.fetching_upstream') }}';
                 status.textContent = '';
                 status.className = 'text-[11px] font-mono';
                 try {
@@ -183,14 +183,14 @@
                         throw new Error(data.error || ('HTTP ' + res.status));
                     }
                     const data = await res.json();
-                    label.textContent = '✓ Downloaded ' + data.version + ' (' + Math.round(data.size / 1024) + ' KiB)';
-                    status.textContent = 'Reloading…';
+                    label.textContent = '{{ t('packages_detail.downloaded_version') }}'.replace('%{version}', data.version).replace('%{size}', Math.round(data.size / 1024));
+                    status.textContent = '{{ t('packages_detail.reloading') }}';
                     status.classList.add('text-green-600');
                     setTimeout(() => location.reload(), 700);
                 } catch (e) {
                     spinner.style.display = 'none';
                     btn.disabled = false;
-                    label.textContent = 'Download latest';
+                    label.textContent = '{{ t('packages_detail.download_latest') }}';
                     status.textContent = e.message;
                     status.classList.add('text-red-500');
                 }
@@ -222,9 +222,9 @@ function packageDetail({ name, isUnpublished }) {
                 const res = await fetch(`/api/v1/registry/proxy/packages/${this.encodedName()}/fetch`, { method: 'POST' });
                 if (!res.ok) {
                     const data = await res.json().catch(() => ({}));
-                    throw new Error(data.error || `fetch failed (${res.status})`);
+                    throw new Error(data.error || '{{ t('packages_detail.fetch_failed') }}'.replace('%{status}', res.status));
                 }
-                this.fetchStatus = 'Downloaded — reloading…';
+                this.fetchStatus = '{{ t('packages_detail.downloaded_reloading') }}';
                 setTimeout(() => window.location.reload(), 800);
             } catch (e) {
                 this.fetchStatus = e.message;
@@ -243,12 +243,12 @@ function packageDetail({ name, isUnpublished }) {
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                throw new Error(data.error || `${method} ${path} failed (${res.status})`);
+                throw new Error(data.error || '{{ t('packages_detail.request_method_failed') }}'.replace('%{method}', method).replace('%{path}', path).replace('%{status}', res.status));
             }
         },
 
         async deprecateVersionPrompt(version) {
-            const msg = window.prompt(`Deprecation message for ${this.name}@${version}:`, 'use the latest version');
+            const msg = window.prompt('{{ t('packages_detail.deprecate_prompt') }}'.replace('%{name}', this.name).replace('%{version}', version), '{{ t('packages_detail.deprecate_prompt_default') }}');
             if (msg === null) return;
             await this.deprecateVersion(version, msg);
         },
@@ -267,7 +267,7 @@ function packageDetail({ name, isUnpublished }) {
         },
 
         async unpublishVersion(version) {
-            if (!window.confirm(`Unpublish ${this.name}@${version}? Installs of this exact version will start failing.`)) return;
+            if (!window.confirm('{{ t('packages_detail.unpublish_version_confirm') }}'.replace('%{name}', this.name).replace('%{version}', version))) return;
             try {
                 await this.hit(
                     'DELETE',
@@ -280,7 +280,7 @@ function packageDetail({ name, isUnpublished }) {
         },
 
         async unpublishPackage() {
-            if (!window.confirm(`Unpublish ALL versions of ${this.name}? The package will return 404 to every install until you re-publish it.`)) return;
+            if (!window.confirm('{{ t('packages_detail.unpublish_package_confirm') }}'.replace('%{name}', this.name))) return;
             try {
                 await this.hit('DELETE', `/api/v1/registry/packages/${this.encodedName()}`);
                 window.location.href = '/packages';
