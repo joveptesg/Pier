@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Dashboard{% endblock %}
+{% block title %}{{ t('dashboard.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="dashboardData()" x-init="init()">
     <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Dashboard</h2>
-            <p class="text-sm text-gray-500 mt-1">System overview and resource usage</p>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('dashboard.title') }}</h2>
+            <p class="text-sm text-gray-500 mt-1">{{ t('dashboard.subtitle') }}</p>
         </div>
         <a href="/canvas"
            class="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors border border-gray-200 dark:border-gray-700">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
-            Architecture
+            {{ t('dashboard.architecture') }}
         </a>
     </div>
 
@@ -21,7 +21,7 @@
         <!-- CPU -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
             <div class="flex items-center justify-between mb-3">
-                <span class="text-sm text-gray-500 dark:text-gray-400">CPU Usage</span>
+                <span class="text-sm text-gray-500 dark:text-gray-400">{{ t('dashboard.cpu_usage') }}</span>
                 <svg class="w-4 h-4 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
             </div>
             <div class="text-2xl font-bold text-gray-900 dark:text-white" x-text="metrics.cpu_usage + '%'">--%</div>
@@ -36,7 +36,7 @@
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 cursor-pointer hover:border-green-300 dark:hover:border-green-700 transition-colors"
              @click="showMemoryDetail = true; loadContainerStats()">
             <div class="flex items-center justify-between mb-3">
-                <span class="text-sm text-gray-500 dark:text-gray-400">Memory</span>
+                <span class="text-sm text-gray-500 dark:text-gray-400">{{ t('dashboard.memory') }}</span>
                 <svg class="w-4 h-4 text-green-500 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             </div>
             <div class="text-2xl font-bold text-gray-900 dark:text-white" x-text="metrics.memory_percent + '%'">--%</div>
@@ -51,7 +51,7 @@
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4 cursor-pointer hover:border-yellow-300 dark:hover:border-yellow-700 transition-colors"
              @click="showDiskDetail = true; loadDiskUsage()">
             <div class="flex items-center justify-between mb-3">
-                <span class="text-sm text-gray-500 dark:text-gray-400">Disk</span>
+                <span class="text-sm text-gray-500 dark:text-gray-400">{{ t('dashboard.disk') }}</span>
                 <svg class="w-4 h-4 text-yellow-500 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
             </div>
             <template x-if="metrics.disks && metrics.disks.length > 0">
@@ -71,7 +71,7 @@
         <!-- Quick Stats -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-4">
             <div class="flex items-center justify-between mb-3">
-                <span class="text-sm text-gray-500 dark:text-gray-400">Containers</span>
+                <span class="text-sm text-gray-500 dark:text-gray-400">{{ t('dashboard.containers') }}</span>
                 <svg class="w-4 h-4 text-purple-500 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
             </div>
             <div class="text-2xl font-bold text-gray-900 dark:text-white" x-text="docker.containers ?? 0">0</div>
@@ -87,22 +87,22 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <!-- Docker Engine -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Docker Engine</h3>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('dashboard.docker_engine') }}</h3>
             <div class="space-y-3">
                 <div class="flex justify-between text-sm">
-                    <span class="text-gray-500">Version</span>
+                    <span class="text-gray-500">{{ t('dashboard.version') }}</span>
                     <span class="text-gray-800 dark:text-gray-200" x-text="docker.version || '--'">--</span>
                 </div>
                 <div class="flex justify-between text-sm">
-                    <span class="text-gray-500">API Version</span>
+                    <span class="text-gray-500">{{ t('dashboard.api_version') }}</span>
                     <span class="text-gray-800 dark:text-gray-200" x-text="docker.api_version || '--'">--</span>
                 </div>
                 <div class="flex justify-between text-sm">
-                    <span class="text-gray-500">Storage Driver</span>
+                    <span class="text-gray-500">{{ t('dashboard.storage_driver') }}</span>
                     <span class="text-gray-800 dark:text-gray-200" x-text="docker.storage_driver || '--'">--</span>
                 </div>
                 <div class="flex justify-between text-sm">
-                    <span class="text-gray-500">Images</span>
+                    <span class="text-gray-500">{{ t('dashboard.images') }}</span>
                     <span class="text-gray-800 dark:text-gray-200" x-text="docker.images ?? '--'">--</span>
                 </div>
             </div>
@@ -111,12 +111,12 @@
         <!-- Projects -->
         <div class="lg:col-span-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Projects</h3>
-                <a href="/projects" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">View all</a>
+                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('dashboard.projects') }}</h3>
+                <a href="/projects" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">{{ t('common.view_all') }}</a>
             </div>
             <div x-show="projects.length === 0" class="text-center py-6">
-                <p class="text-sm text-gray-500">No projects yet</p>
-                <a href="/projects" class="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block">Create your first project</a>
+                <p class="text-sm text-gray-500">{{ t('dashboard.no_projects') }}</p>
+                <a href="/projects" class="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block">{{ t('dashboard.create_first_project') }}</a>
             </div>
             <div x-show="projects.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <template x-for="p in projects.slice(0, 6)" :key="p.id">
@@ -135,18 +135,18 @@
 
     <!-- System Info -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">System</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('dashboard.system') }}</h3>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
             <div>
-                <span class="text-gray-500">Hostname</span>
+                <span class="text-gray-500">{{ t('dashboard.hostname') }}</span>
                 <p class="text-gray-800 dark:text-gray-200 mt-0.5" x-text="metrics.hostname || '--'">--</p>
             </div>
             <div>
-                <span class="text-gray-500">OS</span>
+                <span class="text-gray-500">{{ t('dashboard.os') }}</span>
                 <p class="text-gray-800 dark:text-gray-200 mt-0.5" x-text="metrics.os || '--'">--</p>
             </div>
             <div>
-                <span class="text-gray-500">Uptime</span>
+                <span class="text-gray-500">{{ t('dashboard.uptime') }}</span>
                 <p class="text-gray-800 dark:text-gray-200 mt-0.5" x-text="formatUptime(metrics.uptime)">--</p>
             </div>
         </div>
@@ -155,8 +155,8 @@
     <!-- Remote Servers (only shown when remote servers exist) -->
     <div x-show="remoteServers.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Servers</h3>
-            <a href="/servers" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">View all</a>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('dashboard.servers') }}</h3>
+            <a href="/servers" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">{{ t('common.view_all') }}</a>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <template x-for="s in remoteServers" :key="s.id">
@@ -181,13 +181,13 @@
     <div x-show="showMemoryDetail" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" @click.self="showMemoryDetail = false">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 border border-gray-200 dark:border-gray-800">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Memory Usage by Container</h3>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('dashboard.memory_by_container') }}</h3>
                 <button @click="showMemoryDetail = false" class="text-gray-400 hover:text-gray-600">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
-            <div x-show="containerStatsLoading" class="text-center py-4 text-gray-500 text-sm">Loading stats...</div>
-            <div x-show="!containerStatsLoading && containerStats.length === 0" class="text-center py-4 text-gray-400 text-sm">No running containers</div>
+            <div x-show="containerStatsLoading" class="text-center py-4 text-gray-500 text-sm">{{ t('dashboard.loading_stats') }}</div>
+            <div x-show="!containerStatsLoading && containerStats.length === 0" class="text-center py-4 text-gray-400 text-sm">{{ t('dashboard.no_running_containers') }}</div>
             <div x-show="!containerStatsLoading && containerStats.length > 0" class="space-y-3 max-h-[400px] overflow-y-auto">
                 <template x-for="c in containerStats" :key="c.name">
                     <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -216,16 +216,16 @@
     <div x-show="showDiskDetail" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" @click.self="showDiskDetail = false">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 border border-gray-200 dark:border-gray-800">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Disk Usage</h3>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('dashboard.disk_usage') }}</h3>
                 <button @click="showDiskDetail = false" class="text-gray-400 hover:text-gray-600">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
-            <div x-show="diskUsageLoading" class="text-center py-4 text-gray-500 text-sm">Loading...</div>
+            <div x-show="diskUsageLoading" class="text-center py-4 text-gray-500 text-sm">{{ t('common.loading') }}</div>
             <div x-show="!diskUsageLoading" class="space-y-4 max-h-[500px] overflow-y-auto">
                 <!-- Images -->
                 <div x-show="diskUsage.images && diskUsage.images.length > 0">
-                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Images</h4>
+                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{{ t('dashboard.images') }}</h4>
                     <div class="space-y-1.5">
                         <template x-for="(img, idx) in diskUsage.images" :key="idx">
                             <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -237,7 +237,7 @@
                 </div>
                 <!-- Containers -->
                 <div x-show="diskUsage.containers && diskUsage.containers.length > 0">
-                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Containers</h4>
+                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{{ t('dashboard.containers') }}</h4>
                     <div class="space-y-1.5">
                         <template x-for="(c, idx) in diskUsage.containers" :key="idx">
                             <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -249,7 +249,7 @@
                 </div>
                 <!-- Volumes -->
                 <div x-show="diskUsage.volumes && diskUsage.volumes.length > 0">
-                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Volumes</h4>
+                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{{ t('dashboard.volumes') }}</h4>
                     <div class="space-y-1.5">
                         <template x-for="v in diskUsage.volumes" :key="v.name">
                             <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -261,14 +261,14 @@
                 </div>
                 <!-- Build Cache -->
                 <div x-show="diskUsage.build_cache_size > 0">
-                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Build Cache</h4>
+                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{{ t('dashboard.build_cache') }}</h4>
                     <div class="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
                         <span class="text-xs font-mono text-purple-400" x-text="formatBytes(diskUsage.build_cache_size)"></span>
                     </div>
                 </div>
                 <!-- Total -->
                 <div class="border-t border-gray-200 dark:border-gray-800 pt-3 flex items-center justify-between">
-                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Total Docker Disk Usage</span>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('dashboard.total_disk_usage') }}</span>
                     <span class="text-sm font-mono font-bold text-yellow-500" x-text="formatBytes(diskUsage.total)"></span>
                 </div>
             </div>

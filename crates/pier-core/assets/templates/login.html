@@ -1,5 +1,5 @@
 {% extends "auth_base.html" %}
-{% block title %}Login{% endblock %}
+{% block title %}{{ t('login.title') }}{% endblock %}
 
 {% block content %}
 <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6" x-data="{
@@ -27,7 +27,7 @@
                 window.location.href = afterLoginTarget();
             }
         } catch (e) {
-            this.error = e.message || 'Login failed';
+            this.error = e.message || '{{ t('login.error.login_failed') }}';
         } finally {
             this.loading = false;
         }
@@ -42,7 +42,7 @@
             });
             window.location.href = afterLoginTarget();
         } catch (e) {
-            this.error = e.message || 'Invalid code';
+            this.error = e.message || '{{ t('login.error.invalid_code') }}';
         } finally {
             this.loading = false;
         }
@@ -56,14 +56,14 @@
     },
 }">
     <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-        <span x-show="step === 'password'">Sign in</span>
-        <span x-show="step === 'totp'" x-cloak>Two-factor authentication</span>
+        <span x-show="step === 'password'">{{ t('login.sign_in') }}</span>
+        <span x-show="step === 'totp'" x-cloak>{{ t('login.two_factor') }}</span>
     </h2>
 
     <!-- ── Step 1: password ────────────────────────────────── -->
     <form x-show="step === 'password'" @submit.prevent="submitPassword()" class="space-y-4">
         <div>
-            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">Username</label>
+            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ t('login.username') }}</label>
             <input x-model="username" type="text" required autofocus
                    class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
                           text-gray-900 dark:text-gray-100
@@ -72,7 +72,7 @@
                    placeholder="admin">
         </div>
         <div>
-            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">Password</label>
+            <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ t('login.password') }}</label>
             <div class="relative">
                 <input x-model="password" :type="showPw ? 'text' : 'password'" required
                        class="w-full px-3 py-2 pr-10 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg
@@ -93,15 +93,15 @@
         <button type="submit" :disabled="loading"
                 class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50
                        rounded-lg text-sm font-medium text-white transition-colors">
-            <span x-show="!loading">Sign in</span>
-            <span x-show="loading" x-cloak>Signing in...</span>
+            <span x-show="!loading">{{ t('login.sign_in') }}</span>
+            <span x-show="loading" x-cloak>{{ t('login.signing_in') }}</span>
         </button>
     </form>
 
     <!-- ── Step 2: TOTP ────────────────────────────────────── -->
     <form x-show="step === 'totp'" x-cloak @submit.prevent="submitTotp()" class="space-y-4">
         <p class="text-sm text-gray-500">
-            Enter the 6-digit code from your authenticator app, or a recovery code.
+            {{ t('login.totp_hint') }}
         </p>
         <div>
             <input id="totp-code" x-model="code" type="text"
@@ -117,12 +117,12 @@
         <button type="submit" :disabled="loading || !code"
                 class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50
                        rounded-lg text-sm font-medium text-white transition-colors">
-            <span x-show="!loading">Verify</span>
-            <span x-show="loading" x-cloak>Verifying...</span>
+            <span x-show="!loading">{{ t('login.verify') }}</span>
+            <span x-show="loading" x-cloak>{{ t('login.verifying') }}</span>
         </button>
         <button type="button" @click="backToPassword()"
                 class="w-full text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
-            ← back
+            {{ t('login.back') }}
         </button>
     </form>
 </div>
@@ -134,7 +134,7 @@
             ...opts,
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Request failed');
+        if (!res.ok) throw new Error(data.error || '{{ t('login.error.request_failed') }}');
         return data;
     }
 

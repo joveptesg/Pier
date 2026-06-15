@@ -113,7 +113,7 @@ mod tests {
     /// `t!` accepts a runtime `&str` key and a runtime locale expression.
     #[test]
     fn t_accepts_runtime_key_and_locale() {
-        let key = String::from("spike.plain");
+        let key = String::from("test_fixtures.plain");
         let loc = String::from("en");
         let got = rust_i18n::t!(key.as_str(), locale = loc.as_str());
         assert_eq!(got, "Spike works");
@@ -123,7 +123,7 @@ mod tests {
     /// substitute ourselves.
     #[test]
     fn t_leaves_placeholders_untouched_when_no_vars() {
-        let raw = rust_i18n::t!("spike.interp", locale = "en");
+        let raw = rust_i18n::t!("test_fixtures.interp", locale = "en");
         assert!(
             raw.contains("%{name}"),
             "expected raw placeholder, got: {raw}"
@@ -133,8 +133,14 @@ mod tests {
     /// Unknown locales fall back to the source locale.
     #[test]
     fn t_falls_back_to_source_locale() {
-        let got = rust_i18n::t!("spike.plain", locale = "zz-XX");
+        let got = rust_i18n::t!("test_fixtures.plain", locale = "zz-XX");
         assert_eq!(got, "Spike works");
+    }
+
+    /// A real catalog key resolves to its English source string.
+    #[test]
+    fn real_key_resolves() {
+        assert_eq!(rust_i18n::t!("nav.dashboard", locale = "en"), "Dashboard");
     }
 
     // --- Bridge + negotiation behaviour. ---
@@ -152,13 +158,13 @@ mod tests {
         env.add_function("t", translate);
 
         let plain = env
-            .render_str("{{ t('spike.plain') }}", minijinja::context! {})
+            .render_str("{{ t('test_fixtures.plain') }}", minijinja::context! {})
             .unwrap();
         assert_eq!(plain, "Spike works");
 
         let interp = env
             .render_str(
-                "{{ t('spike.interp', name='World') }}",
+                "{{ t('test_fixtures.interp', name='World') }}",
                 minijinja::context! {},
             )
             .unwrap();

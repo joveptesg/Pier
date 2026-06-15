@@ -4,11 +4,96 @@
 # Other languages are added later as sibling files (`ru.yml`, `zh-CN.yml`, …);
 # missing keys fall back to this file (`i18n!(.., fallback = "en")`).
 #
-# Key convention: <area>.<screen>.<element>. Shared words go under `common.*`.
-# Interpolation uses `%{name}` placeholders; the MiniJinja `t()` bridge fills
-# them from template kwargs.
+# Key convention: <area>.<screen>.<element>. Shared words go under `common.*`,
+# sidebar navigation under `nav.*`. Interpolation uses `%{name}` placeholders;
+# the MiniJinja `t()` bridge fills them from template kwargs.
 
-# --- Step 1 spike fixtures (temporary; removed once the real catalog lands) ---
-spike:
+# Words/labels reused across many screens.
+common:
+  logout: Logout
+  view_all: View all
+  loading: Loading...
+
+# Sidebar navigation (labels + collapsed-sidebar tooltips share these keys).
+nav:
+  dashboard: Dashboard
+  projects: Projects
+  servers: Servers
+  sources: Sources
+  s3: S3 Storages
+  registries: Registries
+  packages: Packages
+  domains: Domains
+  proxy: Proxy
+  networks: Networks
+  team: Team
+  tasks: Tasks
+  schedules: Schedules
+  settings: Settings
+  logs: Logs
+  updates: Updates
+  notifications: Notifications
+  # Sidebar section headers.
+  group:
+    integrations: Integrations
+    networking: Networking
+    system: System
+
+# Shared chrome rendered by base.html.
+layout:
+  support_pier: Support Pier
+  deploy_in_progress: In Progress
+
+# Login + two-factor screen (login.html).
+login:
+  title: Login
+  sign_in: Sign in
+  two_factor: Two-factor authentication
+  username: Username
+  password: Password
+  signing_in: Signing in...
+  totp_hint: Enter the 6-digit code from your authenticator app, or a recovery code.
+  verify: Verify
+  verifying: Verifying...
+  back: ← back
+  error:
+    login_failed: Login failed
+    invalid_code: Invalid code
+    request_failed: Request failed
+
+# Dashboard (dashboard.html).
+dashboard:
+  title: Dashboard
+  subtitle: System overview and resource usage
+  architecture: Architecture
+  cpu_usage: CPU Usage
+  memory: Memory
+  disk: Disk
+  containers: Containers
+  docker_engine: Docker Engine
+  version: Version
+  api_version: API Version
+  storage_driver: Storage Driver
+  images: Images
+  projects: Projects
+  no_projects: No projects yet
+  create_first_project: Create your first project
+  system: System
+  hostname: Hostname
+  os: OS
+  uptime: Uptime
+  servers: Servers
+  memory_by_container: Memory Usage by Container
+  loading_stats: Loading stats...
+  no_running_containers: No running containers
+  disk_usage: Disk Usage
+  volumes: Volumes
+  build_cache: Build Cache
+  total_disk_usage: Total Docker Disk Usage
+
+# Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
+# template; kept here because the unit tests share this compiled-in catalog and
+# need a stable `%{name}` interpolation sample (no section-1 screen has one yet).
+test_fixtures:
   plain: Spike works
   interp: "Hello, %{name}"

@@ -55,3 +55,34 @@ pub fn content_type_for(path: &str) -> &'static str {
         "application/octet-stream"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// All templates load, the MiniJinja `t()` function resolves catalog keys,
+    /// and `extends`/`include` chains render — exercised end-to-end on the two
+    /// section-1 screens. Outside a request scope `t()` defaults to `en`.
+    #[test]
+    fn templates_render_with_localized_strings() {
+        let env = init_templates();
+
+        let dashboard = env
+            .get_template("dashboard.html")
+            .expect("dashboard.html loads")
+            .render(minijinja::context! { user => "admin", page => "dashboard" })
+            .expect("dashboard.html renders");
+        assert!(dashboard.contains("System overview and resource usage"));
+        assert!(dashboard.contains("Docker Engine"));
+        // Sidebar label from base.html came through the t() bridge too.
+        assert!(dashboard.contains("Notifications"));
+
+        let login = env
+            .get_template("login.html")
+            .expect("login.html loads")
+            .render(minijinja::context! {})
+            .expect("login.html renders");
+        assert!(login.contains("Sign in"));
+        assert!(login.contains("Two-factor authentication"));
+    }
+}
