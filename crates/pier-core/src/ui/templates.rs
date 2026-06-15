@@ -154,6 +154,11 @@ mod tests {
                 "networks/list.html",
                 "Manage Docker networks for service isolation",
             ),
+            ("containers/list.html", "Manage Docker containers"),
+            ("containers/detail.html", "Container Info"),
+            ("images/list.html", "Docker images on this host"),
+            ("compose/list.html", "Docker Compose deployments"),
+            ("compose/editor.html", "Compose YAML"),
         ] {
             let out = env
                 .get_template(tpl)

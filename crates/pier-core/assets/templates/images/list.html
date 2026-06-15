@@ -1,27 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Images{% endblock %}
+{% block title %}{{ t('images_list.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="imagesData()" x-init="init()">
     <!-- Header -->
     <div>
-        <h2 class="text-xl font-semibold text-white">Images</h2>
-        <p class="text-sm text-gray-500 mt-1">Docker images on this host</p>
+        <h2 class="text-xl font-semibold text-white">{{ t('images_list.heading') }}</h2>
+        <p class="text-sm text-gray-500 mt-1">{{ t('images_list.subtitle') }}</p>
     </div>
 
     <!-- Loading -->
-    <div x-show="loading" class="text-center py-12 text-gray-500">Loading images...</div>
+    <div x-show="loading" class="text-center py-12 text-gray-500">{{ t('images_list.loading') }}</div>
 
     <!-- Table -->
     <div x-show="!loading" class="bg-gray-900 border border-gray-800/50 rounded-xl overflow-hidden">
         <table class="w-full text-sm">
             <thead>
                 <tr class="border-b border-gray-800/50">
-                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Repository</th>
-                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Tag</th>
-                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
-                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                    <th class="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('images_list.col_repository') }}</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('images_list.col_tag') }}</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('images_list.col_size') }}</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('images_list.col_created') }}</th>
+                    <th class="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('images_list.col_actions') }}</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-800/30">
@@ -36,7 +36,7 @@
                         <td class="px-4 py-3 text-right">
                             <button @click="remove(img.id)"
                                     class="px-2 py-1 text-xs rounded bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors">
-                                Remove
+                                {{ t('images_list.remove') }}
                             </button>
                         </td>
                     </tr>
@@ -45,7 +45,7 @@
         </table>
 
         <div x-show="images.length === 0" class="text-center py-8 text-gray-500 text-sm">
-            No images found
+            {{ t('images_list.empty') }}
         </div>
     </div>
 </div>
@@ -83,10 +83,10 @@ function imagesData() {
             return b.toFixed(1) + ' ' + units[i];
         },
         async remove(id) {
-            if (!confirm('Remove this image?')) return;
+            if (!confirm('{{ t('images_list.confirm_remove') }}')) return;
             try {
                 await api('/api/v1/images/' + encodeURIComponent(id), { method: 'DELETE' });
-                toast('Image removed');
+                toast('{{ t('images_list.removed') }}');
                 await this.refresh();
             } catch (e) {
                 toast(e.message, 'error');

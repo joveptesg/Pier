@@ -1496,6 +1496,141 @@ networks_list:
   toast_deleted: Network deleted
   confirm_delete: 'Delete network "%{name}"?'
 
+# Docker containers list (containers/list.html).
+containers_list:
+  title: Containers
+  heading: Containers
+  subtitle: Manage Docker containers
+  show_stopped: Show stopped
+  loading: Loading containers...
+  col_name: Name
+  col_image: Image
+  col_status: Status
+  col_ports: Ports
+  col_actions: Actions
+  action_start: Start
+  action_stop: Stop
+  action_restart: Restart
+  empty: No containers found
+  action_done: Container %{action}ed
+
+# Docker container detail (containers/detail.html).
+containers_detail:
+  title: Container Detail
+  start: Start
+  stop: Stop
+  restart: Restart
+  container_info: Container Info
+  image: Image
+  created: Created
+  platform: Platform
+  resource_usage: Resource Usage
+  memory: Memory
+  network_io: Network I/O
+  logs: Logs
+  live: Live
+  paused: Paused
+  clear: Clear
+  no_logs: No logs available
+  action_success: Container %{action}
+
+# Docker images list (images/list.html).
+images_list:
+  title: Images
+  heading: Images
+  subtitle: Docker images on this host
+  loading: Loading images...
+  col_repository: Repository
+  col_tag: Tag
+  col_size: Size
+  col_created: Created
+  col_actions: Actions
+  remove: Remove
+  empty: No images found
+  confirm_remove: Remove this image?
+  removed: Image removed
+
+# Compose stacks list (compose/list.html).
+compose_list:
+  title: Stacks
+  heading: Compose Stacks
+  subtitle: Docker Compose deployments
+  new_stack: New Stack
+  loading_stacks: Loading stacks...
+  open_on: Open on %{name}
+  created: "Created: %{value}"
+  synced: "Synced: %{value}"
+  deploy: Deploy
+  down: Down
+  restart: Restart
+  logs: Logs
+  delete: Delete
+  move_to: Move to…
+  move_to_tooltip: Move this stack to a paired peer (stateless only)
+  open: Open
+  managed_on: Managed on
+  not_paired: not paired
+  not_paired_tooltip: Pair federation on /servers/{peer-id} to enable remote actions
+  empty: No stacks yet
+  create_first: Create your first stack
+  migrate_heading_prefix: Move
+  migrate_heading_suffix: to another server
+  migrate_explainer: Pier will recreate this stack on the chosen peer, then tear down the local copy. Stateful stacks (named volumes) are refused at the API.
+  target_server: Target server
+  select: select
+  dns_warning: DNS A-records still point at this server. Update them after the move so users actually hit the new node.
+  move_it: Move it
+  moved_to: Moved to
+  new_stack_id: "New stack id:"
+  update_dns_for: "Update DNS A-records for:"
+  note: "Note: %{value}"
+  close: Close
+  follow: Follow
+  creating_on_target: Creating stack on target…
+  migration_complete: Migration complete
+  never: never
+  ago_seconds: "%{n}s ago"
+  ago_minutes: "%{n}m ago"
+  ago_hours: "%{n}h ago"
+  ago_days: "%{n}d ago"
+  deploying_stack: Deploying stack...
+  stack_deployed: Stack deployed
+  peer_action_running: "%{action} on %{peer}..."
+  peer_action_ok: "%{action} OK"
+  peer_action_failed: "%{action} failed: %{error}"
+  logs_title: "Logs · %{name} on %{peer}"
+  loading_snapshot: Loading snapshot…
+  empty_log: (empty)
+  snapshot_loaded: Snapshot loaded.
+  snapshot_failed: "Snapshot failed: %{error}"
+  streaming_live_from: Streaming live from %{peer}
+  stream_error: Stream error — peer cert untrusted? Try opening the modal again.
+  live_stream_unavailable: "Live stream unavailable: %{error}"
+  stack_stopped: Stack stopped
+  confirm_remove: Remove this stack?
+  stack_removed: Stack removed
+
+# Compose stack editor (compose/editor.html).
+compose_editor:
+  title_new: New Stack
+  title_edit: Edit Stack
+  deploy_on: Deploy on
+  deploy_on_help: 'Local stays on this server. Peer entries require the federation token to be paired on <span class="font-mono">/servers/&lt;peer-id&gt;</span>.'
+  stack_name: Stack Name
+  compose_yaml: Compose YAML
+  saving: Saving...
+  create_stack: Create Stack
+  save_changes: Save Changes
+  deploying: Deploying...
+  save_deploy: Save & Deploy
+  target_local: This server (local)
+  target_peer: "%{name} (peer)"
+  error_load_stack: Failed to load stack
+  toast_created: Stack created
+  toast_created_peer: Stack created on peer
+  toast_saved: Stack saved
+  toast_deployed: Stack deployed
+
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and
 # need a stable `%{name}` interpolation sample (no section-1 screen has one yet).

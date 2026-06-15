@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Stacks{% endblock %}
+{% block title %}{{ t('compose_list.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="stacksData()" x-init="init()">
     <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-xl font-semibold text-white">Compose Stacks</h2>
-            <p class="text-sm text-gray-500 mt-1">Docker Compose deployments</p>
+            <h2 class="text-xl font-semibold text-white">{{ t('compose_list.heading') }}</h2>
+            <p class="text-sm text-gray-500 mt-1">{{ t('compose_list.subtitle') }}</p>
         </div>
         <a href="/stacks/new"
            class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 rounded-lg text-white transition-colors">
-            + New Stack
+            + {{ t('compose_list.new_stack') }}
         </a>
     </div>
 
     <!-- Loading -->
-    <div x-show="loading" class="text-center py-12 text-gray-500">Loading stacks...</div>
+    <div x-show="loading" class="text-center py-12 text-gray-500">{{ t('compose_list.loading_stacks') }}</div>
 
     <!-- Grid -->
     <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -34,7 +34,7 @@
                             <a :href="peerHref(s)"
                                target="_blank" rel="noopener"
                                class="text-white font-medium hover:text-purple-400 transition-colors truncate"
-                               :title="'Open on ' + s.peer_name"
+                               :title="'{{ t('compose_list.open_on') }}'.replace('%{name}', s.peer_name)"
                                x-text="s.name"></a>
                         </template>
                         <span x-show="s.source === 'peer'"
@@ -49,28 +49,28 @@
                     </span>
                 </div>
                 <p class="text-xs text-gray-500 mb-4">
-                    <span x-show="s.source === 'local'" x-text="'Created: ' + s.created_at"></span>
-                    <span x-show="s.source === 'peer'" x-text="'Synced: ' + formatAgo(s.fetched_at)"></span>
+                    <span x-show="s.source === 'local'" x-text="'{{ t('compose_list.created') }}'.replace('%{value}', s.created_at)"></span>
+                    <span x-show="s.source === 'peer'" x-text="'{{ t('compose_list.synced') }}'.replace('%{value}', formatAgo(s.fetched_at))"></span>
                 </p>
                 <!-- Local stacks: full mutation buttons. -->
                 <div class="flex items-center gap-2 flex-wrap" x-show="s.source === 'local'">
                     <button @click="deploy(s.id)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
-                        Deploy
+                        {{ t('compose_list.deploy') }}
                     </button>
                     <button @click="down(s.id)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 transition-colors">
-                        Down
+                        {{ t('compose_list.down') }}
                     </button>
                     <button x-show="migrationTargets.length > 0"
                             @click="openMigrate(s)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 transition-colors"
-                            title="Move this stack to a paired peer (stateless only)">
-                        Move to…
+                            title="{{ t('compose_list.move_to_tooltip') }}">
+                        {{ t('compose_list.move_to') }}
                     </button>
                     <button @click="remove(s.id)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors ml-auto">
-                        Delete
+                        {{ t('compose_list.delete') }}
                     </button>
                 </div>
                 <!-- Federated stack on a peer that's been paired (peer
@@ -83,42 +83,42 @@
                     <button @click="peerDeploy(s)"
                             :disabled="busy[s._key]"
                             class="px-3 py-1.5 text-xs rounded-lg bg-purple-600/20 text-purple-300 hover:bg-purple-600/30 transition-colors disabled:opacity-60">
-                        Deploy
+                        {{ t('compose_list.deploy') }}
                     </button>
                     <button @click="peerDown(s)"
                             :disabled="busy[s._key]"
                             class="px-3 py-1.5 text-xs rounded-lg bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 transition-colors disabled:opacity-60">
-                        Down
+                        {{ t('compose_list.down') }}
                     </button>
                     <button @click="peerRestart(s)"
                             :disabled="busy[s._key]"
                             class="px-3 py-1.5 text-xs rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors disabled:opacity-60">
-                        Restart
+                        {{ t('compose_list.restart') }}
                     </button>
                     <button @click="openLogs(s)"
                             class="px-3 py-1.5 text-xs rounded-lg bg-gray-700/40 text-gray-200 hover:bg-gray-700/60 transition-colors">
-                        Logs
+                        {{ t('compose_list.logs') }}
                     </button>
                     <a x-show="s.peer_url" :href="peerHref(s)" target="_blank" rel="noopener"
-                       class="ml-auto px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300">Open ↗</a>
+                       class="ml-auto px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300">{{ t('compose_list.open') }} ↗</a>
                 </div>
                 <!-- Federated but peer NOT paired yet — read-only with
                      a callout pointing at the setup step. -->
                 <div class="flex items-center text-xs text-gray-500"
                      x-show="s.source === 'peer' && !s.peer_paired">
-                    <span>Managed on <span class="text-purple-300" x-text="s.peer_name"></span>
-                        <span class="text-amber-400" title="Pair federation on /servers/{peer-id} to enable remote actions"> · not paired</span>
+                    <span>{{ t('compose_list.managed_on') }} <span class="text-purple-300" x-text="s.peer_name"></span>
+                        <span class="text-amber-400" title="{{ t('compose_list.not_paired_tooltip') }}"> · {{ t('compose_list.not_paired') }}</span>
                     </span>
                     <a x-show="s.peer_url" :href="peerHref(s)" target="_blank" rel="noopener"
-                       class="ml-auto text-purple-400 hover:text-purple-300">Open ↗</a>
+                       class="ml-auto text-purple-400 hover:text-purple-300">{{ t('compose_list.open') }} ↗</a>
                 </div>
             </div>
         </template>
     </div>
 
     <div x-show="!loading && stacks.length === 0" class="text-center py-12">
-        <p class="text-gray-500 mb-4">No stacks yet</p>
-        <a href="/stacks/new" class="text-blue-400 hover:text-blue-300 text-sm">Create your first stack</a>
+        <p class="text-gray-500 mb-4">{{ t('compose_list.empty') }}</p>
+        <a href="/stacks/new" class="text-blue-400 hover:text-blue-300 text-sm">{{ t('compose_list.create_first') }}</a>
     </div>
 
     <!-- Migrate modal — Move to... on a local stack.
@@ -130,35 +130,34 @@
          style="top:0;left:0" @click.self="migrate.phase === 'running' || closeMigrate()">
         <div class="bg-gray-950 border border-gray-800 rounded-xl shadow-xl w-full max-w-lg p-5 space-y-4" @click.stop>
             <h3 class="text-sm font-semibold text-white">
-                Move <span class="font-mono text-indigo-300" x-text="migrate.stackName"></span> to another server
+                {{ t('compose_list.migrate_heading_prefix') }} <span class="font-mono text-indigo-300" x-text="migrate.stackName"></span> {{ t('compose_list.migrate_heading_suffix') }}
             </h3>
 
             <template x-if="migrate.phase === 'idle'">
                 <div class="space-y-3">
                     <p class="text-xs text-gray-400">
-                        Pier will recreate this stack on the chosen peer, then tear down the local copy.
-                        Stateful stacks (named volumes) are refused at the API.
+                        {{ t('compose_list.migrate_explainer') }}
                     </p>
                     <div>
-                        <label class="block text-xs text-gray-400 mb-1">Target server</label>
+                        <label class="block text-xs text-gray-400 mb-1">{{ t('compose_list.target_server') }}</label>
                         <select x-model="migrate.targetServerId"
                                 class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-100">
-                            <option value="">— select —</option>
+                            <option value="">— {{ t('compose_list.select') }} —</option>
                             <template x-for="t in migrationTargets" :key="t.id">
                                 <option :value="t.id" x-text="t.label"></option>
                             </template>
                         </select>
                     </div>
                     <div class="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-[11px] text-amber-300">
-                        DNS A-records still point at this server. Update them after the move so users actually hit the new node.
+                        {{ t('compose_list.dns_warning') }}
                     </div>
                     <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-800">
                         <button @click="closeMigrate()"
-                                class="px-3 py-1.5 text-sm rounded text-gray-400 hover:text-gray-200">Cancel</button>
+                                class="px-3 py-1.5 text-sm rounded text-gray-400 hover:text-gray-200">{{ t('common.cancel') }}</button>
                         <button :disabled="!migrate.targetServerId"
                                 @click="confirmMigrate()"
                                 class="px-3 py-1.5 text-sm rounded bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60">
-                            Move it
+                            {{ t('compose_list.move_it') }}
                         </button>
                     </div>
                 </div>
@@ -174,14 +173,14 @@
                 <div class="space-y-3">
                     <div class="bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2 text-xs text-green-300"
                          x-show="migrate.result && migrate.result.ok">
-                        Moved to <span class="font-mono" x-text="migrate.result?.moved_to"></span>.
-                        New stack id: <span class="font-mono" x-text="migrate.result?.new_stack_id"></span>
+                        {{ t('compose_list.moved_to') }} <span class="font-mono" x-text="migrate.result?.moved_to"></span>.
+                        {{ t('compose_list.new_stack_id') }} <span class="font-mono" x-text="migrate.result?.new_stack_id"></span>
                     </div>
                     <div class="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-xs text-red-300"
                          x-show="migrate.error" x-text="migrate.error"></div>
                     <div x-show="migrate.result && (migrate.result.domain_advice || []).length > 0"
                          class="text-xs text-gray-400 space-y-1">
-                        <p>Update DNS A-records for:</p>
+                        <p>{{ t('compose_list.update_dns_for') }}</p>
                         <ul class="font-mono text-amber-300 list-disc list-inside">
                             <template x-for="d in (migrate.result?.domain_advice || [])" :key="d">
                                 <li x-text="d"></li>
@@ -190,10 +189,10 @@
                     </div>
                     <div x-show="migrate.result && migrate.result.teardown_warning"
                          class="text-[11px] text-amber-300"
-                         x-text="'Note: ' + (migrate.result?.teardown_warning || '')"></div>
+                         x-text="'{{ t('compose_list.note') }}'.replace('%{value}', (migrate.result?.teardown_warning || ''))"></div>
                     <div class="flex items-center justify-end pt-2 border-t border-gray-800">
                         <button @click="closeMigrate()"
-                                class="px-3 py-1.5 text-sm rounded bg-gray-800 hover:bg-gray-700 text-gray-200">Close</button>
+                                class="px-3 py-1.5 text-sm rounded bg-gray-800 hover:bg-gray-700 text-gray-200">{{ t('compose_list.close') }}</button>
                     </div>
                 </div>
             </template>
@@ -217,10 +216,10 @@
                     <label class="flex items-center gap-1 text-xs text-gray-400">
                         <input type="checkbox" x-model="logs.follow"
                                @change="logs.follow ? startLogsStream() : stopLogsStream()">
-                        Follow
+                        {{ t('compose_list.follow') }}
                     </label>
                     <button @click="closeLogs()"
-                            class="px-2 py-1 text-xs rounded bg-gray-800 hover:bg-gray-700 text-gray-200">Close</button>
+                            class="px-2 py-1 text-xs rounded bg-gray-800 hover:bg-gray-700 text-gray-200">{{ t('compose_list.close') }}</button>
                 </div>
             </div>
             <pre x-ref="logBody"
@@ -309,7 +308,7 @@ function stacksData() {
         async confirmMigrate() {
             const m = this.migrate;
             m.phase = 'running';
-            m.status = 'Creating stack on target…';
+            m.status = '{{ t('compose_list.creating_on_target') }}';
             try {
                 const resp = await api('/api/v1/stacks/' + encodeURIComponent(m.stackId) + '/migrate', {
                     method: 'POST',
@@ -317,7 +316,7 @@ function stacksData() {
                 });
                 m.result = resp;
                 m.phase = 'done';
-                toast('Migration complete');
+                toast('{{ t('compose_list.migration_complete') }}');
                 await this.refresh();
             } catch (e) {
                 m.error = e.message || String(e);
@@ -330,18 +329,18 @@ function stacksData() {
             return '#';
         },
         formatAgo(unixSecs) {
-            if (!unixSecs) return 'never';
+            if (!unixSecs) return '{{ t('compose_list.never') }}';
             const diff = Math.max(0, Math.floor(Date.now() / 1000) - unixSecs);
-            if (diff < 60) return diff + 's ago';
-            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-            return Math.floor(diff / 86400) + 'd ago';
+            if (diff < 60) return '{{ t('compose_list.ago_seconds') }}'.replace('%{n}', diff);
+            if (diff < 3600) return '{{ t('compose_list.ago_minutes') }}'.replace('%{n}', Math.floor(diff / 60));
+            if (diff < 86400) return '{{ t('compose_list.ago_hours') }}'.replace('%{n}', Math.floor(diff / 3600));
+            return '{{ t('compose_list.ago_days') }}'.replace('%{n}', Math.floor(diff / 86400));
         },
         async deploy(id) {
             try {
-                toast('Deploying stack...');
+                toast('{{ t('compose_list.deploying_stack') }}');
                 await api('/api/v1/stacks/' + id + '/deploy', { method: 'POST' });
-                toast('Stack deployed');
+                toast('{{ t('compose_list.stack_deployed') }}');
                 await this.refresh();
             } catch (e) {
                 toast(e.message, 'error');
@@ -352,27 +351,27 @@ function stacksData() {
             // stack. Sets busy[_key] so the buttons can disable.
             this.busy[s._key] = true;
             try {
-                toast(toastMsg + ' on ' + s.peer_name + '...');
+                toast('{{ t('compose_list.peer_action_running') }}'.replace('%{action}', toastMsg).replace('%{peer}', s.peer_name));
                 await api(
                     '/api/v1/federation/peer/' + encodeURIComponent(s.peer_server_id) +
                     '/stacks/' + encodeURIComponent(s.id) + '/' + verb,
                     { method: 'POST' }
                 );
-                toast(toastMsg + ' OK');
+                toast('{{ t('compose_list.peer_action_ok') }}'.replace('%{action}', toastMsg));
                 await this.refresh();
             } catch (e) {
-                toast(toastMsg + ' failed: ' + (e.message || e), 'error');
+                toast('{{ t('compose_list.peer_action_failed') }}'.replace('%{action}', toastMsg).replace('%{error}', (e.message || e)), 'error');
             } finally {
                 this.busy[s._key] = false;
             }
         },
-        peerDeploy(s) { return this.peerAction(s, 'deploy', 'Deploy'); },
-        peerDown(s)   { return this.peerAction(s, 'down', 'Down'); },
-        peerRestart(s){ return this.peerAction(s, 'restart', 'Restart'); },
+        peerDeploy(s) { return this.peerAction(s, 'deploy', '{{ t('compose_list.deploy') }}'); },
+        peerDown(s)   { return this.peerAction(s, 'down', '{{ t('compose_list.down') }}'); },
+        peerRestart(s){ return this.peerAction(s, 'restart', '{{ t('compose_list.restart') }}'); },
         async openLogs(s) {
             this.logs.open = true;
-            this.logs.title = 'Logs · ' + s.name + ' on ' + s.peer_name;
-            this.logs.status = 'Loading snapshot…';
+            this.logs.title = '{{ t('compose_list.logs_title') }}'.replace('%{name}', s.name).replace('%{peer}', s.peer_name);
+            this.logs.status = '{{ t('compose_list.loading_snapshot') }}';
             this.logs.body = '';
             this.logs._stack = s;
             try {
@@ -380,14 +379,14 @@ function stacksData() {
                     '/api/v1/federation/peer/' + encodeURIComponent(s.peer_server_id) +
                     '/stacks/' + encodeURIComponent(s.id) + '/logs?tail=400';
                 const text = await fetch(url, { credentials: 'include' }).then(r => r.text());
-                this.logs.body = text || '(empty)';
-                this.logs.status = 'Snapshot loaded.';
+                this.logs.body = text || '{{ t('compose_list.empty_log') }}';
+                this.logs.status = '{{ t('compose_list.snapshot_loaded') }}';
                 this.$nextTick(() => this.scrollLogsToBottom());
                 if (this.logs.follow) {
                     this.startLogsStream();
                 }
             } catch (e) {
-                this.logs.status = 'Snapshot failed: ' + (e.message || e);
+                this.logs.status = '{{ t('compose_list.snapshot_failed') }}'.replace('%{error}', (e.message || e));
             }
         },
         async startLogsStream() {
@@ -402,7 +401,7 @@ function stacksData() {
                 const u = info.ws_url + (info.ws_url.includes('?') ? '&' : '?') +
                           'token=' + encodeURIComponent(info.token);
                 const ws = new WebSocket(u);
-                ws.onopen = () => { this.logs.status = 'Streaming live from ' + info.peer_name; };
+                ws.onopen = () => { this.logs.status = '{{ t('compose_list.streaming_live_from') }}'.replace('%{peer}', info.peer_name); };
                 ws.onmessage = (ev) => {
                     if (this.logs.body && !this.logs.body.endsWith('\n')) this.logs.body += '\n';
                     this.logs.body += ev.data;
@@ -412,11 +411,11 @@ function stacksData() {
                     }
                     this.$nextTick(() => this.scrollLogsToBottom());
                 };
-                ws.onerror = () => { this.logs.status = 'Stream error — peer cert untrusted? Try opening the modal again.'; };
+                ws.onerror = () => { this.logs.status = '{{ t('compose_list.stream_error') }}'; };
                 ws.onclose = () => { if (this.logs._ws === ws) this.logs._ws = null; };
                 this.logs._ws = ws;
             } catch (e) {
-                this.logs.status = 'Live stream unavailable: ' + (e.message || e);
+                this.logs.status = '{{ t('compose_list.live_stream_unavailable') }}'.replace('%{error}', (e.message || e));
             }
         },
         stopLogsStream() {
@@ -438,17 +437,17 @@ function stacksData() {
         async down(id) {
             try {
                 await api('/api/v1/stacks/' + id + '/down', { method: 'POST' });
-                toast('Stack stopped');
+                toast('{{ t('compose_list.stack_stopped') }}');
                 await this.refresh();
             } catch (e) {
                 toast(e.message, 'error');
             }
         },
         async remove(id) {
-            if (!confirm('Remove this stack?')) return;
+            if (!confirm('{{ t('compose_list.confirm_remove') }}')) return;
             try {
                 await api('/api/v1/stacks/' + id, { method: 'DELETE' });
-                toast('Stack removed');
+                toast('{{ t('compose_list.stack_removed') }}');
                 await this.refresh();
             } catch (e) {
                 toast(e.message, 'error');

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{% if mode == 'create' %}New Stack{% else %}Edit Stack{% endif %}{% endblock %}
+{% block title %}{% if mode == 'create' %}{{ t('compose_editor.title_new') }}{% else %}{{ t('compose_editor.title_edit') }}{% endif %}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="stackEditor('{{ mode }}', '{{ stack_id|default('') }}')" x-init="init()">
@@ -9,7 +9,7 @@
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         </a>
         <div>
-            <h2 class="text-xl font-semibold text-white" x-text="mode === 'create' ? 'New Stack' : 'Edit Stack'"></h2>
+            <h2 class="text-xl font-semibold text-white" x-text="mode === 'create' ? '{{ t('compose_editor.title_new') }}' : '{{ t('compose_editor.title_edit') }}'"></h2>
             <p class="text-sm text-gray-500 mt-1">Docker Compose YAML</p>
         </div>
     </div>
@@ -22,7 +22,7 @@
              unchanged. -->
         <template x-if="mode === 'create' && targets.length > 1">
             <div>
-                <label class="block text-sm font-medium text-gray-400 mb-1.5">Deploy on</label>
+                <label class="block text-sm font-medium text-gray-400 mb-1.5">{{ t('compose_editor.deploy_on') }}</label>
                 <select x-model="targetServerId"
                         class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 text-sm">
                     <template x-for="t in targets" :key="t.id">
@@ -30,12 +30,12 @@
                     </template>
                 </select>
                 <p class="text-[11px] text-gray-500 mt-1">
-                    Local stays on this server. Peer entries require the federation token to be paired on <span class="font-mono">/servers/&lt;peer-id&gt;</span>.
+                    {{ t('compose_editor.deploy_on_help') | safe }}
                 </p>
             </div>
         </template>
         <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1.5">Stack Name</label>
+            <label class="block text-sm font-medium text-gray-400 mb-1.5">{{ t('compose_editor.stack_name') }}</label>
             <input x-model="name" type="text" :disabled="mode === 'edit'"
                    class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100
                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
@@ -43,7 +43,7 @@
                    placeholder="my-stack">
         </div>
         <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1.5">Compose YAML</label>
+            <label class="block text-sm font-medium text-gray-400 mb-1.5">{{ t('compose_editor.compose_yaml') }}</label>
             <textarea x-model="yaml" rows="20"
                       class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100
                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
@@ -61,13 +61,13 @@
             <button @click="save()" :disabled="saving"
                     class="px-4 py-2.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50
                            rounded-lg text-white transition-colors">
-                <span x-text="saving ? 'Saving...' : (mode === 'create' ? 'Create Stack' : 'Save Changes')"></span>
+                <span x-text="saving ? '{{ t('compose_editor.saving') }}' : (mode === 'create' ? '{{ t('compose_editor.create_stack') }}' : '{{ t('compose_editor.save_changes') }}')"></span>
             </button>
             <template x-if="mode === 'edit'">
                 <button @click="deployStack()" :disabled="deploying"
                         class="px-4 py-2.5 text-sm font-medium bg-green-600 hover:bg-green-700 disabled:opacity-50
                                rounded-lg text-white transition-colors">
-                    <span x-text="deploying ? 'Deploying...' : 'Save & Deploy'"></span>
+                    <span x-text="deploying ? '{{ t('compose_editor.deploying') }}' : '{{ t('compose_editor.save_deploy') }}'"></span>
                 </button>
             </template>
         </div>
@@ -87,7 +87,7 @@ function stackEditor(mode, stackId) {
         // Target server selection — populated from /api/v1/servers
         // filtered to local + paired peer kinds. 'local' is special
         // and routes to the same /api/v1/stacks endpoint as always.
-        targets: [{ id: 'local', label: 'This server (local)' }],
+        targets: [{ id: 'local', label: '{{ t('compose_editor.target_local') }}' }],
         targetServerId: 'local',
         async init() {
             if (mode === 'create') {
@@ -99,7 +99,7 @@ function stackEditor(mode, stackId) {
                     this.name = data.name || '';
                     this.yaml = data.yaml || '';
                 } catch (e) {
-                    this.error = 'Failed to load stack';
+                    this.error = '{{ t('compose_editor.error_load_stack') }}';
                 }
             }
         },
@@ -108,9 +108,9 @@ function stackEditor(mode, stackId) {
                 const servers = await fetch('/api/v1/servers').then(r => r.ok ? r.json() : []);
                 const paired = (servers || [])
                     .filter(s => s.kind === 'peer' && !s.is_local && s.federation_paired)
-                    .map(s => ({ id: s.id, label: s.name + ' (peer)' }));
+                    .map(s => ({ id: s.id, label: '{{ t('compose_editor.target_peer') }}'.replace('%{name}', s.name) }));
                 if (paired.length) {
-                    this.targets = [{ id: 'local', label: 'This server (local)' }, ...paired];
+                    this.targets = [{ id: 'local', label: '{{ t('compose_editor.target_local') }}' }, ...paired];
                 }
             } catch (e) { /* silent — leave just local */ }
         },
@@ -127,7 +127,7 @@ function stackEditor(mode, stackId) {
                         method: 'POST',
                         body: JSON.stringify({ name: this.name, yaml: this.yaml })
                     });
-                    toast(onLocal ? 'Stack created' : 'Stack created on peer');
+                    toast(onLocal ? '{{ t('compose_editor.toast_created') }}' : '{{ t('compose_editor.toast_created_peer') }}');
                     // Federated stacks live on the peer — there's no
                     // primary-side /stacks/<id> page for them, so we
                     // bounce back to the list (the new card will appear
@@ -138,7 +138,7 @@ function stackEditor(mode, stackId) {
                         method: 'PUT',
                         body: JSON.stringify({ yaml: this.yaml })
                     });
-                    toast('Stack saved');
+                    toast('{{ t('compose_editor.toast_saved') }}');
                 }
             } catch (e) {
                 this.error = e.message;
@@ -155,7 +155,7 @@ function stackEditor(mode, stackId) {
                     body: JSON.stringify({ yaml: this.yaml })
                 });
                 await api('/api/v1/stacks/' + this.stackId + '/deploy', { method: 'POST' });
-                toast('Stack deployed');
+                toast('{{ t('compose_editor.toast_deployed') }}');
             } catch (e) {
                 this.error = e.message;
             } finally {

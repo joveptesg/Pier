@@ -1,34 +1,34 @@
 {% extends "base.html" %}
-{% block title %}Containers{% endblock %}
+{% block title %}{{ t('containers_list.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="containersData()" x-init="init()">
     <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-xl font-semibold text-white">Containers</h2>
-            <p class="text-sm text-gray-500 mt-1">Manage Docker containers</p>
+            <h2 class="text-xl font-semibold text-white">{{ t('containers_list.heading') }}</h2>
+            <p class="text-sm text-gray-500 mt-1">{{ t('containers_list.subtitle') }}</p>
         </div>
         <label class="flex items-center gap-2 text-sm text-gray-400">
             <input type="checkbox" x-model="showAll" @change="refresh()"
                    class="rounded bg-gray-800 border-gray-600 text-blue-600 focus:ring-blue-500">
-            Show stopped
+            {{ t('containers_list.show_stopped') }}
         </label>
     </div>
 
     <!-- Loading -->
-    <div x-show="loading" class="text-center py-12 text-gray-500">Loading containers...</div>
+    <div x-show="loading" class="text-center py-12 text-gray-500">{{ t('containers_list.loading') }}</div>
 
     <!-- Table -->
     <div x-show="!loading" class="bg-gray-900 border border-gray-800/50 rounded-xl overflow-hidden">
         <table class="w-full text-sm">
             <thead>
                 <tr class="border-b border-gray-800/50">
-                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Image</th>
-                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Ports</th>
-                    <th class="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('containers_list.col_name') }}</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('containers_list.col_image') }}</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('containers_list.col_status') }}</th>
+                    <th class="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('containers_list.col_ports') }}</th>
+                    <th class="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{{ t('containers_list.col_actions') }}</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-800/30">
@@ -57,18 +57,18 @@
                                 <template x-if="c.state !== 'running'">
                                     <button @click="action(c.id, 'start')"
                                             class="px-2 py-1 text-xs rounded bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
-                                        Start
+                                        {{ t('containers_list.action_start') }}
                                     </button>
                                 </template>
                                 <template x-if="c.state === 'running'">
                                     <button @click="action(c.id, 'stop')"
                                             class="px-2 py-1 text-xs rounded bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 transition-colors">
-                                        Stop
+                                        {{ t('containers_list.action_stop') }}
                                     </button>
                                 </template>
                                 <button @click="action(c.id, 'restart')"
                                         class="px-2 py-1 text-xs rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors">
-                                    Restart
+                                    {{ t('containers_list.action_restart') }}
                                 </button>
                             </div>
                         </td>
@@ -78,7 +78,7 @@
         </table>
 
         <div x-show="containers.length === 0" class="text-center py-8 text-gray-500 text-sm">
-            No containers found
+            {{ t('containers_list.empty') }}
         </div>
     </div>
 </div>
@@ -149,7 +149,7 @@ function containersData() {
         async action(id, act) {
             try {
                 await api('/api/v1/containers/' + id + '/' + act, { method: 'POST' });
-                toast('Container ' + act + 'ed');
+                toast('{{ t('containers_list.action_done') }}'.replace('%{action}', act));
             } catch (e) {
                 toast(e.message, 'error');
             }

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Container Detail{% endblock %}
+{% block title %}{{ t('containers_detail.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="containerDetail('{{ container_id }}')" x-init="init()">
@@ -10,7 +10,7 @@
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             </a>
             <div>
-                <h2 class="text-xl font-semibold text-white" x-text="info.name || 'Loading...'"></h2>
+                <h2 class="text-xl font-semibold text-white" x-text="info.name || '{{ t('common.loading') }}'"></h2>
                 <p class="text-sm text-gray-500 font-mono" x-text="'{{ container_id }}'.substring(0, 12)"></p>
             </div>
         </div>
@@ -22,44 +22,44 @@
                 <span x-text="info.state || '--'"></span>
             </span>
             <template x-if="info.state !== 'running'">
-                <button @click="action('start')" class="px-3 py-1.5 text-xs rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors">Start</button>
+                <button @click="action('start')" class="px-3 py-1.5 text-xs rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors">{{ t('containers_detail.start') }}</button>
             </template>
             <template x-if="info.state === 'running'">
-                <button @click="action('stop')" class="px-3 py-1.5 text-xs rounded-lg bg-yellow-600 hover:bg-yellow-700 text-white transition-colors">Stop</button>
+                <button @click="action('stop')" class="px-3 py-1.5 text-xs rounded-lg bg-yellow-600 hover:bg-yellow-700 text-white transition-colors">{{ t('containers_detail.stop') }}</button>
             </template>
-            <button @click="action('restart')" class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors">Restart</button>
+            <button @click="action('restart')" class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors">{{ t('containers_detail.restart') }}</button>
         </div>
     </div>
 
     <!-- Info Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="bg-gray-900 border border-gray-800/50 rounded-xl p-5 space-y-3">
-            <h3 class="text-sm font-medium text-gray-300 mb-3">Container Info</h3>
-            <div class="flex justify-between text-sm"><span class="text-gray-500">Image</span><span class="text-gray-200 font-mono text-xs" x-text="info.image || '--'"></span></div>
-            <div class="flex justify-between text-sm"><span class="text-gray-500">Created</span><span class="text-gray-200" x-text="info.created || '--'"></span></div>
-            <div class="flex justify-between text-sm"><span class="text-gray-500">Platform</span><span class="text-gray-200" x-text="info.platform || '--'"></span></div>
+            <h3 class="text-sm font-medium text-gray-300 mb-3">{{ t('containers_detail.container_info') }}</h3>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">{{ t('containers_detail.image') }}</span><span class="text-gray-200 font-mono text-xs" x-text="info.image || '--'"></span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">{{ t('containers_detail.created') }}</span><span class="text-gray-200" x-text="info.created || '--'"></span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">{{ t('containers_detail.platform') }}</span><span class="text-gray-200" x-text="info.platform || '--'"></span></div>
         </div>
         <div class="bg-gray-900 border border-gray-800/50 rounded-xl p-5 space-y-3">
-            <h3 class="text-sm font-medium text-gray-300 mb-3">Resource Usage</h3>
+            <h3 class="text-sm font-medium text-gray-300 mb-3">{{ t('containers_detail.resource_usage') }}</h3>
             <div class="flex justify-between text-sm"><span class="text-gray-500">CPU</span><span class="text-gray-200" x-text="stats.cpu || '--'"></span></div>
-            <div class="flex justify-between text-sm"><span class="text-gray-500">Memory</span><span class="text-gray-200" x-text="stats.memory || '--'"></span></div>
-            <div class="flex justify-between text-sm"><span class="text-gray-500">Network I/O</span><span class="text-gray-200" x-text="stats.net_io || '--'"></span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">{{ t('containers_detail.memory') }}</span><span class="text-gray-200" x-text="stats.memory || '--'"></span></div>
+            <div class="flex justify-between text-sm"><span class="text-gray-500">{{ t('containers_detail.network_io') }}</span><span class="text-gray-200" x-text="stats.net_io || '--'"></span></div>
         </div>
     </div>
 
     <!-- Logs -->
     <div class="bg-gray-900 border border-gray-800/50 rounded-xl overflow-hidden">
         <div class="flex items-center justify-between px-5 py-3 border-b border-gray-800/50">
-            <h3 class="text-sm font-medium text-gray-300">Logs</h3>
+            <h3 class="text-sm font-medium text-gray-300">{{ t('containers_detail.logs') }}</h3>
             <div class="flex items-center gap-2">
                 <button @click="toggleLive()"
                         class="px-2.5 py-1 text-xs rounded-lg transition-colors"
                         :class="live ? 'bg-green-600/20 text-green-400' : 'bg-gray-700 text-gray-400'">
-                    <span x-text="live ? 'Live' : 'Paused'"></span>
+                    <span x-text="live ? '{{ t('containers_detail.live') }}' : '{{ t('containers_detail.paused') }}'"></span>
                 </button>
                 <button @click="clearLogs()"
                         class="px-2.5 py-1 text-xs rounded-lg bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors">
-                    Clear
+                    {{ t('containers_detail.clear') }}
                 </button>
             </div>
         </div>
@@ -68,7 +68,7 @@
             <template x-for="(line, i) in logLines" :key="i">
                 <div class="whitespace-pre-wrap" x-html="window.ansiToHtml(line)"></div>
             </template>
-            <div x-show="logLines.length === 0" class="text-gray-600 text-center py-4">No logs available</div>
+            <div x-show="logLines.length === 0" class="text-gray-600 text-center py-4">{{ t('containers_detail.no_logs') }}</div>
         </div>
     </div>
 </div>
@@ -159,7 +159,7 @@ function containerDetail(id) {
         async action(act) {
             try {
                 await api('/api/v1/containers/' + this.id + '/' + act, { method: 'POST' });
-                toast('Container ' + act + 'ed');
+                toast('{{ t('containers_detail.action_success') }}'.replace('%{action}', act + 'ed'));
                 // fetchInfo will be triggered by the events stream.
             } catch (e) {
                 toast(e.message, 'error');
