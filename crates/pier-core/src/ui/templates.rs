@@ -149,7 +149,14 @@ mod tests {
             let out = env
                 .get_template(tpl)
                 .unwrap_or_else(|_| panic!("{tpl} loads"))
-                .render(minijinja::context! { user => "admin", page => "projects", catalog_id => "docker" })
+                .render(minijinja::context! {
+                    user => "admin",
+                    page => "projects",
+                    catalog_id => "docker",
+                    // Minimal mock for templates that `| tojson` a server object
+                    // into Alpine x-data (e.g. packages/detail.html).
+                    package => minijinja::context! { name => "demo", unpublished => false },
+                })
                 .unwrap_or_else(|e| panic!("{tpl} renders: {e}"));
             assert!(out.contains(needle), "{tpl} should contain {needle:?}");
         }
