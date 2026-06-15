@@ -286,7 +286,7 @@
 
         function copyText(text) {
             if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).then(() => toast('Copied!')).catch(() => fallbackCopy(text));
+                navigator.clipboard.writeText(text).then(() => toast('{{ t('common.copied') }}')).catch(() => fallbackCopy(text));
             } else {
                 fallbackCopy(text);
             }
@@ -298,7 +298,7 @@
             ta.style.left = '-9999px';
             document.body.appendChild(ta);
             ta.select();
-            try { document.execCommand('copy'); toast('Copied!'); } catch { toast('Copy failed', 'error'); }
+            try { document.execCommand('copy'); toast('{{ t('common.copied') }}'); } catch { toast('{{ t('common.copy_failed') }}', 'error'); }
             document.body.removeChild(ta);
         }
 
@@ -309,7 +309,7 @@
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                const err = new Error(data.error || 'Request failed');
+                const err = new Error(data.error || '{{ t('common.request_failed') }}');
                 Object.assign(err, data, { status: res.status });
                 throw err;
             }
@@ -324,7 +324,7 @@
             <button @click="open = !open"
                     class="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl shadow-lg hover:shadow-xl transition-shadow">
                 <svg class="w-4 h-4 text-blue-500 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                <span class="text-sm text-gray-700 dark:text-gray-300" x-text="deploying.length + ' deployment' + (deploying.length > 1 ? 's' : '')"></span>
+                <span class="text-sm text-gray-700 dark:text-gray-300" x-text="deploying.length + ' ' + (deploying.length === 1 ? '{{ t('layout.deployment_one') }}' : '{{ t('layout.deployment_other') }}')"></span>
                 <svg class="w-3 h-3 text-gray-400 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
             <!-- Dropdown -->

@@ -76,6 +76,10 @@ mod tests {
         assert!(dashboard.contains("Docker Engine"));
         // Sidebar label from base.html came through the t() bridge too.
         assert!(dashboard.contains("Notifications"));
+        // t() embedded inside an Alpine x-text expression is rendered too.
+        assert!(dashboard.contains("+ ' running'"));
+        // Plural noun from base.html's deploy badge expression.
+        assert!(dashboard.contains("'deployments'"));
 
         let login = env
             .get_template("login.html")

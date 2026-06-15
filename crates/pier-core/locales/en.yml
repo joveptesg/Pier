@@ -13,6 +13,11 @@ common:
   logout: Logout
   view_all: View all
   loading: Loading...
+  no_description: No description
+  # Client-side toast / fetch messages emitted from shared scripts.
+  copied: Copied!
+  copy_failed: Copy failed
+  request_failed: Request failed
 
 # Sidebar navigation (labels + collapsed-sidebar tooltips share these keys).
 nav:
@@ -43,6 +48,9 @@ nav:
 layout:
   support_pier: Support Pier
   deploy_in_progress: In Progress
+  # Deploy badge count: "N deployment(s)". JS picks singular/plural by count.
+  deployment_one: deployment
+  deployment_other: deployments
 
 # Login + two-factor screen (login.html).
 login:
@@ -50,6 +58,8 @@ login:
   sign_in: Sign in
   two_factor: Two-factor authentication
   username: Username
+  # Example username shown as the field placeholder (the default account name).
+  username_placeholder: admin
   password: Password
   signing_in: Signing in...
   totp_hint: Enter the 6-digit code from your authenticator app, or a recovery code.
@@ -70,6 +80,10 @@ dashboard:
   memory: Memory
   disk: Disk
   containers: Containers
+  # Suffixes/labels assembled in Alpine x-text expressions.
+  cores: cores
+  running: running
+  stopped: stopped
   docker_engine: Docker Engine
   version: Version
   api_version: API Version
