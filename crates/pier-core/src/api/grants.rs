@@ -67,7 +67,9 @@ pub async fn create(
 ) -> AppResult<impl IntoResponse> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(AppError::BadRequest("Name is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.grants.name_required",
+        )));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let token = catalog::generate_password(48);
@@ -100,7 +102,10 @@ pub async fn revoke(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let rows = db.execute("DELETE FROM peer_grants WHERE id = ?1", [&id])?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!("Grant {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.grants.grant_not_found",
+            &[("v", &id)],
+        )));
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }

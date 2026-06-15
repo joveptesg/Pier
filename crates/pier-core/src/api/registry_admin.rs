@@ -69,7 +69,10 @@ pub async fn remove_dist_tag(
         .await
         .map_err(map_db_user_error)?;
     if !removed {
-        return Err(AppError::NotFound(format!("dist-tag {tag}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.registry_admin.dist_tag_not_found",
+            &[("v", tag.as_str())],
+        )));
     }
     tracing::info!(
         "panel: removed dist-tag {package}@{tag} by {}",
@@ -113,7 +116,10 @@ pub async fn delete_version(
     let ver = version.clone();
     let removed = db_blocking(&state, move |db| regdb::delete_version(db, &pkg, &ver)).await?;
     let Some(removed) = removed else {
-        return Err(AppError::NotFound(format!("{package}@{version}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.registry_admin.version_not_found",
+            &[("v", format!("{package}@{version}").as_str())],
+        )));
     };
     let _ = storage::delete_tarball(&state, &removed.package, &removed.filename).await;
     tracing::info!(
@@ -133,7 +139,10 @@ pub async fn delete_package(
     let pkg = package.clone();
     let removed = db_blocking(&state, move |db| regdb::delete_package(db, &pkg)).await?;
     if removed.is_empty() {
-        return Err(AppError::NotFound(format!("package {package}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.registry_admin.package_not_found",
+            &[("v", package.as_str())],
+        )));
     }
     for r in &removed {
         let _ = storage::delete_tarball(&state, &r.package, &r.filename).await;

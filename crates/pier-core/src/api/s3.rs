@@ -85,9 +85,9 @@ pub async fn create(
         || body.endpoint.trim().is_empty()
         || body.bucket.trim().is_empty()
     {
-        return Err(AppError::BadRequest(
-            "Name, endpoint, and bucket are required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.s3.required_fields",
+        )));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let key_prefix = body
@@ -127,9 +127,9 @@ pub async fn update(
         || body.endpoint.trim().is_empty()
         || body.bucket.trim().is_empty()
     {
-        return Err(AppError::BadRequest(
-            "Name, endpoint, and bucket are required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.s3.required_fields",
+        )));
     }
     let key_prefix = body.key_prefix.as_deref().map(normalize_prefix);
     let db = state
@@ -203,7 +203,10 @@ pub async fn update(
         )?,
     };
     if rows == 0 {
-        return Err(AppError::NotFound(format!("S3 storage {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.s3.storage_not_found",
+            &[("v", &id)],
+        )));
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -219,7 +222,10 @@ pub async fn remove(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let rows = db.execute("DELETE FROM s3_storages WHERE id = ?1", [&id])?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!("S3 storage {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.s3.storage_not_found",
+            &[("v", &id)],
+        )));
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -249,19 +255,34 @@ pub async fn test(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("S3 storage {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.s3.storage_not_found",
+                &[("v", &id)],
+            ))
+        })?
     };
 
     match storage_type.as_str() {
         "bunny" => {
             crate::s3::bunny::test_connection(&bucket, &access_key, &endpoint)
                 .await
-                .map_err(|e| AppError::BadRequest(format!("Bunny.net test failed: {e}")))?;
+                .map_err(|e| {
+                    AppError::BadRequest(crate::i18n::te_args(
+                        "errors.s3.bunny_test_failed",
+                        &[("v", &e.to_string())],
+                    ))
+                })?;
         }
         _ => {
             crate::s3::test_connection(&endpoint, &region, &bucket, &access_key, &secret_key)
                 .await
-                .map_err(|e| AppError::BadRequest(format!("S3 test failed: {e}")))?;
+                .map_err(|e| {
+                    AppError::BadRequest(crate::i18n::te_args(
+                        "errors.s3.test_failed",
+                        &[("v", &e.to_string())],
+                    ))
+                })?;
         }
     }
 

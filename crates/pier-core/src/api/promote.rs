@@ -54,11 +54,16 @@ pub async fn bundle(
             [&id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Server {id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.promote.server_not_found",
+                &[("v", &id)],
+            ))
+        })?;
     if is_local {
-        return Err(AppError::BadRequest(
-            "Cannot promote the local server (this is already a full pier-core)".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.promote.local_server_full_core",
+        )));
     }
 
     let bundle = build_bundle(&db, &id, &server_name)?;
@@ -109,11 +114,16 @@ pub async fn trigger(
                     ))
                 },
             )
-            .map_err(|_| AppError::NotFound(format!("Server {id} not found")))?;
+            .map_err(|_| {
+                AppError::NotFound(crate::i18n::te_args(
+                    "errors.promote.server_not_found",
+                    &[("id", &id)],
+                ))
+            })?;
         if is_local {
-            return Err(AppError::BadRequest(
-                "Cannot promote the local server".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.promote.local_server",
+            )));
         }
         let bundle = build_bundle(&db, &id, &name)?;
         (bundle, host, port, agent_token)
@@ -139,7 +149,12 @@ pub async fn trigger(
         .json(&payload)
         .send()
         .await
-        .map_err(|e| AppError::BadRequest(format!("agent unreachable: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.promote.agent_unreachable",
+                &[("v", &e.to_string())],
+            ))
+        })?;
 
     let status = resp.status();
     let body_val: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!({}));
@@ -149,7 +164,10 @@ pub async fn trigger(
             .and_then(|v| v.as_str())
             .unwrap_or("agent rejected promotion")
             .to_string();
-        return Err(AppError::BadRequest(format!("agent: {err}")));
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.promote.agent_rejected",
+            &[("v", &err)],
+        )));
     }
 
     // 3. Optionally detach — drop the server record so this Core stops managing it.

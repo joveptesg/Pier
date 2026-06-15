@@ -51,8 +51,9 @@ pub async fn put(
     Json(body): Json<UpdateBody>,
 ) -> AppResult<impl IntoResponse> {
     if body.max_parallel_builds < MIN_VAL || body.max_parallel_builds > MAX_VAL {
-        return Err(AppError::BadRequest(format!(
-            "max_parallel_builds must be between {MIN_VAL} and {MAX_VAL}"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.settings_railpack.max_parallel_builds_range",
+            &[("min", &MIN_VAL.to_string()), ("max", &MAX_VAL.to_string())],
         )));
     }
     let db = state

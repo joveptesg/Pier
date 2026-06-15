@@ -67,7 +67,9 @@ pub async fn create(
 ) -> AppResult<impl IntoResponse> {
     let label = body.label.trim().to_string();
     if label.is_empty() {
-        return Err(AppError::BadRequest("Label is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.federation_tokens.label_required",
+        )));
     }
     let issued = generate();
     let token_hash = hash(&issued.plaintext);
@@ -115,7 +117,10 @@ pub async fn revoke(
         [&id],
     )?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!("Token {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.federation_tokens.token_not_found",
+            &[("v", &id)],
+        )));
     }
     Ok(Json(serde_json::json!({"ok": true, "action": "revoked"})))
 }

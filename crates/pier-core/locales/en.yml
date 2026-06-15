@@ -2433,6 +2433,7 @@ errors:
   # Git push webhook receivers (api/webhooks.rs).
   webhooks:
     missing_repo_or_sha: Missing repo URL or commit SHA
+    invalid_json: "Invalid JSON: %{error}"
   # NoSQL data browser (api/db_nosql.rs) — Redis/Valkey & MongoDB.
   db_nosql:
     resource_not_found: Resource %{v} not found
@@ -2515,6 +2516,103 @@ errors:
     name_and_yaml_required: Name and YAML are required
     stack_no_yaml: Stack has no YAML content
     stack_not_found: Stack %{id} not found
+  deployments:
+    deployment_not_found: Deployment %{v} not found
+    deployment_not_in_progress: Deployment is not in progress
+    service_not_found: Service %{v} not found
+    git_not_configured: Git is not configured for this service. Set git_repo_url first.
+    service_not_found_in_project: "Service '%{v}' not found in project"
+  tasks:
+    name_required: Name is required
+    command_required: Command is required
+    template_name_exists: "Template named '%{v}' already exists"
+    template_not_found: Template not found
+    template_or_command_required: Either template_id or command is required
+    run_not_found: Task run not found
+  s3:
+    required_fields: Name, endpoint, and bucket are required
+    storage_not_found: S3 storage %{v} not found
+    bunny_test_failed: "Bunny.net test failed: %{v}"
+    test_failed: "S3 test failed: %{v}"
+  promote:
+    server_not_found: Server %{v} not found
+    local_server_full_core: Cannot promote the local server (this is already a full pier-core)
+    local_server: Cannot promote the local server
+    agent_unreachable: "agent unreachable: %{v}"
+    agent_rejected: "agent: %{v}"
+  network:
+    listen_port_privileged: "listen_port must be ≥1024 (privileged ports not allowed)"
+    mesh_config_locked: mesh must be disabled and have no peers before config can change
+    mesh_already_enabled: mesh is already enabled
+    enable_before_configure: enable mesh before running configure
+    no_peers_allocated: no peers allocated; press Enable Mesh first
+    invalid_subnet: "subnet: %{error}"
+  federation_agent:
+    name_and_yaml_required: Name and YAML are required
+    stack_no_yaml: Stack has no YAML content
+    stack_not_found: Stack %{v} not found
+    stack_owned_by_other_primary: Stack is managed by a different primary
+    stack_locally_owned: Stack is locally owned by this peer; ask the operator to release it first
+  registries:
+    fields_required: registry, username and password are required
+    already_exists: "Credentials for registry '%{v}' already exist in this scope"
+    not_found: Registry credential %{v} not found
+    probe_mismatch: "Probe image '%{image}' does not belong to registry '%{registry}'"
+  rbac:
+    owner_only_peer_token: Owner-only route is not accessible via peer token
+    requires_global_role: requires %{v} role
+    resource_not_bound: resource is not bound to a project
+    not_project_member: not a member of project %{v}
+    requires_project_role: requires project %{v} role
+  networks:
+    name_required: Network name is required
+    name_invalid_chars: Network name may only contain letters, numbers, hyphens, underscores
+    not_found: Network %{v} not found
+    cannot_delete_default: Cannot delete the default network
+    has_services: Network has %{v} service(s). Move them first.
+  registry_admin:
+    dist_tag_not_found: dist-tag %{v}
+    version_not_found: "%{v}"
+    package_not_found: package %{v}
+  invitations:
+    not_found: invitation not found
+    username_required: username required
+  system_logs:
+    unit_not_allowed: "unit not allowed: %{v}"
+    invalid_since: "invalid since preset: %{v}"
+    invalid_lines: "invalid lines: %{v}"
+    invalid_priority: "invalid priority: %{v}"
+  npm_web_login:
+    session_not_found: login session %{v}
+    session_expired: session expired
+    session_already_status: session is already %{v}
+  tokens:
+    name_required: Name is required
+    name_too_long: Name too long (max 100)
+    not_found: token %{v}
+  proxy:
+    fetch_latest_version_failed: "Could not fetch latest Traefik version: %{v}"
+    update_failed_rolled_back: "Update to Traefik %{latest} failed: %{err}. Rolled back to %{previous}."
+  grants:
+    name_required: Name is required
+    grant_not_found: Grant %{v} not found
+  env:
+    resource_not_found: Resource %{v} not found
+  federation_tokens:
+    label_required: Label is required
+    token_not_found: Token %{v} not found
+  catalog:
+    template_not_found: "Catalog template '%{v}' not found"
+  settings_railpack:
+    max_parallel_builds_range: max_parallel_builds must be between %{min} and %{max}
+  system:
+    invalid_timezone: "Invalid IANA timezone: %{v}"
+  pages:
+    package_not_found: package %{v}
+    login_session_not_found: login session %{v}
+  executor:
+    task_run_not_found: task run not found
+    task_already_status: task is already %{v}
 
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and

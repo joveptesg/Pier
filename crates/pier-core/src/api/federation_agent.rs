@@ -85,7 +85,9 @@ pub async fn create_stack(
     Json(body): Json<CreateStackBody>,
 ) -> AppResult<impl IntoResponse> {
     if body.name.trim().is_empty() || body.yaml.trim().is_empty() {
-        return Err(AppError::BadRequest("Name and YAML are required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.federation_agent.name_and_yaml_required",
+        )));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let db = state
@@ -204,7 +206,9 @@ pub async fn deploy_stack(
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )?
     };
-    let yaml = yaml.ok_or_else(|| AppError::BadRequest("Stack has no YAML content".into()))?;
+    let yaml = yaml.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.federation_agent.stack_no_yaml"))
+    })?;
 
     // Reuse the same auth_map lookup that `api::compose::deploy` does, so
     // private-registry pulls work identically when triggered remotely.
@@ -289,7 +293,9 @@ pub async fn restart_stack(
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )?
     };
-    let yaml = yaml.ok_or_else(|| AppError::BadRequest("Stack has no YAML content".into()))?;
+    let yaml = yaml.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.federation_agent.stack_no_yaml"))
+    })?;
 
     let _ = docker::compose::down_stack(&name, &state.config).await;
 
@@ -476,15 +482,18 @@ fn assert_owned(db: &rusqlite::Connection, stack_id: &str, our_token_id: &str) -
         )
         .optional()?;
     let Some(owner) = owner else {
-        return Err(AppError::NotFound(format!("Stack {stack_id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.federation_agent.stack_not_found",
+            &[("v", stack_id)],
+        )));
     };
     match owner {
         Some(o) if o == our_token_id => Ok(()),
-        Some(_) => Err(AppError::Conflict(
-            "Stack is managed by a different primary".into(),
-        )),
-        None => Err(AppError::Conflict(
-            "Stack is locally owned by this peer; ask the operator to release it first".into(),
-        )),
+        Some(_) => Err(AppError::Conflict(crate::i18n::te(
+            "errors.federation_agent.stack_owned_by_other_primary",
+        ))),
+        None => Err(AppError::Conflict(crate::i18n::te(
+            "errors.federation_agent.stack_locally_owned",
+        ))),
     }
 }

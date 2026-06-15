@@ -62,7 +62,12 @@ pub async fn get(
         .catalog
         .iter()
         .find(|i| i.meta.id == id)
-        .ok_or_else(|| AppError::NotFound(format!("Catalog template '{id}' not found")))?;
+        .ok_or_else(|| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.catalog.template_not_found",
+                &[("v", &id)],
+            ))
+        })?;
 
     // Build fields list with resolved options
     let fields: Vec<serde_json::Value> = if let Some(ui) = &item.ui {

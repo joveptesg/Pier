@@ -88,13 +88,18 @@ pub async fn put_mesh(
 ) -> AppResult<impl IntoResponse> {
     if let Some(ref s) = body.subnet {
         // Validate up front so we don't write garbage to the DB.
-        Subnet::parse(s).map_err(|e| AppError::BadRequest(format!("subnet: {e}")))?;
+        Subnet::parse(s).map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.network.invalid_subnet",
+                &[("error", &e.to_string())],
+            ))
+        })?;
     }
     if let Some(p) = body.listen_port {
         if p < 1024 {
-            return Err(AppError::BadRequest(
-                "listen_port must be ≥1024 (privileged ports not allowed)".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.network.listen_port_privileged",
+            )));
         }
     }
 
@@ -106,9 +111,9 @@ pub async fn put_mesh(
     let cfg = MeshConfig::load(&db).map_err(AppError::Internal)?;
     let peer_count: i64 = db.query_row("SELECT COUNT(*) FROM wireguard_peers", [], |r| r.get(0))?;
     if cfg.enabled || peer_count > 0 {
-        return Err(AppError::BadRequest(
-            "mesh must be disabled and have no peers before config can change".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.network.mesh_config_locked",
+        )));
     }
 
     let now = chrono::Utc::now().timestamp();
@@ -144,7 +149,9 @@ pub async fn enable_mesh(State(state): State<SharedState>) -> AppResult<impl Int
 
     let cfg = MeshConfig::load(&db).map_err(AppError::Internal)?;
     if cfg.enabled {
-        return Err(AppError::BadRequest("mesh is already enabled".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.network.mesh_already_enabled",
+        )));
     }
     let subnet = Subnet::parse(&cfg.subnet).map_err(|e| {
         AppError::Internal(anyhow::anyhow!(
@@ -267,15 +274,15 @@ pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl 
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         let cfg = MeshConfig::load(&db).map_err(AppError::Internal)?;
         if !cfg.enabled {
-            return Err(AppError::BadRequest(
-                "enable mesh before running configure".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.network.enable_before_configure",
+            )));
         }
         let peers = Peer::load_all(&db).map_err(AppError::Internal)?;
         if peers.is_empty() {
-            return Err(AppError::BadRequest(
-                "no peers allocated; press Enable Mesh first".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.network.no_peers_allocated",
+            )));
         }
         (cfg, peers)
     };

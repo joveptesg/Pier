@@ -103,9 +103,9 @@ pub async fn create(
     let registry = body.registry.trim().to_lowercase();
     let username = body.username.trim();
     if registry.is_empty() || username.is_empty() || body.password.is_empty() {
-        return Err(AppError::BadRequest(
-            "registry, username and password are required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.registries.fields_required",
+        )));
     }
 
     let key = crypto::get_secret_key();
@@ -134,8 +134,9 @@ pub async fn create(
         rusqlite::Error::SqliteFailure(err, _)
             if err.code == rusqlite::ErrorCode::ConstraintViolation =>
         {
-            AppError::Conflict(format!(
-                "Credentials for registry '{registry}' already exist in this scope"
+            AppError::Conflict(crate::i18n::te_args(
+                "errors.registries.already_exists",
+                &[("v", &registry)],
             ))
         }
         other => AppError::Database(other),
@@ -186,8 +187,9 @@ pub async fn update(
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
     let rows = db.execute(&sql, param_refs.as_slice())?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!(
-            "Registry credential {id} not found"
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.registries.not_found",
+            &[("v", &id)],
         )));
     }
 
@@ -205,8 +207,9 @@ pub async fn remove(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let rows = db.execute("DELETE FROM registry_credentials WHERE id = ?1", [&id])?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!(
-            "Registry credential {id} not found"
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.registries.not_found",
+            &[("v", &id)],
         )));
     }
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -241,7 +244,12 @@ pub async fn test(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Registry credential {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.registries.not_found",
+                &[("v", &id)],
+            ))
+        })?
     };
 
     let key = crypto::get_secret_key();
@@ -253,8 +261,9 @@ pub async fn test(
         .clone()
         .unwrap_or_else(|| default_probe_image(&registry));
     if parse_registry_host(&probe_image) != registry {
-        return Err(AppError::BadRequest(format!(
-            "Probe image '{probe_image}' does not belong to registry '{registry}'"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.registries.probe_mismatch",
+            &[("image", &probe_image), ("registry", &registry)],
         )));
     }
 

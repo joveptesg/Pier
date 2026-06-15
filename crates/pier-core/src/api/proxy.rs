@@ -316,7 +316,10 @@ fn version_is_newer(a: &str, b: &str) -> bool {
 /// to the previously running version so the platform stays online.
 pub async fn update(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let latest = fetch_latest_traefik_version().await.map_err(|e| {
-        AppError::BadRequest(format!("Could not fetch latest Traefik version: {e}"))
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.proxy.fetch_latest_version_failed",
+            &[("v", &e.to_string())],
+        ))
     })?;
 
     // Snapshot the currently running version, persist it as `previous` so we
@@ -403,8 +406,13 @@ pub async fn update(State(state): State<SharedState>) -> AppResult<impl IntoResp
             {
                 Ok(_) => {
                     tracing::info!("Rollback to Traefik {previous} succeeded");
-                    Err(AppError::BadRequest(format!(
-                        "Update to Traefik {latest} failed: {deploy_err}. Rolled back to {previous}."
+                    Err(AppError::BadRequest(crate::i18n::te_args(
+                        "errors.proxy.update_failed_rolled_back",
+                        &[
+                            ("latest", &latest),
+                            ("err", &deploy_err.to_string()),
+                            ("previous", &previous),
+                        ],
                     )))
                 }
                 Err(rollback_err) => Err(AppError::Internal(anyhow::anyhow!(

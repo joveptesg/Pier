@@ -284,8 +284,12 @@ async fn session_status(
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("blocking task: {e}")))??;
 
-    row.map(Json)
-        .ok_or_else(|| AppError::NotFound(format!("login session {session_id}")))
+    row.map(Json).ok_or_else(|| {
+        AppError::NotFound(crate::i18n::te_args(
+            "errors.npm_web_login.session_not_found",
+            &[("v", &session_id)],
+        ))
+    })
 }
 
 async fn authorize_session(
@@ -329,13 +333,21 @@ async fn authorize_session(
             .map_err(|e| AppError::Internal(anyhow::anyhow!("load session: {e}")))?;
 
         let Some((status, expires_at)) = row else {
-            return Err(AppError::NotFound(format!("login session {session_id_db}")));
+            return Err(AppError::NotFound(crate::i18n::te_args(
+                "errors.npm_web_login.session_not_found",
+                &[("v", &session_id_db)],
+            )));
         };
         if now > expires_at {
-            return Err(AppError::BadRequest("session expired".into()));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.npm_web_login.session_expired",
+            )));
         }
         if status != "pending" {
-            return Err(AppError::Conflict(format!("session is already {status}")));
+            return Err(AppError::Conflict(crate::i18n::te_args(
+                "errors.npm_web_login.session_already_status",
+                &[("v", &status)],
+            )));
         }
 
         let tx = db

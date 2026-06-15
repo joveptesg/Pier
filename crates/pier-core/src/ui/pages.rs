@@ -505,7 +505,10 @@ pub async fn package_detail(
         (summary, versions, manifest_only_count, dist_tags, readme_md)
     };
     let Some(summary) = summary else {
-        return Err(AppError::NotFound(format!("package {name}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.pages.package_not_found",
+            &[("v", &name)],
+        )));
     };
 
     // Render markdown to HTML inside the binary, then sanitise so a hostile
@@ -589,7 +592,10 @@ pub async fn cli_login_page(
     };
 
     let Some(info) = row else {
-        return Err(AppError::NotFound(format!("login session {session_id}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.pages.login_session_not_found",
+            &[("v", &session_id)],
+        )));
     };
     let SessionInfo {
         hostname,

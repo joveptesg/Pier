@@ -36,8 +36,12 @@ pub async fn github(
 
     // Handle installation events (GitHub App installed/updated)
     if event == "installation" || event == "installation_repositories" {
-        let payload: serde_json::Value = serde_json::from_slice(&body)
-            .map_err(|e| AppError::BadRequest(format!("Invalid JSON: {e}")))?;
+        let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.webhooks.invalid_json",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
         let action = payload["action"].as_str().unwrap_or("");
         if action == "created" || action == "added" {
@@ -76,8 +80,12 @@ pub async fn github(
         .unwrap_or("");
 
     // Parse payload
-    let payload: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|e| AppError::BadRequest(format!("Invalid JSON: {e}")))?;
+    let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.webhooks.invalid_json",
+            &[("error", &e.to_string())],
+        ))
+    })?;
 
     let repo_url = payload["repository"]["html_url"]
         .as_str()
@@ -140,8 +148,12 @@ pub async fn gitlab(
         .unwrap_or("");
 
     // Parse payload
-    let payload: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|e| AppError::BadRequest(format!("Invalid JSON: {e}")))?;
+    let payload: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.webhooks.invalid_json",
+            &[("error", &e.to_string())],
+        ))
+    })?;
 
     let repo_url = payload["project"]["web_url"].as_str().unwrap_or("");
 

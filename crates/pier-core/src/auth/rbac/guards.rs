@@ -67,15 +67,15 @@ pub async fn require_global_role(
     // and the lower User gate, but refuse Owner-only routes (federation +
     // user mutations are local-trust only).
     if user.is_peer && min == GlobalRole::Owner {
-        return Err(AppError::Forbidden(
-            "Owner-only route is not accessible via peer token".into(),
-        ));
+        return Err(AppError::Forbidden(crate::i18n::te(
+            "errors.rbac.owner_only_peer_token",
+        )));
     }
 
     if !user.global_role.at_least(min) {
-        return Err(AppError::Forbidden(format!(
-            "requires {} role",
-            min.as_str()
+        return Err(AppError::Forbidden(crate::i18n::te_args(
+            "errors.rbac.requires_global_role",
+            &[("v", min.as_str())],
         )));
     }
     Ok(next.run(req).await)
@@ -135,7 +135,7 @@ pub fn enforce_resource_role(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
     let project_id = super::membership::project_for_resource(&db, resource_id)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("project lookup: {e}")))?
-        .ok_or_else(|| AppError::Forbidden("resource is not bound to a project".into()))?;
+        .ok_or_else(|| AppError::Forbidden(crate::i18n::te("errors.rbac.resource_not_bound")))?;
     enforce_project_role(user, &project_id, min, &db)
 }
 
@@ -163,12 +163,17 @@ pub fn enforce_project_role(
 
     let role = membership::role_for(conn, &user.id, project_id)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("membership lookup: {e}")))?
-        .ok_or_else(|| AppError::Forbidden(format!("not a member of project {project_id}")))?;
+        .ok_or_else(|| {
+            AppError::Forbidden(crate::i18n::te_args(
+                "errors.rbac.not_project_member",
+                &[("v", project_id)],
+            ))
+        })?;
 
     if !role.at_least(min) {
-        return Err(AppError::Forbidden(format!(
-            "requires project {} role",
-            min.as_str()
+        return Err(AppError::Forbidden(crate::i18n::te_args(
+            "errors.rbac.requires_project_role",
+            &[("v", min.as_str())],
         )));
     }
     Ok(ProjectMembership {

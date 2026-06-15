@@ -58,7 +58,10 @@ fn validate_unit(unit: &str) -> AppResult<&'static str> {
             return Ok(*u);
         }
     }
-    Err(AppError::BadRequest(format!("unit not allowed: {unit}")))
+    Err(AppError::BadRequest(crate::i18n::te_args(
+        "errors.system_logs.unit_not_allowed",
+        &[("v", unit)],
+    )))
 }
 
 #[derive(Deserialize)]
@@ -113,10 +116,18 @@ pub async fn snapshot(
     Query(q): Query<SnapshotQuery>,
 ) -> AppResult<impl IntoResponse> {
     let unit = validate_unit(&q.unit)?;
-    let since = since_flag(&q.since)
-        .ok_or_else(|| AppError::BadRequest(format!("invalid since preset: {}", q.since)))?;
-    let lines = validate_lines(q.lines)
-        .ok_or_else(|| AppError::BadRequest(format!("invalid lines: {}", q.lines)))?;
+    let since = since_flag(&q.since).ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.system_logs.invalid_since",
+            &[("v", &q.since)],
+        ))
+    })?;
+    let lines = validate_lines(q.lines).ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.system_logs.invalid_lines",
+            &[("v", &q.lines.to_string())],
+        ))
+    })?;
 
     let lines_str = lines.to_string();
     let mut args: Vec<&str> = vec![
@@ -131,8 +142,12 @@ pub async fn snapshot(
         "cat",
     ];
     if let Some(p) = q.priority.as_deref() {
-        let pri = priority_flag(p)
-            .ok_or_else(|| AppError::BadRequest(format!("invalid priority: {p}")))?;
+        let pri = priority_flag(p).ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.system_logs.invalid_priority",
+                &[("v", p)],
+            ))
+        })?;
         args.push("-p");
         args.push(pri);
     }

@@ -47,7 +47,7 @@ pub async fn get(
         )
         .optional()?;
     let (email, role, expires_at) =
-        row.ok_or_else(|| AppError::NotFound("invitation not found".into()))?;
+        row.ok_or_else(|| AppError::NotFound(crate::i18n::te("errors.invitations.not_found")))?;
     Ok(Json(serde_json::json!({
         "email": email,
         "default_global_role": role,
@@ -68,7 +68,9 @@ pub async fn accept(
     let token_hash = sha256_hex(&token);
     let username = body.username.trim().to_string();
     if username.is_empty() {
-        return Err(AppError::BadRequest("username required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.invitations.username_required",
+        )));
     }
 
     let new_user_id = uuid::Uuid::new_v4().to_string();
@@ -93,7 +95,7 @@ pub async fn accept(
             )
             .optional()?;
         let (invite_id, email_v, role_v) =
-            row.ok_or_else(|| AppError::NotFound("invitation not found".into()))?;
+            row.ok_or_else(|| AppError::NotFound(crate::i18n::te("errors.invitations.not_found")))?;
 
         password::validate_password_strength(&body.password, &[&username, &email_v])
             .map_err(AppError::BadRequest)?;

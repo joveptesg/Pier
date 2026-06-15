@@ -731,10 +731,12 @@ pub async fn set_timezone(
     Json(body): Json<TimezoneRequest>,
 ) -> AppResult<impl IntoResponse> {
     // Validate the IANA name by parsing through chrono_tz.
-    let _tz: chrono_tz::Tz = body
-        .timezone
-        .parse()
-        .map_err(|_| AppError::BadRequest(format!("Invalid IANA timezone: {}", body.timezone)))?;
+    let _tz: chrono_tz::Tz = body.timezone.parse().map_err(|_| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.system.invalid_timezone",
+            &[("v", &body.timezone)],
+        ))
+    })?;
     {
         let db = state
             .db

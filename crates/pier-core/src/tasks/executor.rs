@@ -205,11 +205,13 @@ pub async fn cancel_run(state: &SharedState, task_id: &str) -> Result<(), AppErr
         let db = state.db.lock().map_err(|e| anyhow!("DB lock: {e}"))?;
         let run = models::run_get(&db, task_id)
             .map_err(|e| anyhow!("read task_run: {e}"))?
-            .ok_or_else(|| AppError::NotFound("task run not found".into()))?;
+            .ok_or_else(|| {
+                AppError::NotFound(crate::i18n::te("errors.executor.task_run_not_found"))
+            })?;
         if models::is_terminal(&run.status) {
-            return Err(AppError::Conflict(format!(
-                "task is already {}",
-                run.status
+            return Err(AppError::Conflict(crate::i18n::te_args(
+                "errors.executor.task_already_status",
+                &[("v", &run.status)],
             )));
         }
         let _ = models::run_mark_cancelled(&db, task_id);

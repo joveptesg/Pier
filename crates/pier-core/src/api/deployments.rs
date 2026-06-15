@@ -86,7 +86,12 @@ pub async fn get(
                 }))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Deployment {dep_id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.deployments.deployment_not_found",
+                &[("v", &dep_id.to_string())],
+            ))
+        })?;
 
     Ok(Json(deployment))
 }
@@ -114,7 +119,9 @@ pub async fn cancel(
     )?;
 
     if updated == 0 {
-        return Err(AppError::Conflict("Deployment is not in progress".into()));
+        return Err(AppError::Conflict(crate::i18n::te(
+            "errors.deployments.deployment_not_in_progress",
+        )));
     }
 
     // Clear the service's 'deploying' flag if no other deploy is active.
@@ -161,13 +168,18 @@ pub async fn manual_deploy(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.deployments.service_not_found",
+                &[("v", &id.to_string())],
+            ))
+        })?
     };
 
     if git_repo_url.is_none() || git_repo_url.as_deref() == Some("") {
-        return Err(AppError::BadRequest(
-            "Git is not configured for this service. Set git_repo_url first.".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.deployments.git_not_configured",
+        )));
     }
 
     let branch = body
@@ -274,7 +286,12 @@ pub async fn api_deploy_by_name(
             rusqlite::params![project_id, name],
             |row| row.get::<_, String>(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Service '{name}' not found in project")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.deployments.service_not_found_in_project",
+                &[("v", &name.to_string())],
+            ))
+        })?
     };
     do_api_deploy(&state, &user, addr, &headers, id, body).await
 }
@@ -307,12 +324,17 @@ async fn do_api_deploy(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.deployments.service_not_found",
+                &[("v", &id.to_string())],
+            ))
+        })?
     };
     if git_repo_url.as_deref().unwrap_or("").is_empty() {
-        return Err(AppError::BadRequest(
-            "Git is not configured for this service. Set git_repo_url first.".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.deployments.git_not_configured",
+        )));
     }
 
     let branch = body

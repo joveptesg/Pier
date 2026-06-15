@@ -44,7 +44,9 @@ pub async fn create(
 ) -> AppResult<impl IntoResponse> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(AppError::BadRequest("Network name is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.networks.name_required",
+        )));
     }
 
     // Validate name (Docker network naming rules)
@@ -52,9 +54,9 @@ pub async fn create(
         .chars()
         .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(AppError::BadRequest(
-            "Network name may only contain letters, numbers, hyphens, underscores".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.networks.name_invalid_chars",
+        )));
     }
 
     // Create Docker network
@@ -122,12 +124,17 @@ pub async fn delete(
                 [&id],
                 |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
             )
-            .map_err(|_| AppError::NotFound(format!("Network {id} not found")))?;
+            .map_err(|_| {
+                AppError::NotFound(crate::i18n::te_args(
+                    "errors.networks.not_found",
+                    &[("v", &id)],
+                ))
+            })?;
 
         if is_default {
-            return Err(AppError::BadRequest(
-                "Cannot delete the default network".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.networks.cannot_delete_default",
+            )));
         }
 
         // Check if any services use this network
@@ -137,8 +144,9 @@ pub async fn delete(
             |row| row.get(0),
         )?;
         if count > 0 {
-            return Err(AppError::BadRequest(format!(
-                "Network has {count} service(s). Move them first."
+            return Err(AppError::BadRequest(crate::i18n::te_args(
+                "errors.networks.has_services",
+                &[("v", &count.to_string())],
             )));
         }
 

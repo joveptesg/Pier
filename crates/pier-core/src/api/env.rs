@@ -28,7 +28,12 @@ pub async fn get_env(
             [&id],
             |row| row.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.env.resource_not_found",
+                &[("v", &id)],
+            ))
+        })?;
 
     let decrypted = crate::crypto::decrypt_env_json(env_json.as_deref());
     let env: HashMap<String, String> = serde_json::from_str(&decrypted).unwrap_or_default();
@@ -78,7 +83,12 @@ pub async fn update_env(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.env.resource_not_found",
+                &[("v", &id)],
+            ))
+        })?
     };
 
     // Redeploy if requested

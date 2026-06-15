@@ -29,10 +29,14 @@ pub async fn create(
 ) -> AppResult<impl IntoResponse> {
     let name = body.name.trim();
     if name.is_empty() {
-        return Err(AppError::BadRequest("name is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.tokens.name_required",
+        )));
     }
     if name.len() > 100 {
-        return Err(AppError::BadRequest("name too long (max 100)".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.tokens.name_too_long",
+        )));
     }
 
     let issued = api_token::generate();
@@ -94,7 +98,10 @@ pub async fn revoke(
         api_token::revoke(&db, &id, &user.id).map_err(|e| {
             // The only "not found" case is from `revoke()`; treat as 404.
             if e.to_string().contains("not found") {
-                AppError::NotFound(format!("token {id}"))
+                AppError::NotFound(crate::i18n::te_args(
+                    "errors.tokens.not_found",
+                    &[("v", &id)],
+                ))
             } else {
                 AppError::Internal(e)
             }

@@ -53,11 +53,15 @@ pub async fn templates_create(
 ) -> AppResult<impl IntoResponse> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(AppError::BadRequest("name is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.tasks.name_required",
+        )));
     }
     let command = body.command.trim().to_string();
     if command.is_empty() {
-        return Err(AppError::BadRequest("command is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.tasks.command_required",
+        )));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let timeout = body.default_timeout_sec.unwrap_or(1800).clamp(1, 24 * 3600);
@@ -86,7 +90,10 @@ pub async fn templates_create(
         rusqlite::Error::SqliteFailure(err, _)
             if err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
         {
-            AppError::Conflict(format!("template named '{name}' already exists"))
+            AppError::Conflict(crate::i18n::te_args(
+                "errors.tasks.template_name_exists",
+                &[("v", &name)],
+            ))
         }
         other => AppError::Internal(anyhow::anyhow!("insert template: {other}")),
     })?;
@@ -103,7 +110,7 @@ pub async fn templates_get(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let tmpl = models::template_get(&db, &id)
         .map_err(AppError::Internal)?
-        .ok_or_else(|| AppError::NotFound("template not found".into()))?;
+        .ok_or_else(|| AppError::NotFound(crate::i18n::te("errors.tasks.template_not_found")))?;
     Ok(Json(tmpl))
 }
 
@@ -222,8 +229,9 @@ pub async fn runs_start(
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()?;
-            let (tmpl_cmd, env_str, tmpl_timeout) =
-                tmpl.ok_or_else(|| AppError::NotFound("template not found".into()))?;
+            let (tmpl_cmd, env_str, tmpl_timeout) = tmpl.ok_or_else(|| {
+                AppError::NotFound(crate::i18n::te("errors.tasks.template_not_found"))
+            })?;
             let env_map: serde_json::Map<String, serde_json::Value> =
                 serde_json::from_str(&env_str).unwrap_or_default();
             (tmpl_cmd, env_map, tmpl_timeout)
@@ -248,9 +256,9 @@ pub async fn runs_start(
         }
     }
     if command.is_empty() {
-        return Err(AppError::BadRequest(
-            "either template_id or command is required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.tasks.template_or_command_required",
+        )));
     }
     if let Some(env_override) = body.env {
         env_map = env_override;
@@ -305,7 +313,7 @@ pub async fn runs_get(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let run = models::run_get(&db, &id)
         .map_err(AppError::Internal)?
-        .ok_or_else(|| AppError::NotFound("task run not found".into()))?;
+        .ok_or_else(|| AppError::NotFound(crate::i18n::te("errors.tasks.run_not_found")))?;
     Ok(Json(run))
 }
 
