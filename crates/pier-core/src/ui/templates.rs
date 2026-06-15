@@ -125,11 +125,13 @@ mod tests {
                 "Manage projects and standalone resources",
             ),
             ("projects/detail.html", "No services in this project"),
+            ("servers/list.html", "Mesh Network"),
+            ("servers/detail.html", "Connection Info"),
         ] {
             let out = env
                 .get_template(tpl)
                 .unwrap_or_else(|_| panic!("{tpl} loads"))
-                .render(minijinja::context! { user => "admin", page => "projects" })
+                .render(minijinja::context! { user => "admin", page => "servers" })
                 .unwrap_or_else(|e| panic!("{tpl} renders: {e}"));
             assert!(out.contains(needle), "{tpl} should contain {needle:?}");
         }

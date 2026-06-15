@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Servers{% endblock %}
+{% block title %}{{ t('servers_list.title') }}{% endblock %}
 
 {% block content %}
 <div class="p-6 space-y-6" x-data="serversData()" x-init="init()">
     <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Servers</h2>
-            <p class="text-sm text-gray-500 mt-1">Local core, remote agents, and federated peer cores — all in one place.</p>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('servers_list.heading') }}</h2>
+            <p class="text-sm text-gray-500 mt-1">{{ t('servers_list.subtitle') }}</p>
         </div>
         <button @click="showAdd = true; addKind = 'agent'; lastBootstrap = null; form = { name: '', host: '', port: 3001, url: '', api_token: '' }"
                 class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-1.5">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            Add Server
+            {{ t('servers_list.add_server') }}
         </button>
     </div>
 
@@ -35,13 +35,13 @@
                     </svg>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Mesh Network</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('servers_list.mesh_network') }}</h3>
                     <p class="text-xs text-gray-500" x-show="!mesh.config.enabled">
-                        WireGuard tunnel between every Pier node. Disabled.
+                        {{ t('servers_list.mesh_disabled_desc') }}
                     </p>
                     <p class="text-xs text-green-600 dark:text-green-400" x-show="mesh.config.enabled">
-                        <span x-text="meshPeerSummary()"></span> peers
-                        on <span class="font-mono" x-text="mesh.config.subnet"></span>
+                        <span x-text="meshPeerSummary()"></span> {{ t('servers_list.mesh_peers') }}
+                        {{ t('servers_list.mesh_on') }} <span class="font-mono" x-text="mesh.config.subnet"></span>
                     </p>
                 </div>
             </div>
@@ -49,28 +49,28 @@
                 <button x-show="!mesh.config.enabled"
                         @click="showMeshEdit = true; meshForm.subnet = mesh.config.subnet; meshForm.listen_port = mesh.config.listen_port; meshForm.persistent_keepalive = mesh.config.persistent_keepalive"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
-                    Edit
+                    {{ t('servers_list.edit') }}
                 </button>
                 <button x-show="!mesh.config.enabled"
                         :disabled="meshLoading"
                         @click="enableMesh()"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
-                    <span x-show="!meshLoading">Enable Mesh</span>
-                    <span x-show="meshLoading">Working…</span>
+                    <span x-show="!meshLoading">{{ t('servers_list.enable_mesh') }}</span>
+                    <span x-show="meshLoading">{{ t('servers_list.working') }}</span>
                 </button>
                 <button x-show="mesh.config.enabled"
                         :disabled="meshLoading"
                         @click="configureMesh()"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-60"
-                        title="Re-run install + keypair + apply on every peer">
-                    <span x-show="!meshLoading">Apply</span>
-                    <span x-show="meshLoading">Applying…</span>
+                        title="{{ t('servers_list.apply_title') }}">
+                    <span x-show="!meshLoading">{{ t('servers_list.apply') }}</span>
+                    <span x-show="meshLoading">{{ t('servers_list.applying') }}</span>
                 </button>
                 <button x-show="mesh.config.enabled"
                         :disabled="meshLoading"
                         @click="disableMesh()"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 text-red-700 dark:text-red-400 disabled:opacity-60">
-                    Disable
+                    {{ t('servers_list.disable') }}
                 </button>
             </div>
         </div>
@@ -86,7 +86,7 @@
                                      : p.status === 'error' ? 'bg-red-500'
                                      : 'bg-gray-400'"></span>
                         <span class="text-gray-700 dark:text-gray-300 truncate" x-text="p.server_name"></span>
-                        <span x-show="p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300">local</span>
+                        <span x-show="p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300">{{ t('servers_list.local') }}</span>
                     </div>
                     <div class="flex items-center gap-3 text-right">
                         <span class="font-mono text-gray-500" x-text="p.assigned_ip"></span>
@@ -118,10 +118,9 @@
     <div x-show="showPreflight" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showPreflight = false">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4" @click.stop>
             <div>
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Mesh preflight</h3>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('servers_list.preflight_title') }}</h3>
                 <p class="text-xs text-gray-500 mt-1">
-                    Every node needs <span class="font-mono">pier-net-helper</span> running before mesh can come up.
-                    Run the command below on each missing node, then click <em>Re-check</em>.
+                    {{ t('servers_list.preflight_desc') | safe }}
                 </p>
             </div>
 
@@ -132,26 +131,26 @@
                             <span class="w-1.5 h-1.5 rounded-full"
                                   :class="p.helper_available ? 'bg-green-500' : 'bg-red-500'"></span>
                             <span class="text-gray-700 dark:text-gray-300 truncate" x-text="p.name"></span>
-                            <span x-show="p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300">local</span>
-                            <span x-show="p.kind === 'peer' && !p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">peer</span>
+                            <span x-show="p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300">{{ t('servers_list.local') }}</span>
+                            <span x-show="p.kind === 'peer' && !p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">{{ t('servers_list.peer') }}</span>
                         </div>
                         <span class="text-right shrink-0"
                               :class="p.helper_available ? 'text-green-600 dark:text-green-400' : 'text-red-500'"
-                              x-text="p.helper_available ? 'helper online' : (p.error || 'helper missing')"></span>
+                              x-text="p.helper_available ? '{{ t('servers_list.helper_online') }}' : (p.error || '{{ t('servers_list.helper_missing') }}')"></span>
                     </div>
                 </template>
             </div>
 
             <div x-show="!preflightResult.ok" class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-3 space-y-2">
                 <p class="text-xs text-amber-700 dark:text-amber-300">
-                    Run this command as root on every red node above:
+                    {{ t('servers_list.preflight_run_command') }}
                 </p>
                 <div class="flex items-center gap-2">
                     <code class="flex-1 font-mono text-[11px] bg-gray-900 text-green-300 rounded px-2 py-1.5 overflow-x-auto whitespace-nowrap"
                           x-text="preflightCommand()"></code>
                     <button @click="copyPreflightCommand()"
                             class="shrink-0 px-2.5 py-1.5 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-white">
-                        Copy
+                        {{ t('common.copy') }}
                     </button>
                 </div>
             </div>
@@ -159,18 +158,18 @@
             <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
                 <button @click="showPreflight = false"
                         class="px-3 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-                    Cancel
+                    {{ t('common.cancel') }}
                 </button>
                 <button :disabled="preflightLoading"
                         @click="runPreflight()"
                         class="px-3 py-1.5 text-sm rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-60">
-                    <span x-show="!preflightLoading">Re-check</span>
-                    <span x-show="preflightLoading">Checking…</span>
+                    <span x-show="!preflightLoading">{{ t('servers_list.recheck') }}</span>
+                    <span x-show="preflightLoading">{{ t('servers_list.checking') }}</span>
                 </button>
                 <button :disabled="!preflightResult.ok || meshLoading"
                         @click="showPreflight = false; enableMeshAfterPreflight()"
                         class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60 disabled:cursor-not-allowed">
-                    Enable Mesh
+                    {{ t('servers_list.enable_mesh') }}
                 </button>
             </div>
         </div>
@@ -194,17 +193,17 @@
                     </svg>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Service DNS</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('servers_list.service_dns') }}</h3>
                     <p class="text-xs text-gray-500" x-show="!serviceDns.length">
-                        No mappings. Register a logical name so stacks can refer to a service by role instead of node.
+                        {{ t('servers_list.service_dns_empty') }}
                     </p>
                     <p class="text-xs text-gray-500" x-show="serviceDns.length"
-                       x-text="serviceDns.length + ' mapping(s) — stacks redeploy automatically on change'"></p>
+                       x-text="serviceDns.length + ' {{ t('servers_list.service_dns_count') }}'"></p>
                 </div>
             </div>
             <button @click="showServiceDnsForm = true; serviceDnsForm = { name: '', server_id: '', port: '', service_id: '' }; serviceDnsEditing = null"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">
-                + New
+                {{ t('servers_list.new_plus') }}
             </button>
         </div>
 
@@ -219,9 +218,9 @@
                     </div>
                     <div class="flex items-center gap-3 text-right">
                         <button @click="editServiceDns(m)"
-                                class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Edit</button>
+                                class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">{{ t('servers_list.edit') }}</button>
                         <button @click="deleteServiceDns(m.name)"
-                                class="text-red-500 hover:text-red-700">Delete</button>
+                                class="text-red-500 hover:text-red-700">{{ t('servers_list.delete') }}</button>
                     </div>
                 </div>
             </template>
@@ -235,30 +234,30 @@
     <div x-show="showServiceDnsForm" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showServiceDnsForm = false">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4" @click.stop>
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white"
-                x-text="serviceDnsEditing ? 'Edit ' + serviceDnsEditing + '.mesh' : 'New service-DNS mapping'"></h3>
+                x-text="serviceDnsEditing ? '{{ t('servers_list.edit_prefix') }} ' + serviceDnsEditing + '.mesh' : '{{ t('servers_list.service_dns_new_title') }}'"></h3>
             <p class="text-xs text-gray-500">
-                A name like <span class="font-mono">db</span> becomes <span class="font-mono">db.mesh</span> in every stack. Lowercase, [a-z0-9-], 1-31 chars.
+                {{ t('servers_list.service_dns_form_desc') | safe }}
             </p>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.name_label') }}</label>
                 <input x-model="serviceDnsForm.name" type="text"
                        :disabled="serviceDnsEditing !== null"
                        placeholder="db"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono disabled:opacity-60">
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Target server</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.target_server_label') }}</label>
                 <select x-model="serviceDnsForm.server_id"
                         class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm">
-                    <option value="">— select —</option>
+                    <option value="">{{ t('servers_list.select_option') }}</option>
                     <template x-for="s in (servers || [])" :key="s.id">
-                        <option :value="s.id" x-text="s.name + (s.is_local ? ' (local)' : '')"></option>
+                        <option :value="s.id" x-text="s.name + (s.is_local ? ' {{ t('servers_list.local_suffix') }}' : '')"></option>
                     </template>
                 </select>
-                <p class="text-[11px] text-gray-500 mt-1">Only meshed servers actually inject; non-mesh peers are silently skipped at deploy time.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('servers_list.meshed_only_hint') }}</p>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.port_label') }}</label>
                 <input x-model.number="serviceDnsForm.port" type="number" min="1" max="65535"
                        placeholder="5432"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm">
@@ -266,13 +265,13 @@
             <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
                 <button @click="showServiceDnsForm = false"
                         class="px-3 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-                    Cancel
+                    {{ t('common.cancel') }}
                 </button>
                 <button :disabled="serviceDnsBusy || !serviceDnsForm.name || !serviceDnsForm.server_id || !serviceDnsForm.port"
                         @click="saveServiceDns()"
                         class="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60">
-                    <span x-show="!serviceDnsBusy" x-text="serviceDnsEditing ? 'Save' : 'Create'"></span>
-                    <span x-show="serviceDnsBusy">Working…</span>
+                    <span x-show="!serviceDnsBusy" x-text="serviceDnsEditing ? '{{ t('servers_list.save') }}' : '{{ t('servers_list.create') }}'"></span>
+                    <span x-show="serviceDnsBusy">{{ t('servers_list.working') }}</span>
                 </button>
             </div>
         </div>
@@ -292,17 +291,17 @@
                     </svg>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Federation Tokens</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('servers_list.federation_tokens') }}</h3>
                     <p class="text-xs text-gray-500" x-show="!fedTokens.length">
-                        No tokens issued. Mint one to let a remote primary pier-core deploy stacks here.
+                        {{ t('servers_list.fed_tokens_empty') }}
                     </p>
                     <p class="text-xs text-gray-500" x-show="fedTokens.length"
-                       x-text="fedTokens.length + ' token(s) issued'"></p>
+                       x-text="fedTokens.length + ' {{ t('servers_list.fed_tokens_count') }}'"></p>
                 </div>
             </div>
             <button @click="showFedTokenCreate = true; newFedToken.label = ''"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-600 hover:bg-purple-700 text-white">
-                + New Token
+                {{ t('servers_list.new_token_plus') }}
             </button>
         </div>
 
@@ -317,11 +316,11 @@
                     </div>
                     <div class="flex items-center gap-3 text-right">
                         <span class="text-gray-500"
-                              x-text="t.last_used_at ? formatFedRelative(t.last_used_at) : 'never used'"></span>
+                              x-text="t.last_used_at ? formatFedRelative(t.last_used_at) : '{{ t('servers_list.never_used') }}'"></span>
                         <button x-show="t.is_active"
                                 @click="revokeFedToken(t.id, t.label)"
-                                class="text-red-500 hover:text-red-700">Revoke</button>
-                        <span x-show="!t.is_active" class="text-gray-400">revoked</span>
+                                class="text-red-500 hover:text-red-700">{{ t('servers_list.revoke') }}</button>
+                        <span x-show="!t.is_active" class="text-gray-400">{{ t('servers_list.revoked') }}</span>
                     </div>
                 </div>
             </template>
@@ -331,27 +330,26 @@
     <!-- Federation token: create modal -->
     <div x-show="showFedTokenCreate" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="closeFedTokenModals()">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4" @click.stop>
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Mint federation token</h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('servers_list.fed_token_create_title') }}</h3>
             <p class="text-xs text-gray-500">
-                The plaintext token is shown <strong>once</strong>. Copy it into the primary's
-                "Connect to peer" form right after creation.
+                {{ t('servers_list.fed_token_create_desc') | safe }}
             </p>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Label</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.label_label') }}</label>
                 <input x-model="newFedToken.label" type="text" placeholder="vps1-master"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm">
-                <p class="text-[11px] text-gray-500 mt-1">Any identifier for the primary that will use this token.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('servers_list.label_hint') }}</p>
             </div>
             <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-800">
                 <button @click="closeFedTokenModals()"
                         class="px-3 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-                    Cancel
+                    {{ t('common.cancel') }}
                 </button>
                 <button :disabled="!newFedToken.label.trim() || fedTokenBusy"
                         @click="createFedToken()"
                         class="px-3 py-1.5 text-sm rounded-lg bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-60">
-                    <span x-show="!fedTokenBusy">Create</span>
-                    <span x-show="fedTokenBusy">Working…</span>
+                    <span x-show="!fedTokenBusy">{{ t('servers_list.create') }}</span>
+                    <span x-show="fedTokenBusy">{{ t('servers_list.working') }}</span>
                 </button>
             </div>
         </div>
@@ -360,27 +358,25 @@
     <!-- Federation token: reveal modal (shown once after creation) -->
     <div x-show="showFedTokenReveal" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="closeFedTokenModals()">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4" @click.stop>
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Token for <span class="text-purple-500" x-text="revealedFedToken.label"></span></h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('servers_list.token_for') }} <span class="text-purple-500" x-text="revealedFedToken.label"></span></h3>
             <div class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                Copy this now — Pier never shows it again. After closing this dialog only the prefix is visible.
+                {{ t('servers_list.reveal_warning') }}
             </div>
             <div class="flex items-center gap-2">
                 <code class="flex-1 font-mono text-[12px] bg-gray-900 text-green-300 rounded px-3 py-2 overflow-x-auto whitespace-nowrap"
                       x-text="revealedFedToken.token"></code>
                 <button @click="copyFedToken()"
                         class="shrink-0 px-2.5 py-1.5 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-white">
-                    Copy
+                    {{ t('common.copy') }}
                 </button>
             </div>
             <p class="text-xs text-gray-500">
-                On the primary pier-core: go to <span class="font-mono">/servers</span> →
-                this peer's row → paste this value into the
-                <strong>Federation token</strong> field.
+                {{ t('servers_list.reveal_instructions') | safe }}
             </p>
             <div class="flex items-center justify-end pt-2 border-t border-gray-200 dark:border-gray-800">
                 <button @click="closeFedTokenModals()"
                         class="px-3 py-1.5 text-sm rounded-lg bg-purple-600 hover:bg-purple-700 text-white">
-                    I've copied it
+                    {{ t('servers_list.copied_confirm') }}
                 </button>
             </div>
         </div>
@@ -391,34 +387,33 @@
          disabled state and the button is hidden otherwise. -->
     <div x-show="showMeshEdit" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showMeshEdit = false">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4" @click.stop>
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Mesh settings</h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('servers_list.mesh_settings') }}</h3>
             <p class="text-xs text-gray-500">
-                Only editable while mesh is disabled — changing subnet on a live
-                mesh would orphan every assigned IP.
+                {{ t('servers_list.mesh_settings_desc') }}
             </p>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Subnet (CIDR)</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.subnet_label') }}</label>
                 <input x-model="meshForm.subnet" type="text" placeholder="10.42.0.0/24"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono">
-                <p class="text-[11px] text-gray-500 mt-1">/30 or shorter prefix. /24 holds 254 nodes.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('servers_list.subnet_hint') }}</p>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Listen port</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.listen_port_label') }}</label>
                 <input x-model.number="meshForm.listen_port" type="number" min="1024" max="65535"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm">
-                <p class="text-[11px] text-gray-500 mt-1">UDP. Must be open in the firewall on every node.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('servers_list.listen_port_hint') }}</p>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">PersistentKeepalive (sec)</label>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.keepalive_label') }}</label>
                 <input x-model.number="meshForm.persistent_keepalive" type="number" min="0" max="65535"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm">
-                <p class="text-[11px] text-gray-500 mt-1">0 disables keepalive. Use ≥25 if any node is behind NAT.</p>
+                <p class="text-[11px] text-gray-500 mt-1">{{ t('servers_list.keepalive_hint') }}</p>
             </div>
             <div class="flex justify-end gap-2 pt-2">
                 <button @click="showMeshEdit = false"
-                        class="px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">Cancel</button>
+                        class="px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">{{ t('common.cancel') }}</button>
                 <button @click="saveMeshConfig()"
-                        class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Save</button>
+                        class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">{{ t('servers_list.save') }}</button>
             </div>
         </div>
     </div>
@@ -439,7 +434,7 @@
                                    class="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-500 transition-colors truncate"
                                    x-text="srv.name"></a>
                                 <button x-show="!editing" @click.prevent="editing = true; newName = srv.name"
-                                        class="text-gray-400 hover:text-blue-500" title="Rename">
+                                        class="text-gray-400 hover:text-blue-500" title="{{ t('servers_list.rename') }}">
                                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                                 </button>
                                 <span x-show="!editing"
@@ -466,8 +461,8 @@
                         </div>
                     </div>
                     <div x-show="!srv.is_local" class="flex items-center gap-2">
-                        <button @click="testServer(srv.id)" class="text-xs text-blue-500 hover:text-blue-700">Test</button>
-                        <button @click="removeServer(srv.id, srv.name)" class="text-xs text-red-500 hover:text-red-700">Remove</button>
+                        <button @click="testServer(srv.id)" class="text-xs text-blue-500 hover:text-blue-700">{{ t('servers_list.test') }}</button>
+                        <button @click="removeServer(srv.id, srv.name)" class="text-xs text-red-500 hover:text-red-700">{{ t('servers_list.remove') }}</button>
                     </div>
                 </div>
 
@@ -476,24 +471,24 @@
                     <div>
                         <div class="space-y-3">
                             <div>
-                                <div class="flex items-center justify-between text-xs mb-1"><span class="text-gray-500">CPU</span><span class="text-gray-700 dark:text-gray-300 font-medium" x-text="metrics.cpu_usage + '%'"></span></div>
+                                <div class="flex items-center justify-between text-xs mb-1"><span class="text-gray-500">{{ t('servers_list.cpu') }}</span><span class="text-gray-700 dark:text-gray-300 font-medium" x-text="metrics.cpu_usage + '%'"></span></div>
                                 <div class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden"><div class="h-full bg-blue-500 rounded-full transition-all" :style="'width:' + metrics.cpu_usage + '%'"></div></div>
                             </div>
                             <div>
-                                <div class="flex items-center justify-between text-xs mb-1"><span class="text-gray-500">RAM</span><span class="text-gray-700 dark:text-gray-300 font-medium" x-text="metrics.memory_percent + '%'"></span></div>
+                                <div class="flex items-center justify-between text-xs mb-1"><span class="text-gray-500">{{ t('servers_list.ram') }}</span><span class="text-gray-700 dark:text-gray-300 font-medium" x-text="metrics.memory_percent + '%'"></span></div>
                                 <div class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden"><div class="h-full bg-green-500 rounded-full transition-all" :style="'width:' + metrics.memory_percent + '%'"></div></div>
                             </div>
                             <template x-if="metrics.disks && metrics.disks.length > 0">
                                 <div>
-                                    <div class="flex items-center justify-between text-xs mb-1"><span class="text-gray-500">Disk</span><span class="text-gray-700 dark:text-gray-300 font-medium" x-text="diskPercent(metrics.disks[0]) + '%'"></span></div>
+                                    <div class="flex items-center justify-between text-xs mb-1"><span class="text-gray-500">{{ t('servers_list.disk') }}</span><span class="text-gray-700 dark:text-gray-300 font-medium" x-text="diskPercent(metrics.disks[0]) + '%'"></span></div>
                                     <div class="h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden"><div class="h-full bg-yellow-500 rounded-full transition-all" :style="'width:' + diskPercent(metrics.disks[0]) + '%'"></div></div>
                                 </div>
                             </template>
                         </div>
                         <div class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 space-y-2">
-                            <div class="flex justify-between text-xs"><span class="text-gray-500">Hostname</span><span class="text-gray-700 dark:text-gray-300" x-text="metrics.hostname || '--'"></span></div>
-                            <div class="flex justify-between text-xs"><span class="text-gray-500">Host</span><span class="text-gray-700 dark:text-gray-300 font-mono" x-text="srv.host"></span></div>
-                            <div class="flex justify-between text-xs"><span class="text-gray-500">Uptime</span><span class="text-gray-700 dark:text-gray-300" x-text="formatUptime(metrics.uptime)"></span></div>
+                            <div class="flex justify-between text-xs"><span class="text-gray-500">{{ t('servers_list.hostname') }}</span><span class="text-gray-700 dark:text-gray-300" x-text="metrics.hostname || '--'"></span></div>
+                            <div class="flex justify-between text-xs"><span class="text-gray-500">{{ t('servers_list.host') }}</span><span class="text-gray-700 dark:text-gray-300 font-mono" x-text="srv.host"></span></div>
+                            <div class="flex justify-between text-xs"><span class="text-gray-500">{{ t('servers_list.uptime') }}</span><span class="text-gray-700 dark:text-gray-300" x-text="formatUptime(metrics.uptime)"></span></div>
                         </div>
                     </div>
                 </template>
@@ -501,24 +496,24 @@
                 <!-- Remote agent: static info -->
                 <template x-if="srv.kind === 'agent'">
                     <div class="space-y-2 text-xs">
-                        <div class="flex justify-between"><span class="text-gray-500">Host</span><span class="text-gray-700 dark:text-gray-300 font-mono" x-text="srv.host + ':' + srv.port"></span></div>
-                        <div class="flex justify-between"><span class="text-gray-500">OS</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.os_info || '--'"></span></div>
+                        <div class="flex justify-between"><span class="text-gray-500">{{ t('servers_list.host') }}</span><span class="text-gray-700 dark:text-gray-300 font-mono" x-text="srv.host + ':' + srv.port"></span></div>
+                        <div class="flex justify-between"><span class="text-gray-500">{{ t('servers_list.os') }}</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.os_info || '--'"></span></div>
                         <div class="flex justify-between"><span class="text-gray-500">Docker</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.docker_version || '--'"></span></div>
-                        <div class="flex justify-between"><span class="text-gray-500">Last Heartbeat</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.last_heartbeat || 'Never'"></span></div>
+                        <div class="flex justify-between"><span class="text-gray-500">{{ t('servers_list.last_heartbeat') }}</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.last_heartbeat || '{{ t('servers_list.never') }}'"></span></div>
                     </div>
                 </template>
 
                 <!-- Remote peer core: URL + actions -->
                 <template x-if="srv.kind === 'peer'">
                     <div class="space-y-2 text-xs">
-                        <div class="flex justify-between"><span class="text-gray-500">URL</span><span class="text-gray-700 dark:text-gray-300 font-mono truncate ml-2" x-text="srv.url"></span></div>
-                        <div class="flex justify-between"><span class="text-gray-500">Last Heartbeat</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.last_heartbeat || 'Never'"></span></div>
+                        <div class="flex justify-between"><span class="text-gray-500">{{ t('servers_list.url') }}</span><span class="text-gray-700 dark:text-gray-300 font-mono truncate ml-2" x-text="srv.url"></span></div>
+                        <div class="flex justify-between"><span class="text-gray-500">{{ t('servers_list.last_heartbeat') }}</span><span class="text-gray-700 dark:text-gray-300" x-text="srv.last_heartbeat || '{{ t('servers_list.never') }}'"></span></div>
                         <template x-if="srv.last_error">
                             <div class="bg-red-50 dark:bg-red-500/10 rounded px-2 py-1 text-red-700 dark:text-red-400" x-text="srv.last_error"></div>
                         </template>
                         <div class="pt-2 flex gap-2">
-                            <a :href="'/servers/' + srv.id" class="flex-1 text-center px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">View snapshot</a>
-                            <a :href="srv.url" target="_blank" rel="noopener" class="flex-1 text-center px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-600/20 hover:bg-blue-100 dark:hover:bg-blue-600/30 text-blue-700 dark:text-blue-300">Open panel</a>
+                            <a :href="'/servers/' + srv.id" class="flex-1 text-center px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">{{ t('servers_list.view_snapshot') }}</a>
+                            <a :href="srv.url" target="_blank" rel="noopener" class="flex-1 text-center px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-600/20 hover:bg-blue-100 dark:hover:bg-blue-600/30 text-blue-700 dark:text-blue-300">{{ t('servers_list.open_panel') }}</a>
                         </div>
                     </div>
                 </template>
@@ -531,28 +526,28 @@
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4" @click.stop>
             <template x-if="!lastBootstrap">
                 <div class="space-y-4">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Server</h3>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('servers_list.add_server') }}</h3>
 
                     <!-- Kind picker -->
                     <div class="grid grid-cols-2 gap-2">
                         <button @click="addKind = 'agent'"
                                 class="p-3 rounded-lg border text-left transition-colors"
                                 :class="addKind === 'agent' ? 'border-blue-500 bg-blue-50 dark:bg-blue-600/10' : 'border-gray-300 dark:border-gray-700 hover:border-gray-400'">
-                            <div class="text-sm font-medium text-gray-900 dark:text-white">Agent</div>
-                            <div class="text-xs text-gray-500 mt-0.5">Lightweight worker, metadata stays here</div>
+                            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('servers_list.kind_agent') }}</div>
+                            <div class="text-xs text-gray-500 mt-0.5">{{ t('servers_list.kind_agent_desc') }}</div>
                         </button>
                         <button @click="addKind = 'peer'"
                                 class="p-3 rounded-lg border text-left transition-colors"
                                 :class="addKind === 'peer' ? 'border-blue-500 bg-blue-50 dark:bg-blue-600/10' : 'border-gray-300 dark:border-gray-700 hover:border-gray-400'">
-                            <div class="text-sm font-medium text-gray-900 dark:text-white">Peer core</div>
-                            <div class="text-xs text-gray-500 mt-0.5">Autonomous pier-core with own DB</div>
+                            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('servers_list.kind_peer') }}</div>
+                            <div class="text-xs text-gray-500 mt-0.5">{{ t('servers_list.kind_peer_desc') }}</div>
                         </button>
                     </div>
 
                     <!-- Shared: name -->
                     <div>
-                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
-                        <input x-model="form.name" type="text" placeholder="Production Server"
+                        <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.name_label') }}</label>
+                        <input x-model="form.name" type="text" placeholder="{{ t('servers_list.name_placeholder') }}"
                                class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
 
@@ -561,13 +556,13 @@
                         <div class="space-y-2">
                             <div class="grid grid-cols-3 gap-3">
                                 <div class="col-span-2">
-                                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Host</label>
+                                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.host') }}</label>
                                     <input x-model="form.host" type="text"
                                            placeholder="192.168.1.100 or [fe80::1]"
                                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Port</label>
+                                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.port_label') }}</label>
                                     <input x-model.number="form.port" type="number" placeholder="3001"
                                            class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 </div>
@@ -582,24 +577,24 @@
                     <template x-if="addKind === 'peer'">
                         <div class="space-y-3">
                             <p class="text-xs text-gray-500">
-                                On the target server: Settings → External Access → Issue Token, then paste the token below.
+                                {{ t('servers_list.peer_token_instructions') }}
                             </p>
                             <div>
-                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">URL</label>
+                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.url') }}</label>
                                 <input x-model="form.url" type="text" placeholder="https://pier-b.example.com"
                                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Peer Token</label>
-                                <input x-model="form.api_token" type="text" placeholder="token issued by remote core"
+                                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('servers_list.peer_token_label') }}</label>
+                                <input x-model="form.api_token" type="text" placeholder="{{ t('servers_list.peer_token_placeholder') }}"
                                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
                             </div>
                         </div>
                     </template>
 
                     <div class="flex justify-end gap-2 pt-2">
-                        <button @click="showAdd = false" class="px-4 py-2 text-sm text-gray-500">Cancel</button>
-                        <button @click="addServer()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Add</button>
+                        <button @click="showAdd = false" class="px-4 py-2 text-sm text-gray-500">{{ t('common.cancel') }}</button>
+                        <button @click="addServer()" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">{{ t('servers_list.add') }}</button>
                     </div>
                 </div>
             </template>
@@ -615,30 +610,28 @@
                             <svg class="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         </div>
                         <div>
-                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Agent created</h3>
-                            <p class="text-sm text-gray-500">Run the install command on the remote server</p>
+                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('servers_list.agent_created') }}</h3>
+                            <p class="text-sm text-gray-500">{{ t('servers_list.agent_created_desc') }}</p>
                         </div>
                     </div>
                     <div class="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/30 rounded-lg p-4">
                         <p class="text-xs font-medium text-yellow-800 dark:text-yellow-400 mb-2">
-                            Install command — bootstrap token expires
+                            {{ t('servers_list.install_command_expires') }}
                             <span x-text="bootstrapExpiresHuman()"></span>:
                         </p>
                         <div class="relative">
                             <pre class="bg-white dark:bg-gray-800 rounded px-3 py-2 border border-yellow-200 dark:border-yellow-600/30 text-xs font-mono text-yellow-900 dark:text-yellow-300 overflow-x-auto whitespace-pre-wrap break-all select-all" x-ref="installCmd" x-text="installCommand()"></pre>
                             <button @click="copyText($refs.installCmd.textContent)"
-                                    class="absolute top-2 right-2 p-1.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 hover:text-yellow-900" title="Copy">
+                                    class="absolute top-2 right-2 p-1.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 hover:text-yellow-900" title="{{ t('common.copy') }}">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                             </button>
                         </div>
                         <p class="text-xs text-yellow-700 dark:text-yellow-500 mt-2">
-                            The command exchanges the bootstrap for a long-term token and starts the agent.
-                            This bootstrap is one-shot — you won't see it again. If the install fails,
-                            delete the server and create it again to issue a fresh bootstrap.
+                            {{ t('servers_list.install_command_note') }}
                         </p>
                     </div>
                     <div class="flex justify-end pt-2">
-                        <button @click="showAdd = false; lastBootstrap = null" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Done</button>
+                        <button @click="showAdd = false; lastBootstrap = null" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">{{ t('servers_list.done') }}</button>
                     </div>
                 </div>
             </template>
@@ -733,10 +726,10 @@ function serversData() {
                 (host.split(':').length - 1 >= 2 && !host.includes('.'));
             const looksV4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
             if (looksV6 && !this.primaryStack.public_ipv6) {
-                return 'This host looks IPv6-only but this server has no public IPv6 — handshake will fail. Add a v6 address on this server or use a v4 host.';
+                return '{{ t('servers_list.warn_ipv6_only') }}';
             }
             if (looksV4 && !this.primaryStack.public_ipv4) {
-                return 'This host is IPv4 but this server has no public IPv4. The agent may reach core fine outbound, but mesh fallback to public IPv4 will not work.';
+                return '{{ t('servers_list.warn_ipv4_no_public') }}';
             }
             return '';
         },
@@ -753,7 +746,7 @@ function serversData() {
             try { this.servers = await fetch('/api/v1/servers').then(r => r.json()); } catch {}
         },
         async addServer() {
-            if (!this.form.name) { toast('Name is required', 'error'); return; }
+            if (!this.form.name) { toast('{{ t('servers_list.toast_name_required') }}', 'error'); return; }
             try {
                 const body = this.addKind === 'agent'
                     ? { kind: 'agent', name: this.form.name, host: this.form.host, port: this.form.port }
@@ -769,10 +762,10 @@ function serversData() {
                         token: data.bootstrap_token || '',
                         expires_at: data.bootstrap_expires_at || 0,
                     };
-                    toast('Agent created — run the install command');
+                    toast('{{ t('servers_list.toast_agent_created') }}');
                 } else {
                     this.showAdd = false;
-                    toast('Peer registered');
+                    toast('{{ t('servers_list.toast_peer_registered') }}');
                 }
                 this.form = { name: '', host: '', port: 3001, url: '', api_token: '' };
                 await this.refreshServers();
@@ -790,35 +783,35 @@ function serversData() {
             return 'curl -fsSL "' + url + '" | sudo bash';
         },
         bootstrapExpiresHuman() {
-            if (!this.lastBootstrap || !this.lastBootstrap.expires_at) return 'soon';
+            if (!this.lastBootstrap || !this.lastBootstrap.expires_at) return '{{ t('servers_list.expires_soon') }}';
             const secs = this.lastBootstrap.expires_at - Math.floor(Date.now() / 1000);
-            if (secs <= 0) return 'now (refresh — bootstrap has expired)';
+            if (secs <= 0) return '{{ t('servers_list.expires_now') }}';
             const mins = Math.floor(secs / 60);
-            if (mins < 1) return 'in less than a minute';
-            if (mins === 1) return 'in 1 minute';
-            return 'in ' + mins + ' minutes';
+            if (mins < 1) return '{{ t('servers_list.expires_lt_minute') }}';
+            if (mins === 1) return '{{ t('servers_list.expires_1_minute') }}';
+            return '{{ t('servers_list.expires_in_prefix') }} ' + mins + ' {{ t('servers_list.expires_minutes_suffix') }}';
         },
         copyText(text) {
             try {
                 navigator.clipboard.writeText(text);
-                toast('Copied');
+                toast('{{ t('common.copied') }}');
             } catch (e) {
-                toast('Copy failed: ' + e.message, 'error');
+                toast('{{ t('common.copy_failed') }}: ' + e.message, 'error');
             }
         },
         async testServer(id) {
-            try { await api('/api/v1/servers/' + id + '/test', { method: 'POST' }); toast('Server is online'); await this.refreshServers(); }
+            try { await api('/api/v1/servers/' + id + '/test', { method: 'POST' }); toast('{{ t('servers_list.toast_server_online') }}'); await this.refreshServers(); }
             catch (e) { toast(e.message, 'error'); await this.refreshServers(); }
         },
         async removeServer(id, name) {
-            const input = prompt('Type "' + name + '" to confirm removal:');
-            if (input !== name) { if (input !== null) toast('Name does not match', 'error'); return; }
-            try { await api('/api/v1/servers/' + id, { method: 'DELETE' }); toast('Server removed'); await this.refreshServers(); }
+            const input = prompt('{{ t('servers_list.remove_confirm_prefix') }} "' + name + '" {{ t('servers_list.remove_confirm_suffix') }}');
+            if (input !== name) { if (input !== null) toast('{{ t('servers_list.toast_name_mismatch') }}', 'error'); return; }
+            try { await api('/api/v1/servers/' + id, { method: 'DELETE' }); toast('{{ t('servers_list.toast_server_removed') }}'); await this.refreshServers(); }
             catch (e) { toast(e.message, 'error'); }
         },
         async renameServer(id, newName) {
             if (!newName || !newName.trim()) return;
-            try { await api('/api/v1/servers/' + id + '/name', { method: 'PUT', body: JSON.stringify({ name: newName.trim() }) }); toast('Renamed'); await this.refreshServers(); }
+            try { await api('/api/v1/servers/' + id + '/name', { method: 'PUT', body: JSON.stringify({ name: newName.trim() }) }); toast('{{ t('servers_list.toast_renamed') }}'); await this.refreshServers(); }
             catch (e) { toast(e.message, 'error'); }
         },
         kindBadgeClass(kind) {
@@ -884,13 +877,13 @@ function serversData() {
                 const res = await api('/api/v1/network/mesh/configure', { method: 'POST' });
                 const data = typeof res === 'string' ? JSON.parse(res) : res;
                 if (data && data.ok === false) {
-                    this.meshError = 'Configure aborted on a peer. Check the peer rows below for details.';
+                    this.meshError = '{{ t('servers_list.configure_aborted') }}';
                 }
                 await this.refreshMesh();
-                toast(data.ok ? 'Mesh active' : 'Mesh partially configured', data.ok ? 'success' : 'error');
+                toast(data.ok ? '{{ t('servers_list.toast_mesh_active') }}' : '{{ t('servers_list.toast_mesh_partial') }}', data.ok ? 'success' : 'error');
             } catch (e) {
                 this.meshError = e.message || String(e);
-                toast('Enable mesh failed: ' + this.meshError, 'error');
+                toast('{{ t('servers_list.toast_enable_mesh_failed') }}: ' + this.meshError, 'error');
                 await this.refreshMesh();
             } finally {
                 this.meshLoading = false;
@@ -903,7 +896,7 @@ function serversData() {
                 if (res) {
                     this.preflightResult = res;
                 } else {
-                    this.preflightResult = { ok: false, peers: [], error: 'preflight endpoint unreachable' };
+                    this.preflightResult = { ok: false, peers: [], error: '{{ t('servers_list.preflight_unreachable') }}' };
                 }
             } catch (e) {
                 this.preflightResult = { ok: false, peers: [], error: e.message || String(e) };
@@ -926,13 +919,13 @@ function serversData() {
             const cmd = this.preflightCommand();
             try {
                 navigator.clipboard.writeText(cmd);
-                toast('Command copied');
+                toast('{{ t('servers_list.toast_command_copied') }}');
             } catch (e) {
                 // Fallback for older browsers / non-HTTPS dev origins
                 const t = document.createElement('textarea');
                 t.value = cmd; document.body.appendChild(t); t.select();
                 document.execCommand('copy'); document.body.removeChild(t);
-                toast('Command copied');
+                toast('{{ t('servers_list.toast_command_copied') }}');
             }
         },
         // ─── Federation tokens (peer-side issuance) ────────────────────
@@ -956,31 +949,31 @@ function serversData() {
                 this.newFedToken.label = '';
                 await this.refreshFedTokens();
             } catch (e) {
-                toast('Create failed: ' + (e.message || e), 'error');
+                toast('{{ t('servers_list.toast_create_failed') }}: ' + (e.message || e), 'error');
             } finally {
                 this.fedTokenBusy = false;
             }
         },
         async revokeFedToken(id, label) {
-            if (!confirm('Revoke federation token "' + label + '"? Primary calls using it will start returning 401.')) return;
+            if (!confirm('{{ t('servers_list.revoke_confirm_prefix') }} "' + label + '"{{ t('servers_list.revoke_confirm_suffix') }}')) return;
             try {
                 await api('/api/v1/federation-tokens/' + encodeURIComponent(id), { method: 'DELETE' });
-                toast('Token revoked');
+                toast('{{ t('servers_list.toast_token_revoked') }}');
                 await this.refreshFedTokens();
             } catch (e) {
-                toast('Revoke failed: ' + (e.message || e), 'error');
+                toast('{{ t('servers_list.toast_revoke_failed') }}: ' + (e.message || e), 'error');
             }
         },
         copyFedToken() {
             const token = this.revealedFedToken.token;
             try {
                 navigator.clipboard.writeText(token);
-                toast('Token copied');
+                toast('{{ t('servers_list.toast_token_copied') }}');
             } catch (e) {
                 const t = document.createElement('textarea');
                 t.value = token; document.body.appendChild(t); t.select();
                 document.execCommand('copy'); document.body.removeChild(t);
-                toast('Token copied');
+                toast('{{ t('servers_list.toast_token_copied') }}');
             }
         },
         closeFedTokenModals() {
@@ -993,12 +986,12 @@ function serversData() {
             this.revealedFedToken = { id: '', label: '', token: '' };
         },
         formatFedRelative(unixSecs) {
-            if (!unixSecs) return 'never';
+            if (!unixSecs) return '{{ t('servers_list.never') }}';
             const diff = Math.max(0, Math.floor(Date.now() / 1000) - unixSecs);
-            if (diff < 60) return diff + 's ago';
-            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-            return Math.floor(diff / 86400) + 'd ago';
+            if (diff < 60) return diff + 's {{ t('servers_list.ago') }}';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm {{ t('servers_list.ago') }}';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h {{ t('servers_list.ago') }}';
+            return Math.floor(diff / 86400) + 'd {{ t('servers_list.ago') }}';
         },
         // ─── Service DNS (mesh-layer logical names) ────────────────────
         async refreshServiceDns() {
@@ -1031,31 +1024,31 @@ function serversData() {
                         method: 'PUT',
                         body: JSON.stringify(body),
                     });
-                    toast('Mapping updated; redeploying stacks');
+                    toast('{{ t('servers_list.toast_mapping_updated') }}');
                 } else {
                     await api('/api/v1/network/service-dns', {
                         method: 'POST',
                         body: JSON.stringify({ name: f.name.trim().toLowerCase(), ...body }),
                     });
-                    toast('Mapping created; redeploying stacks');
+                    toast('{{ t('servers_list.toast_mapping_created') }}');
                 }
                 this.showServiceDnsForm = false;
                 this.serviceDnsEditing = null;
                 await this.refreshServiceDns();
             } catch (e) {
-                toast('Save failed: ' + (e.message || e), 'error');
+                toast('{{ t('servers_list.toast_save_failed') }}: ' + (e.message || e), 'error');
             } finally {
                 this.serviceDnsBusy = false;
             }
         },
         async deleteServiceDns(name) {
-            if (!confirm('Delete mapping "' + name + '.mesh"? Stacks referring to it will lose the host on their next redeploy.')) return;
+            if (!confirm('{{ t('servers_list.delete_mapping_confirm_prefix') }} "' + name + '.mesh"{{ t('servers_list.delete_mapping_confirm_suffix') }}')) return;
             try {
                 await api('/api/v1/network/service-dns/' + encodeURIComponent(name), { method: 'DELETE' });
-                toast('Mapping removed; redeploying stacks');
+                toast('{{ t('servers_list.toast_mapping_removed') }}');
                 await this.refreshServiceDns();
             } catch (e) {
-                toast('Delete failed: ' + (e.message || e), 'error');
+                toast('{{ t('servers_list.toast_delete_failed') }}: ' + (e.message || e), 'error');
             }
         },
         async configureMesh() {
@@ -1070,24 +1063,24 @@ function serversData() {
                 const res = await api('/api/v1/network/mesh/configure', { method: 'POST' });
                 const data = typeof res === 'string' ? JSON.parse(res) : res;
                 if (data && data.ok === false) {
-                    this.meshError = 'Configure aborted on a peer. Check the peer rows below for details.';
+                    this.meshError = '{{ t('servers_list.configure_aborted') }}';
                 }
                 await this.refreshMesh();
-                toast(data.ok ? 'Mesh re-applied' : 'Apply partially failed', data.ok ? 'success' : 'error');
+                toast(data.ok ? '{{ t('servers_list.toast_mesh_reapplied') }}' : '{{ t('servers_list.toast_apply_partial') }}', data.ok ? 'success' : 'error');
             } catch (e) {
                 this.meshError = e.message || String(e);
-                toast('Apply failed: ' + this.meshError, 'error');
+                toast('{{ t('servers_list.toast_apply_failed') }}: ' + this.meshError, 'error');
                 await this.refreshMesh();
             } finally {
                 this.meshLoading = false;
             }
         },
         async disableMesh() {
-            if (!confirm('Disable mesh? This will bring wg0 down on every peer and clear the Pier-side allocation.')) return;
+            if (!confirm('{{ t('servers_list.disable_confirm') }}')) return;
             // Second prompt only if the user wants the heavier teardown
             // — purging the WireGuard package makes re-enabling slower
             // because configure has to re-install. Default to off.
-            const uninstall = confirm('Also uninstall pier-net-helper / wireguard packages on each peer? (OK = uninstall, Cancel = keep installed)');
+            const uninstall = confirm('{{ t('servers_list.disable_uninstall_confirm') }}');
             if (this.meshLoading) return;
             this.meshLoading = true;
             this.meshError = null;
@@ -1101,13 +1094,13 @@ function serversData() {
                 // instead of silently claiming success.
                 if (resp && resp.overall === 'partial') {
                     const bad = (resp.peers || []).filter(p => p.status === 'error');
-                    toast('Mesh disabled — ' + bad.length + ' peer(s) had issues', 'warn');
+                    toast('{{ t('servers_list.toast_mesh_disabled_prefix') }} ' + bad.length + ' {{ t('servers_list.toast_mesh_disabled_suffix') }}', 'warn');
                 } else {
-                    toast('Mesh disabled');
+                    toast('{{ t('servers_list.toast_mesh_disabled') }}');
                 }
             } catch (e) {
                 this.meshError = e.message || String(e);
-                toast('Disable failed: ' + this.meshError, 'error');
+                toast('{{ t('servers_list.toast_disable_failed') }}: ' + this.meshError, 'error');
             } finally {
                 this.meshLoading = false;
             }
@@ -1124,9 +1117,9 @@ function serversData() {
                 });
                 this.showMeshEdit = false;
                 await this.refreshMesh();
-                toast('Mesh settings saved');
+                toast('{{ t('servers_list.toast_mesh_settings_saved') }}');
             } catch (e) {
-                toast('Save failed: ' + (e.message || e), 'error');
+                toast('{{ t('servers_list.toast_save_failed') }}: ' + (e.message || e), 'error');
             }
         },
     };

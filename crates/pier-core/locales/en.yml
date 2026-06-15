@@ -279,6 +279,253 @@ projects_detail:
   toast_project_updated: Project updated
   toast_project_deleted: Project deleted
 
+# Servers list (servers/list.html).
+servers_list:
+  title: Servers
+  heading: Servers
+  subtitle: "Local core, remote agents, and federated peer cores — all in one place."
+  add_server: Add Server
+  add: Add
+  edit: Edit
+  delete: Delete
+  save: Save
+  create: Create
+  done: Done
+  working: Working…
+  rename: Rename
+  test: Test
+  remove: Remove
+  revoke: Revoke
+  revoked: revoked
+  local: local
+  peer: peer
+  mesh_network: Mesh Network
+  mesh_disabled_desc: WireGuard tunnel between every Pier node. Disabled.
+  mesh_peers: peers
+  mesh_on: on
+  enable_mesh: Enable Mesh
+  disable: Disable
+  apply: Apply
+  applying: Applying…
+  apply_title: Re-run install + keypair + apply on every peer
+  preflight_title: Mesh preflight
+  preflight_desc: 'Every node needs <span class="font-mono">pier-net-helper</span> running before mesh can come up. Run the command below on each missing node, then click <em>Re-check</em>.'
+  helper_online: helper online
+  helper_missing: helper missing
+  preflight_run_command: "Run this command as root on every red node above:"
+  recheck: Re-check
+  checking: Checking…
+  preflight_unreachable: preflight endpoint unreachable
+  service_dns: Service DNS
+  service_dns_empty: No mappings. Register a logical name so stacks can refer to a service by role instead of node.
+  service_dns_count: mapping(s) — stacks redeploy automatically on change
+  new_plus: + New
+  edit_prefix: Edit
+  service_dns_new_title: New service-DNS mapping
+  service_dns_form_desc: 'A name like <span class="font-mono">db</span> becomes <span class="font-mono">db.mesh</span> in every stack. Lowercase, [a-z0-9-], 1-31 chars.'
+  name_label: Name
+  target_server_label: Target server
+  select_option: "— select —"
+  local_suffix: (local)
+  meshed_only_hint: Only meshed servers actually inject; non-mesh peers are silently skipped at deploy time.
+  port_label: Port
+  federation_tokens: Federation Tokens
+  fed_tokens_empty: No tokens issued. Mint one to let a remote primary pier-core deploy stacks here.
+  fed_tokens_count: token(s) issued
+  new_token_plus: + New Token
+  never_used: never used
+  fed_token_create_title: Mint federation token
+  fed_token_create_desc: 'The plaintext token is shown <strong>once</strong>. Copy it into the primary''s "Connect to peer" form right after creation.'
+  label_label: Label
+  label_hint: Any identifier for the primary that will use this token.
+  token_for: Token for
+  reveal_warning: Copy this now — Pier never shows it again. After closing this dialog only the prefix is visible.
+  reveal_instructions: 'On the primary pier-core: go to <span class="font-mono">/servers</span> → this peer''s row → paste this value into the <strong>Federation token</strong> field.'
+  copied_confirm: I've copied it
+  mesh_settings: Mesh settings
+  mesh_settings_desc: Only editable while mesh is disabled — changing subnet on a live mesh would orphan every assigned IP.
+  subnet_label: Subnet (CIDR)
+  subnet_hint: /30 or shorter prefix. /24 holds 254 nodes.
+  listen_port_label: Listen port
+  listen_port_hint: UDP. Must be open in the firewall on every node.
+  keepalive_label: PersistentKeepalive (sec)
+  keepalive_hint: 0 disables keepalive. Use ≥25 if any node is behind NAT.
+  cpu: CPU
+  ram: RAM
+  disk: Disk
+  hostname: Hostname
+  host: Host
+  uptime: Uptime
+  os: OS
+  url: URL
+  last_heartbeat: Last Heartbeat
+  never: Never
+  view_snapshot: View snapshot
+  open_panel: Open panel
+  kind_agent: Agent
+  kind_agent_desc: Lightweight worker, metadata stays here
+  kind_peer: Peer core
+  kind_peer_desc: Autonomous pier-core with own DB
+  name_placeholder: Production Server
+  peer_token_instructions: "On the target server: Settings → External Access → Issue Token, then paste the token below."
+  peer_token_label: Peer Token
+  peer_token_placeholder: token issued by remote core
+  agent_created: Agent created
+  agent_created_desc: Run the install command on the remote server
+  install_command_expires: Install command — bootstrap token expires
+  install_command_note: The command exchanges the bootstrap for a long-term token and starts the agent. This bootstrap is one-shot — you won't see it again. If the install fails, delete the server and create it again to issue a fresh bootstrap.
+  expires_soon: soon
+  expires_now: now (refresh — bootstrap has expired)
+  expires_lt_minute: in less than a minute
+  expires_1_minute: in 1 minute
+  expires_in_prefix: in
+  expires_minutes_suffix: minutes
+  ago: ago
+  warn_ipv6_only: This host looks IPv6-only but this server has no public IPv6 — handshake will fail. Add a v6 address on this server or use a v4 host.
+  warn_ipv4_no_public: This host is IPv4 but this server has no public IPv4. The agent may reach core fine outbound, but mesh fallback to public IPv4 will not work.
+  toast_name_required: Name is required
+  toast_agent_created: Agent created — run the install command
+  toast_peer_registered: Peer registered
+  toast_server_online: Server is online
+  remove_confirm_prefix: Type
+  remove_confirm_suffix: "to confirm removal:"
+  toast_name_mismatch: Name does not match
+  toast_server_removed: Server removed
+  toast_renamed: Renamed
+  configure_aborted: Configure aborted on a peer. Check the peer rows below for details.
+  toast_mesh_active: Mesh active
+  toast_mesh_partial: Mesh partially configured
+  toast_enable_mesh_failed: Enable mesh failed
+  toast_command_copied: Command copied
+  toast_create_failed: Create failed
+  revoke_confirm_prefix: Revoke federation token
+  revoke_confirm_suffix: "? Primary calls using it will start returning 401."
+  toast_token_revoked: Token revoked
+  toast_revoke_failed: Revoke failed
+  toast_token_copied: Token copied
+  toast_mapping_updated: Mapping updated; redeploying stacks
+  toast_mapping_created: Mapping created; redeploying stacks
+  toast_save_failed: Save failed
+  delete_mapping_confirm_prefix: Delete mapping
+  delete_mapping_confirm_suffix: "? Stacks referring to it will lose the host on their next redeploy."
+  toast_mapping_removed: Mapping removed; redeploying stacks
+  toast_delete_failed: Delete failed
+  toast_mesh_reapplied: Mesh re-applied
+  toast_apply_partial: Apply partially failed
+  toast_apply_failed: Apply failed
+  disable_confirm: Disable mesh? This will bring wg0 down on every peer and clear the Pier-side allocation.
+  disable_uninstall_confirm: Also uninstall pier-net-helper / wireguard packages on each peer? (OK = uninstall, Cancel = keep installed)
+  toast_mesh_disabled_prefix: Mesh disabled —
+  toast_mesh_disabled_suffix: peer(s) had issues
+  toast_mesh_disabled: Mesh disabled
+  toast_disable_failed: Disable failed
+  toast_mesh_settings_saved: Mesh settings saved
+
+# Server detail (servers/detail.html).
+servers_detail:
+  title: Server Detail
+  rename_hint: Double-click to rename
+  save: Save
+  testing: Testing...
+  test_connection: Test Connection
+  open_panel: Open panel
+  promote_to_standalone: Promote to standalone
+  remove: Remove
+  promote_modal_title: "Promote agent → standalone pier-core"
+  promote_modal_desc_pre: "Exports a bundle with all services, domains, environment variables, backup schedules and global configuration currently associated with "
+  promote_modal_desc_post: ". Apply it on that server so it can run as a full Pier panel instead of a lightweight agent."
+  promote_heads_up: Heads up
+  promote_warn_core: Target server must run pier-core (same major version). If it only has pier-agent, install pier-core first.
+  promote_warn_empty_db: Target database must be empty (no existing services). The import refuses to overwrite.
+  promote_warn_secrets: "Users / sessions / secrets from this panel are <em>not</em> exported — create an admin on the new panel when it starts."
+  promote_automatic_title: Automatic (recommended)
+  promote_automatic_desc: Core pushes the bundle to the agent, which downloads pier-core, imports the bundle, installs a systemd unit, stops itself and starts the new pier-core. You watch the log on the target.
+  promote_detach_label: Remove this server from my panel after the agent accepts the promotion
+  promoting: Promoting...
+  promote_now: Promote now
+  log_label: "Log:"
+  manual_alternative: Manual alternative
+  manual_step1: 1. Download the bundle
+  download_bundle: Download bundle (.json)
+  manual_step2: 2. Apply on target server
+  close: Close
+  connection_info: Connection Info
+  host: Host
+  port: Port
+  agent_token: Agent Token
+  agent_token_prefix_hint: Only the prefix is shown. The full token lives in the agent's systemd unit.
+  bootstrap_pending: Bootstrap pending
+  os: OS
+  hostname: Hostname
+  uptime: Uptime
+  location_and_docker: "Location & Docker"
+  location: Location
+  docker_version: Docker Version
+  containers: Containers
+  running: running
+  total: total
+  images: Images
+  last_heartbeat: Last Heartbeat
+  local: Local
+  never: Never
+  system_metrics: System Metrics
+  unavailable: Unavailable
+  refreshes_every_5s: Refreshes every 5s
+  cpu_usage: CPU Usage
+  memory: Memory
+  disk: Disk
+  containers_plural: containers
+  container_singular: container
+  no_containers: No containers found on this server
+  col_name: Name
+  col_image: Image
+  col_state: State
+  col_status: Status
+  bootstrap_waiting: "Waiting for the remote host to run the install command. The bootstrap token is one-shot and was shown at creation time — we don't keep a copy."
+  bootstrap_expires_pre: "Bootstrap expires "
+  bootstrap_expires_post: ". If you lost the install command, delete this agent and create it again to issue a fresh bootstrap."
+  federation_token: Federation token
+  paired: paired
+  not_paired: not paired
+  federation_token_desc: "Paste the plaintext token this peer minted under <span class=\"font-mono\">/servers</span> → Federation Tokens → <em>New Token</em>. Pier stores it as plaintext (same trade-off as <span class=\"font-mono\">agent_token</span>); we never re-display it after saving."
+  working: "Working…"
+  clear: Clear
+  agent_credential: Agent Credential
+  rotate_hint: Generate a new long-term token, push it to the agent, and respawn the agent service.
+  rotate: Rotate
+  rotating: "Rotating…"
+  agent_credential_desc: Long-term token in use (only the prefix is shown; the full value lives in the agent's systemd unit on the remote host).
+  version: Version
+  last_rotated: Last rotated
+  never_rotated: Never rotated
+  err_load_server: Failed to load server
+  err_metrics_unavailable: Metrics unavailable
+  err_server_offline: Server is offline
+  err_fetch_metrics: Could not fetch metrics
+  toast_renamed: Server renamed
+  toast_agent_online: Agent is online
+  confirm_promote: "Promote %{name} to standalone pier-core?"
+  confirm_promote_detail: The agent will stop itself and pier-core will take over on the remote host.
+  toast_promotion_started: Promotion started on target server
+  err_bundle_export: Bundle export failed
+  toast_bundle_downloaded: Bundle downloaded
+  prompt_confirm_removal: "Type \"%{name}\" to confirm removal:"
+  toast_name_mismatch: Name does not match
+  toast_server_removed: Server removed
+  expires_soon: soon
+  expires_now: "now (expired — delete and recreate the agent)"
+  expires_lt_minute: in less than a minute
+  expires_1_minute: in 1 minute
+  expires_n_minutes: "in %{count} minutes"
+  toast_federation_paired: Federation paired
+  toast_save_failed: "Save failed:"
+  confirm_unpair: Unpair federation? Primary will lose the ability to deploy/restart stacks on this peer until you paste a fresh token.
+  toast_federation_unpaired: Federation unpaired
+  toast_unpair_failed: "Unpair failed:"
+  confirm_rotate: Rotate the agent token now? The agent will be respawned by systemd and the old token will stop working immediately.
+  toast_token_rotated: Token rotated; agent is restarting
+  toast_rotate_failed: "Rotate failed:"
+
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and
 # need a stable `%{name}` interpolation sample (no section-1 screen has one yet).
