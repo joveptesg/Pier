@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Domains{% endblock %}
+{% block title %}{{ t('domains_list.title') }}{% endblock %}
 
 {% block content %}
 <div x-data="domainsPage()" x-init="load()" class="p-6 space-y-6">
     <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Domains</h2>
-            <p class="text-sm text-gray-500 mt-1">Manage custom domains and SSL certificates</p>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('domains_list.heading') }}</h2>
+            <p class="text-sm text-gray-500 mt-1">{{ t('domains_list.subtitle') }}</p>
         </div>
         <button @click="showAdd = true"
                 class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            Add Domain
+            {{ t('domains_list.add_domain') }}
         </button>
     </div>
 
@@ -21,18 +21,18 @@
          class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
          @click.self="showAdd = false">
         <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Add Custom Domain</h3>
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('domains_list.add_custom_domain') }}</h3>
             <div>
-                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Domain</label>
+                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">{{ t('domains_list.domain_label') }}</label>
                 <input type="text" x-model="newDomain.domain" placeholder="app.example.com"
                        class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white">
-                <p class="text-xs text-gray-400 mt-1">Supports: domain, https://domain, https://domain/path</p>
+                <p class="text-xs text-gray-400 mt-1">{{ t('domains_list.domain_supports') }} domain, https://domain, https://domain/path</p>
             </div>
             <div>
-                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Service</label>
+                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">{{ t('domains_list.service_label') }}</label>
                 <select x-model="newDomain.service_id"
                         class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white">
-                    <option value="">Select a service...</option>
+                    <option value="">{{ t('domains_list.select_service') }}</option>
                     <template x-for="svc in services" :key="svc.id">
                         <option :value="svc.id" x-text="svc.name"></option>
                     </template>
@@ -43,27 +43,27 @@
                 <label class="flex items-start gap-2 cursor-pointer pt-3">
                     <input type="checkbox" x-model="newDomain.strip_prefix"
                            class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500">
-                    <span class="text-sm text-gray-700 dark:text-gray-300">Strip path prefix before forwarding</span>
+                    <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('domains_list.strip_prefix_label') }}</span>
                 </label>
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-6 leading-relaxed">
-                    <strong class="text-gray-700 dark:text-gray-300">Checked (default):</strong>
-                    backend receives requests at <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800">/</code> — the
+                    <strong class="text-gray-700 dark:text-gray-300">{{ t('domains_list.strip_checked_label') }}</strong>
+                    {{ t('domains_list.strip_checked_pre') }} <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800">/</code> {{ t('domains_list.strip_checked_mid') }}
                     <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800" x-text="(newDomain.domain.match(/^(?:https?:\/\/)?[^\/]+(\/.+)$/)||['',''])[1]"></code>
-                    prefix is stripped.<br>
-                    <strong class="text-gray-700 dark:text-gray-300">Unchecked:</strong>
-                    backend receives
+                    {{ t('domains_list.strip_checked_post') }}<br>
+                    <strong class="text-gray-700 dark:text-gray-300">{{ t('domains_list.strip_unchecked_label') }}</strong>
+                    {{ t('domains_list.strip_unchecked_pre') }}
                     <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800" x-text="(newDomain.domain.match(/^(?:https?:\/\/)?[^\/]+(\/.+)$/)||['',''])[1]"></code>
-                    as-is. Use when your backend's router itself listens on that path (Telegram-style webhook bots).
+                    {{ t('domains_list.strip_unchecked_post') }}
                 </p>
             </div>
             <div class="flex gap-2 justify-end pt-2">
                 <button @click="showAdd = false"
                         class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors">
-                    Cancel
+                    {{ t('common.cancel') }}
                 </button>
                 <button @click="addDomain()" :disabled="busy"
                         class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-                    Add
+                    {{ t('domains_list.add') }}
                 </button>
             </div>
         </div>
@@ -74,7 +74,7 @@
         <div class="relative flex-1 max-w-sm">
             <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
             <input type="text" x-model="serviceFilter"
-                   placeholder="Filter by service..."
+                   placeholder="{{ t('domains_list.filter_placeholder') }}"
                    class="w-full pl-9 pr-8 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white">
             <button x-show="serviceFilter" @click="serviceFilter = ''" x-cloak
                     class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
@@ -82,29 +82,29 @@
             </button>
         </div>
         <span x-show="serviceFilter" x-cloak class="text-xs text-gray-500"
-              x-text="'Showing ' + filteredDomains.length + ' of ' + domains.length"></span>
+              x-text="'{{ t('domains_list.showing') }} ' + filteredDomains.length + ' {{ t('domains_list.of') }} ' + domains.length"></span>
     </div>
 
     <!-- Domains Table -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl overflow-hidden">
-        <div x-show="loading" class="p-6 text-center text-sm text-gray-400">Loading...</div>
+        <div x-show="loading" class="p-6 text-center text-sm text-gray-400">{{ t('common.loading') }}</div>
         <div x-show="!loading && domains.length === 0" class="p-6 text-center">
             <svg class="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
-            <p class="text-sm text-gray-500">No domains configured</p>
-            <p class="text-xs text-gray-400 mt-1">Add a custom domain or deploy a service with proxy enabled</p>
+            <p class="text-sm text-gray-500">{{ t('domains_list.empty_title') }}</p>
+            <p class="text-xs text-gray-400 mt-1">{{ t('domains_list.empty_hint') }}</p>
         </div>
         <div x-show="!loading && domains.length > 0 && filteredDomains.length === 0" x-cloak class="p-6 text-center">
-            <p class="text-sm text-gray-500">No domains match filter</p>
-            <button @click="serviceFilter = ''" class="text-xs text-blue-500 hover:underline mt-1">Clear filter</button>
+            <p class="text-sm text-gray-500">{{ t('domains_list.no_match') }}</p>
+            <button @click="serviceFilter = ''" class="text-xs text-blue-500 hover:underline mt-1">{{ t('domains_list.clear_filter') }}</button>
         </div>
         <table x-show="!loading && filteredDomains.length > 0" class="w-full text-sm">
             <thead class="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-800">
                 <tr>
-                    <th class="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Domain</th>
-                    <th class="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Service</th>
+                    <th class="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">{{ t('domains_list.col_domain') }}</th>
+                    <th class="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">{{ t('domains_list.col_service') }}</th>
                     <th class="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">SSL</th>
-                    <th class="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Type</th>
-                    <th class="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actions</th>
+                    <th class="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">{{ t('domains_list.col_type') }}</th>
+                    <th class="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">{{ t('domains_list.col_actions') }}</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
@@ -129,13 +129,13 @@
                             </span>
                         </td>
                         <td class="px-4 py-3">
-                            <span x-show="d.is_generated" class="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">auto</span>
-                            <span x-show="!d.is_generated" class="text-xs text-blue-500 bg-blue-50 dark:bg-blue-500/10 px-2 py-0.5 rounded">custom</span>
+                            <span x-show="d.is_generated" class="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">{{ t('domains_list.type_auto') }}</span>
+                            <span x-show="!d.is_generated" class="text-xs text-blue-500 bg-blue-50 dark:bg-blue-500/10 px-2 py-0.5 rounded">{{ t('domains_list.type_custom') }}</span>
                         </td>
                         <td class="px-4 py-3 text-right">
                             <button @click="removeDomain(d.id)" :disabled="busy"
                                     class="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400 disabled:opacity-50">
-                                Delete
+                                {{ t('domains_list.delete') }}
                             </button>
                         </td>
                     </tr>
@@ -184,7 +184,7 @@ function domainsPage() {
                 const resources = await svcRes.json();
                 this.services = resources.filter(r => r.port);
             } catch (e) {
-                this.showToast('Failed to load domains', 'error');
+                this.showToast('{{ t('domains_list.toast_load_failed') }}', 'error');
             }
             this.loading = false;
             if (!this._bgInterval) {
@@ -194,7 +194,7 @@ function domainsPage() {
 
         async addDomain() {
             if (!this.newDomain.domain || !this.newDomain.service_id) {
-                this.showToast('Domain and service are required', 'error');
+                this.showToast('{{ t('domains_list.toast_required') }}', 'error');
                 return;
             }
             this.busy = true;
@@ -206,33 +206,33 @@ function domainsPage() {
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    this.showToast('Domain added');
+                    this.showToast('{{ t('domains_list.toast_added') }}');
                     this.showAdd = false;
                     this.newDomain = { domain: '', service_id: '', strip_prefix: true };
                     await this.load();
                 } else {
-                    this.showToast(data.error || 'Failed to add domain', 'error');
+                    this.showToast(data.error || '{{ t('domains_list.toast_add_failed') }}', 'error');
                 }
             } catch (e) {
-                this.showToast('Error: ' + e.message, 'error');
+                this.showToast('{{ t('domains_list.error_prefix') }} ' + e.message, 'error');
             }
             this.busy = false;
         },
 
         async removeDomain(id) {
-            if (!confirm('Remove this domain?')) return;
+            if (!confirm('{{ t('domains_list.confirm_remove') }}')) return;
             this.busy = true;
             try {
                 const res = await fetch('/api/v1/domains/' + id, { method: 'DELETE' });
                 const data = await res.json();
                 if (data.ok) {
-                    this.showToast('Domain removed');
+                    this.showToast('{{ t('domains_list.toast_removed') }}');
                     await this.load();
                 } else {
-                    this.showToast('Failed to remove domain', 'error');
+                    this.showToast('{{ t('domains_list.toast_remove_failed') }}', 'error');
                 }
             } catch (e) {
-                this.showToast('Error: ' + e.message, 'error');
+                this.showToast('{{ t('domains_list.error_prefix') }} ' + e.message, 'error');
             }
             this.busy = false;
         },

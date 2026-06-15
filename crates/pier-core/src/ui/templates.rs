@@ -145,6 +145,15 @@ mod tests {
                 "s3/list.html",
                 "S3-compatible storage for database backups and file storage",
             ),
+            (
+                "domains/list.html",
+                "Manage custom domains and SSL certificates",
+            ),
+            ("proxy/settings.html", "Traefik reverse proxy"),
+            (
+                "networks/list.html",
+                "Manage Docker networks for service isolation",
+            ),
         ] {
             let out = env
                 .get_template(tpl)

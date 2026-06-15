@@ -1,41 +1,41 @@
 {% extends "base.html" %}
-{% block title %}Proxy Settings{% endblock %}
+{% block title %}{{ t('proxy_settings.title') }}{% endblock %}
 
 {% block content %}
 <div x-data="proxySettings()" x-init="load()" class="p-6 space-y-6">
     <!-- Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Reverse Proxy</h2>
-            <p class="text-sm text-gray-500 mt-1">Traefik reverse proxy — auto-managed by Pier</p>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('proxy_settings.heading') }}</h2>
+            <p class="text-sm text-gray-500 mt-1">{{ t('proxy_settings.subtitle') }}</p>
         </div>
     </div>
 
     <!-- Version Card -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Traefik Version</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('proxy_settings.version_title') }}</h3>
         <div class="space-y-3">
             <div class="flex items-center justify-between py-2">
-                <span class="text-sm text-gray-500">Current</span>
+                <span class="text-sm text-gray-500">{{ t('proxy_settings.version_current') }}</span>
                 <span class="text-sm font-mono text-gray-900 dark:text-white" x-text="version.current || '—'"></span>
             </div>
             <div class="flex items-center justify-between py-2">
-                <span class="text-sm text-gray-500">Latest available</span>
+                <span class="text-sm text-gray-500">{{ t('proxy_settings.version_latest') }}</span>
                 <div class="flex items-center gap-2">
                     <span class="text-sm font-mono text-gray-900 dark:text-white" x-text="version.latest || '—'"></span>
-                    <span x-show="version.update_available" x-cloak class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400">Update available</span>
-                    <span x-show="!version.update_available && version.current && version.current === version.latest" x-cloak class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">Up to date</span>
+                    <span x-show="version.update_available" x-cloak class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400">{{ t('proxy_settings.update_available') }}</span>
+                    <span x-show="!version.update_available && version.current && version.current === version.latest" x-cloak class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">{{ t('proxy_settings.up_to_date') }}</span>
                 </div>
             </div>
         </div>
         <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 flex gap-2">
             <button @click="checkVersion()" :disabled="checkingVersion"
                     class="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors">
-                <span x-text="checkingVersion ? 'Checking…' : 'Check for updates'"></span>
+                <span x-text="checkingVersion ? '{{ t('proxy_settings.checking') }}' : '{{ t('proxy_settings.check_updates') }}'"></span>
             </button>
             <button x-show="version.update_available" @click="updateTraefik()" :disabled="updatingVersion"
                     class="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors">
-                <span x-text="updatingVersion ? 'Updating…' : 'Update Traefik'"></span>
+                <span x-text="updatingVersion ? '{{ t('proxy_settings.updating') }}' : '{{ t('proxy_settings.update_traefik') }}'"></span>
             </button>
         </div>
     </div>
@@ -43,8 +43,8 @@
     <!-- Status Card -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">Proxy Status</h3>
-            <div x-show="loading" class="text-xs text-gray-400">Loading...</div>
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('proxy_settings.status_title') }}</h3>
+            <div x-show="loading" class="text-xs text-gray-400">{{ t('common.loading') }}</div>
         </div>
         <div class="space-y-3">
             <div class="flex items-center justify-between py-2">
@@ -52,19 +52,19 @@
                     <div class="w-2.5 h-2.5 rounded-full" :class="status.traefik?.running ? 'bg-green-500' : 'bg-yellow-400'"></div>
                     <span class="text-sm text-gray-900 dark:text-white">Traefik</span>
                 </div>
-                <span class="text-sm" :class="status.traefik?.running ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'" x-text="status.traefik?.running ? 'Running' : (status.traefik?.status || 'starting...')"></span>
+                <span class="text-sm" :class="status.traefik?.running ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'" x-text="status.traefik?.running ? '{{ t('proxy_settings.running') }}' : (status.traefik?.status || '{{ t('proxy_settings.starting') }}')"></span>
             </div>
             <div class="flex items-center justify-between py-2">
-                <span class="text-sm text-gray-500">Server IP</span>
-                <span class="text-sm font-mono text-gray-900 dark:text-white" x-text="status.server_ip || 'detecting...'"></span>
+                <span class="text-sm text-gray-500">{{ t('proxy_settings.server_ip') }}</span>
+                <span class="text-sm font-mono text-gray-900 dark:text-white" x-text="status.server_ip || '{{ t('proxy_settings.detecting') }}'"></span>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
-                <span class="text-sm text-gray-500">Domains</span>
+                <span class="text-sm text-gray-500">{{ t('proxy_settings.domains') }}</span>
                 <span class="text-sm text-gray-900 dark:text-white" x-text="status.domain_count || 0"></span>
             </div>
             <div class="flex items-center justify-between py-2">
-                <span class="text-sm text-gray-500">Active SSL Certificates</span>
+                <span class="text-sm text-gray-500">{{ t('proxy_settings.active_certs') }}</span>
                 <span class="text-sm text-gray-900 dark:text-white" x-text="status.active_certs || 0"></span>
             </div>
         </div>
@@ -72,45 +72,45 @@
         <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 flex gap-2">
             <button @click="restart()" :disabled="busy"
                     class="px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors">
-                <span x-show="!busy">Restart Proxy</span>
-                <span x-show="busy">Restarting...</span>
+                <span x-show="!busy">{{ t('proxy_settings.restart_proxy') }}</span>
+                <span x-show="busy">{{ t('proxy_settings.restarting') }}</span>
             </button>
         </div>
     </div>
 
     <!-- Settings Card -->
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Configuration</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{{ t('proxy_settings.config_title') }}</h3>
         <div class="space-y-4">
             <div>
                 <div class="flex items-center justify-between mb-1">
-                    <label class="block text-sm text-gray-600 dark:text-gray-400">Platform Domain</label>
+                    <label class="block text-sm text-gray-600 dark:text-gray-400">{{ t('proxy_settings.platform_domain_label') }}</label>
                     <span x-show="settings.platform_domain && status.platform_domain_active"
                           class="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                         <span class="w-2 h-2 bg-green-500 rounded-full"></span>
-                        Active
+                        {{ t('proxy_settings.active') }}
                     </span>
                     <span x-show="settings.platform_domain && !status.platform_domain_active"
                           class="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
                         <span class="w-2 h-2 bg-amber-500 rounded-full"></span>
-                        Not loaded — save to apply
+                        {{ t('proxy_settings.not_loaded') }}
                     </span>
                 </div>
                 <input type="text" x-model="settings.platform_domain" placeholder="pier.example.com"
                        class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:text-white">
-                <p class="text-xs text-gray-400 mt-1">Custom domain for Pier itself — routes to this panel with SSL. Enter without <code>https://</code> (e.g. <code>pier.example.com</code>).</p>
+                <p class="text-xs text-gray-400 mt-1">{{ t('proxy_settings.platform_domain_note') | safe }}</p>
             </div>
             <div>
-                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">ACME Email</label>
-                <input type="email" x-model="settings.acme_email" placeholder="admin@example.com"
+                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">{{ t('proxy_settings.acme_email_label') }}</label>
+                <input type="email" x-model="settings.acme_email" placeholder="{{ t('proxy_settings.acme_email_placeholder') }}"
                        class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:text-white">
-                <p class="text-xs text-gray-400 mt-1">Email for Let's Encrypt certificate notifications</p>
+                <p class="text-xs text-gray-400 mt-1">{{ t('proxy_settings.acme_email_note') }}</p>
             </div>
             <div>
-                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Wildcard Domain</label>
+                <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">{{ t('proxy_settings.wildcard_domain_label') }}</label>
                 <input type="text" x-model="settings.wildcard_domain" placeholder="example.com"
                        class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:text-white">
-                <p class="text-xs text-gray-400 mt-1">Optional wildcard domain for auto-generated subdomains</p>
+                <p class="text-xs text-gray-400 mt-1">{{ t('proxy_settings.wildcard_domain_note') }}</p>
             </div>
             <div class="flex items-center gap-3">
                 <label class="relative inline-flex items-center cursor-pointer">
@@ -118,14 +118,14 @@
                     <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
                 <div>
-                    <p class="text-sm text-gray-900 dark:text-white">Traefik Dashboard</p>
-                    <p class="text-xs text-gray-400">Expose Traefik dashboard on port 8080</p>
+                    <p class="text-sm text-gray-900 dark:text-white">{{ t('proxy_settings.dashboard_label') }}</p>
+                    <p class="text-xs text-gray-400">{{ t('proxy_settings.dashboard_note') }}</p>
                 </div>
             </div>
             <div class="pt-2">
                 <button @click="saveSettings()" :disabled="busy"
                         class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-                    Save Settings
+                    {{ t('proxy_settings.save_settings') }}
                 </button>
             </div>
         </div>
@@ -161,7 +161,7 @@ function proxySettings() {
                 this.settings.platform_domain = this.status.platform_domain || '';
                 this.settings.dashboard = this.status.traefik?.dashboard || false;
             } catch (e) {
-                this.showToast('Failed to load status', 'error');
+                this.showToast('{{ t('proxy_settings.load_failed') }}', 'error');
             }
             this.loading = false;
             this.checkVersion();
@@ -173,25 +173,25 @@ function proxySettings() {
                 const res = await fetch('/api/v1/proxy/version');
                 this.version = await res.json();
             } catch (e) {
-                this.showToast('Failed to check Traefik version', 'error');
+                this.showToast('{{ t('proxy_settings.version_check_failed') }}', 'error');
             }
             this.checkingVersion = false;
         },
 
         async updateTraefik() {
-            if (!confirm('Pull the latest Traefik image and restart the proxy?')) return;
+            if (!confirm('{{ t('proxy_settings.update_confirm') }}')) return;
             this.updatingVersion = true;
             try {
                 const res = await fetch('/api/v1/proxy/update', { method: 'POST' });
                 const data = await res.json();
                 if (res.ok && data.ok) {
-                    this.showToast('Traefik updated to ' + data.version);
+                    this.showToast('{{ t('proxy_settings.update_success') }}'.replace('%{version}', data.version));
                     await this.load();
                 } else {
-                    this.showToast(data.error || 'Update failed', 'error');
+                    this.showToast(data.error || '{{ t('proxy_settings.update_failed') }}', 'error');
                 }
             } catch (e) {
-                this.showToast('Error: ' + e.message, 'error');
+                this.showToast('{{ t('proxy_settings.error_prefix') }}'.replace('%{message}', e.message), 'error');
             }
             this.updatingVersion = false;
         },
@@ -202,13 +202,13 @@ function proxySettings() {
                 const res = await fetch('/api/v1/proxy/enable', { method: 'POST' });
                 const data = await res.json();
                 if (data.ok) {
-                    this.showToast('Proxy restarted');
+                    this.showToast('{{ t('proxy_settings.restart_success') }}');
                     await this.load();
                 } else {
-                    this.showToast(data.error || 'Failed to restart proxy', 'error');
+                    this.showToast(data.error || '{{ t('proxy_settings.restart_failed') }}', 'error');
                 }
             } catch (e) {
-                this.showToast('Error: ' + e.message, 'error');
+                this.showToast('{{ t('proxy_settings.error_prefix') }}'.replace('%{message}', e.message), 'error');
             }
             this.busy = false;
         },
@@ -223,13 +223,13 @@ function proxySettings() {
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    this.showToast('Settings saved');
+                    this.showToast('{{ t('proxy_settings.save_success') }}');
                     await this.load();
                 } else {
-                    this.showToast('Failed to save settings', 'error');
+                    this.showToast('{{ t('proxy_settings.save_failed') }}', 'error');
                 }
             } catch (e) {
-                this.showToast('Error: ' + e.message, 'error');
+                this.showToast('{{ t('proxy_settings.error_prefix') }}'.replace('%{message}', e.message), 'error');
             }
             this.busy = false;
         },

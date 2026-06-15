@@ -1386,6 +1386,116 @@ s3_list:
   confirm_remove: Remove this S3 storage?
   toast_removed: Storage removed
 
+# Custom domains (domains/list.html).
+domains_list:
+  title: Domains
+  heading: Domains
+  subtitle: Manage custom domains and SSL certificates
+  add_domain: Add Domain
+  add_custom_domain: Add Custom Domain
+  domain_label: Domain
+  domain_supports: "Supports:"
+  service_label: Service
+  select_service: Select a service...
+  strip_prefix_label: Strip path prefix before forwarding
+  strip_checked_label: "Checked (default):"
+  strip_checked_pre: backend receives requests at
+  strip_checked_mid: "— the"
+  strip_checked_post: prefix is stripped.
+  strip_unchecked_label: "Unchecked:"
+  strip_unchecked_pre: backend receives
+  strip_unchecked_post: as-is. Use when your backend's router itself listens on that path (Telegram-style webhook bots).
+  add: Add
+  filter_placeholder: Filter by service...
+  showing: Showing
+  of: of
+  empty_title: No domains configured
+  empty_hint: Add a custom domain or deploy a service with proxy enabled
+  no_match: No domains match filter
+  clear_filter: Clear filter
+  col_domain: Domain
+  col_service: Service
+  col_type: Type
+  col_actions: Actions
+  type_auto: auto
+  type_custom: custom
+  delete: Delete
+  toast_load_failed: Failed to load domains
+  toast_required: Domain and service are required
+  toast_added: Domain added
+  toast_add_failed: Failed to add domain
+  error_prefix: "Error:"
+  confirm_remove: Remove this domain?
+  toast_removed: Domain removed
+  toast_remove_failed: Failed to remove domain
+
+# Reverse proxy settings (proxy/settings.html).
+proxy_settings:
+  title: Proxy Settings
+  heading: Reverse Proxy
+  subtitle: Traefik reverse proxy — auto-managed by Pier
+  version_title: Traefik Version
+  version_current: Current
+  version_latest: Latest available
+  update_available: Update available
+  up_to_date: Up to date
+  checking: Checking…
+  check_updates: Check for updates
+  updating: Updating…
+  update_traefik: Update Traefik
+  status_title: Proxy Status
+  running: Running
+  starting: starting...
+  server_ip: Server IP
+  detecting: detecting...
+  domains: Domains
+  active_certs: Active SSL Certificates
+  restart_proxy: Restart Proxy
+  restarting: Restarting...
+  config_title: Configuration
+  platform_domain_label: Platform Domain
+  active: Active
+  not_loaded: Not loaded — save to apply
+  platform_domain_note: "Custom domain for Pier itself — routes to this panel with SSL. Enter without <code>https://</code> (e.g. <code>pier.example.com</code>)."
+  acme_email_label: ACME Email
+  acme_email_placeholder: "admin@example.com"
+  acme_email_note: Email for Let's Encrypt certificate notifications
+  wildcard_domain_label: Wildcard Domain
+  wildcard_domain_note: Optional wildcard domain for auto-generated subdomains
+  dashboard_label: Traefik Dashboard
+  dashboard_note: Expose Traefik dashboard on port 8080
+  save_settings: Save Settings
+  load_failed: Failed to load status
+  version_check_failed: Failed to check Traefik version
+  update_confirm: Pull the latest Traefik image and restart the proxy?
+  update_success: Traefik updated to %{version}
+  update_failed: Update failed
+  error_prefix: "Error: %{message}"
+  restart_success: Proxy restarted
+  restart_failed: Failed to restart proxy
+  save_success: Settings saved
+  save_failed: Failed to save settings
+
+# Docker networks (networks/list.html).
+networks_list:
+  title: Networks
+  heading: Networks
+  subtitle: Manage Docker networks for service isolation
+  create_network: Create Network
+  default_badge: DEFAULT
+  driver_label: 'Driver: '
+  service_count_suffix: ' service(s)'
+  delete: Delete
+  empty_state: No networks found
+  name_label: Name
+  name_help: Letters, numbers, hyphens, underscores only
+  description_label: Description
+  description_placeholder: Network for frontend services
+  create: Create
+  toast_created: Network created
+  toast_deleted: Network deleted
+  confirm_delete: 'Delete network "%{name}"?'
+
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and
 # need a stable `%{name}` interpolation sample (no section-1 screen has one yet).
