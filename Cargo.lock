@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "accept-language"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f27d075294830fcab6f66e320dab524bc6d048f4a151698e153205559113772"
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3319,6 +3325,7 @@ dependencies = [
 name = "pier-core"
 version = "1.2.1"
 dependencies = [
+ "accept-language",
  "aes-gcm",
  "ammonia",
  "anyhow",

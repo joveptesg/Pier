@@ -692,6 +692,10 @@ async fn main() -> Result<()> {
         // npm clients expect `<registry-url>/{package}` to be the canonical
         // packument path — they don't accept extra prefixes.
         .nest("/registry/npm", api::npm::router(state.clone()))
+        // Resolve the request locale (Accept-Language → compiled-in locales) and
+        // bind it to a task-local for every downstream handler. Outermost layer
+        // so the binding is live before auth middleware and page rendering run.
+        .layer(axum::middleware::from_fn(i18n::locale_layer))
         .with_state(state);
 
     // Start server

@@ -24,6 +24,11 @@ pub fn init_templates() -> Environment<'static> {
     // Inject version as a global variable available in all templates
     env.add_global("version", env!("CARGO_PKG_VERSION"));
 
+    // Localization: `{{ t("key") }}` / `{{ t("key", name=value) }}` resolves
+    // against the embedded catalog using the current request's locale. See
+    // `crate::i18n` for how the locale is bound per request.
+    env.add_function("t", crate::i18n::translate);
+
     tracing::info!("Loaded {} templates", TemplateAssets::iter().count());
     env
 }

@@ -54,6 +54,7 @@ rust-embed = { workspace = true }
 
 # i18n — admin panel localization (English source locale)
 rust-i18n = { workspace = true }
+accept-language = { workspace = true }
 
 # Auth & Crypto
 bcrypt = { workspace = true }

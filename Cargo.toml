@@ -67,6 +67,9 @@ rust-embed = { version = "8.11", features = ["compression"] }
 # i18n — admin panel localization. English is the source locale; translations
 # live in `crates/pier-core/locales/*.yml` and are embedded at compile time.
 rust-i18n = "4.1"
+# Locale negotiation: matches the request's Accept-Language header against the
+# locales compiled into the catalog.
+accept-language = "3.1"
 
 # Auth & Crypto
 bcrypt = "0.19"
