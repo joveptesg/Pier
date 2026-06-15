@@ -117,7 +117,9 @@ pub async fn create(
     let domain = domain.trim_end_matches('.').to_string();
 
     if domain.is_empty() {
-        return Err(AppError::BadRequest("Domain is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.domains.domain_required",
+        )));
     }
 
     // Validate the service exists.
@@ -131,7 +133,12 @@ pub async fn create(
             [&body.service_id],
             |row| row.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Service {} not found", body.service_id)))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.domains.service_not_found",
+                &[("name", body.service_id.as_str())],
+            ))
+        })?
     };
 
     // Build the upstream URL for THIS domain so we can fail fast if the
@@ -170,8 +177,9 @@ pub async fn create(
         )
         .map_err(|e| {
             if e.to_string().contains("UNIQUE") {
-                AppError::Conflict(format!(
-                    "Domain {domain}{path_prefix} is already registered"
+                AppError::Conflict(crate::i18n::te_args(
+                    "errors.domains.already_registered",
+                    &[("name", format!("{domain}{path_prefix}").as_str())],
                 ))
             } else {
                 AppError::Database(e)
@@ -229,7 +237,12 @@ pub async fn update(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.domains.domain_not_found",
+                &[("name", id.as_str())],
+            ))
+        })?
     };
     enforce_resource_role(&state, &user, &service_id, ProjectRole::Editor)?;
 
@@ -264,8 +277,9 @@ pub async fn update(
             )
             .map_err(|e| {
                 if e.to_string().contains("UNIQUE") {
-                    AppError::Conflict(format!(
-                        "Another domain row already uses {new_domain_with_path}"
+                    AppError::Conflict(crate::i18n::te_args(
+                        "errors.domains.row_already_uses",
+                        &[("name", new_domain_with_path.as_str())],
                     ))
                 } else {
                     AppError::Database(e)
@@ -337,7 +351,12 @@ pub async fn activate(
             [&id],
             |row| row.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.domains.domain_not_found",
+                &[("name", id.as_str())],
+            ))
+        })?
     };
     enforce_resource_role(&state, &user, &service_id, ProjectRole::Editor)?;
 
@@ -395,7 +414,12 @@ pub async fn deactivate(
             [&id],
             |row| row.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.domains.domain_not_found",
+                &[("name", id.as_str())],
+            ))
+        })?
     };
     enforce_resource_role(&state, &user, &service_id, ProjectRole::Editor)?;
 
@@ -435,7 +459,12 @@ pub async fn remove(
             [&id],
             |row| row.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.domains.domain_not_found",
+                &[("name", id.as_str())],
+            ))
+        })?
     };
     enforce_resource_role(&state, &user, &service_id_for_check, ProjectRole::Editor)?;
 
@@ -450,7 +479,12 @@ pub async fn remove(
                 [&id],
                 |row| row.get(0),
             )
-            .map_err(|_| AppError::NotFound(format!("Domain {id} not found")))?;
+            .map_err(|_| {
+                AppError::NotFound(crate::i18n::te_args(
+                    "errors.domains.domain_not_found",
+                    &[("name", id.as_str())],
+                ))
+            })?;
         db.execute("DELETE FROM domains WHERE id = ?1", [&id])?;
         sid
     };
@@ -527,7 +561,12 @@ pub(crate) fn build_target_url(
             [service_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Service {service_id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.domains.service_not_found",
+                &[("name", service_id)],
+            ))
+        })?
     };
 
     // Container hostname comes from the compose YAML's `container_name:` (which
@@ -626,8 +665,9 @@ pub(crate) fn build_target_url(
 
     let port = port.ok_or_else(|| {
         let label = compose_service.unwrap_or("(default)");
-        AppError::BadRequest(format!(
-            "Service {svc_name} has no port assigned for compose service '{label}'"
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.domains.no_port_for_compose_service",
+            &[("name", svc_name.as_str()), ("service", label)],
         ))
     })?;
 

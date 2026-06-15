@@ -51,7 +51,9 @@ pub async fn create(
     Json(body): Json<CreateStackRequest>,
 ) -> AppResult<impl IntoResponse> {
     if body.name.trim().is_empty() || body.yaml.trim().is_empty() {
-        return Err(AppError::BadRequest("Name and YAML are required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.compose.name_and_yaml_required",
+        )));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -90,7 +92,7 @@ pub async fn get(
                 "status": row.get::<_, String>(3)?,
             }))
         },
-    ).map_err(|_| AppError::NotFound(format!("Stack {id} not found")))?;
+    ).map_err(|_| AppError::NotFound(crate::i18n::te_args("errors.compose.stack_not_found", &[("id", &id)])))?;
 
     Ok(Json(result))
 }
@@ -113,7 +115,10 @@ pub async fn update(
     )?;
 
     if rows == 0 {
-        return Err(AppError::NotFound(format!("Stack {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.compose.stack_not_found",
+            &[("id", &id)],
+        )));
     }
 
     Ok(Json(serde_json::json!({"ok": true})))
@@ -134,10 +139,16 @@ pub async fn deploy(
             [&id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Stack {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.compose.stack_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
-    let yaml = yaml.ok_or_else(|| AppError::BadRequest("Stack has no YAML content".into()))?;
+    let yaml =
+        yaml.ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.compose.stack_no_yaml")))?;
 
     let auth_map = state
         .db
@@ -181,7 +192,12 @@ pub async fn down(
             [&id],
             |row| row.get::<_, String>(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Stack {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.compose.stack_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let output = docker::compose::down_stack(&name, &state.config).await?;
@@ -213,7 +229,12 @@ pub async fn remove(
             [&id],
             |row| row.get::<_, String>(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Stack {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.compose.stack_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     // Down first, ignore errors

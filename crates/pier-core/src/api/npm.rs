@@ -250,13 +250,13 @@ async fn login(
     let username = body
         .name
         .as_deref()
-        .ok_or_else(|| AppError::BadRequest("missing name".into()))?
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.missing_name")))?
         .trim()
         .to_string();
     let plain = body
         .password
         .as_deref()
-        .ok_or_else(|| AppError::BadRequest("missing password".into()))?
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.missing_password")))?
         .to_string();
 
     // The bcrypt verify inside this closure is CPU-heavy (~100ms on a small VPS).
@@ -583,7 +583,10 @@ async fn serve_packument(
     }
 
     let Some(mut packument) = packument else {
-        return Err(AppError::NotFound(format!("package {package}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.npm.package_not_found",
+            &[("name", package)],
+        )));
     };
 
     // TTL revalidation: when this is a proxy-cached packument older than
@@ -680,7 +683,10 @@ async fn serve_version(
     .await?;
 
     let Some(mut manifest) = manifest else {
-        return Err(AppError::NotFound(format!("{package}@{version}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.npm.version_not_found",
+            &[("name", package), ("version", version)],
+        )));
     };
 
     let base = public_base_url(headers);
@@ -697,11 +703,13 @@ async fn serve_tarball(
 ) -> Result<axum::response::Response, AppError> {
     validate_package_name(package)?;
     if !tarball.ends_with(".tgz") {
-        return Err(AppError::BadRequest("tarball must end in .tgz".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.npm.tarball_extension",
+        )));
     }
 
     let version = derive_version_from_tarball(package, tarball)
-        .ok_or_else(|| AppError::BadRequest("malformed tarball name".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.malformed_tarball")))?;
 
     // Validate the version exists in our index — guards against path traversal
     // probes via `..` in the tarball segment and gives us the size+sha for the
@@ -741,7 +749,10 @@ async fn serve_tarball(
                             Ok(Some(resp)) => {
                                 let bytes = resp.bytes().await.map_err(|e| {
                                     tracing::warn!(%package, "upstream tarball read failed: {e:#}");
-                                    AppError::NotFound(format!("{package}/{tarball}"))
+                                    AppError::NotFound(crate::i18n::te_args(
+                                        "errors.npm.tarball_not_found",
+                                        &[("name", package), ("tarball", tarball)],
+                                    ))
                                 })?;
                                 let body = bytes.to_vec();
                                 let new_sha =
@@ -768,11 +779,17 @@ async fn serve_tarball(
                             }
                             Ok(None) => {
                                 tracing::info!(%package, %version, "upstream 404 for tarball");
-                                return Err(AppError::NotFound(format!("{package}/{tarball}")));
+                                return Err(AppError::NotFound(crate::i18n::te_args(
+                                    "errors.npm.tarball_not_found",
+                                    &[("name", package), ("tarball", tarball)],
+                                )));
                             }
                             Err(e) => {
                                 tracing::warn!(%package, "upstream tarball fetch failed: {e:#}");
-                                return Err(AppError::NotFound(format!("{package}/{tarball}")));
+                                return Err(AppError::NotFound(crate::i18n::te_args(
+                                    "errors.npm.tarball_not_found",
+                                    &[("name", package), ("tarball", tarball)],
+                                )));
                             }
                         }
                     }
@@ -782,7 +799,10 @@ async fn serve_tarball(
     }
 
     let Some(meta) = meta else {
-        return Err(AppError::NotFound(format!("{package}-{version}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.npm.tarball_version_not_found",
+            &[("name", package), ("version", &version)],
+        )));
     };
 
     let etag = format!("\"{}\"", meta.sha512);
@@ -796,7 +816,10 @@ async fn serve_tarball(
         .await
         .map_err(|e| {
             tracing::error!("registry: open_tarball_stream failed: {e:#}");
-            AppError::NotFound(format!("{package}/{tarball}"))
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.npm.tarball_not_found",
+                &[("name", package), ("tarball", tarball)],
+            ))
         })?;
 
     let stream = ReaderStream::new(file);
@@ -823,10 +846,12 @@ async fn serve_tarball_head(
 ) -> Result<axum::response::Response, AppError> {
     validate_package_name(package)?;
     if !tarball.ends_with(".tgz") {
-        return Err(AppError::BadRequest("tarball must end in .tgz".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.npm.tarball_extension",
+        )));
     }
     let version = derive_version_from_tarball(package, tarball)
-        .ok_or_else(|| AppError::BadRequest("malformed tarball name".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.malformed_tarball")))?;
     let package_owned = package.to_string();
     let version_owned = version.clone();
     let meta = db_blocking(state, move |db| {
@@ -834,7 +859,10 @@ async fn serve_tarball_head(
     })
     .await?;
     let Some(meta) = meta else {
-        return Err(AppError::NotFound(format!("{package}-{version}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.npm.tarball_version_not_found",
+            &[("name", package), ("version", &version)],
+        )));
     };
     let etag = format!("\"{}\"", meta.sha512);
     Ok((
@@ -856,23 +884,27 @@ async fn handle_publish(
     body: &[u8],
 ) -> Result<axum::response::Response, AppError> {
     validate_package_name(package)?;
-    let body_json: serde_json::Value = serde_json::from_slice(body)
-        .map_err(|e| AppError::BadRequest(format!("invalid json: {e}")))?;
+    let body_json: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.npm.invalid_json",
+            &[("error", &e.to_string())],
+        ))
+    })?;
 
     // Pull the single (version → manifest) entry.
     let versions_obj = body_json
         .get("versions")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| AppError::BadRequest("missing versions{}".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.missing_versions")))?;
     if versions_obj.len() != 1 {
-        return Err(AppError::BadRequest(
-            "publish must contain exactly one version".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.npm.single_version_required",
+        )));
     }
     let (version, manifest_val) = versions_obj
         .iter()
         .next()
-        .ok_or_else(|| AppError::BadRequest("empty versions{}".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.empty_versions")))?;
     let version = version.clone();
 
     let description = body_json
@@ -885,21 +917,30 @@ async fn handle_publish(
     let attachments = body_json
         .get("_attachments")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| AppError::BadRequest("missing _attachments{}".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.missing_attachments")))?;
     if attachments.is_empty() {
-        return Err(AppError::BadRequest("no _attachments".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.npm.no_attachments",
+        )));
     }
     let (attachment_name, attachment) = attachments
         .iter()
         .next()
-        .ok_or_else(|| AppError::BadRequest("empty _attachments".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.empty_attachments")))?;
     let data_b64 = attachment
         .get("data")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::BadRequest("attachment missing data".into()))?;
+        .ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te("errors.npm.attachment_missing_data"))
+        })?;
     let tarball_bytes = base64::engine::general_purpose::STANDARD
         .decode(data_b64)
-        .map_err(|e| AppError::BadRequest(format!("base64 decode: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.npm.base64_decode",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
     // Sanity-check the filename. Two forms are accepted because npm CLIs are
     // inconsistent for scoped packages:
@@ -912,8 +953,13 @@ async fn handle_publish(
     let expected_short = registry::tarball_filename(package, &version);
     let expected_full = format!("{package}-{version}.tgz");
     if !attachment_name_matches(attachment_name, &expected_short, &expected_full) {
-        return Err(AppError::BadRequest(format!(
-            "attachment name '{attachment_name}' does not match expected '{expected_short}' or '{expected_full}'"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.npm.attachment_name_mismatch",
+            &[
+                ("actual", attachment_name),
+                ("expected_short", &expected_short),
+                ("expected_full", &expected_full),
+            ],
         )));
     }
     let expected_name = expected_short;
@@ -926,9 +972,9 @@ async fn handle_publish(
     {
         let computed = storage::integrity(&tarball_bytes);
         if claimed != computed {
-            return Err(AppError::BadRequest(
-                "tarball integrity does not match dist.integrity".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.npm.integrity_mismatch",
+            )));
         }
     }
 
@@ -968,7 +1014,9 @@ async fn handle_publish(
             m.insert("size".into(), serde_json::Value::from(tarball_size));
             manifest_owned
                 .as_object_mut()
-                .ok_or_else(|| AppError::BadRequest("manifest is not an object".into()))?
+                .ok_or_else(|| {
+                    AppError::BadRequest(crate::i18n::te("errors.npm.manifest_not_object"))
+                })?
                 .insert("dist".into(), serde_json::Value::Object(m));
         }
     }
@@ -1033,8 +1081,9 @@ async fn handle_publish(
             Err(e) => {
                 let msg = e.to_string();
                 if msg.contains("UNIQUE") {
-                    Err(AppError::Conflict(format!(
-                        "{package_for_db}@{version_for_db} already published"
+                    Err(AppError::Conflict(crate::i18n::te_args(
+                        "errors.npm.already_published",
+                        &[("name", &package_for_db), ("version", &version_for_db)],
                     )))
                 } else {
                     Err(AppError::Internal(e))
@@ -1072,7 +1121,10 @@ async fn serve_dist_tags(
     let package_owned = package.to_string();
     let tags = db_blocking(state, move |db| regdb::load_dist_tags(db, &package_owned)).await?;
     let Some(tags) = tags else {
-        return Err(AppError::NotFound(format!("package {package}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.npm.package_not_found",
+            &[("name", package)],
+        )));
     };
     let value = serde_json::to_value(tags).map_err(anyhow::Error::from)?;
     Ok((
@@ -1124,7 +1176,10 @@ async fn handle_remove_dist_tag(
     .await;
     let removed = map_db_user_error(result)?;
     if !removed {
-        return Err(AppError::NotFound(format!("dist-tag {tag}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.npm.dist_tag_not_found",
+            &[("tag", tag)],
+        )));
     }
     tracing::info!(
         "registry: removed dist-tag {package}@{tag} by {}",
@@ -1143,7 +1198,10 @@ async fn handle_delete_package(
     let package_owned = package.to_string();
     let removed = db_blocking(state, move |db| regdb::delete_package(db, &package_owned)).await?;
     if removed.is_empty() {
-        return Err(AppError::NotFound(format!("package {package}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.npm.package_not_found",
+            &[("name", package)],
+        )));
     }
     // Drop the hot-tier blobs. Cold-tier (S3) blobs are deliberately left in
     // place — operators can sweep them with an S3 lifecycle policy.
@@ -1166,10 +1224,12 @@ async fn handle_delete_version(
 ) -> Result<axum::response::Response, AppError> {
     validate_package_name(package)?;
     if !tarball.ends_with(".tgz") {
-        return Err(AppError::BadRequest("tarball must end in .tgz".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.npm.tarball_extension",
+        )));
     }
     let version = derive_version_from_tarball(package, tarball)
-        .ok_or_else(|| AppError::BadRequest("malformed tarball name".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.malformed_tarball")))?;
     require_can_modify(state, user, package, Some(&version)).await?;
     let package_owned = package.to_string();
     let version_owned = version.clone();
@@ -1178,7 +1238,10 @@ async fn handle_delete_version(
     })
     .await?;
     let Some(removed) = removed else {
-        return Err(AppError::NotFound(format!("{package}@{version}")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.npm.version_not_found",
+            &[("name", package), ("version", &version)],
+        )));
     };
     let _ = storage::delete_tarball(state, &removed.package, &removed.filename).await;
     tracing::info!(
@@ -1197,8 +1260,12 @@ async fn handle_deprecate(
     validate_package_name(package)?;
     require_can_modify(state, user, package, None).await?;
 
-    let body_json: serde_json::Value = serde_json::from_slice(body)
-        .map_err(|e| AppError::BadRequest(format!("invalid json: {e}")))?;
+    let body_json: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.npm.invalid_json",
+            &[("error", &e.to_string())],
+        ))
+    })?;
 
     // `npm deprecate` PUTs the entire packument with `versions[*].deprecated`
     // patched. We diff against the DB and apply only the deprecation flips —
@@ -1207,7 +1274,7 @@ async fn handle_deprecate(
     let versions = body_json
         .get("versions")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| AppError::BadRequest("missing versions{}".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.npm.missing_versions")))?;
 
     let mut messages: BTreeMap<String, String> = BTreeMap::new();
     for (ver, manifest) in versions {
@@ -1220,7 +1287,9 @@ async fn handle_deprecate(
         }
     }
     if messages.is_empty() {
-        return Err(AppError::BadRequest("nothing to deprecate".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.npm.nothing_to_deprecate",
+        )));
     }
 
     let package_owned = package.to_string();
@@ -1244,7 +1313,7 @@ async fn handle_deprecate(
 /// too because pnpm and yarn sometimes drop the quotes.
 fn parse_version_body(body: &[u8]) -> Result<String, AppError> {
     let raw = std::str::from_utf8(body)
-        .map_err(|_| AppError::BadRequest("body not utf-8".into()))?
+        .map_err(|_| AppError::BadRequest(crate::i18n::te("errors.npm.body_not_utf8")))?
         .trim();
     let version = if let Ok(parsed) = serde_json::from_str::<String>(raw) {
         parsed
@@ -1252,7 +1321,9 @@ fn parse_version_body(body: &[u8]) -> Result<String, AppError> {
         raw.trim_matches('"').to_string()
     };
     if version.is_empty() {
-        return Err(AppError::BadRequest("missing version in body".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.npm.missing_version_body",
+        )));
     }
     Ok(version)
 }
@@ -1355,20 +1426,26 @@ pub fn validate_package_name(name: &str) -> Result<(), AppError> {
         || name.starts_with('.')
         || name.len() > 214
     {
-        return Err(AppError::BadRequest("invalid package name".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.npm.invalid_package_name",
+        )));
     }
     if let Some(rest) = name.strip_prefix('@') {
         // Scoped: must be `@scope/name`.
         let Some((scope, n)) = rest.split_once('/') else {
-            return Err(AppError::BadRequest("scoped package missing /name".into()));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.npm.scoped_missing_name",
+            )));
         };
         if scope.is_empty() || n.is_empty() || n.contains('/') || scope.contains('/') {
-            return Err(AppError::BadRequest("invalid scoped package name".into()));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.npm.invalid_scoped_name",
+            )));
         }
     } else if name.contains('/') {
-        return Err(AppError::BadRequest(
-            "unscoped package cannot contain /".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.npm.unscoped_has_slash",
+        )));
     }
     Ok(())
 }

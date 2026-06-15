@@ -100,20 +100,22 @@ fn validate_port_range(
         (None, None) => return Ok(()),
         (Some(s), Some(e)) => (s, e),
         _ => {
-            return Err(AppError::BadRequest(
-                "port_range_start and port_range_end must be set together".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.projects.port_range_both_required",
+            )));
         }
     };
 
     if !(1024..=65535).contains(&start) || !(1024..=65535).contains(&end) {
-        return Err(AppError::BadRequest(format!(
-            "Port range must be within 1024-65535 (got {start}-{end})"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.projects.port_range_out_of_bounds",
+            &[("start", &start.to_string()), ("end", &end.to_string())],
         )));
     }
     if start > end {
-        return Err(AppError::BadRequest(format!(
-            "Port range start must be <= end (got {start}-{end})"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.projects.port_range_inverted",
+            &[("start", &start.to_string()), ("end", &end.to_string())],
         )));
     }
 
@@ -140,8 +142,15 @@ fn validate_port_range(
         }
         // Inclusive overlap: not (end < other_start OR start > other_end)
         if !(end < other_start || start > other_end) {
-            return Err(AppError::Conflict(format!(
-                "Port range {start}-{end} overlaps with project '{name}' ({other_start}-{other_end})"
+            return Err(AppError::Conflict(crate::i18n::te_args(
+                "errors.projects.port_range_overlap",
+                &[
+                    ("start", &start.to_string()),
+                    ("end", &end.to_string()),
+                    ("name", &name),
+                    ("other_start", &other_start.to_string()),
+                    ("other_end", &other_end.to_string()),
+                ],
             )));
         }
     }
@@ -161,10 +170,14 @@ pub async fn create(
     Json(body): Json<CreateProjectRequest>,
 ) -> AppResult<impl IntoResponse> {
     if !user.is_peer && !user.global_role.at_least(GlobalRole::Admin) {
-        return Err(AppError::Forbidden("only Admin can create projects".into()));
+        return Err(AppError::Forbidden(crate::i18n::te(
+            "errors.projects.create_admin_only",
+        )));
     }
     if body.name.trim().is_empty() {
-        return Err(AppError::BadRequest("Project name is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.projects.name_required",
+        )));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -215,7 +228,10 @@ pub async fn get(
                 "created_at": row.get::<_, String>(5)?,
             }))
         },
-    ).map_err(|_| AppError::NotFound(format!("Project {id} not found")))?;
+    ).map_err(|_| AppError::NotFound(crate::i18n::te_args(
+        "errors.projects.not_found",
+        &[("id", &id.to_string())],
+    )))?;
 
     // Get services for this project
     let mut stmt = db.prepare(
@@ -279,7 +295,12 @@ pub async fn update(
             [&id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Project {id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.projects.not_found",
+                &[("id", &id.to_string())],
+            ))
+        })?;
     let new_start = body.port_range_start.or(current_start);
     let new_end = body.port_range_end.or(current_end);
 
@@ -310,8 +331,13 @@ pub async fn update(
                         .map(|(n, p)| format!("{n}:{p}"))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    return Err(AppError::Conflict(format!(
-                        "Cannot narrow port range to {ns}-{ne}: services using ports outside new range [{summary}]"
+                    return Err(AppError::Conflict(crate::i18n::te_args(
+                        "errors.projects.port_range_narrow_conflict",
+                        &[
+                            ("start", &ns.to_string()),
+                            ("end", &ne.to_string()),
+                            ("services", &summary),
+                        ],
                     )));
                 }
             }
@@ -350,7 +376,10 @@ pub async fn update(
     let rows = db.execute(&sql, params_refs.as_slice())?;
 
     if rows == 0 {
-        return Err(AppError::NotFound(format!("Project {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.projects.not_found",
+            &[("id", &id.to_string())],
+        )));
     }
 
     Ok(Json(serde_json::json!({"ok": true})))
@@ -380,7 +409,10 @@ pub async fn delete(
         |row| row.get(0),
     )?;
     if exists == 0 {
-        return Err(AppError::NotFound(format!("Project {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.projects.not_found",
+            &[("id", &id.to_string())],
+        )));
     }
 
     let svc_count: i64 = db.query_row(
@@ -389,8 +421,9 @@ pub async fn delete(
         |row| row.get(0),
     )?;
     if svc_count > 0 {
-        return Err(AppError::Conflict(format!(
-            "Project has {svc_count} service(s). Delete them first."
+        return Err(AppError::Conflict(crate::i18n::te_args(
+            "errors.projects.has_services",
+            &[("count", &svc_count.to_string())],
         )));
     }
 
@@ -398,7 +431,10 @@ pub async fn delete(
 
     let rows = db.execute("DELETE FROM projects WHERE id = ?1", [&id])?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!("Project {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.projects.not_found",
+            &[("id", &id.to_string())],
+        )));
     }
 
     Ok(Json(serde_json::json!({"ok": true, "action": "deleted"})))

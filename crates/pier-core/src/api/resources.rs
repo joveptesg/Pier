@@ -185,7 +185,9 @@ pub async fn create(
 ) -> AppResult<Json<serde_json::Value>> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(AppError::BadRequest("Name is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.name_required",
+        )));
     }
     // Project membership gate: if a project is supplied, the caller needs at
     // least Editor on it. Standalone resources (no project_id) remain admin-only.
@@ -199,9 +201,9 @@ pub async fn create(
         }
         None => {
             if !user.is_peer && !user.global_role.at_least(GlobalRole::Admin) {
-                return Err(AppError::Forbidden(
-                    "creating resources without a project requires Admin".into(),
-                ));
+                return Err(AppError::Forbidden(crate::i18n::te(
+                    "errors.resources.create_without_project_requires_admin",
+                )));
             }
         }
     }
@@ -219,7 +221,10 @@ pub async fn create(
         .iter()
         .find(|i| i.meta.id == body.catalog_id)
         .ok_or_else(|| {
-            AppError::NotFound(format!("Catalog template '{}' not found", body.catalog_id))
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.catalog_template_not_found",
+                &[("name", &body.catalog_id)],
+            ))
         })?
         .clone();
 
@@ -429,17 +434,20 @@ pub async fn create(
     if is_cluster {
         // Validate cluster config from catalog
         let cluster_cfg = item.cluster.as_ref().ok_or_else(|| {
-            AppError::BadRequest(format!(
-                "'{}' does not support cluster mode",
-                body.catalog_id
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.resources.no_cluster_mode_support",
+                &[("name", &body.catalog_id)],
             ))
         })?;
 
         let node_count = body.node_count.unwrap_or(cluster_cfg.default_nodes);
         if node_count < cluster_cfg.min_nodes || node_count > cluster_cfg.max_nodes {
-            return Err(AppError::BadRequest(format!(
-                "Node count must be between {} and {}",
-                cluster_cfg.min_nodes, cluster_cfg.max_nodes
+            return Err(AppError::BadRequest(crate::i18n::te_args(
+                "errors.resources.node_count_range",
+                &[
+                    ("min", &cluster_cfg.min_nodes.to_string()),
+                    ("max", &cluster_cfg.max_nodes.to_string()),
+                ],
             )));
         }
 
@@ -629,9 +637,9 @@ async fn create_compose(
 ) -> AppResult<Json<serde_json::Value>> {
     let yaml = body.config.get("yaml").cloned().unwrap_or_default();
     if yaml.trim().is_empty() {
-        return Err(AppError::BadRequest(
-            "Docker Compose YAML is required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.compose_yaml_required",
+        )));
     }
 
     let service_id = uuid::Uuid::new_v4().to_string();
@@ -729,9 +737,9 @@ async fn create_dockerfile(
 ) -> AppResult<Json<serde_json::Value>> {
     let dockerfile_content = body.config.get("dockerfile").cloned().unwrap_or_default();
     if dockerfile_content.trim().is_empty() {
-        return Err(AppError::BadRequest(
-            "Dockerfile content is required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.dockerfile_content_required",
+        )));
     }
 
     let container_port: u16 = body
@@ -867,7 +875,9 @@ async fn create_git_deploy(
 ) -> AppResult<Json<serde_json::Value>> {
     let git_url = body.config.get("git_url").cloned().unwrap_or_default();
     if git_url.trim().is_empty() {
-        return Err(AppError::BadRequest("Repository URL is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.repository_url_required",
+        )));
     }
 
     let branch = body
@@ -910,7 +920,9 @@ async fn create_git_deploy(
         if use_deploy_key {
             let deploy_key = body.config.get("deploy_key").cloned().unwrap_or_default();
             if deploy_key.trim().is_empty() {
-                return Err(AppError::BadRequest("SSH deploy key is required".into()));
+                return Err(AppError::BadRequest(crate::i18n::te(
+                    "errors.resources.ssh_deploy_key_required",
+                )));
             }
             let stack_dir = state.config.data_dir.join("stacks").join(stack_name);
             tokio::fs::create_dir_all(&stack_dir)
@@ -997,7 +1009,9 @@ async fn create_git_deploy(
     if use_deploy_key {
         let deploy_key = body.config.get("deploy_key").cloned().unwrap_or_default();
         if deploy_key.trim().is_empty() {
-            return Err(AppError::BadRequest("SSH deploy key is required".into()));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.resources.ssh_deploy_key_required",
+            )));
         }
 
         let key_path = stack_dir.join("deploy_key");
@@ -1087,9 +1101,9 @@ async fn create_git_deploy(
             );
             Ok(())
         })?;
-        return Err(AppError::BadRequest(format!(
-            "Dockerfile not found at '{}' in repository",
-            dockerfile_in_repo
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.resources.dockerfile_not_found_in_repo",
+            &[("path", &dockerfile_in_repo)],
         )));
     }
 
@@ -1300,7 +1314,9 @@ async fn create_git_deploy_github_app(
     item: &catalog::CatalogItem,
 ) -> AppResult<Json<serde_json::Value>> {
     let source_id = body.source_id.as_deref().ok_or_else(|| {
-        AppError::BadRequest("source_id is required for GitHub App deploy".into())
+        AppError::BadRequest(crate::i18n::te(
+            "errors.resources.source_id_required_for_github_app",
+        ))
     })?;
 
     // Load source credentials from DB
@@ -1315,16 +1331,20 @@ async fn create_git_deploy_github_app(
                     row.get::<_, Option<String>>(2)?,
                 ))
             },
-        ).map_err(|_| AppError::NotFound(format!("GitHub App source {source_id} not found")))?;
-        let app_id = row
-            .0
-            .ok_or_else(|| AppError::BadRequest("Source missing app_id".into()))?;
-        let inst_id = row
-            .1
-            .ok_or_else(|| AppError::BadRequest("Source missing installation_id".into()))?;
-        let pk = row
-            .2
-            .ok_or_else(|| AppError::BadRequest("Source missing private_key".into()))?;
+        ).map_err(|_| AppError::NotFound(crate::i18n::te_args("errors.resources.github_app_source_not_found", &[("source_id", source_id)])))?;
+        let app_id = row.0.ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te("errors.resources.source_missing_app_id"))
+        })?;
+        let inst_id = row.1.ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te(
+                "errors.resources.source_missing_installation_id",
+            ))
+        })?;
+        let pk = row.2.ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te(
+                "errors.resources.source_missing_private_key",
+            ))
+        })?;
         Ok((app_id, inst_id, pk))
     })?;
 
@@ -1336,14 +1356,18 @@ async fn create_git_deploy_github_app(
 
     let git_url = body.config.get("git_url").cloned().unwrap_or_default();
     if git_url.trim().is_empty() {
-        return Err(AppError::BadRequest("Repository URL is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.repository_url_required",
+        )));
     }
 
     // Inject token into clone URL: https://x-access-token:{token}@github.com/owner/repo.git
     let _clone_url = if git_url.starts_with("https://") {
         git_url.replacen("https://", &format!("https://x-access-token:{token}@"), 1)
     } else {
-        return Err(AppError::BadRequest("GitHub App requires HTTPS URL".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.github_app_requires_https",
+        )));
     };
 
     let branch = body
@@ -1464,7 +1488,9 @@ async fn create_railpack_app(
 ) -> AppResult<Json<serde_json::Value>> {
     let git_url = body.config.get("git_url").cloned().unwrap_or_default();
     if git_url.trim().is_empty() {
-        return Err(AppError::BadRequest("Repository URL is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.repository_url_required",
+        )));
     }
     let branch = body
         .config
@@ -1746,7 +1772,7 @@ pub async fn get(
                 }))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?;
+        .map_err(|_| AppError::NotFound(crate::i18n::te_args("errors.resources.resource_not_found", &[("id", &id)])))?;
 
     let port_allocs = ports::get_ports(&db, &id)?;
     // Re-sort the Ports list so the UI matches the operator's compose YAML
@@ -1907,7 +1933,12 @@ pub async fn remove(
         db.query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| {
             row.get::<_, String>(0)
         })
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
@@ -1935,8 +1966,9 @@ pub async fn remove(
             |row| row.get(0),
         )?;
         if user_db_count > 0 {
-            return Err(AppError::Conflict(format!(
-                "Service has {user_db_count} database(s). Delete them first."
+            return Err(AppError::Conflict(crate::i18n::te_args(
+                "errors.resources.service_has_databases",
+                &[("count", &user_db_count.to_string())],
             )));
         }
 
@@ -2052,7 +2084,12 @@ pub async fn stop(
         db.query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| {
             row.get::<_, String>(0)
         })
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
@@ -2094,10 +2131,17 @@ pub async fn start(
             [&id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
-    let yaml = yaml.ok_or_else(|| AppError::BadRequest("No compose content found".into()))?;
+    let yaml = yaml.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.resources.no_compose_content"))
+    })?;
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
     let result = docker::deploy_service_stack(&state, &id, &stack_name, &yaml, None).await;
@@ -2144,10 +2188,17 @@ pub async fn restart(
             [&id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
-    let yaml = yaml.ok_or_else(|| AppError::BadRequest("No compose content found".into()))?;
+    let yaml = yaml.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.resources.no_compose_content"))
+    })?;
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
     let _ = docker::compose::down_stack(&stack_name, &state.config).await;
@@ -2204,7 +2255,12 @@ pub async fn redeploy(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     // Git-based services: run full pipeline (clone + build + deploy)
@@ -2236,7 +2292,9 @@ pub async fn redeploy(
     }
 
     // Catalog-based services: use saved compose YAML
-    let yaml = yaml.ok_or_else(|| AppError::BadRequest("No compose content found".into()))?;
+    let yaml = yaml.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.resources.no_compose_content"))
+    })?;
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
     // Stop existing stack
@@ -2322,7 +2380,12 @@ pub async fn get_nodes(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     if cluster_mode.as_deref() != Some("cluster") {
@@ -2371,11 +2434,13 @@ pub async fn scale(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| AppError::NotFound(crate::i18n::te_args("errors.resources.resource_not_found", &[("id", &id)])))?
     };
 
     if cluster_mode.as_deref() != Some("cluster") {
-        return Err(AppError::BadRequest("Resource is not a cluster".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.not_a_cluster",
+        )));
     }
 
     let catalog_id =
@@ -2387,12 +2452,19 @@ pub async fn scale(
         .iter()
         .find(|i| i.meta.id == catalog_id)
         .and_then(|i| i.cluster.as_ref())
-        .ok_or_else(|| AppError::BadRequest("Catalog not found or no cluster support".into()))?;
+        .ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te(
+                "errors.resources.catalog_no_cluster_support",
+            ))
+        })?;
 
     if body.node_count < cluster_cfg.min_nodes || body.node_count > cluster_cfg.max_nodes {
-        return Err(AppError::BadRequest(format!(
-            "Node count must be between {} and {}",
-            cluster_cfg.min_nodes, cluster_cfg.max_nodes
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.resources.node_count_range",
+            &[
+                ("min", &cluster_cfg.min_nodes.to_string()),
+                ("max", &cluster_cfg.max_nodes.to_string()),
+            ],
         )));
     }
 
@@ -2498,7 +2570,12 @@ pub async fn get_load_balance(
             [&id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?;
 
     // Canonical local server (bootstrap guarantees one row with is_local=1).
     // Used to resolve NULL/empty server_id and any server_id that no longer
@@ -2609,37 +2686,50 @@ pub async fn load_balance(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     if cluster_mode.as_deref() == Some("cluster") {
-        return Err(AppError::Conflict(
-            "Cluster-mode services use /scale instead".into(),
-        ));
+        return Err(AppError::Conflict(crate::i18n::te(
+            "errors.resources.cluster_use_scale",
+        )));
     }
 
     let catalog_id = catalog_id.ok_or_else(|| {
-        AppError::BadRequest("Resource has no catalog_id; LB not supported".into())
+        AppError::BadRequest(crate::i18n::te(
+            "errors.resources.no_catalog_id_lb_unsupported",
+        ))
     })?;
 
     let item = state
         .catalog
         .iter()
         .find(|i| i.meta.id == catalog_id)
-        .ok_or_else(|| AppError::BadRequest(format!("Catalog template '{catalog_id}' not found")))?
+        .ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.resources.catalog_template_not_found",
+                &[("name", &catalog_id)],
+            ))
+        })?
         .clone();
 
     // Reject volume-owning templates (v1: risk of corruption with N writers).
     if !item.volumes.is_empty() {
-        return Err(AppError::Conflict(
-            "Catalog item has named volumes; multi-replica scaling is disabled in v1".into(),
-        ));
+        return Err(AppError::Conflict(crate::i18n::te(
+            "errors.resources.named_volumes_no_multireplica",
+        )));
     }
 
-    let docker = item
-        .docker
-        .as_ref()
-        .ok_or_else(|| AppError::BadRequest("Catalog has no docker section".into()))?;
+    let docker = item.docker.as_ref().ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te(
+            "errors.resources.catalog_no_docker_section",
+        ))
+    })?;
 
     // Pick primary container port (first catalog port, deterministic order).
     let mut port_entries: Vec<(&String, &crate::catalog::PortConfig)> = item.ports.iter().collect();
@@ -2647,7 +2737,9 @@ pub async fn load_balance(
     let (primary_port_name, primary_port) = port_entries
         .first()
         .map(|(k, v)| ((*k).clone(), v.internal))
-        .ok_or_else(|| AppError::BadRequest("Catalog has no ports; LB not applicable".into()))?;
+        .ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te("errors.resources.catalog_no_ports_lb"))
+        })?;
 
     // ── Step 2. Parse & normalize request ─────────────────────────
     let strategy_str = body
@@ -2660,8 +2752,9 @@ pub async fn load_balance(
         "weighted" => crate::proxy::config::LbStrategy::Weighted,
         "sticky" => crate::proxy::config::LbStrategy::Sticky,
         other => {
-            return Err(AppError::BadRequest(format!(
-                "Unknown lb_strategy '{other}' (expected round-robin|weighted|sticky)"
+            return Err(AppError::BadRequest(crate::i18n::te_args(
+                "errors.resources.unknown_lb_strategy",
+                &[("strategy", other)],
             )));
         }
     };
@@ -2679,7 +2772,9 @@ pub async fn load_balance(
     let mut distribution: Vec<LoadBalanceSlot> = if body.distribution.is_empty() {
         let total = body.replicas.unwrap_or(1);
         if total < 1 {
-            return Err(AppError::BadRequest("replicas must be >= 1".into()));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.resources.replicas_min_one",
+            )));
         }
         // Resolve fallback server: services.server_id if it exists, otherwise
         // the canonical local server row. Never use the literal "localhost"
@@ -2715,12 +2810,15 @@ pub async fn load_balance(
     // Drop empty slots and validate
     distribution.retain(|s| s.replicas > 0);
     if distribution.is_empty() {
-        return Err(AppError::BadRequest("No replicas requested".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.no_replicas_requested",
+        )));
     }
     let total_replicas: i64 = distribution.iter().map(|s| s.replicas).sum();
     if total_replicas > LB_MAX_REPLICAS_PER_SERVICE {
-        return Err(AppError::BadRequest(format!(
-            "Max {LB_MAX_REPLICAS_PER_SERVICE} replicas per service"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.resources.max_replicas_per_service",
+            &[("max", &LB_MAX_REPLICAS_PER_SERVICE.to_string())],
         )));
     }
 
@@ -2750,7 +2848,10 @@ pub async fn load_balance(
                     },
                 )
                 .map_err(|_| {
-                    AppError::BadRequest(format!("Server '{}' not found", slot.server_id))
+                    AppError::BadRequest(crate::i18n::te_args(
+                        "errors.resources.server_not_found",
+                        &[("name", &slot.server_id)],
+                    ))
                 })?;
             server_info.insert(slot.server_id.clone(), info);
         }
@@ -3171,7 +3272,7 @@ pub async fn get_git_config(
                 }))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
+        .map_err(|_| AppError::NotFound(crate::i18n::te_args("errors.resources.service_not_found", &[("id", &id)])))?;
 
     Ok(Json(config))
 }
@@ -3226,7 +3327,10 @@ pub async fn update_git_config(
     )?;
 
     if rows == 0 {
-        return Err(AppError::NotFound(format!("Service {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.resources.service_not_found",
+            &[("id", &id)],
+        )));
     }
 
     Ok(Json(serde_json::json!({
@@ -3352,7 +3456,12 @@ pub async fn set_port_public(
             .query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| {
                 row.get(0)
             })
-            .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
+            .map_err(|_| {
+                AppError::NotFound(crate::i18n::te_args(
+                    "errors.resources.service_not_found",
+                    &[("id", &id)],
+                ))
+            })?;
 
         let load_row = |row_id: &str| -> AppResult<PortRowSnapshot> {
             db.query_row(
@@ -3369,7 +3478,12 @@ pub async fn set_port_public(
                     })
                 },
             )
-            .map_err(|_| AppError::NotFound(format!("Port {row_id} not found")))
+            .map_err(|_| {
+                AppError::NotFound(crate::i18n::te_args(
+                    "errors.resources.port_not_found",
+                    &[("id", row_id)],
+                ))
+            })
         };
 
         let rows: Vec<PortRowSnapshot> = match body.port_id.as_deref() {
@@ -3384,11 +3498,16 @@ pub async fn set_port_public(
                 match owner {
                     Some(svc) if svc == id => {}
                     Some(_) => {
-                        return Err(AppError::BadRequest(
-                            "port_id does not belong to this service".into(),
-                        ));
+                        return Err(AppError::BadRequest(crate::i18n::te(
+                            "errors.resources.port_id_wrong_service",
+                        )));
                     }
-                    None => return Err(AppError::NotFound(format!("Port {pid} not found"))),
+                    None => {
+                        return Err(AppError::NotFound(crate::i18n::te_args(
+                            "errors.resources.port_not_found",
+                            &[("id", pid)],
+                        )))
+                    }
                 }
                 vec![load_row(pid)?]
             }
@@ -3404,7 +3523,10 @@ pub async fn set_port_public(
                     collected
                 };
                 if ids.is_empty() {
-                    return Err(AppError::NotFound(format!("No ports for resource {id}")));
+                    return Err(AppError::NotFound(crate::i18n::te_args(
+                        "errors.resources.no_ports_for_resource",
+                        &[("id", &id)],
+                    )));
                 }
                 let mut snapshots: Vec<PortRowSnapshot> = Vec::with_capacity(ids.len());
                 for pid in &ids {
@@ -3560,10 +3682,14 @@ pub async fn set_port_public(
                 .ok();
             if let Some((other_svc, _)) = conflict {
                 let msg = if other_svc == id {
-                    format!("Port {pp} is already publicly exposed by another port of this service")
+                    crate::i18n::te_args(
+                        "errors.resources.port_exposed_by_own_port",
+                        &[("port", &pp.to_string())],
+                    )
                 } else {
-                    format!(
-                        "Port {pp} is already publicly exposed by another service ({other_svc})"
+                    crate::i18n::te_args(
+                        "errors.resources.port_exposed_by_other_service",
+                        &[("port", &pp.to_string()), ("service", &other_svc)],
                     )
                 };
                 return Err(AppError::Conflict(msg));
@@ -3895,7 +4021,12 @@ pub async fn set_network(
                 [&body.network_id],
                 |row| row.get(0),
             )
-            .map_err(|_| AppError::NotFound(format!("Network {} not found", body.network_id)))?;
+            .map_err(|_| {
+                AppError::NotFound(crate::i18n::te_args(
+                    "errors.resources.network_not_found",
+                    &[("name", &body.network_id)],
+                ))
+            })?;
         db.execute(
             "UPDATE services SET network_id = ?1, updated_at = datetime('now') WHERE id = ?2",
             rusqlite::params![body.network_id, id],
@@ -3920,7 +4051,12 @@ pub async fn set_network(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     if let Some(yaml) = yaml {
@@ -4097,9 +4233,9 @@ pub async fn rename(
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(AppError::BadRequest(
-            "Name must contain only lowercase letters, numbers, hyphens".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.name_invalid_chars",
+        )));
     }
 
     let old_name = {
@@ -4110,7 +4246,12 @@ pub async fn rename(
         db.query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| {
             row.get::<_, String>(0)
         })
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.resources.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     if old_name == new_name {
@@ -4147,9 +4288,9 @@ pub async fn rename(
     };
 
     if yaml.is_empty() {
-        return Err(AppError::BadRequest(
-            "No compose content found for this service".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.resources.no_compose_content_for_service",
+        )));
     }
 
     // Replace container_name

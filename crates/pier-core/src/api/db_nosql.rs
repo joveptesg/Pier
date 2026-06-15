@@ -52,7 +52,12 @@ fn service_row(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.db_nosql.resource_not_found",
+                &[("v", id)],
+            ))
+        })?
     };
     let env: HashMap<String, String> =
         serde_json::from_str(&crate::crypto::decrypt_env_json(env_json.as_deref()))
@@ -79,7 +84,7 @@ fn port_lookup(state: &SharedState, id: &str, container_port: i64) -> AppResult<
                 |r| r.get(0),
             )
         })
-        .map_err(|_| AppError::BadRequest("This service has no host port allocated.".into()))?;
+        .map_err(|_| AppError::BadRequest(crate::i18n::te("errors.db_nosql.no_host_port")))?;
     Ok(p as u16)
 }
 
@@ -94,7 +99,9 @@ struct RedisTarget {
 fn redis_target(state: &SharedState, id: &str) -> AppResult<RedisTarget> {
     let (catalog, name, env) = service_row(state, id)?;
     if !matches!(catalog.as_str(), "redis" | "valkey") {
-        return Err(AppError::BadRequest("This is not a Redis service.".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.db_nosql.not_redis_service",
+        )));
     }
     // Valkey stores its password in VALKEY_PASSWORD (its template runs
     // `valkey-server --requirepass {{VALKEY_PASSWORD}}`); fall back to it so the
@@ -113,7 +120,10 @@ fn redis_target(state: &SharedState, id: &str) -> AppResult<RedisTarget> {
 }
 
 fn redis_err(e: redis::RedisError) -> AppError {
-    AppError::BadRequest(format!("Redis error: {e}"))
+    AppError::BadRequest(crate::i18n::te_args(
+        "errors.db_nosql.redis_error",
+        &[("v", &e.to_string())],
+    ))
 }
 
 async fn redis_conn(
@@ -137,12 +147,21 @@ async fn redis_conn(
             urlencoding::encode(&target.password)
         )
     };
-    let client =
-        redis::Client::open(url).map_err(|e| AppError::BadRequest(format!("Redis client: {e}")))?;
+    let client = redis::Client::open(url).map_err(|e| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.db_nosql.redis_client",
+            &[("v", &e.to_string())],
+        ))
+    })?;
     client
         .get_multiplexed_async_connection()
         .await
-        .map_err(|e| AppError::BadRequest(format!("Could not connect to Redis: {e}")))
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.db_nosql.redis_connect_failed",
+                &[("v", &e.to_string())],
+            ))
+        })
 }
 
 /// Convert a Redis reply into JSON for display.
@@ -368,7 +387,9 @@ pub async fn redis_command(
     let dbidx = body.db.unwrap_or(0);
     let args = tokenize(&body.command);
     if args.is_empty() {
-        return Err(AppError::BadRequest("Command is empty".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.db_nosql.command_empty",
+        )));
     }
 
     let started = Instant::now();
@@ -554,9 +575,9 @@ struct MongoTarget {
 fn mongo_target(state: &SharedState, id: &str) -> AppResult<MongoTarget> {
     let (catalog, name, env) = service_row(state, id)?;
     if catalog != "mongodb" {
-        return Err(AppError::BadRequest(
-            "This is not a MongoDB service.".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.db_nosql.not_mongodb_service",
+        )));
     }
     let user = env
         .get("MONGO_INITDB_ROOT_USERNAME")
@@ -615,10 +636,17 @@ async fn mongo_eval_json(
     let script = format!("print('<<PIER<<' + EJSON.stringify({expr}) + '>>PIER>>')");
     let out = mongosh_eval(state, t, &script).await?;
     let json_str = between(&out, "<<PIER<<", ">>PIER>>").ok_or_else(|| {
-        AppError::BadRequest(format!("Unexpected mongosh output: {}", out.trim()))
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.db_nosql.unexpected_mongosh_output",
+            &[("v", out.trim())],
+        ))
     })?;
-    serde_json::from_str(json_str)
-        .map_err(|e| AppError::BadRequest(format!("Could not parse MongoDB output: {e}")))
+    serde_json::from_str(json_str).map_err(|e| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.db_nosql.parse_mongo_output_failed",
+            &[("v", &e.to_string())],
+        ))
+    })
 }
 
 /// GET /api/v1/resources/{id}/db-browser/mongo/databases
@@ -715,7 +743,9 @@ pub async fn mongo_query(
     let t = mongo_target(&state, &id)?;
     let script = body.script.trim().to_string();
     if script.is_empty() {
-        return Err(AppError::BadRequest("Script is empty".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.db_nosql.script_empty",
+        )));
     }
 
     let eval = format!(

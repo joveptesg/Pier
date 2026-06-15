@@ -84,7 +84,10 @@ pub async fn add(
     Json(body): Json<AddMemberRequest>,
 ) -> AppResult<impl IntoResponse> {
     let project_role = ProjectRole::parse(&body.project_role).ok_or_else(|| {
-        AppError::BadRequest(format!("unknown project_role: {}", body.project_role))
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.project_members.unknown_project_role",
+            &[("v", &body.project_role)],
+        ))
     })?;
 
     let resolved_user_id = {
@@ -99,7 +102,9 @@ pub async fn add(
             let exists: Option<String> = db
                 .query_row("SELECT id FROM users WHERE id = ?1", [&uid], |r| r.get(0))
                 .optional()?;
-            exists.ok_or_else(|| AppError::NotFound("user not found".into()))?
+            exists.ok_or_else(|| {
+                AppError::NotFound(crate::i18n::te("errors.project_members.user_not_found"))
+            })?
         } else if let Some(email) = body.email {
             let email_lower = email.to_ascii_lowercase();
             db.query_row(
@@ -108,9 +113,15 @@ pub async fn add(
                 |r| r.get::<_, String>(0),
             )
             .optional()?
-            .ok_or_else(|| AppError::NotFound("user with that email not found".into()))?
+            .ok_or_else(|| {
+                AppError::NotFound(crate::i18n::te(
+                    "errors.project_members.user_with_email_not_found",
+                ))
+            })?
         } else {
-            return Err(AppError::BadRequest("user_id or email is required".into()));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.project_members.user_id_or_email_required",
+            )));
         }
     };
 
@@ -133,9 +144,9 @@ pub async fn add(
             ],
         )?;
         if inserted == 0 {
-            return Err(AppError::Conflict(
-                "user is already a member of this project".into(),
-            ));
+            return Err(AppError::Conflict(crate::i18n::te(
+                "errors.project_members.already_member",
+            )));
         }
     }
 
@@ -169,7 +180,10 @@ pub async fn update_role(
     Json(body): Json<UpdateMemberRequest>,
 ) -> AppResult<impl IntoResponse> {
     let new_role = ProjectRole::parse(&body.project_role).ok_or_else(|| {
-        AppError::BadRequest(format!("unknown project_role: {}", body.project_role))
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.project_members.unknown_project_role",
+            &[("v", &body.project_role)],
+        ))
     })?;
 
     let db = state
@@ -186,16 +200,20 @@ pub async fn update_role(
             |r| r.get(0),
         )
         .optional()?
-        .ok_or_else(|| AppError::NotFound("membership not found".into()))?;
+        .ok_or_else(|| {
+            AppError::NotFound(crate::i18n::te(
+                "errors.project_members.membership_not_found",
+            ))
+        })?;
     let current = ProjectRole::parse(&current_s).unwrap_or(ProjectRole::Viewer);
 
     if current == ProjectRole::Admin && new_role != ProjectRole::Admin {
         let admins = membership::count_admins(&db, &project_id)
             .map_err(|e| anyhow::anyhow!("count admins: {e}"))?;
         if admins <= 1 {
-            return Err(AppError::Conflict(
-                "cannot demote the last Project Admin".into(),
-            ));
+            return Err(AppError::Conflict(crate::i18n::te(
+                "errors.project_members.cannot_demote_last_admin",
+            )));
         }
     }
 
@@ -246,16 +264,18 @@ pub async fn remove(
         )
         .optional()?;
     let Some(current_s) = current_s else {
-        return Err(AppError::NotFound("membership not found".into()));
+        return Err(AppError::NotFound(crate::i18n::te(
+            "errors.project_members.membership_not_found",
+        )));
     };
     let current = ProjectRole::parse(&current_s).unwrap_or(ProjectRole::Viewer);
     if current == ProjectRole::Admin {
         let admins = membership::count_admins(&db, &project_id)
             .map_err(|e| anyhow::anyhow!("count admins: {e}"))?;
         if admins <= 1 {
-            return Err(AppError::Conflict(
-                "cannot remove the last Project Admin".into(),
-            ));
+            return Err(AppError::Conflict(crate::i18n::te(
+                "errors.project_members.cannot_remove_last_admin",
+            )));
         }
     }
 

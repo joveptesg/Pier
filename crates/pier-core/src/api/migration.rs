@@ -149,14 +149,20 @@ pub fn is_stack_stateless(db: &Connection, stack_id: &str) -> AppResult<()> {
             [stack_id],
             |row| row.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Stack {stack_id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.migration.not_found",
+                &[("v", stack_id)],
+            ))
+        })?;
     let yaml = yaml.ok_or_else(|| {
-        AppError::BadRequest("Stack has no compose content; nothing to migrate".into())
+        AppError::BadRequest(crate::i18n::te("errors.migration.no_compose_content"))
     })?;
     match check_stack_stateless(&yaml) {
         StatelessVerdict::Stateless => Ok(()),
-        StatelessVerdict::Stateful(reason) => Err(AppError::BadRequest(format!(
-            "{reason}. Stateful migration is on the roadmap — see FUTURE.md."
+        StatelessVerdict::Stateful(reason) => Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.migration.stateful",
+            &[("v", &reason)],
         ))),
     }
 }
@@ -242,21 +248,27 @@ pub async fn migrate_stack(
                     ))
                 },
             )
-            .map_err(|_| AppError::NotFound(format!("Stack {stack_id} not found")))?;
+            .map_err(|_| {
+                AppError::NotFound(crate::i18n::te_args(
+                    "errors.migration.not_found",
+                    &[("v", &stack_id)],
+                ))
+            })?;
         let (name, yaml, owner) = row;
         if owner.is_some() {
-            return Err(AppError::BadRequest(
-                "Stack is managed by a remote primary; migrate from there instead".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.migration.remote_managed",
+            )));
         }
         let yaml = yaml.ok_or_else(|| {
-            AppError::BadRequest("Stack has no compose content; nothing to migrate".into())
+            AppError::BadRequest(crate::i18n::te("errors.migration.no_compose_content"))
         })?;
         match check_stack_stateless(&yaml) {
             StatelessVerdict::Stateless => {}
             StatelessVerdict::Stateful(reason) => {
-                return Err(AppError::BadRequest(format!(
-                    "{reason}. Stateful migration is on the roadmap — see FUTURE.md."
+                return Err(AppError::BadRequest(crate::i18n::te_args(
+                    "errors.migration.stateful",
+                    &[("v", &reason)],
                 )));
             }
         }
@@ -281,9 +293,9 @@ pub async fn migrate_stack(
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         if !acquire_migration_lock(&db, &stack_id)? {
-            return Err(AppError::Conflict(
-                "Another migration is already in progress for this stack".into(),
-            ));
+            return Err(AppError::Conflict(crate::i18n::te(
+                "errors.migration.already_in_progress",
+            )));
         }
     }
 
@@ -324,8 +336,9 @@ async fn run_migration_pipeline(
     let peer = write_client::lookup_write_peer(state, target_server_id)
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
         .ok_or_else(|| {
-            AppError::BadRequest(format!(
-                "Target {target_server_id} is not paired for federation; set its token in /servers/<id>"
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.migration.target_not_paired",
+                &[("v", target_server_id)],
             ))
         })?;
 
@@ -333,7 +346,12 @@ async fn run_migration_pipeline(
     // create_stack returns {"ok": true, "id": "<uuid>"} from peer.
     let create_resp = write_client::create_stack(&peer, source_name, source_yaml)
         .await
-        .map_err(|e| AppError::BadRequest(format!("target rejected create: {e:#}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.migration.target_rejected_create",
+                &[("v", &format!("{e:#}"))],
+            ))
+        })?;
     let new_stack_id = create_resp
         .get("id")
         .and_then(|v| v.as_str())
@@ -351,8 +369,9 @@ async fn run_migration_pipeline(
         // ghost stacks accumulating. Best-effort; surface the
         // original error if cleanup also fails.
         let _ = write_client::delete_stack(&peer, &new_stack_id).await;
-        return Err(AppError::BadRequest(format!(
-            "target deploy failed (target row rolled back): {e:#}"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.migration.target_deploy_failed",
+            &[("v", &format!("{e:#}"))],
         )));
     }
 

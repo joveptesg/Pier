@@ -2225,6 +2225,296 @@ errors:
     username_required: Username required
     setup_already_completed: Setup already completed
     invalid_credentials: Invalid credentials
+  resources:
+    name_required: Name is required
+    create_without_project_requires_admin: creating resources without a project requires Admin
+    catalog_template_not_found: "Catalog template '%{name}' not found"
+    no_cluster_mode_support: "'%{name}' does not support cluster mode"
+    node_count_range: Node count must be between %{min} and %{max}
+    compose_yaml_required: Docker Compose YAML is required
+    dockerfile_content_required: Dockerfile content is required
+    repository_url_required: Repository URL is required
+    ssh_deploy_key_required: SSH deploy key is required
+    dockerfile_not_found_in_repo: "Dockerfile not found at '%{path}' in repository"
+    source_id_required_for_github_app: source_id is required for GitHub App deploy
+    github_app_source_not_found: GitHub App source %{source_id} not found
+    source_missing_app_id: Source missing app_id
+    source_missing_installation_id: Source missing installation_id
+    source_missing_private_key: Source missing private_key
+    github_app_requires_https: GitHub App requires HTTPS URL
+    resource_not_found: Resource %{id} not found
+    service_has_databases: Service has %{count} database(s). Delete them first.
+    no_compose_content: No compose content found
+    not_a_cluster: Resource is not a cluster
+    catalog_no_cluster_support: Catalog not found or no cluster support
+    cluster_use_scale: Cluster-mode services use /scale instead
+    no_catalog_id_lb_unsupported: Resource has no catalog_id; LB not supported
+    named_volumes_no_multireplica: Catalog item has named volumes; multi-replica scaling is disabled in v1
+    catalog_no_docker_section: Catalog has no docker section
+    catalog_no_ports_lb: Catalog has no ports; LB not applicable
+    unknown_lb_strategy: "Unknown lb_strategy '%{strategy}' (expected round-robin|weighted|sticky)"
+    replicas_min_one: "replicas must be >= 1"
+    no_replicas_requested: No replicas requested
+    max_replicas_per_service: Max %{max} replicas per service
+    server_not_found: "Server '%{name}' not found"
+    service_not_found: Service %{id} not found
+    port_not_found: Port %{id} not found
+    port_id_wrong_service: port_id does not belong to this service
+    no_ports_for_resource: No ports for resource %{id}
+    port_exposed_by_own_port: Port %{port} is already publicly exposed by another port of this service
+    port_exposed_by_other_service: Port %{port} is already publicly exposed by another service (%{service})
+    network_not_found: Network %{name} not found
+    name_invalid_chars: Name must contain only lowercase letters, numbers, hyphens
+    no_compose_content_for_service: No compose content found for this service
+  projects:
+    not_found: Project %{id} not found
+    name_required: Project name is required
+    create_admin_only: only Admin can create projects
+    port_range_both_required: port_range_start and port_range_end must be set together
+    port_range_out_of_bounds: Port range must be within 1024-65535 (got %{start}-%{end})
+    port_range_inverted: Port range start must be <= end (got %{start}-%{end})
+    port_range_overlap: "Port range %{start}-%{end} overlaps with project '%{name}' (%{other_start}-%{other_end})"
+    port_range_narrow_conflict: "Cannot narrow port range to %{start}-%{end}: services using ports outside new range [%{services}]"
+    has_services: Project has %{count} service(s). Delete them first.
+  servers:
+    name_required: Name is required
+    host_required_for_agent: host is required for agent
+    url_required_for_peer: url is required for peer
+    url_must_be_http: "url must start with http:// or https://"
+    api_token_required_for_peer: api_token is required for peer
+    unknown_kind_expected: "unknown kind '%{kind}' — expected 'agent' or 'peer'"
+    unknown_kind: "unknown kind '%{kind}'"
+    rotate_agent_only: rotate is only valid for kind='agent' servers
+    local_no_token_to_rotate: the local server has no remote agent_token to rotate
+    no_active_token: server has no active agent_token yet (bootstrap pending?)
+    agent_unreachable_at: "agent unreachable at %{url}: %{error}"
+    agent_refused_rotation: "agent refused rotation (%{status}): %{body}"
+    bootstrap_token_required: bootstrap_token required
+    server_not_found_or_local: Server not found or is local (cannot delete)
+    cannot_connect_agent_at: "Cannot connect to agent at %{url}: %{error}"
+    agent_responded_status: "Agent responded with status: %{status}"
+    agent_unreachable: "Agent unreachable: %{error}"
+    peer_not_found: Peer %{id} not found
+    peer_not_found_federation: Peer %{id} not found (federation tokens are only valid for kind='peer')
+    server_not_found: Server %{id} not found
+    body_read_failed: "body read: %{error}"
+    peer_unreachable: "peer unreachable: %{error}"
+    stack_name_required: stack_name required
+    compose_yaml_required: compose_yaml required
+    token_param_required: token parameter required
+    id_param_required: id parameter required
+  databases:
+    resource_not_found: Resource %{id} not found
+    management_unsupported_engine: Database management only supported for PostgreSQL, MySQL, and MongoDB
+    credentials_required: Database name, username, and password are required
+    invalid_name_chars: Names may only contain letters, numbers, and underscores
+    unsupported_type: Unsupported database type
+    cannot_delete_system: Cannot delete system databases
+    password_required: Password is required
+    owner_not_found: Could not find owner for database %{name}
+    container_not_found: "Container '%{name}' not found. Make sure the service is running."
+  domains:
+    domain_required: Domain is required
+    domain_not_found: Domain %{name} not found
+    service_not_found: Service %{name} not found
+    already_registered: Domain %{name} is already registered
+    row_already_uses: Another domain row already uses %{name}
+    no_port_for_compose_service: "Service %{name} has no port assigned for compose service '%{service}'"
+  federation:
+    peer_not_paired: "peer %{server_id} is not paired for federation — set its token in /servers/<id>"
+    name_and_yaml_required: name and yaml are required
+    peer_rejected_create: "peer rejected create: %{error}"
+    peer_rejected_deploy: "peer rejected deploy: %{error}"
+    peer_rejected_down: "peer rejected down: %{error}"
+    peer_rejected_restart: "peer rejected restart: %{error}"
+    peer_rejected_logs: "peer rejected logs: %{error}"
+    peer_rejected_release: "peer rejected release: %{error}"
+  npm:
+    missing_name: Missing name
+    missing_password: Missing password
+    tarball_extension: Tarball must end in .tgz
+    malformed_tarball: Malformed tarball name
+    package_not_found: package %{name}
+    version_not_found: "%{name}@%{version}"
+    tarball_not_found: "%{name}/%{tarball}"
+    tarball_version_not_found: "%{name}-%{version}"
+    invalid_json: "invalid json: %{error}"
+    missing_versions: missing versions
+    single_version_required: publish must contain exactly one version
+    empty_versions: empty versions
+    missing_attachments: missing _attachments
+    no_attachments: no _attachments
+    empty_attachments: empty _attachments
+    attachment_missing_data: attachment missing data
+    base64_decode: "base64 decode: %{error}"
+    attachment_name_mismatch: "attachment name '%{actual}' does not match expected '%{expected_short}' or '%{expected_full}'"
+    integrity_mismatch: tarball integrity does not match dist.integrity
+    manifest_not_object: manifest is not an object
+    already_published: "%{name}@%{version} already published"
+    dist_tag_not_found: dist-tag %{tag}
+    nothing_to_deprecate: nothing to deprecate
+    body_not_utf8: body not utf-8
+    missing_version_body: missing version in body
+    invalid_package_name: invalid package name
+    scoped_missing_name: scoped package missing /name
+    invalid_scoped_name: invalid scoped package name
+    unscoped_has_slash: unscoped package cannot contain /
+  backups:
+    s3_storage_required: S3 storage is required
+    resource_not_found: Resource %{id} not found
+    backup_not_supported: backup not supported for %{catalog}
+    per_db_backup_not_supported: per-database backup not supported for %{catalog}
+    no_schedule_configured: No backup schedule configured. Configure one first.
+    backup_not_found: Backup %{id} not found
+    backup_not_found_simple: Backup not found
+    backup_not_completed: Backup not found or not completed
+    target_database_name_required: target_database_name is required
+    per_db_restore_not_supported: per-DB restore not supported for %{catalog}
+    backup_db_mismatch: "backup contains DB '%{backup_db}', refusing to restore into '%{target_db}' — pick a backup for the same DB or use a cluster-wide backup"
+    database_name_required: database name is required
+    multipart_read_error: "multipart read error: %{error}"
+    file_read_error: "file read error: %{error}"
+    multipart_missing_file: "multipart missing 'file' field"
+    uploaded_file_no_name: uploaded file has no name — cannot detect backup format from extension
+    service_not_found: Service %{id} not found
+    database_does_not_exist: "database '%{name}' does not exist on this service — create it on the Databases tab first"
+    unrecognized_file_extension: "unrecognized backup file extension in '%{filename}'. Accepted: .dump, .sql, .sql.gz, .tar, .tar.gz, .archive, .archive.gz"
+    file_not_compatible: "backup file '%{filename}' is not compatible with a %{catalog} database"
+  alerts:
+    rule_not_found: Alert %{id} not found
+    channel_config_invalid: "channel_config: %{error}"
+    delivery_failed: "Delivery failed: %{error}"
+    invalid_metric: "Invalid metric: %{value}"
+    invalid_comparison: "Invalid comparison: %{value}"
+    invalid_severity: "Invalid severity: %{value}"
+    unsupported_channel: "Unsupported channel: %{value}"
+    unknown_driver: "Unknown driver: %{value}"
+    telegram_requires_credentials: bot_token and chat_id are required before enabling Telegram
+    telegram_not_configured: Telegram is not configured
+    email_requires_credentials: Fill driver credentials and from/to addresses before enabling
+    email_addresses_required: from_address and to_address are required
+    discord_requires_webhook: webhook_url is required before enabling Discord
+    discord_not_configured: Discord is not configured
+    slack_requires_webhook: webhook_url is required before enabling Slack
+    slack_not_configured: Slack is not configured
+  sources:
+    name_and_url_required: Name and URL are required
+    source_not_found: Source %{name} not found
+    missing_app_id: Missing app_id
+    missing_installation_id: Missing installation_id
+    missing_private_key: Missing private_key
+    fetch_repos_failed: "Failed to fetch repos: %{error}"
+    list_branches_failed: "Failed to list branches: %{error}"
+    platform_domain_required: Configure a platform domain in Proxy settings first for GitHub App OAuth flow
+    repo_required: repo is required
+  dependencies:
+    target_required: depends_on_service_id is required
+    self_dependency: a service cannot depend on itself
+    service_not_found: Service %{id} not found
+    target_not_found: target service not found
+    cross_project: dependency must be within the same project
+    cycle: that edge would create a dependency cycle
+    already_exists: dependency already exists
+    dependency_not_found: Dependency %{id} not found
+  users:
+    valid_email_required: valid email required
+    owner_role_not_via_invitation: Owner role cannot be granted via invitation
+    unknown_role: "unknown role: %{name}"
+    only_owner_can_invite_admins: only Owner can invite new Admins
+    active_invitation_exists: an active invitation already exists for this email
+    use_account_endpoints: use /account endpoints to edit yourself
+    user_not_found: user not found
+    only_owner_can_edit_owner: only Owner can edit the Owner
+    cannot_delete_yourself: cannot delete yourself
+    cannot_delete_last_owner: cannot delete the last active Owner
+    only_owner_can_delete_owner: only Owner can delete an Owner
+    only_owner_can_delete_admins: only Owner can delete other Admins
+    cannot_demote_last_owner: cannot demote the last active Owner
+  # Git push webhook receivers (api/webhooks.rs).
+  webhooks:
+    missing_repo_or_sha: Missing repo URL or commit SHA
+  # NoSQL data browser (api/db_nosql.rs) — Redis/Valkey & MongoDB.
+  db_nosql:
+    resource_not_found: Resource %{v} not found
+    no_host_port: This service has no host port allocated.
+    not_redis_service: This is not a Redis service.
+    redis_error: "Redis error: %{v}"
+    redis_client: "Redis client: %{v}"
+    redis_connect_failed: "Could not connect to Redis: %{v}"
+    command_empty: Command is empty
+    not_mongodb_service: This is not a MongoDB service.
+    unexpected_mongosh_output: "Unexpected mongosh output: %{v}"
+    parse_mongo_output_failed: "Could not parse MongoDB output: %{v}"
+    script_empty: Script is empty
+  # Account tab: profile, password change, sessions, 2FA (api/account.rs).
+  account:
+    new_password_must_differ: New password must differ from current
+    cannot_revoke_current_session: "Cannot revoke your current session — use /logout instead"
+    session_not_found: Session %{v} not found
+    two_fa_already_enabled: "2FA already enabled — disable first to re-enroll"
+    two_fa_code_mismatch: "Code did not match — check the time on your device and try again"
+    two_fa_not_enabled: 2FA is not enabled
+  # Embedded npm registry settings & upstream proxy (api/registry_settings.rs).
+  registry_settings:
+    s3_storage_not_found: "s3 storage '%{v}' not found"
+    proxy_upstream_url_empty: proxy_upstream_url cannot be empty
+    proxy_upstream_url_scheme: "proxy_upstream_url must start with http:// or https://"
+    no_latest_dist_tag: "no 'latest' dist-tag for package"
+    no_upstream_url_cached: "%{v}: no upstream URL cached"
+    upstream_proxy_disabled: upstream proxy is disabled in settings
+    upstream_404: "upstream 404 for %{v}"
+  db_browser:
+    query_failed: "Query failed: %{v}"
+    resource_not_found: Resource %{v} not found
+    unsupported_engine: "The data browser supports PostgreSQL and MySQL/MariaDB. MongoDB and Redis are coming in a later phase."
+    no_host_port: "This %{v} service has no host port allocated, so the panel can't reach it."
+    connect_failed: "Could not connect to %{engine} at %{host}:%{port}: %{err}"
+    table_not_found: Table %{schema}.%{table} not found
+    schema_required: schema is required
+    table_required: table is required
+    no_primary_key: "This table has no primary key, so rows can't be edited safely."
+    pk_mismatch: "The row key must match the table's primary key columns."
+    unknown_column: Unknown column %{v}
+    no_values: No values provided.
+    empty_sql: SQL statement is empty
+    unnamed_columns: "Result has unnamed or duplicate columns. Add explicit column aliases to view it in the grid."
+  migration:
+    not_found: Stack %{v} not found
+    no_compose_content: Stack has no compose content; nothing to migrate
+    stateful: "%{v}. Stateful migration is on the roadmap — see FUTURE.md."
+    remote_managed: Stack is managed by a remote primary; migrate from there instead
+    already_in_progress: Another migration is already in progress for this stack
+    target_not_paired: "Target %{v} is not paired for federation; set its token in /servers/<id>"
+    target_rejected_create: "target rejected create: %{v}"
+    target_deploy_failed: "target deploy failed (target row rolled back): %{v}"
+  project_members:
+    unknown_project_role: "unknown project_role: %{v}"
+    user_not_found: user not found
+    user_with_email_not_found: user with that email not found
+    user_id_or_email_required: user_id or email is required
+    already_member: user is already a member of this project
+    membership_not_found: membership not found
+    cannot_demote_last_admin: cannot demote the last Project Admin
+    cannot_remove_last_admin: cannot remove the last Project Admin
+  service_dns:
+    name_refers_to_server: "name '%{v}' already refers to a server (%{v}.mesh); pick a different label"
+    name_already_registered: "name '%{v}' is already registered"
+    server_id_not_found: "server_id '%{v}' does not exist"
+    mapping_not_found: "service-DNS mapping '%{v}' not found"
+    name_length: name must be 1..=31 characters
+    name_must_start: name must start with [a-z0-9]
+    name_must_end: name must end with [a-z0-9]
+    name_invalid_chars: "name may only contain lowercase letters, digits, and '-'"
+    port_range: port must be in 1..=65535
+  schedules:
+    unknown_action_type: "Unknown action_type '%{v}'"
+    name_required: Name is required
+    not_found: Schedule not found
+    system_no_delete: System schedules can be disabled but not deleted
+  compose:
+    name_and_yaml_required: Name and YAML are required
+    stack_no_yaml: Stack has no YAML content
+    stack_not_found: Stack %{id} not found
 
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and

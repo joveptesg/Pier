@@ -92,9 +92,9 @@ pub async fn github(
     let commit_message = payload["head_commit"]["message"].as_str().unwrap_or("push");
 
     if repo_url.is_empty() || commit_sha.is_empty() {
-        return Err(AppError::BadRequest(
-            "Missing repo URL or commit SHA".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.webhooks.missing_repo_or_sha",
+        )));
     }
 
     let changed_from_payload = changed_paths_from_github(&payload);
@@ -157,9 +157,9 @@ pub async fn gitlab(
         .unwrap_or("push");
 
     if repo_url.is_empty() || commit_sha.is_empty() {
-        return Err(AppError::BadRequest(
-            "Missing repo URL or commit SHA".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.webhooks.missing_repo_or_sha",
+        )));
     }
 
     let changed_from_payload = changed_paths_from_gitlab(&payload);

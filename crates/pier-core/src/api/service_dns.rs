@@ -106,8 +106,9 @@ pub async fn create(
         .optional()?
         .is_some();
     if server_name_exists {
-        return Err(AppError::Conflict(format!(
-            "name '{name}' already refers to a server ({name}.mesh); pick a different label"
+        return Err(AppError::Conflict(crate::i18n::te_args(
+            "errors.service_dns.name_refers_to_server",
+            &[("v", &name)],
         )));
     }
 
@@ -140,13 +141,14 @@ pub async fn create(
                 .optional()?
                 .is_some();
             if name_taken {
-                Err(AppError::Conflict(format!(
-                    "name '{name}' is already registered"
+                Err(AppError::Conflict(crate::i18n::te_args(
+                    "errors.service_dns.name_already_registered",
+                    &[("v", &name)],
                 )))
             } else {
-                Err(AppError::BadRequest(format!(
-                    "server_id '{}' does not exist",
-                    body.server_id
+                Err(AppError::BadRequest(crate::i18n::te_args(
+                    "errors.service_dns.server_id_not_found",
+                    &[("v", &body.server_id)],
                 )))
             }
         }
@@ -181,8 +183,9 @@ pub async fn update(
         ],
     )?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!(
-            "service-DNS mapping '{name}' not found"
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.service_dns.mapping_not_found",
+            &[("v", &name)],
         )));
     }
     drop(db);
@@ -206,8 +209,9 @@ pub async fn remove(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let rows = db.execute("DELETE FROM service_dns WHERE name = ?1", [&name])?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!(
-            "service-DNS mapping '{name}' not found"
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.service_dns.mapping_not_found",
+            &[("v", &name)],
         )));
     }
     drop(db);
@@ -226,33 +230,39 @@ pub async fn remove(
 /// limit when combined with any operator-prefixing in future versions.
 pub fn validate_name(name: &str) -> AppResult<()> {
     if name.is_empty() || name.len() > 31 {
-        return Err(AppError::BadRequest(
-            "name must be 1..=31 characters".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.service_dns.name_length",
+        )));
     }
     let bytes = name.as_bytes();
     let first = bytes[0];
     let last = bytes[bytes.len() - 1];
     if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
-        return Err(AppError::BadRequest("name must start with [a-z0-9]".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.service_dns.name_must_start",
+        )));
     }
     if !last.is_ascii_lowercase() && !last.is_ascii_digit() {
-        return Err(AppError::BadRequest("name must end with [a-z0-9]".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.service_dns.name_must_end",
+        )));
     }
     if !bytes
         .iter()
         .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
     {
-        return Err(AppError::BadRequest(
-            "name may only contain lowercase letters, digits, and '-'".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.service_dns.name_invalid_chars",
+        )));
     }
     Ok(())
 }
 
 fn validate_port(port: i64) -> AppResult<()> {
     if !(1..=65535).contains(&port) {
-        return Err(AppError::BadRequest("port must be in 1..=65535".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.service_dns.port_range",
+        )));
     }
     Ok(())
 }

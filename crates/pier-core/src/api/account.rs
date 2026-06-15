@@ -112,9 +112,9 @@ pub async fn change_password(
 
     // Block "rotating" to the same password — defeats the point of a change.
     if password::verify_password(&body.new_password, &current_hash)? {
-        return Err(AppError::BadRequest(
-            "New password must differ from current".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.account.new_password_must_differ",
+        )));
     }
 
     let new_hash = password::hash_password(&body.new_password)?;
@@ -210,9 +210,9 @@ pub async fn revoke_session(
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
     if id == user.session_id {
-        return Err(AppError::BadRequest(
-            "Cannot revoke your current session — use /logout instead".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.account.cannot_revoke_current_session",
+        )));
     }
 
     let rows = {
@@ -228,7 +228,10 @@ pub async fn revoke_session(
     };
 
     if rows == 0 {
-        return Err(AppError::NotFound(format!("Session {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.account.session_not_found",
+            &[("v", id.as_str())],
+        )));
     }
 
     audit::log(
@@ -340,9 +343,9 @@ pub async fn two_fa_setup(
         )? == 1
     };
     if already_enabled {
-        return Err(AppError::Conflict(
-            "2FA already enabled — disable first to re-enroll".into(),
-        ));
+        return Err(AppError::Conflict(crate::i18n::te(
+            "errors.account.two_fa_already_enabled",
+        )));
     }
 
     let secret = totp::generate_secret();
@@ -377,9 +380,9 @@ pub async fn two_fa_verify(
     if !totp::check(&body.secret, &user.username, body.code.trim())
         .map_err(|e| AppError::Internal(anyhow::anyhow!("totp check: {e}")))?
     {
-        return Err(AppError::BadRequest(
-            "Code did not match — check the time on your device and try again".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.account.two_fa_code_mismatch",
+        )));
     }
 
     let key = crypto::get_secret_key();
@@ -434,7 +437,9 @@ pub async fn two_fa_disable(
         )?
     };
     let Some(enc) = totp_secret_enc else {
-        return Err(AppError::BadRequest("2FA is not enabled".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.account.two_fa_not_enabled",
+        )));
     };
 
     let key = crypto::get_secret_key();

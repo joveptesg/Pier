@@ -81,22 +81,29 @@ pub async fn invite(
 ) -> AppResult<impl IntoResponse> {
     let email = body.email.trim().to_ascii_lowercase();
     if email.is_empty() || !email.contains('@') {
-        return Err(AppError::BadRequest("valid email required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.users.valid_email_required",
+        )));
     }
     let default_global_role = match body.global_role.as_deref() {
         None | Some("user") => "user",
         Some("admin") => "admin",
         Some("owner") => {
-            return Err(AppError::BadRequest(
-                "Owner role cannot be granted via invitation".into(),
-            ))
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.users.owner_role_not_via_invitation",
+            )))
         }
-        Some(other) => return Err(AppError::BadRequest(format!("unknown role: {other}"))),
+        Some(other) => {
+            return Err(AppError::BadRequest(crate::i18n::te_args(
+                "errors.users.unknown_role",
+                &[("name", other)],
+            )))
+        }
     };
     if default_global_role == "admin" && actor.global_role != GlobalRole::Owner {
-        return Err(AppError::Forbidden(
-            "only Owner can invite new Admins".into(),
-        ));
+        return Err(AppError::Forbidden(crate::i18n::te(
+            "errors.users.only_owner_can_invite_admins",
+        )));
     }
     let ttl_hours = body.ttl_hours.unwrap_or(48).clamp(1, 168);
 
@@ -125,9 +132,9 @@ pub async fn invite(
             )
             .optional()?;
         if active.is_some() {
-            return Err(AppError::Conflict(
-                "an active invitation already exists for this email".into(),
-            ));
+            return Err(AppError::Conflict(crate::i18n::te(
+                "errors.users.active_invitation_exists",
+            )));
         }
         db.execute(
             "INSERT INTO user_invitations
@@ -181,9 +188,9 @@ pub async fn update(
     Json(body): Json<UpdateUserRequest>,
 ) -> AppResult<impl IntoResponse> {
     if target_id == actor.id {
-        return Err(AppError::BadRequest(
-            "use /account endpoints to edit yourself".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.users.use_account_endpoints",
+        )));
     }
     let db = state
         .db
@@ -196,10 +203,12 @@ pub async fn update(
             |r| r.get(0),
         )
         .optional()?
-        .ok_or_else(|| AppError::NotFound("user not found".into()))?;
+        .ok_or_else(|| AppError::NotFound(crate::i18n::te("errors.users.user_not_found")))?;
     let target_role = GlobalRole::parse(&target_role).unwrap_or(GlobalRole::User);
     if target_role == GlobalRole::Owner && actor.global_role != GlobalRole::Owner {
-        return Err(AppError::Forbidden("only Owner can edit the Owner".into()));
+        return Err(AppError::Forbidden(crate::i18n::te(
+            "errors.users.only_owner_can_edit_owner",
+        )));
     }
 
     if let Some(username) = body.username {
@@ -251,7 +260,9 @@ pub async fn remove(
     Path(target_id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
     if target_id == actor.id {
-        return Err(AppError::BadRequest("cannot delete yourself".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.users.cannot_delete_yourself",
+        )));
     }
     let db = state
         .db
@@ -264,7 +275,7 @@ pub async fn remove(
             |r| r.get(0),
         )
         .optional()?
-        .ok_or_else(|| AppError::NotFound("user not found".into()))?;
+        .ok_or_else(|| AppError::NotFound(crate::i18n::te("errors.users.user_not_found")))?;
     let target_role = GlobalRole::parse(&target_role_s).unwrap_or(GlobalRole::User);
 
     if target_role == GlobalRole::Owner {
@@ -274,17 +285,19 @@ pub async fn remove(
             |r| r.get(0),
         )?;
         if owners <= 1 {
-            return Err(AppError::Conflict(
-                "cannot delete the last active Owner".into(),
-            ));
+            return Err(AppError::Conflict(crate::i18n::te(
+                "errors.users.cannot_delete_last_owner",
+            )));
         }
         if actor.global_role != GlobalRole::Owner {
-            return Err(AppError::Forbidden("only Owner can delete an Owner".into()));
+            return Err(AppError::Forbidden(crate::i18n::te(
+                "errors.users.only_owner_can_delete_owner",
+            )));
         }
     } else if target_role == GlobalRole::Admin && actor.global_role != GlobalRole::Owner {
-        return Err(AppError::Forbidden(
-            "only Owner can delete other Admins".into(),
-        ));
+        return Err(AppError::Forbidden(crate::i18n::te(
+            "errors.users.only_owner_can_delete_admins",
+        )));
     }
 
     db.execute("DELETE FROM users WHERE id = ?1", [&target_id])?;
@@ -313,8 +326,12 @@ pub async fn change_role(
     Path(target_id): Path<String>,
     Json(body): Json<ChangeRoleRequest>,
 ) -> AppResult<impl IntoResponse> {
-    let new_role = GlobalRole::parse(&body.global_role)
-        .ok_or_else(|| AppError::BadRequest(format!("unknown role: {}", body.global_role)))?;
+    let new_role = GlobalRole::parse(&body.global_role).ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.users.unknown_role",
+            &[("name", &body.global_role)],
+        ))
+    })?;
 
     let db = state
         .db
@@ -327,7 +344,7 @@ pub async fn change_role(
             |r| r.get(0),
         )
         .optional()?
-        .ok_or_else(|| AppError::NotFound("user not found".into()))?;
+        .ok_or_else(|| AppError::NotFound(crate::i18n::te("errors.users.user_not_found")))?;
     let current = GlobalRole::parse(&current_s).unwrap_or(GlobalRole::User);
     if current == new_role {
         return Ok(Json(
@@ -345,9 +362,9 @@ pub async fn change_role(
             |r| r.get(0),
         )?;
         if owners <= 1 {
-            return Err(AppError::Conflict(
-                "cannot demote the last active Owner".into(),
-            ));
+            return Err(AppError::Conflict(crate::i18n::te(
+                "errors.users.cannot_demote_last_owner",
+            )));
         }
     }
 

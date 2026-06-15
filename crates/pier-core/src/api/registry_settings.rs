@@ -100,8 +100,9 @@ pub async fn update(
             })
             .unwrap_or(false);
         if !exists {
-            return Err(crate::error::AppError::BadRequest(format!(
-                "s3 storage '{id}' not found"
+            return Err(crate::error::AppError::BadRequest(crate::i18n::te_args(
+                "errors.registry_settings.s3_storage_not_found",
+                &[("v", id)],
             )));
         }
     }
@@ -126,14 +127,14 @@ pub async fn update(
     if let Some(url) = body.proxy_upstream_url.as_deref() {
         let trimmed = url.trim().trim_end_matches('/');
         if trimmed.is_empty() {
-            return Err(crate::error::AppError::BadRequest(
-                "proxy_upstream_url cannot be empty".into(),
-            ));
+            return Err(crate::error::AppError::BadRequest(crate::i18n::te(
+                "errors.registry_settings.proxy_upstream_url_empty",
+            )));
         }
         if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
-            return Err(crate::error::AppError::BadRequest(
-                "proxy_upstream_url must start with http:// or https://".into(),
-            ));
+            return Err(crate::error::AppError::BadRequest(crate::i18n::te(
+                "errors.registry_settings.proxy_upstream_url_scheme",
+            )));
         }
         upstream::put_setting(&db, upstream::SETTING_UPSTREAM_URL, trimmed)?;
     }
@@ -212,9 +213,11 @@ pub async fn proxy_fetch_version(
                 .lock()
                 .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
             let tags = regdb::load_dist_tags(&db, &name)?.unwrap_or_default();
-            tags.get("latest")
-                .cloned()
-                .ok_or_else(|| AppError::BadRequest("no 'latest' dist-tag for package".into()))?
+            tags.get("latest").cloned().ok_or_else(|| {
+                AppError::BadRequest(crate::i18n::te(
+                    "errors.registry_settings.no_latest_dist_tag",
+                ))
+            })?
         }
     };
 
@@ -229,7 +232,10 @@ pub async fn proxy_fetch_version(
             .filter(|ps| ps.is_proxy)
             .and_then(|ps| ps.upstream_tarball_url)
             .ok_or_else(|| {
-                AppError::NotFound(format!("{name}@{version}: no upstream URL cached"))
+                AppError::NotFound(crate::i18n::te_args(
+                    "errors.registry_settings.no_upstream_url_cached",
+                    &[("v", &format!("{name}@{version}"))],
+                ))
             })?
     };
 
@@ -243,15 +249,20 @@ pub async fn proxy_fetch_version(
         upstream::load_config(&db)
     };
     if !cfg.enabled {
-        return Err(AppError::BadRequest(
-            "upstream proxy is disabled in settings".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.registry_settings.upstream_proxy_disabled",
+        )));
     }
 
     let resp = upstream::fetch_tarball(&upstream_url)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("upstream fetch: {e}")))?
-        .ok_or_else(|| AppError::NotFound(format!("upstream 404 for {name}@{version}")))?;
+        .ok_or_else(|| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.registry_settings.upstream_404",
+                &[("v", &format!("{name}@{version}"))],
+            ))
+        })?;
     let bytes = resp
         .bytes()
         .await

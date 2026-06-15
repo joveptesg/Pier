@@ -116,7 +116,9 @@ pub async fn create(
 ) -> AppResult<impl IntoResponse> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(AppError::BadRequest("Name is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.servers.name_required",
+        )));
     }
     let id = uuid::Uuid::new_v4().to_string();
 
@@ -130,7 +132,9 @@ pub async fn create(
                 .as_deref()
                 .map(crate::network::address::normalize_host)
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| AppError::BadRequest("host is required for agent".into()))?;
+                .ok_or_else(|| {
+                    AppError::BadRequest(crate::i18n::te("errors.servers.host_required_for_agent"))
+                })?;
             // Issue a short-lived bootstrap token. The long-term agent_token is
             // minted by /handshake on first contact from the agent and is the
             // only credential that ever leaves the install command.
@@ -180,19 +184,25 @@ pub async fn create(
                 .as_deref()
                 .map(|s| s.trim().trim_end_matches('/'))
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| AppError::BadRequest("url is required for peer".into()))?
+                .ok_or_else(|| {
+                    AppError::BadRequest(crate::i18n::te("errors.servers.url_required_for_peer"))
+                })?
                 .to_string();
             if !url.starts_with("http://") && !url.starts_with("https://") {
-                return Err(AppError::BadRequest(
-                    "url must start with http:// or https://".into(),
-                ));
+                return Err(AppError::BadRequest(crate::i18n::te(
+                    "errors.servers.url_must_be_http",
+                )));
             }
             let token = body
                 .api_token
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| AppError::BadRequest("api_token is required for peer".into()))?
+                .ok_or_else(|| {
+                    AppError::BadRequest(crate::i18n::te(
+                        "errors.servers.api_token_required_for_peer",
+                    ))
+                })?
                 .to_string();
             {
                 let db = state
@@ -213,8 +223,9 @@ pub async fn create(
                 "kind": "peer",
             })))
         }
-        other => Err(AppError::BadRequest(format!(
-            "unknown kind '{other}' — expected 'agent' or 'peer'"
+        other => Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.servers.unknown_kind_expected",
+            &[("kind", other)],
         ))),
     }
 }
@@ -272,19 +283,19 @@ pub async fn rotate_token_internal(state: &SharedState, id: &str) -> AppResult<R
     // user-issued grant token that this endpoint doesn't own.
     let (host, port, current_token, is_local, kind) = get_server_info(state, id)?;
     if kind != KIND_AGENT {
-        return Err(AppError::BadRequest(
-            "rotate is only valid for kind='agent' servers".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.servers.rotate_agent_only",
+        )));
     }
     if is_local {
-        return Err(AppError::BadRequest(
-            "the local server has no remote agent_token to rotate".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.servers.local_no_token_to_rotate",
+        )));
     }
     if current_token.is_empty() {
-        return Err(AppError::BadRequest(
-            "server has no active agent_token yet (bootstrap pending?)".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.servers.no_active_token",
+        )));
     }
 
     // Mint the new token. Hash now so we never write the plaintext
@@ -310,13 +321,19 @@ pub async fn rotate_token_internal(state: &SharedState, id: &str) -> AppResult<R
         .json(&serde_json::json!({"new_token": next.plaintext}))
         .send()
         .await
-        .map_err(|e| AppError::BadRequest(format!("agent unreachable at {url}: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.servers.agent_unreachable_at",
+                &[("url", &url), ("error", &e.to_string())],
+            ))
+        })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::BadRequest(format!(
-            "agent refused rotation ({status}): {body}"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.servers.agent_refused_rotation",
+            &[("status", &status.to_string()), ("body", &body)],
         )));
     }
 
@@ -378,7 +395,9 @@ pub async fn handshake(
 ) -> AppResult<impl IntoResponse> {
     let bootstrap = body.bootstrap_token.trim();
     if bootstrap.is_empty() {
-        return Err(AppError::BadRequest("bootstrap_token required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.servers.bootstrap_token_required",
+        )));
     }
 
     let now = chrono::Utc::now().timestamp();
@@ -484,9 +503,9 @@ pub async fn remove(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let rows = db.execute("DELETE FROM servers WHERE id = ?1 AND is_local = 0", [&id])?;
     if rows == 0 {
-        return Err(AppError::BadRequest(
-            "Server not found or is local (cannot delete)".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.servers.server_not_found_or_local",
+        )));
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -520,7 +539,10 @@ pub async fn test_connection(
                 .send()
                 .await
                 .map_err(|e| {
-                    AppError::BadRequest(format!("Cannot connect to agent at {url}: {e}"))
+                    AppError::BadRequest(crate::i18n::te_args(
+                        "errors.servers.cannot_connect_agent_at",
+                        &[("url", &url), ("error", &e.to_string())],
+                    ))
                 })?;
             if resp.status().is_success() {
                 let db = state
@@ -536,16 +558,19 @@ pub async fn test_connection(
                     serde_json::json!({"ok": true, "kind": "agent", "message": "Agent is online"}),
                 ))
             } else {
-                Err(AppError::BadRequest(format!(
-                    "Agent responded with status: {}",
-                    resp.status()
+                Err(AppError::BadRequest(crate::i18n::te_args(
+                    "errors.servers.agent_responded_status",
+                    &[("status", &resp.status().to_string())],
                 )))
             }
         }
         KIND_LOCAL => Ok(Json(
             serde_json::json!({"ok": true, "kind": "local", "message": "Local core"}),
         )),
-        other => Err(AppError::BadRequest(format!("unknown kind '{other}'"))),
+        other => Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.servers.unknown_kind",
+            &[("kind", other)],
+        ))),
     }
 }
 
@@ -567,7 +592,12 @@ pub(crate) async fn probe_peer(state: &SharedState, id: &str) -> AppResult<serde
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Peer {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.servers.peer_not_found",
+                &[("id", id)],
+            ))
+        })?
     };
 
     let client = reqwest::Client::builder()
@@ -661,7 +691,12 @@ pub async fn proxy(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Peer {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.servers.peer_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let method = req.method().clone();
@@ -686,7 +721,12 @@ pub async fn proxy(
 
     let body_bytes = axum::body::to_bytes(req.into_body(), 32 * 1024 * 1024)
         .await
-        .map_err(|e| AppError::BadRequest(format!("body read: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.servers.body_read_failed",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
@@ -710,7 +750,12 @@ pub async fn proxy(
         .body(body_bytes.to_vec())
         .send()
         .await
-        .map_err(|e| AppError::BadRequest(format!("peer unreachable: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.servers.peer_unreachable",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
     let status =
         StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
@@ -785,7 +830,12 @@ fn get_server_kind(state: &SharedState, id: &str) -> AppResult<String> {
     db.query_row("SELECT kind FROM servers WHERE id = ?1", [id], |row| {
         row.get::<_, String>(0)
     })
-    .map_err(|_| AppError::NotFound(format!("Server {id} not found")))
+    .map_err(|_| {
+        AppError::NotFound(crate::i18n::te_args(
+            "errors.servers.server_not_found",
+            &[("id", id)],
+        ))
+    })
 }
 
 /// GET /api/v1/servers/{id}/metrics
@@ -809,7 +859,12 @@ pub async fn metrics(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Server {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.servers.server_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let url = format!("http://{}:{}/metrics", host, port);
@@ -823,7 +878,12 @@ pub async fn metrics(
         .header("Authorization", format!("Bearer {agent_token}"))
         .send()
         .await
-        .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.servers.agent_unreachable",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
     let data: serde_json::Value = resp
         .json()
@@ -1011,8 +1071,9 @@ pub async fn set_federation_token(
         rusqlite::params![store_value, id],
     )?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!(
-            "Peer {id} not found (federation tokens are only valid for kind='peer')"
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.servers.peer_not_found_federation",
+            &[("id", &id)],
         )));
     }
     Ok(Json(serde_json::json!({
@@ -1029,7 +1090,9 @@ pub async fn rename(
 ) -> AppResult<impl IntoResponse> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(AppError::BadRequest("Name is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.servers.name_required",
+        )));
     }
 
     let db = state
@@ -1043,7 +1106,10 @@ pub async fn rename(
     )?;
 
     if rows == 0 {
-        return Err(AppError::NotFound(format!("Server {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.servers.server_not_found",
+            &[("id", &id)],
+        )));
     }
 
     Ok(Json(serde_json::json!({"ok": true, "name": name})))
@@ -1109,7 +1175,12 @@ pub async fn get(
                 }))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Server {id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.servers.server_not_found",
+                &[("id", &id)],
+            ))
+        })?;
 
     // Count services on this server
     let service_count: i64 = db.query_row(
@@ -1166,7 +1237,12 @@ pub async fn containers(
         .header("Authorization", format!("Bearer {agent_token}"))
         .send()
         .await
-        .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.servers.agent_unreachable",
+                &[("error", &e.to_string())],
+            ))
+        })?;
     let data: serde_json::Value = resp
         .json()
         .await
@@ -1184,12 +1260,12 @@ pub async fn deploy_to_server(
 
     if is_local {
         // Deploy locally
-        let stack_name = body["stack_name"]
-            .as_str()
-            .ok_or_else(|| AppError::BadRequest("stack_name required".into()))?;
-        let compose_yaml = body["compose_yaml"]
-            .as_str()
-            .ok_or_else(|| AppError::BadRequest("compose_yaml required".into()))?;
+        let stack_name = body["stack_name"].as_str().ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te("errors.servers.stack_name_required"))
+        })?;
+        let compose_yaml = body["compose_yaml"].as_str().ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te("errors.servers.compose_yaml_required"))
+        })?;
         let output =
             crate::docker::compose::deploy_stack(stack_name, compose_yaml, &state.config, None)
                 .await
@@ -1209,7 +1285,12 @@ pub async fn deploy_to_server(
         .json(&body)
         .send()
         .await
-        .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.servers.agent_unreachable",
+                &[("error", &e.to_string())],
+            ))
+        })?;
     let data: serde_json::Value = resp
         .json()
         .await
@@ -1226,9 +1307,9 @@ pub async fn stop_on_server(
     let (host, port, agent_token, is_local, _) = get_server_info(&state, &id)?;
 
     if is_local {
-        let stack_name = body["stack_name"]
-            .as_str()
-            .ok_or_else(|| AppError::BadRequest("stack_name required".into()))?;
+        let stack_name = body["stack_name"].as_str().ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te("errors.servers.stack_name_required"))
+        })?;
         let output = crate::docker::compose::down_stack(stack_name, &state.config)
             .await
             .map_err(AppError::Internal)?;
@@ -1246,7 +1327,12 @@ pub async fn stop_on_server(
         .json(&body)
         .send()
         .await
-        .map_err(|e| AppError::BadRequest(format!("Agent unreachable: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.servers.agent_unreachable",
+                &[("error", &e.to_string())],
+            ))
+        })?;
     let data: serde_json::Value = resp
         .json()
         .await
@@ -1271,10 +1357,14 @@ pub async fn install_script(
     let bootstrap_token = params.get("token").cloned().unwrap_or_default();
     let server_id = params.get("id").cloned().unwrap_or_default();
     if bootstrap_token.is_empty() {
-        return Err(AppError::BadRequest("token parameter required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.servers.token_param_required",
+        )));
     }
     if server_id.is_empty() {
-        return Err(AppError::BadRequest("id parameter required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.servers.id_param_required",
+        )));
     }
 
     // Get Pier server's public IP and port. Prefers IPv4; falls back
@@ -1592,7 +1682,12 @@ pub(crate) fn get_server_info(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Server {id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.servers.server_not_found",
+                &[("id", id)],
+            ))
+        })?;
 
     let (mut host, port, token, is_local, kind, mesh_ip, mesh_status, mesh_enabled) = row;
     let mesh_active = mesh_enabled.unwrap_or(0) == 1

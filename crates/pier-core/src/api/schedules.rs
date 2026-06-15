@@ -53,7 +53,10 @@ const ALLOWED_TYPES: &[&str] = &["task", "backup", "cleanup"];
 
 fn check_action_type(t: &str) -> AppResult<()> {
     if !ALLOWED_TYPES.contains(&t) {
-        return Err(AppError::BadRequest(format!("unknown action_type '{t}'")));
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.schedules.unknown_action_type",
+            &[("v", t)],
+        )));
     }
     Ok(())
 }
@@ -100,7 +103,9 @@ pub async fn create(
     Json(body): Json<CreateScheduleRequest>,
 ) -> AppResult<impl IntoResponse> {
     if body.name.trim().is_empty() {
-        return Err(AppError::BadRequest("name required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.schedules.name_required",
+        )));
     }
     check_action_type(&body.action_type)?;
     cron_utils::parse(&body.cron_expression).map_err(|e| AppError::BadRequest(e.to_string()))?;
@@ -173,7 +178,8 @@ pub async fn get(
             },
         )
         .optional()?;
-    let row = row.ok_or_else(|| AppError::NotFound("schedule not found".into()))?;
+    let row =
+        row.ok_or_else(|| AppError::NotFound(crate::i18n::te("errors.schedules.not_found")))?;
 
     // Last 25 runs for the history panel.
     let mut stmt = db.prepare(
@@ -289,11 +295,15 @@ pub async fn remove(
         )
         .optional()?;
     match is_system {
-        None => return Err(AppError::NotFound("schedule not found".into())),
+        None => {
+            return Err(AppError::NotFound(crate::i18n::te(
+                "errors.schedules.not_found",
+            )))
+        }
         Some(true) => {
-            return Err(AppError::Conflict(
-                "system schedules can be disabled but not deleted".into(),
-            ))
+            return Err(AppError::Conflict(crate::i18n::te(
+                "errors.schedules.system_no_delete",
+            )))
         }
         Some(false) => {}
     }
@@ -316,7 +326,7 @@ pub async fn run_now(
             |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
         )
         .optional()?
-        .ok_or_else(|| AppError::NotFound("schedule not found".into()))?
+        .ok_or_else(|| AppError::NotFound(crate::i18n::te("errors.schedules.not_found")))?
     };
 
     let run_id = uuid::Uuid::new_v4().to_string();

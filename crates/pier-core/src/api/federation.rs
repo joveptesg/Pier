@@ -220,8 +220,9 @@ async fn resolve_peer(state: &SharedState, server_id: &str) -> AppResult<write_c
     write_client::lookup_write_peer(state, server_id)
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
         .ok_or_else(|| {
-            AppError::BadRequest(format!(
-                "peer {server_id} is not paired for federation — set its token in /servers/<id>"
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.federation.peer_not_paired",
+                &[("server_id", server_id)],
             ))
         })
 }
@@ -244,12 +245,19 @@ pub async fn peer_create_stack(
     Json(body): Json<CreateFederatedStackRequest>,
 ) -> AppResult<impl IntoResponse> {
     if body.name.trim().is_empty() || body.yaml.trim().is_empty() {
-        return Err(AppError::BadRequest("name and yaml are required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.federation.name_and_yaml_required",
+        )));
     }
     let peer = resolve_peer(&state, &server_id).await?;
     let res = crate::federation::write_client::create_stack(&peer, body.name.trim(), &body.yaml)
         .await
-        .map_err(|e| AppError::BadRequest(format!("peer rejected create: {e:#}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.federation.peer_rejected_create",
+                &[("error", &format!("{e:#}"))],
+            ))
+        })?;
     let _ = sync::run_sync_pass(&state).await;
     Ok(Json(res))
 }
@@ -262,7 +270,12 @@ pub async fn peer_deploy_stack(
     let peer = resolve_peer(&state, &server_id).await?;
     let res = write_client::deploy_stack(&peer, &stack_id)
         .await
-        .map_err(|e| AppError::BadRequest(format!("peer rejected deploy: {e:#}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.federation.peer_rejected_deploy",
+                &[("error", &format!("{e:#}"))],
+            ))
+        })?;
     let _ = sync::run_sync_pass(&state).await; // refresh cache so UI shows new state
     Ok(Json(res))
 }
@@ -275,7 +288,12 @@ pub async fn peer_down_stack(
     let peer = resolve_peer(&state, &server_id).await?;
     let res = write_client::down_stack(&peer, &stack_id)
         .await
-        .map_err(|e| AppError::BadRequest(format!("peer rejected down: {e:#}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.federation.peer_rejected_down",
+                &[("error", &format!("{e:#}"))],
+            ))
+        })?;
     let _ = sync::run_sync_pass(&state).await;
     Ok(Json(res))
 }
@@ -288,7 +306,12 @@ pub async fn peer_restart_stack(
     let peer = resolve_peer(&state, &server_id).await?;
     let res = write_client::restart_stack(&peer, &stack_id)
         .await
-        .map_err(|e| AppError::BadRequest(format!("peer rejected restart: {e:#}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.federation.peer_rejected_restart",
+                &[("error", &format!("{e:#}"))],
+            ))
+        })?;
     let _ = sync::run_sync_pass(&state).await;
     Ok(Json(res))
 }
@@ -311,7 +334,12 @@ pub async fn peer_stack_logs(
         .unwrap_or(200);
     let body = crate::federation::write_client::stack_logs(&peer, &stack_id, tail)
         .await
-        .map_err(|e| AppError::BadRequest(format!("peer rejected logs: {e:#}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.federation.peer_rejected_logs",
+                &[("error", &format!("{e:#}"))],
+            ))
+        })?;
     Ok((
         [(
             axum::http::header::CONTENT_TYPE,
@@ -372,7 +400,12 @@ pub async fn peer_release_stack(
     let peer = resolve_peer(&state, &server_id).await?;
     let res = write_client::release_stack(&peer, &stack_id)
         .await
-        .map_err(|e| AppError::BadRequest(format!("peer rejected release: {e:#}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.federation.peer_rejected_release",
+                &[("error", &format!("{e:#}"))],
+            ))
+        })?;
     let _ = sync::run_sync_pass(&state).await;
     Ok(Json(res))
 }

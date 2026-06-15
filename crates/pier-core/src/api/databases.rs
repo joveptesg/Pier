@@ -25,7 +25,12 @@ fn fetch_env_vars(state: &SharedState, service_id: &str) -> AppResult<HashMap<St
             [service_id],
             |row| row.get::<_, Option<String>>(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {service_id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.databases.resource_not_found",
+                &[("id", service_id)],
+            ))
+        })?
     };
     let decrypted = crate::crypto::decrypt_env_json(env_json.as_deref());
     Ok(serde_json::from_str(&decrypted).unwrap_or_default())
@@ -56,7 +61,12 @@ pub async fn list_databases(
             [&id],
             |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.databases.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let container = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
@@ -121,9 +131,9 @@ pub async fn list_databases(
             return Ok(Json(rows));
         }
         _ => {
-            return Err(AppError::BadRequest(
-                "Database management only supported for PostgreSQL, MySQL, and MongoDB".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.databases.management_unsupported_engine",
+            )));
         }
     };
 
@@ -188,17 +198,17 @@ pub async fn create_database(
     let password = &body.password;
 
     if db_name.is_empty() || username.is_empty() || password.is_empty() {
-        return Err(AppError::BadRequest(
-            "Database name, username, and password are required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.databases.credentials_required",
+        )));
     }
 
     // Validate names (alphanumeric + underscore only)
     let valid = |s: &str| s.chars().all(|c| c.is_alphanumeric() || c == '_');
     if !valid(db_name) || !valid(username) {
-        return Err(AppError::BadRequest(
-            "Names may only contain letters, numbers, and underscores".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.databases.invalid_name_chars",
+        )));
     }
 
     let (catalog_id, name) = {
@@ -211,7 +221,12 @@ pub async fn create_database(
             [&id],
             |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.databases.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let container = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
@@ -310,7 +325,9 @@ pub async fn create_database(
             .await?;
         }
         _ => {
-            return Err(AppError::BadRequest("Unsupported database type".into()));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.databases.unsupported_type",
+            )));
         }
     }
 
@@ -367,7 +384,12 @@ pub async fn delete_database(
             [&id],
             |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.databases.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     if matches!(
@@ -380,9 +402,9 @@ pub async fn delete_database(
             | "config"
             | "template_postgis"
     ) {
-        return Err(AppError::BadRequest(
-            "Cannot delete system databases".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.databases.cannot_delete_system",
+        )));
     }
 
     {
@@ -529,7 +551,9 @@ pub async fn delete_database(
             .await?;
         }
         _ => {
-            return Err(AppError::BadRequest("Unsupported database type".into()));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.databases.unsupported_type",
+            )));
         }
     }
 
@@ -582,7 +606,9 @@ pub async fn change_password(
     enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let password = body.password.trim();
     if password.is_empty() {
-        return Err(AppError::BadRequest("Password is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.databases.password_required",
+        )));
     }
 
     let (catalog_id, name) = {
@@ -595,7 +621,12 @@ pub async fn change_password(
             [&id],
             |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.databases.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let container = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
@@ -636,8 +667,9 @@ pub async fn change_password(
     };
 
     if username.is_empty() {
-        return Err(AppError::BadRequest(format!(
-            "Could not find owner for database {dbname}"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.databases.owner_not_found",
+            &[("name", &dbname)],
         )));
     }
 
@@ -695,7 +727,11 @@ pub async fn change_password(
             )
             .await?;
         }
-        _ => return Err(AppError::BadRequest("Unsupported database type".into())),
+        _ => {
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.databases.unsupported_type",
+            )))
+        }
     }
 
     // Upsert stored credentials
@@ -744,8 +780,9 @@ pub(crate) async fn exec_in_container(
         .await
         .map_err(|e| {
             if e.to_string().contains("404") || e.to_string().contains("No such container") {
-                AppError::BadRequest(format!(
-                    "Container '{container}' not found. Make sure the service is running."
+                AppError::BadRequest(crate::i18n::te_args(
+                    "errors.databases.container_not_found",
+                    &[("name", container)],
                 ))
             } else {
                 AppError::Internal(anyhow::anyhow!("Docker exec: {e}"))

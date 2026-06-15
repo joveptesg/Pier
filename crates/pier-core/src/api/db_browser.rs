@@ -174,7 +174,10 @@ fn grid_my(rows: &[MySqlRow]) -> Vec<Vec<Option<String>>> {
 }
 
 fn db_err(e: sqlx::Error) -> AppError {
-    AppError::BadRequest(format!("Query failed: {e}"))
+    AppError::BadRequest(crate::i18n::te_args(
+        "errors.db_browser.query_failed",
+        &[("v", &e.to_string())],
+    ))
 }
 
 /// Look up the service, classify its engine, and assemble the connection target
@@ -196,14 +199,17 @@ fn resolve_target(state: &SharedState, id: &str) -> AppResult<Target> {
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.db_browser.resource_not_found",
+                &[("v", id)],
+            ))
+        })?
     };
 
     let catalog = catalog_id.unwrap_or_default();
     let engine = Engine::from_catalog(&catalog).ok_or_else(|| {
-        AppError::BadRequest(
-            "The data browser supports PostgreSQL and MySQL/MariaDB. MongoDB and Redis are coming in a later phase.".into(),
-        )
+        AppError::BadRequest(crate::i18n::te("errors.db_browser.unsupported_engine"))
     })?;
 
     let env: std::collections::HashMap<String, String> =
@@ -260,9 +266,9 @@ fn resolve_target(state: &SharedState, id: &str) -> AppResult<Target> {
             )
         })
         .map_err(|_| {
-            AppError::BadRequest(format!(
-                "This {} service has no host port allocated, so the panel can't reach it.",
-                engine.label()
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.db_browser.no_host_port",
+                &[("v", engine.label())],
             ))
         })?
     };
@@ -301,9 +307,14 @@ async fn connect(state: &SharedState, target: &Target, database: &str) -> AppRes
         None => ("127.0.0.1".to_string(), target.host_port),
     };
     let conn_err = |e: sqlx::Error| {
-        AppError::BadRequest(format!(
-            "Could not connect to {} at {host}:{port}: {e}",
-            target.engine.label()
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.db_browser.connect_failed",
+            &[
+                ("engine", target.engine.label()),
+                ("host", &host),
+                ("port", &port.to_string()),
+                ("err", &e.to_string()),
+            ],
         ))
     };
     match target.engine {
@@ -355,8 +366,9 @@ async fn ensure_table_exists(
     );
     let found = db.fetch_text(&sql).await.map_err(db_err)?;
     if found.is_empty() {
-        return Err(AppError::NotFound(format!(
-            "Table {schema}.{table} not found"
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.db_browser.table_not_found",
+            &[("schema", schema), ("table", table)],
         )));
     }
     Ok(())
@@ -550,12 +562,12 @@ pub async fn structure(
     let target = resolve_target(&state, &id)?;
     let engine = target.engine;
     let database = q.database.unwrap_or_else(|| target.default_db.clone());
-    let schema = q
-        .schema
-        .ok_or_else(|| AppError::BadRequest("schema is required".into()))?;
+    let schema = q.schema.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.db_browser.schema_required"))
+    })?;
     let table = q
         .table
-        .ok_or_else(|| AppError::BadRequest("table is required".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.db_browser.table_required")))?;
 
     let mut db = connect(&state, &target, &database).await?;
     ensure_table_exists(&mut db, engine, &schema, &table).await?;
@@ -649,12 +661,12 @@ pub async fn rows(
     let target = resolve_target(&state, &id)?;
     let engine = target.engine;
     let database = q.database.unwrap_or_else(|| target.default_db.clone());
-    let schema = q
-        .schema
-        .ok_or_else(|| AppError::BadRequest("schema is required".into()))?;
+    let schema = q.schema.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.db_browser.schema_required"))
+    })?;
     let table = q
         .table
-        .ok_or_else(|| AppError::BadRequest("table is required".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.db_browser.table_required")))?;
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let offset = q.offset.unwrap_or(0).max(0);
 
@@ -792,14 +804,14 @@ fn validate_full_pk(
     pk: &std::collections::HashMap<String, Option<String>>,
 ) -> AppResult<()> {
     if pk_cols.is_empty() {
-        return Err(AppError::BadRequest(
-            "This table has no primary key, so rows can't be edited safely.".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.db_browser.no_primary_key",
+        )));
     }
     if pk.len() != pk_cols.len() || !pk_cols.iter().all(|c| pk.contains_key(c)) {
-        return Err(AppError::BadRequest(
-            "The row key must match the table's primary key columns.".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.db_browser.pk_mismatch",
+        )));
     }
     Ok(())
 }
@@ -890,9 +902,9 @@ pub async fn update_row(
 
     let cols = fetch_cols(&mut db, engine, &body.schema, &body.table).await?;
     if !cols.contains(&body.column) {
-        return Err(AppError::BadRequest(format!(
-            "Unknown column {}",
-            body.column
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.db_browser.unknown_column",
+            &[("v", &body.column)],
         )));
     }
 
@@ -951,7 +963,10 @@ pub async fn insert_row(
     let cols = fetch_cols(&mut db, engine, &body.schema, &body.table).await?;
     for k in body.values.keys() {
         if !cols.contains(k) {
-            return Err(AppError::BadRequest(format!("Unknown column {k}")));
+            return Err(AppError::BadRequest(crate::i18n::te_args(
+                "errors.db_browser.unknown_column",
+                &[("v", k)],
+            )));
         }
     }
 
@@ -961,7 +976,9 @@ pub async fn insert_row(
         .filter(|c| body.values.contains_key(*c))
         .collect();
     if provided.is_empty() {
-        return Err(AppError::BadRequest("No values provided.".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.db_browser.no_values",
+        )));
     }
     let col_list = provided
         .iter()
@@ -1119,7 +1136,9 @@ pub async fn run_query(
     // Strip a single trailing `;` so the statement can be wrapped as a subquery.
     let sql = body.sql.trim().trim_end_matches(';').trim().to_string();
     if sql.is_empty() {
-        return Err(AppError::BadRequest("SQL statement is empty".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.db_browser.empty_sql",
+        )));
     }
 
     let read = is_read_stmt(&sql);
@@ -1192,9 +1211,9 @@ async fn run_read(
     }
 
     if names.iter().any(|n| n.is_empty()) || has_duplicates(&names) {
-        return Err(AppError::BadRequest(
-            "Result has unnamed or duplicate columns. Add explicit column aliases to view it in the grid.".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.db_browser.unnamed_columns",
+        )));
     }
 
     let select_list = names

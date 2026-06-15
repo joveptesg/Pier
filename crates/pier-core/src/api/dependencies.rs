@@ -67,14 +67,14 @@ pub async fn add(
 
     let target = body.depends_on_service_id.trim().to_string();
     if target.is_empty() {
-        return Err(AppError::BadRequest(
-            "depends_on_service_id is required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.dependencies.target_required",
+        )));
     }
     if target == id {
-        return Err(AppError::BadRequest(
-            "a service cannot depend on itself".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.dependencies.self_dependency",
+        )));
     }
 
     let db = state
@@ -91,18 +91,25 @@ pub async fn add(
             [&id],
             |r| r.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Service {id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.dependencies.service_not_found",
+                &[("id", &id)],
+            ))
+        })?;
     let project_b: Option<String> = db
         .query_row(
             "SELECT project_id FROM services WHERE id = ?1",
             [&target],
             |r| r.get(0),
         )
-        .map_err(|_| AppError::BadRequest("target service not found".into()))?;
+        .map_err(|_| {
+            AppError::BadRequest(crate::i18n::te("errors.dependencies.target_not_found"))
+        })?;
     if project_a != project_b {
-        return Err(AppError::BadRequest(
-            "dependency must be within the same project".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.dependencies.cross_project",
+        )));
     }
 
     // Cycle guard: if `target` already (transitively) depends on `id`, then
@@ -111,9 +118,9 @@ pub async fn add(
     let closure = crate::deploy::deps::expand_with_dependents(&db, std::slice::from_ref(&id))
         .unwrap_or_default();
     if closure.contains(&target) {
-        return Err(AppError::Conflict(
-            "that edge would create a dependency cycle".into(),
-        ));
+        return Err(AppError::Conflict(crate::i18n::te(
+            "errors.dependencies.cycle",
+        )));
     }
 
     let dep_id = uuid::Uuid::new_v4().to_string();
@@ -125,7 +132,9 @@ pub async fn add(
         Err(rusqlite::Error::SqliteFailure(e, _))
             if e.code == rusqlite::ErrorCode::ConstraintViolation =>
         {
-            Err(AppError::Conflict("dependency already exists".into()))
+            Err(AppError::Conflict(crate::i18n::te(
+                "errors.dependencies.already_exists",
+            )))
         }
         Err(e) => Err(AppError::Database(e)),
     }
@@ -148,7 +157,10 @@ pub async fn remove(
         rusqlite::params![dep_id, id],
     )?;
     if n == 0 {
-        return Err(AppError::NotFound(format!("Dependency {dep_id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.dependencies.dependency_not_found",
+            &[("id", &dep_id)],
+        )));
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }

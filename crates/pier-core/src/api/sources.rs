@@ -53,7 +53,9 @@ pub async fn create(
     Json(body): Json<CreateSourceRequest>,
 ) -> AppResult<impl IntoResponse> {
     if body.name.trim().is_empty() || body.url.trim().is_empty() {
-        return Err(AppError::BadRequest("Name and URL are required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.sources.name_and_url_required",
+        )));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let token = if body.token.is_empty() {
@@ -94,7 +96,10 @@ pub async fn remove(
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let rows = db.execute("DELETE FROM git_sources WHERE id = ?1", [&id])?;
     if rows == 0 {
-        return Err(AppError::NotFound(format!("Source {id} not found")));
+        return Err(AppError::NotFound(crate::i18n::te_args(
+            "errors.sources.source_not_found",
+            &[("name", &id)],
+        )));
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -123,21 +128,41 @@ pub async fn list_repos(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Source {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.sources.source_not_found",
+                &[("name", &id)],
+            ))
+        })?
     };
 
     let repos = if source_type == "github-app" {
-        let app_id = app_id.ok_or_else(|| AppError::BadRequest("Missing app_id".into()))?;
-        let inst_id = installation_id
-            .ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
-        let pk = private_key.ok_or_else(|| AppError::BadRequest("Missing private_key".into()))?;
+        let app_id = app_id.ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te("errors.sources.missing_app_id"))
+        })?;
+        let inst_id = installation_id.ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te("errors.sources.missing_installation_id"))
+        })?;
+        let pk = private_key.ok_or_else(|| {
+            AppError::BadRequest(crate::i18n::te("errors.sources.missing_private_key"))
+        })?;
         crate::git::github_app::list_repos(&app_id, inst_id, &pk)
             .await
-            .map_err(|e| AppError::BadRequest(format!("Failed to fetch repos: {e}")))?
+            .map_err(|e| {
+                AppError::BadRequest(crate::i18n::te_args(
+                    "errors.sources.fetch_repos_failed",
+                    &[("error", &e.to_string())],
+                ))
+            })?
     } else {
         crate::git::list_repos(&source_type, &base_url, access_token.as_deref())
             .await
-            .map_err(|e| AppError::BadRequest(format!("Failed to fetch repos: {e}")))?
+            .map_err(|e| {
+                AppError::BadRequest(crate::i18n::te_args(
+                    "errors.sources.fetch_repos_failed",
+                    &[("error", &e.to_string())],
+                ))
+            })?
     };
 
     Ok(Json(serde_json::json!(repos)))
@@ -164,20 +189,34 @@ pub async fn list_branches(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Source {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.sources.source_not_found",
+                &[("name", &id)],
+            ))
+        })?
     };
 
-    let app_id = app_id.ok_or_else(|| AppError::BadRequest("Missing app_id".into()))?;
-    let inst_id =
-        installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
-    let pk = private_key.ok_or_else(|| AppError::BadRequest("Missing private_key".into()))?;
+    let app_id = app_id
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.sources.missing_app_id")))?;
+    let inst_id = installation_id.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.sources.missing_installation_id"))
+    })?;
+    let pk = private_key.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.sources.missing_private_key"))
+    })?;
 
     // repo comes as path param — Axum already decodes it
     let repo_name = &repo;
 
     let branches = crate::git::github_app::list_branches(&app_id, inst_id, &pk, repo_name)
         .await
-        .map_err(|e| AppError::BadRequest(format!("Failed to list branches: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.sources.list_branches_failed",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
     Ok(Json(serde_json::json!(branches)))
 }
@@ -213,7 +252,12 @@ pub async fn get(
                 }))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Source {id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.sources.source_not_found",
+                &[("name", &id)],
+            ))
+        })?;
 
     // Get resources using this source
     let mut stmt =
@@ -277,10 +321,9 @@ pub async fn github_manifest(State(state): State<SharedState>) -> AppResult<impl
                 crate::config::TlsMode::Off => (format!("http://{ip}:{}", state.config.port), "0"),
             }
         } else {
-            return Err(AppError::BadRequest(
-                "Configure a platform domain in Proxy settings first for GitHub App OAuth flow"
-                    .into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.sources.platform_domain_required",
+            )));
         }
     };
 
@@ -398,7 +441,7 @@ pub async fn get_file(
 ) -> AppResult<impl IntoResponse> {
     let repo = params
         .get("repo")
-        .ok_or_else(|| AppError::BadRequest("repo is required".into()))?;
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.sources.repo_required")))?;
     let branch = params.get("branch").map(|s| s.as_str()).unwrap_or("main");
     let file_path = params
         .get("path")
@@ -421,13 +464,22 @@ pub async fn get_file(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Source {source_id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.sources.source_not_found",
+                &[("name", &source_id)],
+            ))
+        })?
     };
 
-    let app_id = app_id.ok_or_else(|| AppError::BadRequest("Missing app_id".into()))?;
-    let inst_id =
-        installation_id.ok_or_else(|| AppError::BadRequest("Missing installation_id".into()))?;
-    let pk = private_key.ok_or_else(|| AppError::BadRequest("Missing private_key".into()))?;
+    let app_id = app_id
+        .ok_or_else(|| AppError::BadRequest(crate::i18n::te("errors.sources.missing_app_id")))?;
+    let inst_id = installation_id.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.sources.missing_installation_id"))
+    })?;
+    let pk = private_key.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.sources.missing_private_key"))
+    })?;
 
     let content =
         crate::git::github_app::get_file_content(&app_id, inst_id, &pk, repo, branch, file_path)

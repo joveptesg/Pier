@@ -186,7 +186,9 @@ pub async fn create_schedule(
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Admin)?;
     if body.s3_storage_id.is_empty() {
-        return Err(AppError::BadRequest("S3 storage is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.backups.s3_storage_required",
+        )));
     }
 
     let schedule_id = uuid::Uuid::new_v4().to_string();
@@ -330,20 +332,27 @@ pub async fn trigger_backup(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Resource {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.backups.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let catalog_id_str = catalog_id.unwrap_or_default();
     if !crate::backup::executor::supports_backup(&catalog_id_str) {
-        return Err(AppError::BadRequest(format!(
-            "backup not supported for {catalog_id_str}"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.backups.backup_not_supported",
+            &[("catalog", &catalog_id_str)],
         )));
     }
     if q.database_name.is_some()
         && !crate::backup::executor::supports_per_db_backup(&catalog_id_str)
     {
-        return Err(AppError::BadRequest(format!(
-            "per-database backup not supported for {catalog_id_str}"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.backups.per_db_backup_not_supported",
+            &[("catalog", &catalog_id_str)],
         )));
     }
 
@@ -376,7 +385,7 @@ pub async fn trigger_backup(
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
             .map_err(|_| {
-                AppError::BadRequest("No backup schedule configured. Configure one first.".into())
+                AppError::BadRequest(crate::i18n::te("errors.backups.no_schedule_configured"))
             })?
         }
     };
@@ -590,14 +599,19 @@ pub async fn restore_backup(
             [&backup_id],
             |r| r.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Backup {backup_id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.backups.backup_not_found",
+                &[("id", &backup_id)],
+            ))
+        })?
     };
     enforce_resource_role(&state, &user, &service_id, ProjectRole::Admin)?;
 
     if body.target_database_name.is_empty() {
-        return Err(AppError::BadRequest(
-            "target_database_name is required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.backups.target_database_name_required",
+        )));
     }
 
     // 1. Resolve backup → service + storage + (cluster/per-DB) flag.
@@ -619,14 +633,15 @@ pub async fn restore_backup(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound("Backup not found or not completed".into()))?
+        .map_err(|_| AppError::NotFound(crate::i18n::te("errors.backups.backup_not_completed")))?
     };
 
     // 2. Service info + catalog gate.
     let (name, catalog_id, env_json) = fetch_service_info(&state, &service_id)?;
     if !crate::backup::executor::supports_per_db_backup(&catalog_id) {
-        return Err(AppError::BadRequest(format!(
-            "per-DB restore not supported for {catalog_id}"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.backups.per_db_restore_not_supported",
+            &[("catalog", &catalog_id)],
         )));
     }
 
@@ -669,9 +684,9 @@ pub async fn restore_backup(
     //    per-DB archives.
     if let Some(db) = backup_db_name.as_deref() {
         if db != body.target_database_name {
-            return Err(AppError::BadRequest(format!(
-                "backup contains DB '{db}', refusing to restore into '{}' — pick a backup for the same DB or use a cluster-wide backup",
-                body.target_database_name
+            return Err(AppError::BadRequest(crate::i18n::te_args(
+                "errors.backups.backup_db_mismatch",
+                &[("backup_db", db), ("target_db", &body.target_database_name)],
             )));
         }
     }
@@ -736,13 +751,16 @@ pub async fn restore_database_from_upload(
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Admin)?;
     if dbname.is_empty() {
-        return Err(AppError::BadRequest("database name is required".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.backups.database_name_required",
+        )));
     }
 
     let (name, catalog_id, env_json) = fetch_service_info(&state, &id)?;
     if !crate::backup::executor::supports_per_db_backup(&catalog_id) {
-        return Err(AppError::BadRequest(format!(
-            "per-DB restore not supported for {catalog_id}"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.backups.per_db_restore_not_supported",
+            &[("catalog", &catalog_id)],
         )));
     }
 
@@ -752,26 +770,28 @@ pub async fn restore_database_from_upload(
     // (clients may put a metadata field before or after).
     let mut file_bytes: Option<Vec<u8>> = None;
     let mut file_name: Option<String> = None;
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("multipart read error: {e}")))?
-    {
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.backups.multipart_read_error",
+            &[("error", &e.to_string())],
+        ))
+    })? {
         if field.name() == Some("file") {
             file_name = field.file_name().map(|s| s.to_string());
-            let bytes = field
-                .bytes()
-                .await
-                .map_err(|e| AppError::BadRequest(format!("file read error: {e}")))?;
+            let bytes = field.bytes().await.map_err(|e| {
+                AppError::BadRequest(crate::i18n::te_args(
+                    "errors.backups.file_read_error",
+                    &[("error", &e.to_string())],
+                ))
+            })?;
             file_bytes = Some(bytes.to_vec());
         }
     }
-    let blob =
-        file_bytes.ok_or_else(|| AppError::BadRequest("multipart missing 'file' field".into()))?;
+    let blob = file_bytes.ok_or_else(|| {
+        AppError::BadRequest(crate::i18n::te("errors.backups.multipart_missing_file"))
+    })?;
     let filename = file_name.ok_or_else(|| {
-        AppError::BadRequest(
-            "uploaded file has no name — cannot detect backup format from extension".into(),
-        )
+        AppError::BadRequest(crate::i18n::te("errors.backups.uploaded_file_no_name"))
     })?;
 
     let fmt = detect_format(&filename, &catalog_id)?;
@@ -842,7 +862,12 @@ fn fetch_service_info(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Service {service_id} not found")))?;
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.backups.service_not_found",
+                &[("id", service_id)],
+            ))
+        })?;
     Ok((name, catalog_id.unwrap_or_default(), env_json))
 }
 
@@ -856,8 +881,9 @@ fn resolve_owner(
         .into_iter()
         .find(|c| c.db_name == target_db)
         .ok_or_else(|| {
-            AppError::BadRequest(format!(
-                "database '{target_db}' does not exist on this service — create it on the Databases tab first"
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.backups.database_does_not_exist",
+                &[("name", target_db)],
             ))
         })
 }
@@ -877,8 +903,9 @@ fn detect_format(filename: &str, catalog_id: &str) -> AppResult<UploadFormat> {
 
     let recognized = is_pg_custom || is_cluster_archive || is_mongo_archive || is_plain_sql;
     if !recognized {
-        return Err(AppError::BadRequest(format!(
-            "unrecognized backup file extension in '{filename}'. Accepted: .dump, .sql, .sql.gz, .tar, .tar.gz, .archive, .archive.gz"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.backups.unrecognized_file_extension",
+            &[("filename", filename)],
         )));
     }
 
@@ -894,8 +921,9 @@ fn detect_format(filename: &str, catalog_id: &str) -> AppResult<UploadFormat> {
         _ => false,
     };
     if !compatible {
-        return Err(AppError::BadRequest(format!(
-            "backup file '{filename}' is not compatible with a {catalog_id} database"
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.backups.file_not_compatible",
+            &[("filename", filename), ("catalog", catalog_id)],
         )));
     }
 
@@ -1034,7 +1062,12 @@ pub async fn download_backup(
             [&backup_id],
             |r| r.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Backup {backup_id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.backups.backup_not_found",
+                &[("id", &backup_id)],
+            ))
+        })?
     };
     enforce_resource_role(&state, &user, &service_for_check, ProjectRole::Viewer)?;
     let (s3_storage_id, s3_key) = {
@@ -1047,7 +1080,7 @@ pub async fn download_backup(
             [&backup_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
-        .map_err(|_| AppError::NotFound("Backup not found or not completed".into()))?
+        .map_err(|_| AppError::NotFound(crate::i18n::te("errors.backups.backup_not_completed")))?
     };
 
     let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
@@ -1134,7 +1167,12 @@ pub async fn delete_backup(
             [&backup_id],
             |r| r.get(0),
         )
-        .map_err(|_| AppError::NotFound(format!("Backup {backup_id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.backups.backup_not_found",
+                &[("id", &backup_id)],
+            ))
+        })?
     };
     enforce_resource_role(&state, &user, &service_for_check, ProjectRole::Admin)?;
     let (s3_storage_id, s3_key) = {
@@ -1147,7 +1185,9 @@ pub async fn delete_backup(
             [&backup_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
-        .map_err(|_| AppError::NotFound("Backup not found".into()))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te("errors.backups.backup_not_found_simple"))
+        })?
     };
 
     let (storage_type, endpoint, region, bucket, access_key, secret_key) = {

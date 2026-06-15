@@ -103,8 +103,12 @@ pub async fn create(
     validate_channel(&body.channel)?;
 
     let id = uuid::Uuid::new_v4().to_string();
-    let config_plain = serde_json::to_string(&body.channel_config)
-        .map_err(|e| AppError::BadRequest(format!("channel_config: {e}")))?;
+    let config_plain = serde_json::to_string(&body.channel_config).map_err(|e| {
+        AppError::BadRequest(crate::i18n::te_args(
+            "errors.alerts.channel_config_invalid",
+            &[("error", &e.to_string())],
+        ))
+    })?;
     let key = crate::crypto::get_secret_key();
     let config_enc = crate::crypto::encrypt(&config_plain, &key)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Encrypt: {e}")))?;
@@ -177,7 +181,7 @@ pub async fn get(
                 }))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Alert {id} not found")))?;
+        .map_err(|_| AppError::NotFound(crate::i18n::te_args("errors.alerts.rule_not_found", &[("id", &id)])))?;
     Ok(Json(row))
 }
 
@@ -217,8 +221,12 @@ pub async fn update(
     }
 
     let config_enc = if let Some(cfg) = &body.channel_config {
-        let plain = serde_json::to_string(cfg)
-            .map_err(|e| AppError::BadRequest(format!("channel_config: {e}")))?;
+        let plain = serde_json::to_string(cfg).map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.alerts.channel_config_invalid",
+                &[("error", &e.to_string())],
+            ))
+        })?;
         let key = crate::crypto::get_secret_key();
         Some(
             crate::crypto::encrypt(&plain, &key)
@@ -338,7 +346,12 @@ pub async fn test(
                 ))
             },
         )
-        .map_err(|_| AppError::NotFound(format!("Alert {id} not found")))?
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.alerts.rule_not_found",
+                &[("id", &id)],
+            ))
+        })?
     };
 
     let (name, severity, metric, scope, scope_id, channel, config_enc, threshold, comparison) =
@@ -367,7 +380,12 @@ pub async fn test(
 
     crate::alerts::channels::send(&channel, &config_json, &msg)
         .await
-        .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.alerts.delivery_failed",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
     Ok(Json(json!({"ok": true})))
 }
@@ -454,7 +472,10 @@ fn validate_metric(m: &str) -> AppResult<()> {
     if ALLOWED.contains(&m) {
         Ok(())
     } else {
-        Err(AppError::BadRequest(format!("Invalid metric: {m}")))
+        Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.alerts.invalid_metric",
+            &[("value", m)],
+        )))
     }
 }
 
@@ -462,7 +483,10 @@ fn validate_comparison(c: &str) -> AppResult<()> {
     if matches!(c, "gt" | "lt" | "eq") {
         Ok(())
     } else {
-        Err(AppError::BadRequest(format!("Invalid comparison: {c}")))
+        Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.alerts.invalid_comparison",
+            &[("value", c)],
+        )))
     }
 }
 
@@ -470,7 +494,10 @@ fn validate_severity(s: &str) -> AppResult<()> {
     if matches!(s, "info" | "warning" | "critical") {
         Ok(())
     } else {
-        Err(AppError::BadRequest(format!("Invalid severity: {s}")))
+        Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.alerts.invalid_severity",
+            &[("value", s)],
+        )))
     }
 }
 
@@ -478,7 +505,10 @@ fn validate_channel(c: &str) -> AppResult<()> {
     if c == "telegram" {
         Ok(())
     } else {
-        Err(AppError::BadRequest(format!("Unsupported channel: {c}")))
+        Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.alerts.unsupported_channel",
+            &[("value", c)],
+        )))
     }
 }
 
@@ -555,9 +585,9 @@ pub async fn channel_put(
 
     if let Some(v) = body.enabled {
         if v && (cfg.bot_token.is_empty() || cfg.chat_id.is_empty()) {
-            return Err(AppError::BadRequest(
-                "bot_token and chat_id are required before enabling Telegram".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.alerts.telegram_requires_credentials",
+            )));
         }
         enabled = v;
     }
@@ -589,7 +619,9 @@ pub async fn channel_put(
 pub async fn channel_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let (_enabled, config_enc) = read_channel(&state, "telegram")?;
     if config_enc.is_empty() {
-        return Err(AppError::BadRequest("Telegram is not configured".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.alerts.telegram_not_configured",
+        )));
     }
     let key = crate::crypto::get_secret_key();
     let plain = crate::crypto::decrypt(&config_enc, &key)
@@ -611,7 +643,12 @@ pub async fn channel_test(State(state): State<SharedState>) -> AppResult<impl In
 
     crate::alerts::channels::send("telegram", &plain, &msg)
         .await
-        .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.alerts.delivery_failed",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
     Ok(Json(json!({"ok": true})))
 }
@@ -730,7 +767,10 @@ pub async fn channel_email_put(
 
     if let Some(d) = body.driver.as_ref() {
         if !matches!(d.as_str(), "smtp" | "brevo" | "resend") {
-            return Err(AppError::BadRequest(format!("Unknown driver: {d}")));
+            return Err(AppError::BadRequest(crate::i18n::te_args(
+                "errors.alerts.unknown_driver",
+                &[("value", d)],
+            )));
         }
         cfg.driver = d.clone();
     }
@@ -793,9 +833,9 @@ pub async fn channel_email_put(
                 _ => false,
             };
             if !ready || cfg.from_address.is_empty() || cfg.to_address.is_empty() {
-                return Err(AppError::BadRequest(
-                    "Fill driver credentials and from/to addresses before enabling".into(),
-                ));
+                return Err(AppError::BadRequest(crate::i18n::te(
+                    "errors.alerts.email_requires_credentials",
+                )));
             }
         }
         enabled = v;
@@ -825,9 +865,9 @@ pub async fn channel_email_put(
 pub async fn channel_email_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let cfg = load_email_config(&state)?;
     if cfg.from_address.is_empty() || cfg.to_address.is_empty() {
-        return Err(AppError::BadRequest(
-            "from_address and to_address are required".into(),
-        ));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.alerts.email_addresses_required",
+        )));
     }
     let msg = AlertMessage {
         rule_name: "[TEST] Pier notifications".to_string(),
@@ -844,7 +884,12 @@ pub async fn channel_email_test(State(state): State<SharedState>) -> AppResult<i
     };
     crate::alerts::channels::email::send(&cfg, &msg)
         .await
-        .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.alerts.delivery_failed",
+                &[("error", &e.to_string())],
+            ))
+        })?;
     Ok(Json(json!({"ok": true})))
 }
 
@@ -915,9 +960,9 @@ pub async fn channel_discord_put(
     }
     if let Some(v) = body.enabled {
         if v && cfg.webhook_url.is_empty() {
-            return Err(AppError::BadRequest(
-                "webhook_url is required before enabling Discord".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.alerts.discord_requires_webhook",
+            )));
         }
         enabled = v;
     }
@@ -933,12 +978,19 @@ pub async fn channel_discord_test(
     let cfg: crate::alerts::channels::discord::DiscordConfig =
         load_webhook_config(&state, "discord")?;
     if cfg.webhook_url.is_empty() {
-        return Err(AppError::BadRequest("Discord is not configured".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.alerts.discord_not_configured",
+        )));
     }
     let msg = test_message(&state, "Discord");
     crate::alerts::channels::discord::send(&cfg, &msg)
         .await
-        .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.alerts.delivery_failed",
+                &[("error", &e.to_string())],
+            ))
+        })?;
     Ok(Json(json!({"ok": true})))
 }
 
@@ -971,9 +1023,9 @@ pub async fn channel_slack_put(
     }
     if let Some(v) = body.enabled {
         if v && cfg.webhook_url.is_empty() {
-            return Err(AppError::BadRequest(
-                "webhook_url is required before enabling Slack".into(),
-            ));
+            return Err(AppError::BadRequest(crate::i18n::te(
+                "errors.alerts.slack_requires_webhook",
+            )));
         }
         enabled = v;
     }
@@ -986,12 +1038,19 @@ pub async fn channel_slack_put(
 pub async fn channel_slack_test(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let cfg: crate::alerts::channels::slack::SlackConfig = load_webhook_config(&state, "slack")?;
     if cfg.webhook_url.is_empty() {
-        return Err(AppError::BadRequest("Slack is not configured".into()));
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.alerts.slack_not_configured",
+        )));
     }
     let msg = test_message(&state, "Slack");
     crate::alerts::channels::slack::send(&cfg, &msg)
         .await
-        .map_err(|e| AppError::BadRequest(format!("Delivery failed: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(crate::i18n::te_args(
+                "errors.alerts.delivery_failed",
+                &[("error", &e.to_string())],
+            ))
+        })?;
     Ok(Json(json!({"ok": true})))
 }
 
