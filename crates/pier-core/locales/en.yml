@@ -2209,6 +2209,23 @@ support_modal:
   maybe_next_time: Maybe next time
   support_project: Support project
 
+# API error messages (AppError). Framework-level errors are resolved in
+# error.rs; per-handler messages are wrapped with `i18n::te(..)` at the call
+# site. Interpolated values use `%{name}` placeholders filled by `te_args`.
+errors:
+  unauthorized: Unauthorized
+  docker: Docker error
+  database: Database error
+  internal: Internal error
+  name_conflict: "Resource '%{name}' already exists"
+  domains_require_confirmation: Disabling public access will remove existing domains
+  # Authentication / login flow (auth/handlers.rs).
+  auth:
+    setup_not_found: Setup
+    username_required: Username required
+    setup_already_completed: Setup already completed
+    invalid_credentials: Invalid credentials
+
 # Test-only fixtures exercised by the src/i18n unit tests. Not referenced by any
 # template; kept here because the unit tests share this compiled-in catalog and
 # need a stable `%{name}` interpolation sample (no section-1 screen has one yet).

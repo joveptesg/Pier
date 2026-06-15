@@ -78,6 +78,28 @@ pub async fn locale_layer(req: Request, next: Next) -> Response {
     CURRENT_LOCALE.scope(locale, next.run(req)).await
 }
 
+/// Translate an error-message key for the current request locale.
+///
+/// Used at `AppError` construction sites so error responses are localizable:
+/// `AppError::BadRequest(te("errors.username_required"))`. Resolution happens
+/// inside the request task, so [`current_locale`] is the caller's locale.
+pub fn te(key: &str) -> String {
+    let locale = current_locale();
+    rust_i18n::t!(key, locale = &locale).to_string()
+}
+
+/// Like [`te`] but substitutes `%{name}` placeholders from `args`, for error
+/// messages that interpolate runtime values:
+/// `te_args("errors.project_not_found", &[("id", &id)])`.
+pub fn te_args(key: &str, args: &[(&str, &str)]) -> String {
+    let locale = current_locale();
+    let mut rendered = rust_i18n::t!(key, locale = &locale).to_string();
+    for (name, value) in args {
+        rendered = rendered.replace(&format!("%{{{name}}}"), value);
+    }
+    rendered
+}
+
 /// Backing implementation of the MiniJinja `t()` function.
 ///
 /// - `{{ t("key") }}` looks `key` up in the catalog for the current request
@@ -169,6 +191,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(interp, "Hello, World");
+    }
+
+    /// `te` resolves an error key, and `te_args` substitutes `%{name}`.
+    #[test]
+    fn te_resolves_and_interpolates() {
+        assert_eq!(te("errors.unauthorized"), "Unauthorized");
+        assert_eq!(
+            te_args("errors.name_conflict", &[("name", "web")]),
+            "Resource 'web' already exists"
+        );
     }
 
     /// With only `en` compiled in, any `Accept-Language` resolves to `en`, and a

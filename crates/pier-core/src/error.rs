@@ -2,6 +2,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use thiserror::Error;
 
+use crate::i18n::{te, te_args};
+
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("Not found: {0}")]
@@ -42,7 +44,7 @@ impl IntoResponse for AppError {
             return (
                 StatusCode::CONFLICT,
                 axum::Json(serde_json::json!({
-                    "error": format!("Resource '{name}' already exists"),
+                    "error": te_args("errors.name_conflict", &[("name", name)]),
                     "code": "name_conflict",
                     "name": name,
                     "existing_id": existing_id,
@@ -55,7 +57,7 @@ impl IntoResponse for AppError {
             return (
                 StatusCode::CONFLICT,
                 axum::Json(serde_json::json!({
-                    "error": "Disabling public access will remove existing domains",
+                    "error": te("errors.domains_require_confirmation"),
                     "code": "domains_require_confirmation",
                     "domains": domains,
                 })),
@@ -63,9 +65,12 @@ impl IntoResponse for AppError {
                 .into_response();
         }
 
+        // NotFound/Forbidden/BadRequest/Conflict carry a message produced at the
+        // call site. Those wrapped with `i18n::te(..)` are already localized for
+        // the request locale; bespoke literals pass through as English.
         let (status, message) = match &self {
             Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
-            Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".into()),
+            Self::Unauthorized => (StatusCode::UNAUTHORIZED, te("errors.unauthorized")),
             Self::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
             Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             Self::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
@@ -73,15 +78,15 @@ impl IntoResponse for AppError {
             Self::DomainsRequireConfirmation { .. } => unreachable!(),
             Self::Docker(e) => {
                 tracing::error!("Docker error: {e}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Docker error".into())
+                (StatusCode::INTERNAL_SERVER_ERROR, te("errors.docker"))
             }
             Self::Database(e) => {
                 tracing::error!("Database error: {e}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Database error".into())
+                (StatusCode::INTERNAL_SERVER_ERROR, te("errors.database"))
             }
             Self::Internal(e) => {
                 tracing::error!("Internal error: {e}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal error".into())
+                (StatusCode::INTERNAL_SERVER_ERROR, te("errors.internal"))
             }
         };
 

@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::crypto;
 use crate::error::{AppError, AppResult};
+use crate::i18n::te;
 use crate::state::SharedState;
 
 use super::audit::{self, AuthEvent};
@@ -56,7 +57,7 @@ pub async fn setup(
     if state.setup_token.is_required() {
         let provided = body.token.as_deref().unwrap_or("");
         if !state.setup_token.matches(provided) {
-            return Err(AppError::NotFound("Setup".into()));
+            return Err(AppError::NotFound(te("errors.auth.setup_not_found")));
         }
     }
 
@@ -64,7 +65,7 @@ pub async fn setup(
     let email = body.email.trim();
 
     if username.is_empty() {
-        return Err(AppError::BadRequest("Username required".into()));
+        return Err(AppError::BadRequest(te("errors.auth.username_required")));
     }
     password::validate_password_strength(&body.password, &[username, email])
         .map_err(AppError::BadRequest)?;
@@ -101,7 +102,9 @@ pub async fn setup(
     };
 
     if inserted == 0 {
-        return Err(AppError::Conflict("Setup already completed".into()));
+        return Err(AppError::Conflict(te(
+            "errors.auth.setup_already_completed",
+        )));
     }
 
     // Consume the bootstrap token AFTER the user has been persisted. If we
@@ -165,7 +168,7 @@ pub async fn login(
                 ua.as_deref(),
                 Some(serde_json::json!({"reason": "unknown_user"})),
             );
-            return Err(AppError::BadRequest("Invalid credentials".into()));
+            return Err(AppError::BadRequest(te("errors.auth.invalid_credentials")));
         }
     };
 
@@ -178,7 +181,7 @@ pub async fn login(
             ua.as_deref(),
             Some(serde_json::json!({"reason": "wrong_password"})),
         );
-        return Err(AppError::BadRequest("Invalid credentials".into()));
+        return Err(AppError::BadRequest(te("errors.auth.invalid_credentials")));
     }
 
     // Branch on whether 2FA is configured for this user.
