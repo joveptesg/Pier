@@ -209,7 +209,7 @@ projects_list:
   create: 创建
   never: 从不
   ago: 前
-  peer: peer
+  peer: 对等节点
   peer_plural_suffix: 个
   offline: 离线
   synced: 已同步
@@ -290,10 +290,10 @@ servers_list:
   revoke: 吊销
   revoked: 已吊销
   local: 本地
-  peer: peer
+  peer: 对等节点
   mesh_network: Mesh(网格)网络
   mesh_disabled_desc: 每个 Pier 节点之间的 WireGuard 隧道。已禁用。
-  mesh_peers: peers
+  mesh_peers: 对等节点
   mesh_on: 开启
   enable_mesh: 启用 Mesh(网格)
   disable: 禁用
@@ -758,8 +758,8 @@ resources_detail:
   th_nullable: 可空
   th_default: 默认值
   primary_key: 主键
-  "yes": "YES"
-  "no": "NO"
+  "yes": "是"
+  "no": "否"
   add_row: + 行
   filter_column: "— 筛选列 —"
   value_placeholder: 值
@@ -1126,8 +1126,8 @@ sources_list:
   type_custom: 自定义 Git
   base_url_label: 基础 URL / 组织
   access_token_label: 访问令牌
-  app_id_label: App ID
-  installation_id_label: Installation ID
+  app_id_label: 应用 ID
+  installation_id_label: 安装 ID
   private_key_label: 私钥 (PEM)
   github_app_help: "在 github.com/settings/apps 创建一个 GitHub App。在安装过程中选择您要授予访问权限的仓库。"
   project_label: 项目
@@ -1153,12 +1153,12 @@ sources_detail:
   type: 类型
   html_url: HTML URL
   api_url: API URL
-  app_id: App ID
-  installation_id: Installation ID
+  app_id: 应用 ID
+  installation_id: 安装 ID
   not_installed_yet: 尚未安装
-  client_id: Client ID
-  client_secret: Client Secret
-  webhook_secret: Webhook Secret
+  client_id: 客户端 ID
+  client_secret: 客户端密钥
+  webhook_secret: Webhook 密钥
   base_url: 基础 URL
   created: 创建时间
   repositories: 仓库
@@ -1358,15 +1358,15 @@ s3_list:
   label_type: 类型
   type_s3: S3 兼容
   label_storage_hostname: 存储主机名
-  label_endpoint: Endpoint
+  label_endpoint: 端点
   label_region: 区域
-  label_bucket: Bucket
+  label_bucket: 存储桶
   label_key_prefix: 键前缀
   key_prefix_help: bucket 内的第一层文件夹——例如服务器名称。留空则写入 bucket 根目录。
-  label_access_key: Access Key
-  label_secret_key: Secret Key
+  label_access_key: 访问密钥
+  label_secret_key: 私密密钥
   placeholder_secret_keep: 留空则保持当前值
-  placeholder_secret: secret
+  placeholder_secret: 密钥
   save: 保存
   toast_required: 名称、endpoint 和 bucket 均为必填项
   toast_updated: 已更新存储
@@ -1405,8 +1405,8 @@ domains_list:
   col_service: 服务
   col_type: 类型
   col_actions: 操作
-  type_auto: auto
-  type_custom: custom
+  type_auto: 自动
+  type_custom: 自定义
   delete: 删除
   toast_load_failed: 加载域名失败
   toast_required: 域名和服务为必填项
@@ -1470,7 +1470,7 @@ networks_list:
   heading: 网络
   subtitle: 管理用于服务隔离的 Docker 网络
   create_network: 创建网络
-  default_badge: DEFAULT
+  default_badge: 默认
   driver_label: '驱动： '
   service_count_suffix: ' 个服务'
   delete: 删除

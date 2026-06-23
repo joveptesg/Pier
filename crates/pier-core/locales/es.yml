@@ -345,7 +345,7 @@ servers_list:
   cpu: CPU
   ram: RAM
   disk: Disco
-  hostname: Hostname
+  hostname: Nombre de host
   host: Host
   uptime: Tiempo activo
   os: SO
@@ -448,7 +448,7 @@ servers_detail:
   agent_token_prefix_hint: Solo se muestra el prefijo. El token completo reside en la unidad de systemd del agente.
   bootstrap_pending: Arranque pendiente
   os: SO
-  hostname: Hostname
+  hostname: Nombre de host
   uptime: Tiempo activo
   location_and_docker: "Ubicación y Docker"
   location: Ubicación
@@ -685,7 +685,7 @@ resources_detail:
   th_status: Estado
   th_ssl: SSL
   th_actions: Acciones
-  auto: auto
+  auto: automático
   inactive: inactivo
   active: activo
   activate_domain: Activar dominio
@@ -758,7 +758,7 @@ resources_detail:
   th_nullable: Anulable
   th_default: Predeterminado
   primary_key: Clave primaria
-  "yes": "YES"
+  "yes": "SÍ"
   "no": "NO"
   add_row: + Fila
   filter_column: "— filtrar columna —"
@@ -1404,7 +1404,7 @@ domains_list:
   col_service: Servicio
   col_type: Tipo
   col_actions: Acciones
-  type_auto: auto
+  type_auto: automático
   type_custom: personalizado
   delete: Eliminar
   toast_load_failed: No se pudieron cargar los dominios
@@ -1997,7 +1997,7 @@ team_index:
   col_actions: Acciones
   status_active: Activo
   status_disabled: Deshabilitado
-  twofa_on: 'On'
+  twofa_on: Activado
   change_role: Cambiar rol
   delete: Eliminar
   empty_users: Aún no hay usuarios.
