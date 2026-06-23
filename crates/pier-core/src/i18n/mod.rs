@@ -37,14 +37,11 @@ pub fn current_locale() -> String {
         .unwrap_or_else(|_| "en".to_string())
 }
 
-/// Pick the best locale for a request from its `Accept-Language` header,
-/// constrained to the locales actually compiled into the catalog, falling back
-/// to the source locale `"en"`.
-///
-/// Today only `en` ships, so this always yields `"en"`. The negotiation is in
-/// place so that dropping a second `*.yml` file is the only change needed to
-/// enable browser-driven locale selection. Cookie / stored-preference sources
-/// are layered on later (see the i18n plan's "deferred" section).
+/// Pick the best locale for a request, constrained to the locales compiled into
+/// the catalog. Priority:
+///   1. the `pier_locale` cookie set by the UI language switcher (per-browser);
+///   2. the browser's `Accept-Language` header;
+///   3. the source locale `"en"`.
 fn resolve_locale(req: &Request) -> String {
     // `available_locales!()` may yield `Vec<String>` or `Vec<&str>` depending on
     // the rust-i18n version; normalise to owned strings, then borrow as the
@@ -55,6 +52,15 @@ fn resolve_locale(req: &Request) -> String {
         .collect();
     let supported: Vec<&str> = owned.iter().map(|loc| loc.as_str()).collect();
 
+    // 1. Explicit choice persisted by the switcher. Validated against the
+    //    compiled-in locales so a stale/garbage cookie can't pin a missing one.
+    if let Some(choice) = cookie_value(req, "pier_locale") {
+        if supported.contains(&choice) {
+            return choice.to_string();
+        }
+    }
+
+    // 2. Browser preference.
     let header = req
         .headers()
         .get(axum::http::header::ACCEPT_LANGUAGE)
@@ -65,6 +71,18 @@ fn resolve_locale(req: &Request) -> String {
         .first()
         .map(|loc| loc.to_string())
         .unwrap_or_else(|| "en".to_string())
+}
+
+/// Read one cookie value out of the request's `Cookie` header without pulling in
+/// a cookie-jar dependency. Matches the whole `name` segment so `pier_locale`
+/// never collides with e.g. `pier_locale_x` or the session cookie.
+fn cookie_value<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
+    req.headers()
+        .get(axum::http::header::COOKIE)?
+        .to_str()
+        .ok()?
+        .split(';')
+        .find_map(|pair| pair.trim().strip_prefix(name)?.strip_prefix('='))
 }
 
 /// Axum middleware: resolve the request locale and bind it to [`CURRENT_LOCALE`]
@@ -215,5 +233,37 @@ mod tests {
 
         let no_header = Request::builder().body(axum::body::Body::empty()).unwrap();
         assert_eq!(resolve_locale(&no_header), "en");
+    }
+
+    /// The es and zh-CN catalogs resolve to real translations distinct from the
+    /// English source for prose keys.
+    #[test]
+    fn es_and_zh_translations_resolve() {
+        for key in ["login.username", "dashboard.subtitle", "common.cancel"] {
+            let en = rust_i18n::t!(key, locale = "en");
+            let es = rust_i18n::t!(key, locale = "es");
+            let zh = rust_i18n::t!(key, locale = "zh-CN");
+            assert_ne!(en, es, "es should differ from en for {key}");
+            assert_ne!(en, zh, "zh-CN should differ from en for {key}");
+        }
+    }
+
+    /// The `pier_locale` cookie (set by the switcher) wins over `Accept-Language`;
+    /// an unknown cookie value is ignored and negotiation falls through.
+    #[test]
+    fn resolve_locale_cookie_precedence() {
+        let chosen = Request::builder()
+            .header(axum::http::header::COOKIE, "foo=bar; pier_locale=es; baz=1")
+            .header(axum::http::header::ACCEPT_LANGUAGE, "zh-CN")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(resolve_locale(&chosen), "es");
+
+        let unknown = Request::builder()
+            .header(axum::http::header::COOKIE, "pier_locale=de")
+            .header(axum::http::header::ACCEPT_LANGUAGE, "zh-CN")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(resolve_locale(&unknown), "zh-CN");
     }
 }

@@ -1,0 +1,2598 @@
+# Spanish (es) — machine translation of en.yml (Pier admin panel).
+# Same key structure as en.yml; any missing key falls back to en (i18n! fallback).
+# Machine-translated — native review advisable before production.
+
+common:
+  logout: Cerrar sesión
+  view_all: Ver todo
+  loading: Cargando…
+  no_description: Sin descripción
+  cancel: Cancelar
+  copy: Copiar
+  optional: (opcional)
+  # Client-side toast / fetch messages emitted from shared scripts.
+  copied: ¡Copiado!
+  copy_failed: Error al copiar
+  request_failed: La solicitud falló
+
+# Sidebar navigation (labels + collapsed-sidebar tooltips share these keys).
+nav:
+  dashboard: Panel
+  projects: Proyectos
+  servers: Servidores
+  sources: Fuentes
+  s3: Almacenamientos S3
+  registries: Registros
+  packages: Paquetes
+  domains: Dominios
+  proxy: Proxy
+  networks: Redes
+  team: Equipo
+  tasks: Tareas
+  schedules: Programaciones
+  settings: Ajustes
+  logs: Registros
+  updates: Actualizaciones
+  notifications: Notificaciones
+  # Sidebar section headers.
+  group:
+    integrations: Integraciones
+    networking: Red
+    system: Sistema
+
+# Shared chrome rendered by base.html.
+layout:
+  support_pier: Apoyar a Pier
+  deploy_in_progress: En curso
+  # Deploy badge count: "N deployment(s)". JS picks singular/plural by count.
+  deployment_one: despliegue
+  deployment_other: despliegues
+
+# Login + two-factor screen (login.html).
+login:
+  title: Iniciar sesión
+  sign_in: Iniciar sesión
+  two_factor: Autenticación de dos factores
+  username: Nombre de usuario
+  # Example username shown as the field placeholder (the default account name).
+  username_placeholder: admin
+  password: Contraseña
+  signing_in: Iniciando sesión…
+  totp_hint: Introduce el código de 6 dígitos de tu aplicación de autenticación, o un código de recuperación.
+  verify: Verificar
+  verifying: Verificando…
+  back: ← atrás
+  error:
+    login_failed: Error al iniciar sesión
+    invalid_code: Código no válido
+    request_failed: La solicitud falló
+
+# Dashboard (dashboard.html).
+dashboard:
+  title: Panel
+  subtitle: Resumen del sistema y uso de recursos
+  architecture: Arquitectura
+  cpu_usage: Uso de CPU
+  memory: Memoria
+  disk: Disco
+  containers: Contenedores
+  # Suffixes/labels assembled in Alpine x-text expressions.
+  cores: núcleos
+  running: en ejecución
+  stopped: detenidos
+  docker_engine: Docker Engine
+  version: Versión
+  api_version: Versión de la API
+  storage_driver: Controlador de almacenamiento
+  images: Imágenes
+  projects: Proyectos
+  no_projects: Aún no hay proyectos
+  create_first_project: Crea tu primer proyecto
+  system: Sistema
+  hostname: Nombre de host
+  os: Sistema operativo
+  uptime: Tiempo de actividad
+  servers: Servidores
+  memory_by_container: Uso de memoria por contenedor
+  loading_stats: Cargando estadísticas…
+  no_running_containers: No hay contenedores en ejecución
+  disk_usage: Uso de disco
+  volumes: Volúmenes
+  build_cache: Caché de compilación
+  total_disk_usage: Uso total de disco de Docker
+
+# Shared auth-page chrome (auth_base.html).
+auth:
+  tagline: Despliega cualquier cosa. Sé dueño de todo.
+
+# First-run admin setup (setup.html).
+setup:
+  title: Configuración
+  proxy_error_title: El proxy inverso (Traefik) no pudo iniciarse
+  proxy_error_hint: "Esto suele deberse a un límite de tasa de Docker Hub en VPS con IP compartida. Para solucionarlo manualmente, ejecuta en el servidor:"
+  proxy_error_after: "Tras el reinicio, Pier vuelve a levantar Traefik automáticamente. Este aviso desaparece en /setup."
+  create_admin: Crear cuenta de administrador
+  subtitle: Configuración inicial. Crea la cuenta de administrador.
+  username: Nombre de usuario
+  username_placeholder: admin
+  email: Correo electrónico
+  password: Contraseña
+  generate_password: Generar contraseña segura
+  password_placeholder: Mín. 12 caracteres, mezclados
+  confirm_password: Confirmar contraseña
+  confirm_placeholder: Vuelve a introducir la contraseña
+  passwords_no_match: Las contraseñas no coinciden
+  creating: Creando…
+  strength:
+    very_weak: Muy débil
+    weak: Débil
+    fair: Aceptable
+    good: Buena
+    strong: Fuerte
+  pw_copied: Contraseña copiada al portapapeles. Guárdala ahora; no se volverá a mostrar.
+  pw_generated: Contraseña generada. Cópiala desde el campo; no se volverá a mostrar.
+  fix_fields: Corrige los campos resaltados antes de continuar.
+  setup_failed: La configuración falló
+
+# CLI authorization page for `npm login --auth-type=web` (cli_login.html).
+cli_login:
+  title: Autorizar CLI
+  request_desc: Una herramienta de línea de comandos está solicitando un token para publicar o instalar paquetes npm desde este registro.
+  authorizing_as: Autorizando como
+  hostname: Nombre de host
+  source_ip: IP de origen
+  user_agent: User-Agent
+  expires_in: Caduca en
+  expired_short: caducado
+  token_name: Nombre del token
+  token_name_placeholder: portátil, ejecutor de CI, …
+  authorize: Autorizar
+  issuing: Emitiendo token…
+  authorized: CLI autorizado
+  authorized_hint: "Tu terminal debería recoger el token en unos segundos. Si no lo hace, copia el token de abajo y pégalo en <code class=\"font-mono\">.npmrc</code>."
+  token_fallback: Token (alternativo)
+  token_once: Esta es la única vez que se muestra aquí el token. Una vez que la CLI lo obtiene, la entrada se borra.
+  back_to_packages: Volver a Paquetes
+  session_expired: La sesión caducó
+  expired_hint: "Vuelve a ejecutar <code class=\"font-mono\">npm login --auth-type=web --registry=…</code> en tu terminal para iniciar una sesión nueva."
+  auth_failed: La autorización falló
+  clipboard_failed: Error al copiar al portapapeles; selecciona y copia manualmente.
+
+# Invitation acceptance (invitations/accept.html).
+invite:
+  title: Aceptar invitación
+  verifying: Verificando invitación…
+  invalid_title: Invitación no válida
+  invalid_desc: Este enlace ha caducado, ya se ha usado o nunca existió. Pide a quien te invitó que te envíe uno nuevo.
+  back_to_login: Volver al inicio de sesión
+  welcome: Te damos la bienvenida a Pier
+  invited_as: Has sido invitado como
+  choose_credentials: Elige un nombre de usuario y una contraseña para terminar de configurar tu cuenta.
+  username: Nombre de usuario
+  password: Contraseña
+  password_hint: Al menos 12 caracteres, no derivada de tu nombre de usuario ni de tu correo electrónico.
+  create_account: Crear cuenta
+  working: Procesando…
+  created_title: Cuenta creada
+  created_desc: Tu cuenta está lista. Inicia sesión con las credenciales que acabas de elegir.
+  go_to_login: Ir al inicio de sesión
+  accept_failed: No se pudo aceptar la invitación
+
+projects_list:
+  title: Proyectos
+  heading: Proyectos
+  subtitle: Gestiona proyectos y recursos independientes
+  all_servers: Todos los servidores
+  this_server: Este servidor
+  new: Nuevo
+  menu_project: Proyecto
+  menu_project_desc: Crea un grupo lógico para recursos
+  menu_resource: Recurso
+  menu_resource_desc: Despliega una base de datos, aplicación o servicio
+  federated: federado
+  managed_on: Gestionado en
+  opens_server_ui: Abre la interfaz de ese servidor.
+  ports_label: 'Puertos:'
+  created_label: 'Creado:'
+  synced_label: 'Sincronizado:'
+  standalone_resources: Recursos independientes
+  open_prefix: Abrir
+  public: público
+  empty_title: Aún no hay proyectos
+  empty_subtitle: Crea un proyecto o despliega un recurso para empezar
+  modal_title: Nuevo proyecto
+  name_label: Nombre
+  description_label: Descripción
+  description_placeholder: Descripción opcional
+  port_start_label: Puerto inicial
+  port_end_label: Puerto final
+  create: Crear
+  never: nunca
+  ago: atrás
+  peer: peer
+  peer_plural_suffix: s
+  offline: sin conexión
+  synced: Sincronizado
+  sync_pending: Sincronización pendiente
+  error: error
+  unknown: desconocido
+  last_sync: última sincronización
+  project_created: Proyecto creado
+
+# Project detail (projects/detail.html).
+projects_detail:
+  title: Proyecto
+  edit: Editar
+  delete: Eliminar
+  name: Nombre
+  description: Descripción
+  port_start: Puerto inicial
+  port_end: Puerto final
+  save_changes: Guardar cambios
+  port_range: Rango de puertos
+  not_set: Sin establecer
+  created: Creado
+  services: Servicios
+  new_service: Nuevo servicio
+  open: Abrir
+  public: público
+  no_services: No hay servicios en este proyecto
+  registry_credentials: Credenciales del registro
+  registry_credentials_desc: Las credenciales del proyecto anulan las globales para el mismo host de registro.
+  add: Añadir
+  registry: Registro
+  username: Usuario
+  label: Etiqueta
+  actions: Acciones
+  test: Probar
+  no_project_creds: 'No hay credenciales del proyecto. Se recurre a las <a href="/settings/registries" class="text-blue-500 hover:underline">credenciales globales</a>.'
+  add_registry_credential: Añadir credencial de registro
+  registry_host: Host del registro
+  password_token: Contraseña / token
+  saving: Guardando…
+  delete_project: Eliminar proyecto
+  has_services_prefix: Este proyecto tiene
+  service_singular: servicio
+  service_plural_suffix: s
+  delete_services_first: Elimina cada servicio antes de poder quitar el proyecto.
+  close: Cerrar
+  permanent_delete_warning: Esto eliminará permanentemente el proyecto.
+  type_to_confirm_prefix: Escribe
+  type_to_confirm_suffix: 'para confirmar:'
+  account_password: Contraseña de la cuenta
+  enter_password_placeholder: Introduce tu contraseña
+  deleting: Eliminando…
+  toast_load_failed: No se pudo cargar el proyecto
+  confirm_delete_cred_prefix: 'Eliminar credenciales de '
+  toast_cred_added: Credencial añadida
+  toast_connection_ok: Conexión correcta
+  toast_failed_prefix: 'Falló: '
+  unknown: desconocido
+  toast_project_updated: Proyecto actualizado
+  toast_project_deleted: Proyecto eliminado
+
+# Servers list (servers/list.html).
+servers_list:
+  title: Servidores
+  heading: Servidores
+  subtitle: "Núcleo local, agentes remotos y núcleos peer federados, todo en un solo lugar."
+  add_server: Añadir servidor
+  add: Añadir
+  edit: Editar
+  delete: Eliminar
+  save: Guardar
+  create: Crear
+  done: Hecho
+  working: Trabajando…
+  rename: Renombrar
+  test: Probar
+  remove: Quitar
+  revoke: Revocar
+  revoked: revocado
+  local: local
+  peer: peer
+  mesh_network: Red mesh
+  mesh_disabled_desc: Túnel WireGuard entre cada nodo Pier. Deshabilitado.
+  mesh_peers: peers
+  mesh_on: activo
+  enable_mesh: Habilitar mesh
+  disable: Deshabilitar
+  apply: Aplicar
+  applying: Aplicando…
+  apply_title: Volver a ejecutar install + par de claves + apply en cada peer
+  preflight_title: Comprobación previa del mesh
+  preflight_desc: 'Cada nodo necesita <span class="font-mono">pier-net-helper</span> en ejecución antes de que el mesh pueda levantarse. Ejecuta el comando de abajo en cada nodo que falte, luego haz clic en <em>Volver a comprobar</em>.'
+  helper_online: helper en línea
+  helper_missing: helper ausente
+  preflight_run_command: "Ejecuta este comando como root en cada nodo rojo de arriba:"
+  recheck: Volver a comprobar
+  checking: Comprobando…
+  preflight_unreachable: endpoint de comprobación previa inalcanzable
+  service_dns: DNS de servicio
+  service_dns_empty: No hay asignaciones. Registra un nombre lógico para que los stacks puedan referirse a un servicio por su rol en lugar del nodo.
+  service_dns_count: asignación(es) — los stacks se redespliegan automáticamente al cambiar
+  new_plus: + Nuevo
+  edit_prefix: Editar
+  service_dns_new_title: Nueva asignación de DNS de servicio
+  service_dns_form_desc: 'Un nombre como <span class="font-mono">db</span> se convierte en <span class="font-mono">db.mesh</span> en cada stack. Minúsculas, [a-z0-9-], 1-31 caracteres.'
+  name_label: Nombre
+  target_server_label: Servidor de destino
+  select_option: "— seleccionar —"
+  local_suffix: (local)
+  meshed_only_hint: Solo los servidores en mesh inyectan realmente; los peers fuera del mesh se omiten silenciosamente al desplegar.
+  port_label: Puerto
+  federation_tokens: Tokens de federación
+  fed_tokens_empty: No se han emitido tokens. Genera uno para permitir que un pier-core primario remoto despliegue stacks aquí.
+  fed_tokens_count: token(s) emitido(s)
+  new_token_plus: + Nuevo token
+  never_used: nunca usado
+  fed_token_create_title: Generar token de federación
+  fed_token_create_desc: 'El token en texto plano se muestra <strong>una sola vez</strong>. Cópialo en el formulario "Conectar a peer" del primario justo después de crearlo.'
+  label_label: Etiqueta
+  label_hint: Cualquier identificador para el primario que usará este token.
+  token_for: Token para
+  reveal_warning: Cópialo ahora — Pier nunca volverá a mostrarlo. Tras cerrar este diálogo solo el prefijo será visible.
+  reveal_instructions: 'En el pier-core primario: ve a <span class="font-mono">/servers</span> → la fila de este peer → pega este valor en el campo <strong>Token de federación</strong>.'
+  copied_confirm: Lo he copiado
+  mesh_settings: Ajustes del mesh
+  mesh_settings_desc: Solo editable mientras el mesh está deshabilitado — cambiar la subred en un mesh activo dejaría huérfana cada IP asignada.
+  subnet_label: Subred (CIDR)
+  subnet_hint: Prefijo /30 o más corto. /24 admite 254 nodos.
+  listen_port_label: Puerto de escucha
+  listen_port_hint: UDP. Debe estar abierto en el firewall de cada nodo.
+  keepalive_label: PersistentKeepalive (s)
+  keepalive_hint: 0 deshabilita el keepalive. Usa ≥25 si algún nodo está detrás de NAT.
+  cpu: CPU
+  ram: RAM
+  disk: Disco
+  hostname: Hostname
+  host: Host
+  uptime: Tiempo activo
+  os: SO
+  url: URL
+  last_heartbeat: Último heartbeat
+  never: Nunca
+  view_snapshot: Ver instantánea
+  open_panel: Abrir panel
+  kind_agent: Agente
+  kind_agent_desc: Trabajador ligero, los metadatos permanecen aquí
+  kind_peer: Núcleo peer
+  kind_peer_desc: pier-core autónomo con su propia base de datos
+  name_placeholder: Servidor de producción
+  peer_token_instructions: "En el servidor de destino: Ajustes → Acceso externo → Emitir token, luego pega el token abajo."
+  peer_token_label: Token de peer
+  peer_token_placeholder: token emitido por el núcleo remoto
+  agent_created: Agente creado
+  agent_created_desc: Ejecuta el comando de instalación en el servidor remoto
+  install_command_expires: Comando de instalación — el token de arranque caduca
+  install_command_note: El comando intercambia el arranque por un token de largo plazo e inicia el agente. Este arranque es de un solo uso — no volverás a verlo. Si la instalación falla, elimina el servidor y créalo de nuevo para emitir un arranque nuevo.
+  expires_soon: pronto
+  expires_now: ahora (actualiza — el arranque ha caducado)
+  expires_lt_minute: en menos de un minuto
+  expires_1_minute: en 1 minuto
+  expires_in_prefix: en
+  expires_minutes_suffix: minutos
+  ago: atrás
+  warn_ipv6_only: Este host parece ser solo IPv6 pero este servidor no tiene IPv6 público — el handshake fallará. Añade una dirección v6 en este servidor o usa un host v4.
+  warn_ipv4_no_public: Este host es IPv4 pero este servidor no tiene IPv4 público. El agente puede que alcance el núcleo bien de salida, pero el respaldo del mesh a IPv4 público no funcionará.
+  toast_name_required: El nombre es obligatorio
+  toast_agent_created: Agente creado — ejecuta el comando de instalación
+  toast_peer_registered: Peer registrado
+  toast_server_online: El servidor está en línea
+  remove_confirm_prefix: Escribe
+  remove_confirm_suffix: "para confirmar la eliminación:"
+  toast_name_mismatch: El nombre no coincide
+  toast_server_removed: Servidor eliminado
+  toast_renamed: Renombrado
+  configure_aborted: Configuración abortada en un peer. Consulta las filas de peers de abajo para más detalles.
+  toast_mesh_active: Mesh activo
+  toast_mesh_partial: Mesh configurado parcialmente
+  toast_enable_mesh_failed: Habilitar el mesh falló
+  toast_command_copied: Comando copiado
+  toast_create_failed: La creación falló
+  revoke_confirm_prefix: Revocar token de federación
+  revoke_confirm_suffix: "? Las llamadas del primario que lo usen empezarán a devolver 401."
+  toast_token_revoked: Token revocado
+  toast_revoke_failed: La revocación falló
+  toast_token_copied: Token copiado
+  toast_mapping_updated: Asignación actualizada; redesplegando stacks
+  toast_mapping_created: Asignación creada; redesplegando stacks
+  toast_save_failed: El guardado falló
+  delete_mapping_confirm_prefix: Eliminar asignación
+  delete_mapping_confirm_suffix: "? Los stacks que la referencian perderán el host en su próximo redespliegue."
+  toast_mapping_removed: Asignación eliminada; redesplegando stacks
+  toast_delete_failed: La eliminación falló
+  toast_mesh_reapplied: Mesh reaplicado
+  toast_apply_partial: Apply falló parcialmente
+  toast_apply_failed: Apply falló
+  disable_confirm: ¿Deshabilitar el mesh? Esto bajará wg0 en cada peer y limpiará la asignación del lado de Pier.
+  disable_uninstall_confirm: ¿Desinstalar también los paquetes pier-net-helper / wireguard en cada peer? (OK = desinstalar, Cancelar = mantener instalados)
+  toast_mesh_disabled_prefix: Mesh deshabilitado —
+  toast_mesh_disabled_suffix: peer(s) tuvieron problemas
+  toast_mesh_disabled: Mesh deshabilitado
+  toast_disable_failed: Deshabilitar falló
+  toast_mesh_settings_saved: Ajustes del mesh guardados
+
+# Server detail (servers/detail.html).
+servers_detail:
+  title: Detalle del servidor
+  rename_hint: Doble clic para renombrar
+  save: Guardar
+  testing: Probando...
+  test_connection: Probar conexión
+  open_panel: Abrir panel
+  promote_to_standalone: Promover a independiente
+  remove: Quitar
+  promote_modal_title: "Promover agente → pier-core independiente"
+  promote_modal_desc_pre: "Exporta un paquete con todos los servicios, dominios, variables de entorno, programaciones de copias de seguridad y la configuración global actualmente asociada a "
+  promote_modal_desc_post: ". Aplícalo en ese servidor para que pueda funcionar como un panel Pier completo en lugar de un agente ligero."
+  promote_heads_up: Aviso
+  promote_warn_core: El servidor de destino debe ejecutar pier-core (misma versión mayor). Si solo tiene pier-agent, instala pier-core primero.
+  promote_warn_empty_db: La base de datos de destino debe estar vacía (sin servicios existentes). La importación se niega a sobrescribir.
+  promote_warn_secrets: "Los usuarios / sesiones / secretos de este panel <em>no</em> se exportan — crea un administrador en el nuevo panel cuando arranque."
+  promote_automatic_title: Automático (recomendado)
+  promote_automatic_desc: El núcleo envía el paquete al agente, que descarga pier-core, importa el paquete, instala una unidad de systemd, se detiene a sí mismo e inicia el nuevo pier-core. Observas el registro en el destino.
+  promote_detach_label: Quitar este servidor de mi panel después de que el agente acepte la promoción
+  promoting: Promoviendo...
+  promote_now: Promover ahora
+  log_label: "Registro:"
+  manual_alternative: Alternativa manual
+  manual_step1: 1. Descarga el paquete
+  download_bundle: Descargar paquete (.json)
+  manual_step2: 2. Aplica en el servidor de destino
+  close: Cerrar
+  connection_info: Información de conexión
+  host: Host
+  port: Puerto
+  agent_token: Token del agente
+  agent_token_prefix_hint: Solo se muestra el prefijo. El token completo reside en la unidad de systemd del agente.
+  bootstrap_pending: Arranque pendiente
+  os: SO
+  hostname: Hostname
+  uptime: Tiempo activo
+  location_and_docker: "Ubicación y Docker"
+  location: Ubicación
+  docker_version: Versión de Docker
+  containers: Contenedores
+  running: en ejecución
+  total: total
+  images: Imágenes
+  last_heartbeat: Último heartbeat
+  local: Local
+  never: Nunca
+  system_metrics: Métricas del sistema
+  unavailable: No disponible
+  refreshes_every_5s: Se actualiza cada 5s
+  cpu_usage: Uso de CPU
+  memory: Memoria
+  disk: Disco
+  containers_plural: contenedores
+  container_singular: contenedor
+  no_containers: No se encontraron contenedores en este servidor
+  col_name: Nombre
+  col_image: Imagen
+  col_state: Estado
+  col_status: Estado
+  bootstrap_waiting: "Esperando a que el host remoto ejecute el comando de instalación. El token de arranque es de un solo uso y se mostró al crearlo — no guardamos una copia."
+  bootstrap_expires_pre: "El arranque caduca "
+  bootstrap_expires_post: ". Si perdiste el comando de instalación, elimina este agente y créalo de nuevo para emitir un arranque nuevo."
+  federation_token: Token de federación
+  paired: emparejado
+  not_paired: no emparejado
+  federation_token_desc: "Pega el token en texto plano que este peer generó en <span class=\"font-mono\">/servers</span> → Tokens de federación → <em>Nuevo token</em>. Pier lo almacena en texto plano (mismo compromiso que <span class=\"font-mono\">agent_token</span>); nunca lo volvemos a mostrar tras guardarlo."
+  working: "Trabajando…"
+  clear: Limpiar
+  agent_credential: Credencial del agente
+  rotate_hint: Genera un nuevo token de largo plazo, envíalo al agente y reinicia el servicio del agente.
+  rotate: Rotar
+  rotating: "Rotando…"
+  agent_credential_desc: Token de largo plazo en uso (solo se muestra el prefijo; el valor completo reside en la unidad de systemd del agente en el host remoto).
+  version: Versión
+  last_rotated: Última rotación
+  never_rotated: Nunca rotado
+  err_load_server: No se pudo cargar el servidor
+  err_metrics_unavailable: Métricas no disponibles
+  err_server_offline: El servidor está sin conexión
+  err_fetch_metrics: No se pudieron obtener las métricas
+  toast_renamed: Servidor renombrado
+  toast_agent_online: El agente está en línea
+  confirm_promote: "¿Promover %{name} a pier-core independiente?"
+  confirm_promote_detail: El agente se detendrá a sí mismo y pier-core tomará el control en el host remoto.
+  toast_promotion_started: Promoción iniciada en el servidor de destino
+  err_bundle_export: La exportación del paquete falló
+  toast_bundle_downloaded: Paquete descargado
+  prompt_confirm_removal: "Escribe \"%{name}\" para confirmar la eliminación:"
+  toast_name_mismatch: El nombre no coincide
+  toast_server_removed: Servidor eliminado
+  expires_soon: pronto
+  expires_now: "ahora (caducado — elimina y vuelve a crear el agente)"
+  expires_lt_minute: en menos de un minuto
+  expires_1_minute: en 1 minuto
+  expires_n_minutes: "en %{count} minutos"
+  toast_federation_paired: Federación emparejada
+  toast_save_failed: "El guardado falló:"
+  confirm_unpair: ¿Desemparejar la federación? El primario perderá la capacidad de desplegar/reiniciar stacks en este peer hasta que pegues un token nuevo.
+  toast_federation_unpaired: Federación desemparejada
+  toast_unpair_failed: "El desemparejado falló:"
+  confirm_rotate: ¿Rotar el token del agente ahora? El agente será reiniciado por systemd y el token antiguo dejará de funcionar inmediatamente.
+  toast_token_rotated: Token rotado; el agente se está reiniciando
+  toast_rotate_failed: "La rotación falló:"
+
+resources_catalog:
+  title: Nuevo Recurso
+  heading: Nuevo Recurso
+  subtitle: Selecciona un recurso para desplegar en tu servidor
+  search_placeholder: Buscar...
+  filter_all: Todas las categorías
+  category_git: Basado en Git
+  category_docker: Basado en Docker
+  category_databases: Bases de datos
+  category_services: Servicios
+  loading: Cargando catálogo...
+  about_aria: Acerca de
+  empty_state: Ninguna plantilla coincide con tu búsqueda
+  trademarks_note: Las respectivas marcas comerciales mencionadas en esta página son propiedad de las respectivas empresas, y su uso no implica afiliación ni respaldo alguno.
+  load_failed: No se pudo cargar el catálogo
+
+# Resource creation wizard (resources/create.html).
+resources_create:
+  page_title: Desplegar Recurso
+  deploy_heading: Desplegar
+  loading_template: Cargando plantilla...
+  service_name_label: Nombre del Servicio
+  service_name_fallback: servicio
+  service_name_hint: Nombre usado para el contenedor y el stack
+  railpack_first_build_title: La primera compilación puede tardar de 1 a 10 minutos
+  railpack_first_build_body: "Railpack descarga dependencias y compila tu proyecto desde el código fuente. Uso máximo de RAM: Node ~3 GB, Python ~4 GB, Rust ~8 GB. El contenedor buildkit conserva la caché de capas entre compilaciones, por lo que los despliegues posteriores son mucho más rápidos."
+  railpack_low_ram_title: "Tu servidor solo tiene %{ram} GB de RAM"
+  railpack_low_ram_body: 'Las compilaciones de Railpack probablemente fallarán con errores de falta de memoria en este host. Recomendado: <strong>4 GB+ de RAM</strong> (8 GB para proyectos Rust). Alternativas más ligeras que funcionan bien en VPS pequeños: <a href="/resources/new/dockerfile" class="underline hover:no-underline">Dockerfile</a>, <a href="/resources/new/docker-image" class="underline hover:no-underline">Docker Image</a>, o <a href="/resources/new/docker-compose" class="underline hover:no-underline">Docker Compose</a>.'
+  railpack_pick_github: Elige de una GitHub App conectada
+  railpack_pick_github_note: (opcional — déjalo en blanco para repositorios públicos)
+  github_app_source_label: Fuente de GitHub App
+  source_none_option: "— Ninguna (repositorio público, o pega la URL abajo) —"
+  add_source_button: + Añadir
+  railpack_no_sources: 'No hay fuentes de GitHub App configuradas. <a href="/sources" class="underline">Conecta una</a> para desplegar repositorios privados.'
+  repository_label: Repositorio
+  select_repository_option: Selecciona un repositorio...
+  private_suffix: (privado)
+  loading_repositories: Cargando repositorios...
+  repo_filled_hint: URL y rama rellenadas abajo — ajusta el puerto / comando de inicio según sea necesario.
+  auto_generated_placeholder: Se genera automáticamente si se deja vacío
+  generate_button: Generar
+  railpack_start_cmd_hint: "Déjalo vacío para que Railpack lo detecte automáticamente desde tu proyecto (por ejemplo, <code>npm start</code> para Node, <code>python app.py</code> para Python). Sobrescríbelo solo si necesitas un punto de entrada personalizado."
+  railpack_env_vars_hint: "Un <code>KEY=VALUE</code> por línea. Disponible solo durante la <em>compilación</em> — para variables de entorno en tiempo de ejecución usa la pestaña Entorno después de crear el servicio. Los comentarios (<code>#</code>) y las líneas en blanco se ignoran."
+  deployment_mode_label: Modo de Despliegue
+  standalone_button: Independiente
+  cluster_button: Clúster
+  cluster_unavailable_hint: Añade servidores remotos para habilitar el modo clúster
+  number_of_nodes_label: Número de Nodos
+  nodes_suffix: nodos
+  node_distribution_label: Distribución de Nodos
+  node_primary: Primario
+  node_replica: Réplica
+  local_suffix: (local)
+  select_github_app_label: Selecciona una GitHub App
+  select_github_app_source_option: Selecciona una fuente de GitHub App...
+  wizard_no_sources: 'No hay fuentes de GitHub App. <a href="/sources" class="underline">Conecta una primero</a>.'
+  pick_from_list_button: Elegir de la lista
+  enter_url_manually_button: Introducir URL manualmente
+  already_deployed_suffix: "— ya desplegado"
+  repos_already_deployed_hint: repositorio(s) ya desplegado(s) en este Pier — puedes desplegarlos de nuevo (por ejemplo, un archivo compose diferente).
+  change_repos_github: Cambiar Repositorios en GitHub ↗
+  manual_url_hint: Debe ser un repositorio al que pueda acceder la instalación de tu GitHub App. La autenticación usa la fuente seleccionada arriba.
+  configuration_heading: Configuración
+  branch_label: Rama
+  loading_branches: Cargando ramas...
+  build_pack_label: Build Pack
+  build_pack_railpack_option: Railpack (Compilación automática)
+  dockerfile_path_label: Ruta del Dockerfile
+  compose_location_label: Ubicación del Compose
+  port_label: Puerto
+  wizard_railpack_note: Railpack detecta automáticamente el lenguaje y el comando de inicio. La primera compilación puede tardar de 1 a 10 minutos y necesita ~4 GB de RAM (8 GB para Rust). Para sobrescrituras (comando de inicio / variables de entorno en tiempo de compilación), usa la plantilla independiente de Railpack.
+  project_label: Proyecto (opcional)
+  no_project_option: Sin proyecto
+  network_label: Red
+  default_suffix: (predeterminada)
+  target_server_label: Servidor de Destino
+  local_dash_suffix: "— local"
+  offline_suffix: "[sin conexión]"
+  target_server_hint: Servidor donde se desplegará el recurso
+  host_port_label: Puerto del Host (opcional)
+  host_port_auto_placeholder: automático
+  host_port_hint: "Déjalo vacío para automático: Pier intenta el puerto estándar (por ejemplo, 5432 para Postgres) y recurre a su pool si está ocupado."
+  btn_creating: Creando...
+  btn_continue: Continuar
+  btn_deploy_cluster: Desplegar Clúster
+  btn_deploy: Desplegar
+  toast_load_failed: No se pudo cargar la plantilla
+  toast_name_required: El nombre es obligatorio
+  toast_select_source_first: Selecciona primero una fuente de GitHub App
+  err_invalid_url: Introduce una URL HTTPS completa como
+  toast_repo_url_invalid: La URL del repositorio no es válida
+  toast_deployed_success: desplegado correctamente
+  toast_resource_exists: 'El recurso "%{name}" ya existe — abriéndolo'
+
+# Catalog info modal partial (partials/catalog_info_modal.html).
+catalog_info_modal:
+  close: Cerrar
+  no_extended_description: Aún no hay descripción extendida disponible para esta plantilla.
+  deploy_this_service: Desplegar este servicio
+
+resources_detail:
+  page_title: Recurso
+  rename_hint: Haz doble clic para renombrar
+  save: Guardar
+  deploying: desplegando
+  redeploy: Volver a desplegar
+  force_deploy: Despliegue forzado (sin caché)
+  deploy: Desplegar
+  start: Iniciar
+  stop: Detener
+  restart: Reiniciar
+  env_dirty_title: Cambios de entorno no aplicados
+  env_dirty_desc: El contenedor en ejecución todavía usa los valores anteriores. Vuelve a desplegar para aplicar el nuevo entorno.
+  redeploy_now: Volver a desplegar ahora
+  tab_overview: Resumen
+  tab_databases: Bases de datos
+  tab_data: Datos
+  tab_monitor: Monitor
+  tab_environment: Entorno
+  tab_domains: Dominios
+  tab_scale: Escalado
+  tab_git: Git
+  tab_deployments: Despliegues
+  tab_logs: Registros
+  tab_backups: Copias de seguridad
+  tab_danger: Zona de peligro
+  cluster_nodes: Nodos del clúster
+  nodes: nodos
+  add_node: + Añadir nodo
+  remove_node: "- Eliminar nodo"
+  primary: Primario
+  replica: Réplica
+  ports: Puertos
+  public: Público
+  local: Local
+  domains_plural: dominios
+  domain_singular: dominio
+  replicas_load_balanced: réplicas &mdash; Traefik equilibra la carga internamente
+  no_ports: No hay puertos asignados
+  public_port: Puerto público
+  make_public: Hacerlo disponible públicamente
+  make_public_desc: "Exposición TCP en bruto (p. ej. clientes de BD) mediante enlace directo de puertos de Docker. Al activarlo se recrea el contenedor de este servicio (~3 s de inactividad); la plataforma permanece en línea. Para acceso HTTP, usa la pestaña Dominios."
+  recreating_container: Recreando el contenedor del servicio con el nuevo enlace de puerto...
+  reachable_via: Accesible a través de
+  domain_label: dominio
+  reachable_via_suffix: (HTTPS a través de Traefik). Este interruptor solo afecta a la exposición TCP en bruto — los dominios permanecen activos independientemente. Gestiónalos en la sección Dominios de abajo.
+  details: Detalles
+  image: Imagen
+  mode: Modo
+  mode_cluster: Clúster
+  mode_standalone: Independiente
+  created: Creado
+  project: Proyecto
+  network: Red
+  domains: Dominios
+  multi_service: multiservicio
+  reload_compose_title: Vuelve a leer docker-compose.yml desde git y actualiza port_allocations + rutas de Traefik (sin reconstruir)
+  reload_from_git: ↻ Recargar desde git
+  reloading: Recargando...
+  add_domain: + Añadir dominio
+  manage_in_domains_tab: Gestionar en la pestaña Dominios →
+  no_domains: No hay dominios configurados
+  th_domain: Dominio
+  th_target: Destino
+  th_status: Estado
+  th_ssl: SSL
+  th_actions: Acciones
+  auto: auto
+  inactive: inactivo
+  active: activo
+  activate_domain: Activar dominio
+  deactivate_domain: Desactivar dominio
+  edit_domain_title: Editar (ruta, eliminar prefijo)
+  remove_domain_title: Eliminar dominio (destructivo)
+  internal_network: Red interna
+  internal_network_hint: Usa estos para conectar servicios dentro de la red de Docker (pier-net)
+  connection_urls: URL de conexión
+  hide_passwords: Ocultar contraseñas
+  show_passwords: Mostrar contraseñas
+  hide: Ocultar
+  show: Mostrar
+  host_from_server: Host (desde el servidor)
+  docker_from_containers: Docker (desde contenedores en pier-net)
+  public_from_anywhere: Público (desde cualquier lugar)
+  advanced: Avanzado
+  auto_deploy: Despliegue automático
+  auto_deploy_desc: Desplegar automáticamente cuando se recibe un push de git
+  force_https: Forzar HTTPS
+  force_https_desc: Redirigir HTTP a HTTPS para todos los dominios
+  docker_compose: Docker Compose
+  raw: bruto
+  load_from_git: Cargar desde Git
+  compose_empty_hint: 'Despliega para ver el contenido de compose, o haz clic en "Cargar desde Git" para previsualizar.'
+  command: Comando
+  editor_audited_suffix: · Editor · auditado
+  run: Ejecutar
+  scan: Escanear
+  no_keys: No hay claves en esta BD.
+  load_more: Cargar más…
+  select_key: Selecciona una clave para ver su valor.
+  th_field: Campo
+  th_value: Valor
+  th_member: Miembro
+  th_score: Puntuación
+  mongo_shell: Mongo Shell
+  running_ellipsis: Ejecutando…
+  database: Base de datos
+  no_collections: No hay colecciones.
+  select_collection: Selecciona una colección para ver los documentos.
+  skip: omitir
+  total: total
+  prev: Anterior
+  next: Siguiente
+  no_documents: No hay documentos.
+  sql_runner: Ejecutor de SQL
+  sql_editor_role_hint: Se requiere rol de Editor. Las sentencias se auditan.
+  history: Historial
+  history_load_title: Haz clic para cargar en el ejecutor
+  rows: filas
+  no_history: Aún no hay historial.
+  rows_affected: fila(s) afectada(s)
+  rows_count: fila(s)
+  truncated_1000: "— truncado a las primeras 1000"
+  export: "Exportar:"
+  no_rows_returned: No se devolvieron filas.
+  exit_fullscreen: Salir de pantalla completa
+  fullscreen: Pantalla completa
+  minimize: Minimizar
+  maximize: Maximizar
+  no_tables: sin tablas
+  rows_estimate: filas (estimación)
+  no_tables_in_db: No hay tablas en esta base de datos.
+  select_table: Selecciona una tabla para ver su estructura y datos.
+  view_data: Datos
+  view_structure: Estructura
+  th_column: Columna
+  th_type: Tipo
+  th_nullable: Anulable
+  th_default: Predeterminado
+  primary_key: Clave primaria
+  "yes": "YES"
+  "no": "NO"
+  add_row: + Fila
+  filter_column: "— filtrar columna —"
+  value_placeholder: valor
+  apply: Aplicar
+  clear: Limpiar
+  click_to_view: Haz clic para ver
+  no_rows: No hay filas.
+  of: de
+  edit: Editar
+  delete_row: Eliminar fila
+  confirm_delete: Confirmar eliminación
+  read_only_no_pk: solo lectura (sin PK)
+  saving: Guardando…
+  set_null: Establecer NULL
+  set_value: Establecer valor
+  updates_by_pk_prefix: Actualizaciones
+  updates_by_pk_suffix: por clave primaria · Editor · auditado.
+  insert_row: "Insertar fila —"
+  default_prefix: "predeterminado: "
+  null_default: NULL / predeterminado
+  insert: Insertar
+  inserting: Insertando…
+  empty_db_default: Vacío = predeterminado de la BD · Editor · auditado
+  monitor_intro: "<strong>MONITOR</strong> transmite cada comando (y sus datos) que ejecuta el servidor — para que puedas ver la actividad de claves efímeras / de TTL corto que la instantánea de la pestaña Datos y los registros de Docker nunca muestran. <strong>Solo Editor · auditado.</strong> Añade carga a Redis mientras se ejecuta — mantenlo abierto solo durante la depuración; <strong>Detener</strong> cierra la transmisión y elimina la carga de inmediato."
+  live: en vivo
+  monitor_filter_placeholder: "filtrar (p. ej. foooh:)"
+  autoscroll: desplazamiento automático
+  monitor_idle_hint: 'Pulsa <strong>Iniciar</strong> para transmitir comandos de Redis en vivo. Genera actividad en tu aplicación y observa cómo las claves (p. ej. <span class="font-mono">"SET" "foooh:…"</span>) aparecen en tiempo real, con el índice de la BD entre corchetes.'
+  databases: Bases de datos
+  create_database_btn: + Crear base de datos
+  th_database: Base de datos
+  th_owner: Propietario
+  th_password: Contraseña
+  th_size: Tamaño
+  th_connection_url: URL de conexión
+  restore_from_file: Restaurar desde archivo
+  change_password_title: Cambiar contraseña
+  delete_database_title: Eliminar base de datos
+  no_databases: No se encontraron bases de datos
+  create_database: Crear base de datos
+  database_name: Nombre de la base de datos
+  username: Nombre de usuario
+  password: Contraseña
+  auto_generated_placeholder: Se genera automáticamente si está vacío
+  generate: Generar
+  postgis_extensions: Extensiones de PostGIS
+  creating: Creando...
+  create: Crear
+  change_password: Cambiar contraseña
+  database_colon: "Base de datos:"
+  user_colon: "Usuario:"
+  new_password: Nueva contraseña
+  changing: Cambiando...
+  restore_database: Restaurar base de datos
+  owner_colon: "Propietario:"
+  restore_warning_prefix: ⚠ La base de datos
+  restore_warning_suffix: será <strong>eliminada y recreada</strong>. Se perderán todos los datos actuales.
+  backup_file: Archivo de copia de seguridad
+  restore_accepted_hint: "Aceptados: .dump (Postgres personalizado), .sql.gz, .tar.gz de clúster, .archive.gz (Mongo). Máx. 5 GB."
+  restoring: Restaurando…
+  restore: Restaurar
+  env_variables: Variables de entorno
+  add: + Añadir
+  hide_values: Ocultar valores
+  show_values: Mostrar valores
+  developer_view: Vista de desarrollador
+  normal_view: Vista normal
+  no_env_variables: No hay variables de entorno
+  env_dev_hint1: "Estas variables se inyectan automáticamente en cada servicio mediante <code>env_file: .env</code>. Define <code>environment:</code> en tu <code>docker-compose.yml</code> solo para sobrescribir."
+  env_dev_hint2: Los comentarios en línea con un espacio antes de # (p. ej., KEY=value #comment) se eliminan.
+  reset: Restablecer
+  save_redeploy: Guardar y volver a desplegar
+  add_domain_btn: Añadir dominio
+  no_domains_service: No hay dominios configurados para este servicio
+  activate: Activar
+  deactivate: Desactivar
+  delete: Eliminar
+  stack_defines_prefix: Este stack define
+  stack_defines_suffix: servicios. Cada uno puede tener su(s) propio(s) dominio(s); el enrutamiento se dirige al contenedor correspondiente.
+  domains_for: Dominios para
+  container_label: "Contenedor:"
+  port_label: · puerto
+  orphaned_domains: Dominios huérfanos
+  orphaned_domains_desc: 'Estos dominios hacen referencia a servicios de compose que ya no existen en <span class="font-mono">docker-compose.yml</span>. Elimina o corrige el archivo compose.'
+  scale_load_balancer: Escalado y equilibrador de carga
+  scale_desc1: Ejecuta varias réplicas de este servicio y distribuye el tráfico mediante Traefik.
+  scale_desc2: La URL pública y el puerto permanecen iguales — cada réplica obtiene su propio puerto de host interno usado solo para el enrutamiento.
+  replicas_plural: réplicas
+  replica_singular: réplica
+  total_replicas: Réplicas totales
+  strategy: Estrategia
+  strategy_round_robin: Round-robin
+  strategy_weighted: Ponderado
+  strategy_sticky: Sesiones persistentes (cookie)
+  session_cookie_name: Nombre de la cookie de sesión
+  per_server_placement: Distribución por servidor
+  per_server_placement_desc: En qué servidores ejecutar réplicas, y cuántas por servidor.
+  replicas_label: réplicas
+  weight_label: peso
+  running_of_requested: en ejecución de %{total} solicitadas
+  running: en ejecución
+  applying: Aplicando…
+  git_configuration: Configuración de Git
+  repository_url: URL del repositorio
+  branch: Rama
+  build_strategy: Estrategia de construcción
+  git_source_optional: Fuente de Git (opcional)
+  none_public_repo: Ninguna (repositorio público)
+  monorepo_optional: Monorepo (opcional)
+  root_directory: Directorio raíz
+  root_directory_hint: Subdirectorio usado como contexto de construcción. Vacío = raíz del repositorio.
+  watch_paths: Rutas de observación
+  watch_paths_hint: Un glob por línea. Un push vuelve a desplegar este servicio solo si un archivo modificado coincide. Vacío = derivar del directorio raíz, u observar todo.
+  save_git_config: Guardar configuración de Git
+  dependencies: Dependencias
+  dependencies_desc: Cuando una de estas se vuelve a desplegar por un push, este servicio también se vuelve a desplegar. Solo en el mismo proyecto.
+  remove: Eliminar
+  no_dependencies: No hay dependencias declaradas.
+  select_service: Selecciona un servicio…
+  webhook: Webhook
+  github_webhook_url: URL del webhook de GitHub
+  gitlab_webhook_url: URL del webhook de GitLab
+  webhook_secret: Secreto del webhook
+  compose_in_git: docker-compose.yml en git
+  compose_live_read_prefix: Lectura en vivo desde
+  compose_live_read_suffix: '<strong>Recargar</strong> vuelve a sincronizar port_allocations + rutas de Traefik <em>sin</em> reconstruir el contenedor — útil cuando solo cambiaron los <span class="font-mono">ports:</span> en git.'
+  refresh: Actualizar
+  reload_ports_from_git: Recargar puertos desde git
+  compose_refresh_hint: Haz clic en <strong>Actualizar</strong> para obtener el archivo actual desde git.
+  deploy_now: Desplegar ahora
+  back_to_deployments: Volver a los despliegues
+  cicd_deployments: Despliegues CI/CD
+  rollback: Revertir
+  manual_deployment: Despliegue manual
+  cancelling: Cancelando…
+  cancel_deploy: Cancelar despliegue
+  commit: Commit
+  triggered_by: Activado por
+  duration: Duración
+  started: Iniciado
+  finished: Finalizado
+  build_log: Registro de construcción
+  autoscroll_bottom: Desplazamiento automático al final
+  copy_log: Copiar registro
+  page: Página
+  services: Servicios
+  logs: Registros
+  lines_label: "Líneas:"
+  font_label: "Fuente:"
+  find_in_logs: Buscar en los registros
+  stop_streaming: Detener transmisión
+  start_streaming: Iniciar transmisión
+  download_logs: Descargar registros
+  follow_autoscroll: Seguir (desplazamiento automático)
+  no_logs: No hay registros disponibles
+  matches: coincidencias
+  cluster_wide_backup: Copia de seguridad de todo el clúster
+  backup_desc_mongo: Un único archivo de toda la instancia.
+  backup_desc_sql: Archivo que contiene un volcado por base de datos.
+  backup_now: Hacer copia de seguridad ahora
+  edit_schedule: Editar programación
+  configure_schedule: Configurar programación
+  delete_schedule: Eliminar programación
+  cron: Cron
+  keep: Mantener
+  backups: copias de seguridad
+  last_run: Última ejecución
+  never: Nunca
+  next_run: Próxima ejecución
+  no_cluster_schedule: No hay programación de todo el clúster configurada
+  per_db_schedules: Programaciones por base de datos
+  per_db_schedules_desc: Una programación independiente por base de datos. Útil cuando una BD cambia con frecuencia y otras no.
+  add_schedule: Añadir programación
+  th_cron: Cron
+  th_keep: Mantener
+  th_last_run: Última ejecución
+  th_next_run: Próxima ejecución
+  run_now: Ejecutar ahora
+  no_per_db_schedules: No hay programaciones por base de datos
+  backup_history: Historial de copias de seguridad
+  cluster_badge: clúster
+  backup_singular: copia de seguridad
+  last: última
+  no_backups_yet: Aún no hay copias de seguridad
+  manual: manual
+  download: Descargar
+  delete_backup_title: Eliminar copia de seguridad (la quita del almacenamiento)
+  danger_zone: Zona de peligro
+  danger_zone_intro: Vaya. Espero que sepas lo que estás haciendo.
+  delete_resource: Eliminar recurso
+  delete_resource_desc: Esto detendrá tus contenedores, eliminará todos los datos relacionados, etc. ¡Cuidado! ¡No hay vuelta atrás!
+  for: para
+  domain_supports_hint: "Admite: domain, https://domain, https://domain/path"
+  strip_path_prefix: Eliminar el prefijo de ruta antes de reenviar
+  strip_checked_default: "Marcado (predeterminado):"
+  strip_checked_text_prefix: el backend recibe las solicitudes en
+  strip_checked_text_mid: "— el"
+  strip_checked_text_suffix: prefijo se elimina.
+  strip_unchecked: "Desmarcado:"
+  strip_unchecked_text_prefix: el backend recibe
+  strip_unchecked_text_suffix: tal cual. Usa esto cuando el propio router de tu backend escucha en esa ruta (bots con webhook estilo Telegram).
+  edit_domain: Editar dominio
+  path_prefix: Prefijo de ruta
+  path_prefix_placeholder: /api/v1 (o vacío)
+  path_prefix_hint: Enruta solo las solicitudes que coincidan con esta ruta. Vacío = todo el host.
+  strip_checked: "Marcado:"
+  edit_strip_checked_text: 'el backend recibe las solicitudes en <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800">/</code> (prefijo eliminado).'
+  edit_strip_unchecked_text_prefix: el backend recibe la ruta completa tal cual (p. ej.
+  edit_strip_unchecked_text_suffix: ") — úsalo para webhooks estilo Telegram cuyo router ya incluye el prefijo."
+  hosts_databases_prefix: Este servicio aloja
+  user_database_label: base de datos de usuario
+  hosts_databases_suffix: Elimina cada base de datos antes de poder eliminar el servicio.
+  open_databases_tab: Abrir la pestaña Bases de datos
+  delete_permanent_warning: Esto detendrá y eliminará permanentemente el contenedor.
+  type_to_confirm_prefix: Escribe
+  type_to_confirm_suffix: "para confirmar:"
+  account_password: Contraseña de la cuenta
+  enter_password_placeholder: Introduce tu contraseña
+  delete_volumes: Eliminar también los volúmenes (pérdida permanente de datos)
+  delete_s3_backups: Eliminar también las copias de seguridad de S3 (no se pueden recuperar)
+  deleting: Eliminando…
+  delete_db_warning: Esto hará <strong>DROP DATABASE</strong> y eliminará su usuario propietario del contenedor.
+  delete_db_s3_backups: Eliminar también las copias de seguridad de S3 de esta base de datos
+  delete_db_s3_backups_hint: Las copias de seguridad de todo el clúster (que cubren todas las bases de datos) se conservan de cualquier forma.
+  restoring_from_prefix: Restaurando desde la copia de seguridad iniciada el
+  source_label: "Origen:"
+  cluster_wide_archive: archivo de todo el clúster
+  target_database: Base de datos de destino
+  select_database: Selecciona una base de datos...
+  target_database_hint: Debe existir ya en la pestaña Bases de datos. Se reutilizan las credenciales de su propietario.
+  restore_drop_warning_prefix: Esto hará <strong>DROP</strong> de la base de datos de destino y la reemplazará con el contenido de la copia de seguridad. Los datos que hay actualmente en
+  restore_drop_warning_suffix: se perderán.
+  to_confirm: para confirmar
+  make_private_title: ¿Hacer el servicio privado?
+  make_private_desc: "Deshabilitar el acceso público <strong>eliminará el/los siguiente(s) dominio(s)</strong> y desmantelará sus rutas HTTPS:"
+  make_private_note: El puerto TCP en bruto (si lo hay) también se cerrará. Esto es reversible — puedes volver a añadir dominios más tarde.
+  remove_domains_disable: Eliminar dominios y deshabilitar
+  cluster_schedule_title: Programación de copias de seguridad de todo el clúster
+  per_db_schedule_title_prefix: "Programación por base de datos: "
+  per_db_schedule_title: Programación por base de datos
+  s3_storage: Almacenamiento S3
+  select_storage: Selecciona almacenamiento...
+  schedule: Programación
+  cron_daily_2am: Diariamente a las 2:00 AM
+  cron_weekly_sunday: Semanalmente (domingo a las 2:00 AM)
+  cron_every_6h: Cada 6 horas
+  cron_every_hour: Cada hora
+  retention: Retención (copias de seguridad a conservar)
+  ext_postgis_hint: "Núcleo: geometrías, funciones ST_* (requerido para el resto)"
+  ext_postgis_topology_hint: Esquemas de topología y tipos de geometría con reconocimiento de topología
+  ext_postgis_raster_hint: Tipo de dato ráster y funciones de análisis
+  ext_fuzzystrmatch_hint: soundex, levenshtein — coincidencia aproximada de cadenas
+  ext_tiger_geocoder_hint: "Solo EE. UU.: geocodificador de direcciones basado en datos TIGER del Censo de EE. UU."
+  cluster_wide: De todo el clúster
+  err_conflict: Conflicto
+  toast_public_enabled: Acceso público habilitado (puerto %{port})
+  toast_public_disabled: Acceso público deshabilitado
+  toast_public_port_updated: Puerto público actualizado a %{port}
+  confirm_change_network: ¿Cambiar de red? Esto volverá a desplegar el servicio.
+  toast_network_changed: Red cambiada
+  err_db_connect: No se pudo conectar a la base de datos.
+  err_load_tables: No se pudieron cargar las tablas.
+  err_no_pk_editable: La tabla no tiene clave primaria — no es editable.
+  err_update_failed: La actualización falló
+  err_no_pk: La tabla no tiene clave primaria.
+  err_delete_failed: La eliminación falló
+  err_enter_value: Introduce al menos un valor (o marca una columna como NULL).
+  err_insert_failed: La inserción falló
+  err_monitor_failed: "El monitor falló: "
+  err_load_keys: No se pudieron cargar las claves.
+  err_mongo_connect: No se pudo conectar a MongoDB.
+  no_output: (sin salida)
+  confirm_destructive_sql: Esto parece una sentencia destructiva (DROP/TRUNCATE, o DELETE/UPDATE sin WHERE). ¿Ejecutarla de todos modos?
+  err_query_failed: La consulta falló
+  toast_all_fields_required: Todos los campos son obligatorios
+  toast_database_created: Base de datos %{name} creada
+  toast_database_deleted: Base de datos eliminada
+  toast_password_required: La contraseña es obligatoria
+  toast_password_changed: Contraseña cambiada
+  toast_choose_backup_file: Elige primero un archivo de copia de seguridad
+  toast_database_restored: Base de datos restaurada
+  toast_restore_failed: "La restauración falló: "
+  building: Construyendo...
+  toast_load_resource_failed: No se pudo cargar el recurso
+  action_add_node: añadir un nodo
+  action_remove_node: eliminar un nodo
+  confirm_scale_cluster: "¿Escalar el clúster: %{action}? Nuevo recuento: %{count}"
+  toast_cluster_scaled: Clúster escalado a %{count} nodos
+  strategy_desc_round_robin: Las solicitudes se distribuyen de manera uniforme entre las réplicas. Simple y predecible — ideal cuando las réplicas son idénticas y sin estado.
+  strategy_desc_weighted: Cada réplica recibe tráfico proporcional a su peso. Útil cuando las réplicas se ejecutan en servidores con diferente capacidad.
+  strategy_desc_sticky: Traefik establece una cookie en la primera solicitud y fija cada solicitud posterior de ese cliente a la misma réplica. Necesario para sesiones HTTP en memoria o conexiones WebSocket de larga duración.
+  toast_min_replica: Se requiere al menos 1 réplica
+  toast_sticky_cookie_required: La estrategia persistente requiere un nombre de cookie
+  toast_scaled_to: Escalado a %{count} réplica%{plural}
+  err_scale_failed: El escalado falló
+  toast_saved_redeploying: Guardado y volviendo a desplegar...
+  toast_env_saved: Entorno guardado — vuelve a desplegar para aplicar
+  toast_select_s3: Selecciona un almacenamiento S3
+  toast_select_database: Selecciona una base de datos
+  toast_schedule_saved: Programación guardada
+  confirm_delete_schedule: ¿Eliminar esta programación? Las copias de seguridad existentes en S3 no se eliminan.
+  toast_schedule_deleted: Programación eliminada
+  toast_backup_started: Copia de seguridad iniciada
+  confirm_delete_backup: ¿Eliminar la copia de seguridad del %{when}? Esto también elimina el objeto de S3.
+  toast_backup_deleted: Copia de seguridad eliminada
+  toast_restore_complete: Restauración completada
+  toast_resource_started: Recurso iniciado
+  toast_resource_stopped: Recurso detenido
+  toast_resource_restarted: Recurso reiniciado
+  toast_redeploying: Volviendo a desplegar...
+  toast_force_deploying: Forzando despliegue...
+  toast_resource_deleted: Recurso eliminado
+  log_not_deployed: El servicio aún no se ha desplegado
+  log_container_not_found: "Contenedor no encontrado: %{name}"
+  log_load_failed: No se pudieron cargar los registros
+  no_log_output: No hay salida de registro
+  toast_domain_required: El dominio es obligatorio
+  toast_domain_added: Dominio añadido
+  confirm_remove_domain: ¿Eliminar este dominio?
+  toast_domain_removed: Dominio eliminado
+  toast_domain_activated: Dominio activado — aprovisionando SSL
+  toast_domain_deactivated: Dominio desactivado
+  confirm_deactivate_domain: ¿Desactivar %{name}? Se elimina la ruta de Traefik pero el certificado SSL permanece en caché para una reactivación instantánea.
+  toast_domain_updated: Dominio actualizado
+  toast_pick_service: Elige un servicio
+  toast_dependency_added: Dependencia añadida
+  toast_dependency_removed: Dependencia eliminada
+  toast_repo_url_required: La URL del repositorio es obligatoria
+  toast_git_config_saved: Configuración de Git guardada
+  confirm_manual_deploy: ¿Iniciar un nuevo despliegue desde el repositorio git configurado?
+  toast_deploy_started: Despliegue iniciado
+  confirm_reload_compose: ¿Recargar compose desde git? Los puertos y las rutas de Traefik se volverán a sincronizar (el contenedor en ejecución NO se reconstruye).
+  toast_compose_reloaded: Compose recargado — puertos y rutas de Traefik actualizados
+  toast_no_git_source: No hay fuente de git configurada
+  toast_detected_ports: "Puertos detectados: "
+  toast_name_required: El nombre es obligatorio
+  confirm_rename: El renombrado reiniciará el contenedor. ¿Continuar?
+  toast_service_renamed: Servicio renombrado
+  enabled: habilitado
+  disabled: deshabilitado
+  confirm_cancel_deploy: ¿Cancelar este despliegue? La tarea de construcción puede que aún termine en segundo plano, pero el despliegue se marcará como cancelado.
+  toast_deployment_cancelled: Despliegue cancelado
+  err_cancel_failed: La cancelación falló
+  confirm_rollback: ¿Revertir a la versión anterior?
+  toast_rollback_started: Reversión iniciada
+
+sources_list:
+  title: Fuentes
+  heading: Fuentes
+  subtitle: Fuentes Git para tus aplicaciones
+  connect_github: Conectar GitHub
+  add_source: Añadir fuente
+  empty_title: No hay fuentes configuradas
+  empty_description: Conecta tus repositorios Git para desplegar aplicaciones directamente desde el código fuente.
+  remove: Quitar
+  modal_title: Añadir fuente Git
+  name_label: Nombre
+  name_placeholder: Mi GitHub
+  type_label: Tipo
+  type_github: GitHub (PAT)
+  type_github_app: GitHub App
+  type_gitlab: GitLab
+  type_bitbucket: Bitbucket
+  type_custom: Git personalizado
+  base_url_label: URL base / Organización
+  access_token_label: Token de acceso
+  app_id_label: ID de la app
+  installation_id_label: ID de instalación
+  private_key_label: Clave privada (PEM)
+  github_app_help: "Crea una GitHub App en github.com/settings/apps. Selecciona los repositorios a los que quieres conceder acceso durante la instalación."
+  project_label: Proyecto
+  all_projects: Todos los proyectos
+  save: Guardar
+  err_name_required: El nombre es obligatorio
+  err_github_app_required: "El ID de la app, el ID de instalación y la clave privada son obligatorios"
+  err_url_required: La URL es obligatoria
+  err_connect_github: No se pudo conectar con GitHub
+  confirm_remove: ¿Quitar esta fuente?
+  toast_added: Fuente añadida
+  toast_removed: Fuente eliminada
+
+# Git source detail (sources/detail.html).
+sources_detail:
+  title: Detalles de la fuente
+  github_app_for_private_repos: GitHub App para repositorios privados
+  save: Guardar
+  delete: Eliminar
+  app_name: Nombre de la app
+  rename: Renombrar
+  update_repos: Actualizar repositorios
+  type: Tipo
+  html_url: URL HTML
+  api_url: URL de la API
+  app_id: ID de la app
+  installation_id: ID de instalación
+  not_installed_yet: Aún no instalada
+  client_id: ID de cliente
+  client_secret: Secreto de cliente
+  webhook_secret: Secreto del webhook
+  base_url: URL base
+  created: Creada
+  repositories: Repositorios
+  repositories_accessible: Repositorios accesibles a través de esta GitHub App.
+  refresh: Actualizar
+  private: privado
+  no_repositories: No hay repositorios. Haz clic en Actualizar o actualiza la instalación.
+  installation_required: Instalación obligatoria
+  installation_required_note: Esta GitHub App necesita instalarse en tus repositorios. Tras la instalación, el ID de instalación se guardará automáticamente mediante webhook.
+  install_on_repositories: Instalar en repositorios
+  resources: Recursos
+  resources_note: Servicios desplegados usando esta fuente.
+  col_name: Nombre
+  col_status: Estado
+  col_type: Tipo
+  application: Aplicación
+  open: Abrir
+  no_resources: Aún no hay recursos usando esta fuente
+  failed_to_load_source: No se pudo cargar la fuente
+  source_saved: Fuente guardada
+  confirm_deletion: 'Escribe "%{name}" para confirmar la eliminación:'
+  name_does_not_match: El nombre no coincide
+  source_deleted: Fuente eliminada
+
+# Registry credentials (registries/index.html).
+registries_index:
+  title: Credenciales de registro
+  heading: Credenciales de registro
+  subtitle: Inicia sesión en registros de contenedores privados para que los despliegues puedan descargar imágenes.
+  add_docker_hub: + Añadir Docker Hub
+  add_registry: Añadir registro
+  scope_all: Todos
+  scope_global_only: Solo globales
+  col_registry: Registro
+  col_username: Usuario
+  col_scope: Ámbito
+  col_label: Etiqueta
+  col_updated: Actualizado
+  col_actions: Acciones
+  badge_global: Global
+  badge_project: Proyecto
+  testing: Probando…
+  test: Probar
+  edit: Editar
+  delete: Eliminar
+  empty_state: Aún no hay credenciales de registro.
+  modal_title_edit: Editar registro
+  modal_title_add: Añadir registro
+  field_registry_host: Host del registro
+  field_username: Usuario
+  field_password_edit: Nueva contraseña / token (déjalo en blanco para mantenerlo)
+  field_password_add: Contraseña / token
+  field_label: Etiqueta (opcional)
+  field_label_placeholder: Token de CI
+  saving: Guardando…
+  save: Guardar
+  add: Añadir
+  toast_saved: Guardado
+  toast_deleted: Eliminado
+  toast_connection_ok: Conexión correcta
+  toast_failed: "Error: %{error}"
+  unknown_error: desconocido
+  confirm_delete: ¿Eliminar las credenciales de %{registry}?
+
+# npm packages list (packages/list.html).
+packages_list:
+  title: Paquetes
+  heading: Paquetes npm
+  subtitle: 'Registro compatible con npm integrado servido en <code class="text-xs font-mono">/registry/npm/</code>.'
+  configure_client: Configura tu cliente
+  in_your_npmrc: 'En el <code class="font-mono">.npmrc</code> de tu proyecto:'
+  always_auth_note: '<code class="font-mono">always-auth=true</code> es obligatorio para yarn 1.x (de lo contrario omite el token Bearer en las peticiones GET). npm, pnpm y bun lo ignoran sin problemas.'
+  col_package: Paquete
+  col_latest: Más reciente
+  col_versions: Versiones
+  col_total_size: Tamaño total
+  col_updated: Actualizado
+  badge_unpublished: Despublicado
+  badge_deprecated: Obsoleto
+  badge_deprecated_title: La versión más reciente está obsoleta.
+  bytes_unit: bytes
+  empty_packages: 'Aún no hay paquetes. Ejecuta <code class="font-mono text-gray-700 dark:text-gray-300">npm publish</code> contra este registro para verlos aquí.'
+  tokens_intro: Tokens Bearer para el registro npm, los ejecutores de CI y las integraciones externas.
+  new_token: + Nuevo token
+  copy_token_warning: "Copia este token ahora: no se volverá a mostrar."
+  dismiss: Descartar
+  create_token: Crear un token
+  token_name_placeholder: p. ej. Token de publicación de CI
+  creating: Creando…
+  create: Crear
+  col_name: Nombre
+  col_prefix: Prefijo
+  col_created: Creado
+  col_last_used: Último uso
+  col_actions: Acciones
+  never: Nunca
+  revoke: Revocar
+  empty_tokens: 'Aún no hay tokens. Haz clic en <strong>+ Nuevo token</strong> arriba para crear uno.'
+  proxy_intro: Replica paquetes públicos desde un registro upstream.
+  proxy_help: 'Cuando está habilitado, una petición de un paquete que aún no está en este registro obtiene de forma transparente el packument desde la URL upstream (por defecto <code>registry.npmjs.org</code>), lo almacena localmente en caché con <code>is_proxy = 1</code> y descarga los tarballs de forma diferida en el primer acceso. Las publicaciones privadas no se ven afectadas: siempre tienen prioridad sobre una entrada de proxy.'
+  enable_proxy: Habilitar proxy upstream
+  upstream_url: URL upstream
+  packument_ttl: TTL del packument (segundos)
+  max_cache_size: Tamaño máximo de caché (MiB, 0 = ilimitado)
+  max_cache_help: 'El GC en segundo plano descarta los tarballs más antiguos cuando el total supera este límite. Guía aproximada: un solo <code>npm install next</code> necesita ~100 MiB; un equipo pequeño, 2–5 GiB; un CI / réplica compartida, 20+ GiB. Deja 0 para ilimitado (recomendado en hosts con mucho disco).'
+  cached_packages_suffix: paquete(s) en caché
+  on_disk_suffix: en disco
+  saving: Guardando…
+  save: Guardar
+  mirror_intro: Paquetes almacenados en caché desde el registro upstream.
+  mirror_help: "Cada fila es un paquete público que este Pier ha obtenido al menos una vez. Los tarballs se descargan de forma diferida: solo las versiones que los clientes instalan realmente acaban en disco. Las versiones de solo metadatos viven en SQLite y no cuentan para el límite de tamaño de la caché."
+  pinned_only: Solo fijados
+  refreshing: Actualizando…
+  refresh: Actualizar
+  col_versions_cached: Versiones en caché
+  col_tarballs_on_disk: Tarballs en disco
+  col_last_fetched: Última obtención
+  unpin: Desfijar
+  pin: Fijar
+  empty_mirror: 'Aún no hay paquetes en caché desde upstream. Ejecuta <code class="font-mono">npm install &lt;pkg&gt;</code> contra este registro para poblar la caché.'
+  s3_intro: Almacenamiento de nivel frío para tarballs.
+  s3_help: "Elige un almacenamiento compatible con S3 al que replicar los tarballs publicados. Los tarballs se siguen sirviendo desde el FS local con baja latencia: S3 es el respaldo de durabilidad y te permite rehidratar tras reinstalar un VPS. Déjalo sin definir para desactivar la replicación."
+  mirror_tarballs_to: Replicar tarballs a
+  s3_disabled_option: "— Desactivado (sin replicación) —"
+  empty_s3: 'Aún no hay almacenamientos S3 definidos. Crea uno primero en <a href="/s3" class="text-blue-500 hover:underline">Almacenamientos S3</a>.'
+  tab_packages: Paquetes
+  tab_mirror: Réplica
+  tab_tokens: Gestionar tokens
+  tab_proxy: Proxy upstream
+  tab_s3: Configurar S3
+  revoke_confirm: '¿Revocar el token "%{name}"? Los clientes que lo usen no podrán autenticarse.'
+  err_create_token: no se pudo crear el token
+  err_save: no se pudo guardar
+  saved: Guardado
+
+# npm package detail (packages/detail.html).
+packages_detail:
+  title_suffix: Paquetes
+  back_all_packages: Todos los paquetes
+  badge_unpublished: Despublicado
+  badge_deprecated: Obsoleto
+  latest_deprecated_title: La versión `latest` está obsoleta.
+  latest_label: "Más reciente:"
+  versions_plural: versiones
+  versions_singular: versión
+  bytes_total: bytes en total
+  dist_tags_heading: Dist-tags
+  dist_tags_manage_html: 'Gestiónalos con <code class="font-mono text-gray-700 dark:text-gray-300">npm dist-tag add/rm</code> en tu terminal.'
+  versions_heading_downloaded: Versiones descargadas
+  versions_heading: Versiones
+  manifest_only_note: 'más en caché solo como metadatos · los tarballs acaban en disco cuando un cliente los instala.'
+  unpublish_package_btn: Despublicar paquete
+  col_version: Versión
+  col_size: Tamaño
+  col_integrity: Integridad
+  col_published: Publicado
+  col_cold_tier: Nivel frío
+  col_actions: Acciones
+  badge_deprecated_inline: obsoleto
+  bytes_unit: bytes
+  cold_tier_uploaded: Subido
+  cold_tier_fs_only: Solo FS
+  undeprecate_btn: Quitar obsolescencia
+  deprecate_btn: Marcar obsoleto
+  unpublish_btn: Despublicar
+  no_tarballs_cached: Aún no hay tarballs en caché localmente.
+  download_latest: Descargar la más reciente
+  proxy_run_prefix: O ejecuta
+  proxy_run_suffix: "contra este registro. Los tarballs se descargan de forma diferida: solo las versiones que los clientes solicitan realmente acaban en disco."
+  fetching_upstream: Obteniendo desde upstream…
+  downloaded_version: '✓ Descargado %{version} (%{size} KiB)'
+  reloading: Recargando…
+  fetch_failed: 'error al obtener (%{status})'
+  downloaded_reloading: "Descargado: recargando…"
+  request_method_failed: '%{method} %{path} falló (%{status})'
+  deprecate_prompt: 'Mensaje de obsolescencia para %{name}@%{version}:'
+  deprecate_prompt_default: usa la versión más reciente
+  unpublish_version_confirm: '¿Despublicar %{name}@%{version}? Las instalaciones de esta versión exacta empezarán a fallar.'
+  unpublish_package_confirm: '¿Despublicar TODAS las versiones de %{name}? El paquete devolverá 404 en cada instalación hasta que lo vuelvas a publicar.'
+
+s3_list:
+  page_title: Almacenamientos S3
+  title: Almacenamientos S3
+  subtitle: Almacenamiento compatible con S3 para copias de seguridad de bases de datos y archivos
+  add_storage: Añadir almacenamiento
+  empty_title: No hay almacenamientos S3 configurados
+  empty_desc: Añade almacenamiento compatible con S3 (AWS S3, MinIO, Backblaze B2, etc.) para copias de seguridad automáticas de bases de datos.
+  test_connection: Probar conexión
+  test: Probar
+  edit: Editar
+  remove: Quitar
+  modal_edit_title: Editar almacenamiento S3
+  modal_add_title: Añadir almacenamiento S3
+  label_name: Nombre
+  placeholder_name: Mi copia S3
+  label_type: Tipo
+  type_s3: Compatible con S3
+  label_storage_hostname: Host de almacenamiento
+  label_endpoint: Endpoint
+  label_region: Región
+  label_bucket: Bucket
+  label_key_prefix: Prefijo de clave
+  key_prefix_help: Primera carpeta dentro del bucket — p. ej. el nombre del servidor. Déjalo vacío para escribir en la raíz del bucket.
+  label_access_key: Clave de acceso
+  label_secret_key: Clave secreta
+  placeholder_secret_keep: Déjalo vacío para mantener la actual
+  placeholder_secret: secreto
+  save: Guardar
+  toast_required: El nombre, el endpoint y el bucket son obligatorios
+  toast_updated: Almacenamiento actualizado
+  toast_added: Almacenamiento añadido
+  toast_connection_ok: Conexión correcta
+  confirm_remove: ¿Quitar este almacenamiento S3?
+  toast_removed: Almacenamiento eliminado
+
+domains_list:
+  title: Dominios
+  heading: Dominios
+  subtitle: Gestiona dominios personalizados y certificados SSL
+  add_domain: Añadir dominio
+  add_custom_domain: Añadir dominio personalizado
+  domain_label: Dominio
+  domain_supports: "Admite:"
+  service_label: Servicio
+  select_service: Selecciona un servicio...
+  strip_prefix_label: Quitar prefijo de ruta antes de reenviar
+  strip_checked_label: "Marcado (predeterminado):"
+  strip_checked_pre: el backend recibe las solicitudes en
+  strip_checked_mid: "— se"
+  strip_checked_post: quita el prefijo.
+  strip_unchecked_label: "Sin marcar:"
+  strip_unchecked_pre: el backend recibe
+  strip_unchecked_post: tal cual. Úsalo cuando el propio enrutador de tu backend escucha en esa ruta (bots de webhook estilo Telegram).
+  add: Añadir
+  filter_placeholder: Filtrar por servicio...
+  showing: Mostrando
+  of: de
+  empty_title: No hay dominios configurados
+  empty_hint: Añade un dominio personalizado o despliega un servicio con el proxy habilitado
+  no_match: Ningún dominio coincide con el filtro
+  clear_filter: Limpiar filtro
+  col_domain: Dominio
+  col_service: Servicio
+  col_type: Tipo
+  col_actions: Acciones
+  type_auto: auto
+  type_custom: personalizado
+  delete: Eliminar
+  toast_load_failed: No se pudieron cargar los dominios
+  toast_required: El dominio y el servicio son obligatorios
+  toast_added: Dominio añadido
+  toast_add_failed: No se pudo añadir el dominio
+  error_prefix: "Error:"
+  confirm_remove: ¿Quitar este dominio?
+  toast_removed: Dominio quitado
+  toast_remove_failed: No se pudo quitar el dominio
+
+# Reverse proxy settings (proxy/settings.html).
+proxy_settings:
+  title: Configuración del proxy
+  heading: Proxy inverso
+  subtitle: Proxy inverso Traefik — gestionado automáticamente por Pier
+  version_title: Versión de Traefik
+  version_current: Actual
+  version_latest: Última disponible
+  update_available: Actualización disponible
+  up_to_date: Actualizado
+  checking: Comprobando…
+  check_updates: Buscar actualizaciones
+  updating: Actualizando…
+  update_traefik: Actualizar Traefik
+  status_title: Estado del proxy
+  running: En ejecución
+  starting: iniciando...
+  server_ip: IP del servidor
+  detecting: detectando...
+  domains: Dominios
+  active_certs: Certificados SSL activos
+  restart_proxy: Reiniciar proxy
+  restarting: Reiniciando...
+  config_title: Configuración
+  platform_domain_label: Dominio de la plataforma
+  active: Activo
+  not_loaded: No cargado — guarda para aplicar
+  platform_domain_note: "Dominio personalizado para el propio Pier — enruta a este panel con SSL. Introdúcelo sin <code>https://</code> (p. ej. <code>pier.example.com</code>)."
+  acme_email_label: Correo de ACME
+  acme_email_placeholder: "admin@example.com"
+  acme_email_note: Correo para las notificaciones de certificados de Let's Encrypt
+  wildcard_domain_label: Dominio comodín
+  wildcard_domain_note: Dominio comodín opcional para subdominios autogenerados
+  dashboard_label: Panel de Traefik
+  dashboard_note: Exponer el panel de Traefik en el puerto 8080
+  save_settings: Guardar configuración
+  load_failed: No se pudo cargar el estado
+  version_check_failed: No se pudo comprobar la versión de Traefik
+  update_confirm: ¿Descargar la última imagen de Traefik y reiniciar el proxy?
+  update_success: Traefik actualizado a %{version}
+  update_failed: La actualización falló
+  error_prefix: "Error: %{message}"
+  restart_success: Proxy reiniciado
+  restart_failed: No se pudo reiniciar el proxy
+  save_success: Configuración guardada
+  save_failed: No se pudo guardar la configuración
+
+# Docker networks (networks/list.html).
+networks_list:
+  title: Redes
+  heading: Redes
+  subtitle: Gestiona las redes de Docker para el aislamiento de servicios
+  create_network: Crear red
+  default_badge: PREDETERMINADA
+  driver_label: 'Controlador: '
+  service_count_suffix: ' servicio(s)'
+  delete: Eliminar
+  empty_state: No se encontraron redes
+  name_label: Nombre
+  name_help: Solo letras, números, guiones y guiones bajos
+  description_label: Descripción
+  description_placeholder: Red para servicios de frontend
+  create: Crear
+  toast_created: Red creada
+  toast_deleted: Red eliminada
+  confirm_delete: '¿Eliminar la red "%{name}"?'
+
+# Docker containers list (containers/list.html).
+containers_list:
+  title: Contenedores
+  heading: Contenedores
+  subtitle: Gestiona los contenedores de Docker
+  show_stopped: Mostrar detenidos
+  loading: Cargando contenedores...
+  col_name: Nombre
+  col_image: Imagen
+  col_status: Estado
+  col_ports: Puertos
+  col_actions: Acciones
+  action_start: Iniciar
+  action_stop: Detener
+  action_restart: Reiniciar
+  empty: No se encontraron contenedores
+  action_done: Contenedor %{action}ed
+
+# Docker container detail (containers/detail.html).
+containers_detail:
+  title: Detalle del contenedor
+  start: Iniciar
+  stop: Detener
+  restart: Reiniciar
+  container_info: Información del contenedor
+  image: Imagen
+  created: Creado
+  platform: Plataforma
+  resource_usage: Uso de recursos
+  memory: Memoria
+  network_io: E/S de red
+  logs: Registros
+  live: En vivo
+  paused: Pausado
+  clear: Limpiar
+  no_logs: No hay registros disponibles
+  action_success: Contenedor %{action}
+
+# Docker images list (images/list.html).
+images_list:
+  title: Imágenes
+  heading: Imágenes
+  subtitle: Imágenes de Docker en este host
+  loading: Cargando imágenes...
+  col_repository: Repositorio
+  col_tag: Etiqueta
+  col_size: Tamaño
+  col_created: Creada
+  col_actions: Acciones
+  remove: Quitar
+  empty: No se encontraron imágenes
+  confirm_remove: ¿Quitar esta imagen?
+  removed: Imagen quitada
+
+# Compose stacks list (compose/list.html).
+compose_list:
+  title: Stacks
+  heading: Stacks de Compose
+  subtitle: Despliegues de Docker Compose
+  new_stack: Nuevo stack
+  loading_stacks: Cargando stacks...
+  open_on: Abrir en %{name}
+  created: "Creado: %{value}"
+  synced: "Sincronizado: %{value}"
+  deploy: Desplegar
+  down: Detener
+  restart: Reiniciar
+  logs: Registros
+  delete: Eliminar
+  move_to: Mover a…
+  move_to_tooltip: Mover este stack a un par emparejado (solo sin estado)
+  open: Abrir
+  managed_on: Gestionado en
+  not_paired: sin emparejar
+  not_paired_tooltip: Empareja la federación en /servers/{peer-id} para habilitar las acciones remotas
+  empty: Aún no hay stacks
+  create_first: Crea tu primer stack
+  migrate_heading_prefix: Mover
+  migrate_heading_suffix: a otro servidor
+  migrate_explainer: Pier recreará este stack en el par elegido y luego desmontará la copia local. Los stacks con estado (volúmenes con nombre) se rechazan en la API.
+  target_server: Servidor de destino
+  select: seleccionar
+  dns_warning: Los registros A de DNS todavía apuntan a este servidor. Actualízalos después del traslado para que los usuarios lleguen realmente al nuevo nodo.
+  move_it: Moverlo
+  moved_to: Movido a
+  new_stack_id: "Nuevo id del stack:"
+  update_dns_for: "Actualiza los registros A de DNS para:"
+  note: "Nota: %{value}"
+  close: Cerrar
+  follow: Seguir
+  creating_on_target: Creando el stack en el destino…
+  migration_complete: Migración completada
+  never: nunca
+  ago_seconds: "hace %{n}s"
+  ago_minutes: "hace %{n}m"
+  ago_hours: "hace %{n}h"
+  ago_days: "hace %{n}d"
+  deploying_stack: Desplegando el stack...
+  stack_deployed: Stack desplegado
+  peer_action_running: "%{action} en %{peer}..."
+  peer_action_ok: "%{action} correcto"
+  peer_action_failed: "%{action} falló: %{error}"
+  logs_title: "Registros · %{name} en %{peer}"
+  loading_snapshot: Cargando instantánea…
+  empty_log: (vacío)
+  snapshot_loaded: Instantánea cargada.
+  snapshot_failed: "La instantánea falló: %{error}"
+  streaming_live_from: Transmitiendo en vivo desde %{peer}
+  stream_error: Error de transmisión — ¿certificado del par no confiable? Intenta abrir de nuevo la ventana.
+  live_stream_unavailable: "Transmisión en vivo no disponible: %{error}"
+  stack_stopped: Stack detenido
+  confirm_remove: ¿Quitar este stack?
+  stack_removed: Stack quitado
+
+# Compose stack editor (compose/editor.html).
+compose_editor:
+  title_new: Nuevo stack
+  title_edit: Editar stack
+  deploy_on: Desplegar en
+  deploy_on_help: 'Local permanece en este servidor. Las entradas de pares requieren que el token de federación esté emparejado en <span class="font-mono">/servers/&lt;peer-id&gt;</span>.'
+  stack_name: Nombre del stack
+  compose_yaml: YAML de Compose
+  saving: Guardando...
+  create_stack: Crear stack
+  save_changes: Guardar cambios
+  deploying: Desplegando...
+  save_deploy: Guardar y desplegar
+  target_local: Este servidor (local)
+  target_peer: "%{name} (par)"
+  error_load_stack: No se pudo cargar el stack
+  toast_created: Stack creado
+  toast_created_peer: Stack creado en el par
+  toast_saved: Stack guardado
+  toast_deployed: Stack desplegado
+
+settings_index:
+  page_title: Ajustes
+  heading: Ajustes
+  subheading: Configuración de la aplicación
+  general_title: General
+  app_url: URL de la aplicación
+  app_url_desc: La URL utilizada para acceder a Pier
+  timezone: Zona horaria
+  timezone_desc: Se usa para las notificaciones y las marcas de tiempo.
+  timezone_now: 'Ahora: '
+  cleanup_title: Limpieza del sistema
+  build_cache: Caché de compilación
+  build_cache_desc: Capas de compilación de Docker sin usar
+  clean: Limpiar
+  dangling_images: Imágenes huérfanas
+  dangling_images_desc: Imágenes sin etiqueta no usadas por contenedores
+  stopped_containers: Contenedores detenidos
+  stopped_containers_desc: Contenedores que no están en ejecución
+  railpack_buildkit_cache: Caché de Railpack BuildKit
+  railpack_buildkit_cache_desc: Caché de capas usada por Auto-build (Railpack) — reside dentro del contenedor buildkit, separada de Docker
+  cleaning: Limpiando...
+  clean_all: Limpiar todo
+  auto_cleanup: Limpieza automática
+  enable_scheduled_cleanup: Activar limpieza programada
+  enable_scheduled_cleanup_desc: Limpiar automáticamente los recursos de Docker
+  interval: Intervalo
+  every_12_hours: Cada 12 horas
+  every_24_hours: Cada 24 horas
+  every_48_hours: Cada 48 horas
+  every_7_days: Cada 7 días
+  unused_images: Imágenes sin usar
+  autobuild_title: Auto-build (Railpack)
+  autobuild_desc: Controla cuántas compilaciones de Railpack pueden ejecutarse en paralelo. Cada compilación puede usar varios GB de RAM durante la compilación, por lo que el límite predeterminado de 1 es una opción segura para hosts VPS pequeños. Auméntalo solo si tu host tiene capacidad disponible.
+  currently_running: En ejecución actualmente
+  currently_running_desc: Número de permisos activos en el semáforo en vivo
+  parallel_build_one: ' compilación en paralelo'
+  parallel_build_other: ' compilaciones en paralelo'
+  max_parallel_builds: Máximo de compilaciones en paralelo
+  saved_value_range: 'Valor guardado (aplicado en el próximo reinicio de pier-core). Rango:'
+  saving: Guardando…
+  save: Guardar
+  env_override_notice: '<strong>Gestionado por variable de entorno.</strong> <code class="text-[11px]">PIER_RAILPACK_MAX_PARALLEL_BUILDS</code> está definida en la unidad systemd, por lo que el valor guardado se ignora. Elimina la variable de entorno y reinicia pier-core para usar el valor de la interfaz.'
+  restart_required: Se requiere reinicio.
+  restart_required_saved: El valor guardado
+  restart_required_differs: difiere del valor en tiempo de ejecución activo
+  restart_required_run: Ejecuta
+  restart_required_take_effect: en el host para que el cambio surta efecto.
+  what_is_this: ¿Qué es esto?
+  federation_intro: 'La federación funciona en dos direcciones. Esta pestaña trata sobre la dirección <strong>entrante</strong> — otorgar a otro pier-core el derecho a controlar este.'
+  federation_outgoing: 'La <strong>saliente</strong> (controlar otros servidores desde aquí) se gestiona en la página <a href="/servers" class="text-blue-500 hover:underline">Servidores</a> mediante el tipo "Peer core".'
+  federation_incoming: 'La <strong>entrante</strong> está aquí: emites un token y se lo entregas al operador de otro pier-core. Lo pega en su propio formulario "Añadir servidor → Peer core", y su panel obtiene acceso equivalente al de administrador del tuyo a través de REST.'
+  tokens_grant_admin: Los tokens otorgan derechos completos de administrador — revócalos en cualquier momento; este core sigue funcionando de forma autónoma en cualquier caso.
+  protocol_note: 'Protocolo: las solicitudes autenticadas con la cabecera <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">X-Pier-Peer-Token</code> coinciden con una fila en <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">peer_grants</code> y se tratan como una sesión de administrador para esa llamada.'
+  issued_tokens: Tokens emitidos
+  issue_token: Emitir token
+  col_name: Nombre
+  col_status: Estado
+  col_last_used: Último uso
+  col_from_ip: Desde IP
+  col_actions: Acciones
+  status_active: activo
+  status_revoked: revocado
+  revoke: Revocar
+  no_tokens: Aún no se ha emitido ningún token.
+  issue_peer_token: Emitir token de peer
+  issue_peer_token_desc: Genera un token de larga duración que autoriza a otro pier-core a gestionar este panel a través de su API.
+  name_placeholder: Panel central
+  generate: Generar
+  token_issued: Token emitido
+  token_shown_once: Este token se muestra una sola vez. Cópialo ahora.
+  done: Listo
+  profile: Perfil
+  username: Nombre de usuario
+  email: Correo
+  role: Rol
+  member_since: Miembro desde
+  last_login: Último inicio de sesión
+  change_password: Cambiar contraseña
+  current_password: Contraseña actual
+  new_password: Nueva contraseña (mín. 8 caracteres)
+  confirm_new_password: Confirmar nueva contraseña
+  all_sessions_logged_out: Se cerrarán todas las demás sesiones activas.
+  updating: Actualizando…
+  update_password: Actualizar contraseña
+  active_sessions: Sesiones activas
+  logout_everywhere_else: Cerrar sesión en todos los demás dispositivos
+  col_device: Dispositivo
+  col_ip: IP
+  col_started: Iniciada
+  this_session: Esta sesión
+  no_active_sessions: No hay sesiones activas.
+  account_security: Seguridad de la cuenta
+  two_factor_auth: Autenticación de dos factores
+  audit_log: Registro de auditoría
+  delete_confirmation: Confirmación de eliminación
+  require_account_password: Exigir la contraseña de la cuenta
+  require_account_password_desc: Solicita tu contraseña al eliminar proyectos, servicios o bases de datos. Se aplica a todos los administradores de esta instancia.
+  danger_zone: Zona de peligro
+  reset_data: Restablecer datos
+  reset_data_desc: Eliminar todos los proyectos, recursos y ajustes
+  coming_soon: Próximamente
+  tab_general: General
+  tab_cleanup: Limpieza
+  tab_railpack: Auto-build (Railpack)
+  tab_external_access: Acceso externo
+  tab_account: Cuenta
+  tab_security: Seguridad
+  tab_danger: Peligro
+  name_required: Nombre obligatorio
+  confirm_revoke_token: '¿Revocar el token "%{name}"?'
+  token_revoked: Token revocado
+  failed_load_railpack: Error al cargar los ajustes de Railpack
+  must_be_between: Debe estar entre %{min} y %{max}
+  saved_restart_required: Guardado — se requiere reinicio
+  saved: Guardado
+  save_failed: Error al guardar
+  done_refreshing: ¡Listo! Actualizando...
+  cleanup_complete: Limpieza completada
+  error_prefix: 'Error: '
+  unknown: Desconocido
+  passwords_no_match: Las contraseñas no coinciden
+  password_too_short: La contraseña debe tener al menos 8 caracteres
+  current_password_incorrect: La contraseña actual es incorrecta
+  failed: Falló
+  password_updated: Contraseña actualizada — otras sesiones cerradas
+  confirm_revoke_session: ¿Revocar esta sesión?
+  session_revoked: Sesión revocada
+  confirm_logout_others: ¿Cerrar todas las demás sesiones?
+  sessions_revoked_count: Se revocaron %{count} sesión(es)
+
+# Settings — system logs (settings/logs.html).
+settings_logs:
+  title: Registros del sistema
+  heading: Registros del sistema
+  lines_suffix: líneas
+  no_units: 'No hay unidades systemd autorizadas instaladas en este host (<code class="px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-xs">pier</code>, <code class="px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-xs">pier-agent</code>).'
+  unit_title: Unidad
+  period_title: Período
+  period_5min: 5 min
+  period_15min: 15 min
+  period_1h: 1 hora
+  period_6h: 6 horas
+  period_24h: 24 horas
+  period_7d: 7 días
+  period_all: Todo
+  lines_title: Líneas
+  lines_30: 30 líneas
+  lines_100: 100 líneas
+  lines_500: 500 líneas
+  lines_1000: 1000 líneas
+  lines_5000: 5000 líneas
+  priority_title: Prioridad
+  priority_all: Todos los niveles
+  priority_err: Errores
+  priority_warning: Advertencia+
+  priority_info: Info+
+  priority_debug: Depuración+
+  refresh_title: Actualizar instantánea
+  live: En vivo
+  paused: Pausado
+  clear_title: Borrar búfer
+  clear: Borrar
+  copy_title: Copiar al portapapeles
+  download_title: Descargar .log
+  streaming: transmitiendo
+  snapshot: instantánea
+  empty: No hay líneas de registro para el filtro seleccionado.
+  ws_connect_failed: 'Error de conexión WebSocket: %{message}'
+
+# Settings — notifications (settings/notifications.html).
+settings_notifications:
+  title: Notificaciones
+  heading: Notificaciones
+  subtitle: Recibe notificaciones sobre tu infraestructura.
+  no_channel_warning: Aún no hay ningún canal activado. Los conmutadores de abajo se dispararán pero omitirán la entrega de forma silenciosa.
+  last_prefix: 'último: '
+  tab_alerts: Alertas
+  email_subtitle: Entrega alertas mediante SMTP, la API de Brevo o la API de Resend.
+  from_name_label: Nombre del remitente
+  from_address_label: Dirección del remitente
+  send_alerts_to_label: Enviar alertas a
+  delivery_driver_label: Controlador de entrega
+  host_label: Host
+  port_label: Puerto
+  encryption_label: Cifrado
+  encryption_none: Ninguno
+  username_label: Nombre de usuario
+  password_label: Contraseña
+  saved_badge: guardado
+  password_keep_placeholder: Déjalo en blanco para conservar la contraseña almacenada
+  smtp_password_placeholder: Contraseña SMTP
+  timeout_label: Tiempo de espera (s)
+  brevo_api_key_label: Clave de API de Brevo
+  key_keep_placeholder: Déjalo en blanco para conservar la clave almacenada
+  brevo_help: 'Crea una clave de API transaccional en <span class="font-mono">app.brevo.com/settings/keys/api</span>.'
+  resend_api_key_label: Clave de API de Resend
+  resend_help: 'Crea una clave de API en <span class="font-mono">resend.com/api-keys</span>.'
+  saving: Guardando...
+  save: Guardar
+  sending: Enviando...
+  send_test_email: Enviar correo de prueba
+  send_test: Enviar prueba
+  telegram_subtitle: Envía alertas a un chat de Telegram mediante un bot.
+  bot_token_label: Token del bot
+  bot_token_keep_placeholder: Déjalo en blanco para conservar el token almacenado
+  telegram_help: Créalo mediante @BotFather en Telegram. Los tokens se cifran y nunca se vuelven a mostrar.
+  chat_id_label: ID de chat
+  chat_id_placeholder: '-1001234567890 o @nombredecanal'
+  discord_subtitle: Envía alertas a un canal de Discord mediante un webhook entrante.
+  webhook_url_label: URL del webhook
+  url_keep_placeholder: Déjalo en blanco para conservar la URL almacenada
+  discord_help: Ajustes del servidor → Integraciones → Webhooks → Nuevo webhook → Copiar URL.
+  ping_channel_label: 'Mencionar al canal (<span class="font-mono">@here</span>) en las alertas que se disparan'
+  slack_subtitle: Envía alertas a un canal de Slack mediante un webhook entrante.
+  slack_help: Créalo mediante App de Slack → Incoming Webhooks → Activar → Add New Webhook to Workspace.
+  group_deployments: Despliegues
+  group_backups: Copias de seguridad
+  group_server: Servidor
+  metric_disk: Disco
+  metric_heartbeat: latido
+  metric_container_cpu: CPU del contenedor
+  metric_container_ram: RAM del contenedor
+  metric_days_left: días restantes
+  metric_deploy_failure: fallo de despliegue
+  metric_deploy_success: despliegue exitoso
+  metric_backup_failure: fallo de copia de seguridad
+  metric_backup_success: copia de seguridad exitosa
+  metric_container_status: cambio de estado del contenedor
+  metric_docker_cleanup_success: finalización de la limpieza de docker
+  metric_docker_cleanup_failure: fallo de la limpieza de docker
+  metric_server_reachable: servidor volviendo a estar en línea
+  fires_on_every: Se dispara en cada %{label}
+  unit_days: ' días'
+  sustained_suffix: ' durante %{min} min'
+  load_alerts_failed: 'Error al cargar las alertas: '
+  threshold_updated: Umbral actualizado
+  update_failed: 'Error al actualizar: '
+  load_telegram_failed: 'Error al cargar Telegram: '
+  status_saved: Guardado
+  enter_telegram_first: Introduce primero bot_token y chat_id
+  test_notification_sent: Notificación de prueba enviada
+  test_failed: 'La prueba falló: '
+  load_email_failed: 'Error al cargar el correo: '
+  test_email_sent: Correo de prueba enviado
+  load_discord_failed: 'Error al cargar Discord: '
+  enter_discord_first: Introduce primero una URL de webhook de Discord
+  test_discord_sent: Mensaje de prueba de Discord enviado
+  load_slack_failed: 'Error al cargar Slack: '
+  enter_slack_first: Introduce primero una URL de webhook de Slack
+  test_slack_sent: Mensaje de prueba de Slack enviado
+
+# Settings — updates (settings/updates.html).
+settings_updates:
+  page_title: Actualizaciones
+  heading: Actualizaciones
+  subheading: Gestiona la versión de Pier y las preferencias de actualización
+  current_version: Versión actual
+  version_label: Versión
+  version_desc: Versión de Pier instalada
+  build_date_label: Fecha de compilación del binario
+  build_date_desc: Cuándo se compiló este binario
+  uptime_label: Tiempo de actividad
+  uptime_desc: Tiempo desde el último reinicio
+  update_check: Comprobación de actualizaciones
+  latest_build: Última compilación
+  badge_update_available: Actualización disponible
+  badge_up_to_date: Actualizado
+  checking: Comprobando...
+  check_for_updates: Buscar actualizaciones
+  new_version_available: Nueva versión disponible
+  build_prefix: 'Compilación:'
+  download_size_prefix: 'Tamaño de descarga:'
+  install_update_label: Instalar actualización
+  install_update_desc: Pier se reiniciará automáticamente tras la actualización
+  update_and_restart: Actualizar y reiniciar
+  update_complete_title: Actualización completada
+  update_complete_desc: Pier se ha actualizado correctamente.
+  update_failed: Error en la actualización
+  check_failed_title: Error en la comprobación
+  update_settings: Ajustes de actualización
+  update_mode_label: Modo de actualización
+  update_mode_desc: Elige cómo gestiona Pier las actualizaciones disponibles
+  mode_auto_label: Automático
+  mode_auto_desc: Descargar e instalar las actualizaciones automáticamente
+  mode_notify_label: Solo notificar
+  mode_notify_desc: Buscar actualizaciones y notificar, pero no instalar automáticamente
+  mode_manual_label: Manual
+  mode_manual_desc: Comprobar e instalar actualizaciones solo cuando se activen manualmente
+  auto_check_label: Buscar actualizaciones automáticamente
+  auto_check_desc: Comprobar periódicamente si hay nuevas versiones en segundo plano
+  settings_saved: Ajustes guardados
+  saving: Guardando...
+  save_settings: Guardar ajustes
+  check_status_initial: 'Haz clic en "Buscar actualizaciones" para comprobar'
+  unknown: Desconocido
+  unknown_lower: desconocido
+  unavailable: No disponible
+  load_settings_failed: Error al cargar los ajustes de actualización
+  check_failed_status: Error en la comprobación
+  new_build_available: 'Nueva compilación disponible: %{build}'
+  running_latest: Estás ejecutando la última versión
+  check_updates_failed: 'Error al buscar actualizaciones: %{error}'
+  confirm_install: Pier descargará la actualización y se reiniciará. ¿Continuar?
+  progress_downloading: Descargando actualización...
+  progress_downloading_detail: Esto puede tardar un momento según tu conexión
+  progress_installing: Instalando actualización...
+  progress_installing_detail: Aplicando la actualización y preparando el reinicio
+  progress_restarting: Reiniciando Pier...
+  progress_restarting_detail: El servidor se está reiniciando. Por favor, espera...
+  progress_reconnecting: Reconectando...
+  update_failed_fallback: Error en la actualización
+  update_request_failed: 'La solicitud de actualización falló: %{error}'
+  progress_complete: ¡Actualización completada!
+  progress_complete_detail: Pier se ha actualizado correctamente
+  reconnect_timeout: Es posible que Pier siga reiniciándose. Intenta actualizar la página manualmente.
+  save_settings_failed: Error al guardar los ajustes
+  save_failed: 'Error al guardar: %{error}'
+
+account_security:
+  title: Seguridad
+  heading: Seguridad
+  subtitle: Autenticación de dos factores (TOTP) para tu cuenta.
+  tfa_title: Autenticación de dos factores
+  not_enabled: No habilitada. Añade un código de un solo uso desde una aplicación de autenticación en cada inicio de sesión.
+  enabled_since: Habilitada desde
+  recovery_codes_left: códigos de recuperación restantes.
+  enable_2fa: Habilitar 2FA
+  disable_2fa: Deshabilitar 2FA
+  step1_scan: 1. Escanea con una aplicación de autenticación
+  enter_secret_manually: 'O introduce este secreto manualmente:'
+  step2_save_codes: 2. Guarda tus códigos de recuperación
+  save_codes_hint: Guárdalos en un lugar seguro. Cada uno se puede usar una vez para iniciar sesión si pierdes el acceso a tu autenticador.
+  step3_verify: 3. Verifica con el código actual
+  confirm: Confirmar
+  disable_hint: Introduce un código TOTP actual o uno de tus códigos de recuperación para confirmar.
+  disable_placeholder: 123456 o XXXX-XXXX-XXXX
+  disable: Deshabilitar
+  setup_failed: la configuración falló
+  verify_failed: la verificación falló
+  disable_failed: la desactivación falló
+  notice_enabled: 2FA habilitada — tu próximo inicio de sesión requerirá un código.
+  notice_disabled: 2FA deshabilitada.
+
+# Audit log (audit/index.html).
+audit_index:
+  title: Registro de auditoría
+  heading: Registro de auditoría
+  subtitle: Eventos de autenticación y de sesión para este servidor.
+  refresh: Actualizar
+  filter_event_type: Tipo de evento
+  filter_all: Todos
+  filter_ip_prefix: Prefijo de IP
+  filter_since: Desde (UTC)
+  filter_until: Hasta (UTC)
+  col_when: Cuándo (UTC)
+  col_event: Evento
+  col_user: Usuario
+  col_ip: IP
+  col_ua: UA
+  col_details: Detalles
+  empty: Ningún evento coincide con estos filtros.
+  prev: Anterior
+  next: Siguiente
+  pagination_range: '<span x-text="offset + 1"></span>–<span x-text="Math.min(offset + events.length, total)"></span> de <span x-text="total"></span>'
+
+# Team management (team/index.html).
+team_index:
+  title: Equipo
+  heading: Equipo
+  subtitle: 'Invita a compañeros de equipo y gestiona sus roles globales. El acceso específico por proyecto se configura en la pestaña <span class="font-medium">Miembros</span> de cada proyecto.'
+  invite_user_button: + Invitar usuario
+  col_user: Usuario
+  col_role: Rol
+  col_status: Estado
+  col_2fa: 2FA
+  col_joined: Se unió
+  col_actions: Acciones
+  status_active: Activo
+  status_disabled: Deshabilitado
+  twofa_on: 'On'
+  change_role: Cambiar rol
+  delete: Eliminar
+  empty_users: Aún no hay usuarios.
+  invite_modal_title: Invitar usuario
+  email_label: Correo electrónico
+  default_role_label: Rol global predeterminado
+  role_option_user: Usuario (sin privilegios del sistema)
+  role_option_admin: Admin (solo Owner)
+  link_expires_label: El enlace expira (horas)
+  create_invite: Crear invitación
+  working: Trabajando…
+  invite_link_intro: Envía este enlace de un solo uso a
+  invite_link_warning: No se volverá a mostrar.
+  expires_in_prefix: Expira en
+  expires_in_suffix: horas.
+  done: Listo
+  toast_load_failed: No se pudo cargar
+  toast_invite_failed: La invitación falló
+  confirm_delete_user: ¿Eliminar %{username}? Esto no se puede deshacer.
+  toast_user_deleted: Usuario eliminado
+  toast_delete_failed: La eliminación falló
+  prompt_new_role: 'Nuevo rol global para %{username} (owner/admin/user):'
+  toast_role_updated: Rol actualizado
+  toast_role_change_failed: El cambio de rol falló
+
+# Tasks list (tasks/list.html).
+tasks_list:
+  title: Tareas
+  heading: Tareas
+  subtitle: Tareas de shell guardadas y un historial global de cada ejecución. Usa una plantilla para trabajos repetibles, o lanza un comando ad-hoc para casos puntuales.
+  new_template: + Nueva plantilla
+  run_ad_hoc: Ejecutar comando ad-hoc
+  templates: Plantillas
+  col_name: Nombre
+  col_command: Comando
+  col_timeout: Tiempo de espera
+  col_actions: Acciones
+  run: Ejecutar
+  delete: Eliminar
+  no_templates: Aún no hay plantillas.
+  recent_runs: Ejecuciones recientes
+  col_status: Estado
+  col_server: Servidor
+  col_triggered_by: Activado por
+  col_started: Iniciado
+  no_runs: Aún no hay ejecuciones.
+  new_template_title: Nueva plantilla de tarea
+  field_name: Nombre
+  field_command: Comando
+  field_default_timeout: Tiempo de espera predeterminado (segundos)
+  save: Guardar
+  working: Trabajando…
+  run_template_title: Ejecutar plantilla
+  run_ad_hoc_title: Ejecutar comando ad-hoc
+  field_server: Servidor
+  select_server_placeholder: "— seleccionar —"
+  field_timeout: Tiempo de espera (segundos)
+  starting: Iniciando…
+  toast_load_failed: No se pudo cargar
+  toast_template_saved: Plantilla guardada
+  toast_save_failed: El guardado falló
+  confirm_delete_template: '¿Eliminar la plantilla "%{name}"?'
+  toast_template_deleted: Plantilla eliminada
+  toast_delete_failed: La eliminación falló
+  toast_start_failed: No se pudo iniciar
+
+# Task run detail (tasks/run_detail.html).
+tasks_run_detail:
+  title: Ejecución de tarea
+  back_to_tasks: Tareas
+  heading: Ejecución de tarea
+  label_server: Servidor
+  label_triggered_by: Activado por
+  label_exit_code: Código de salida
+  label_started: Iniciado
+  label_finished: Finalizado
+  label_timeout: Tiempo de espera
+  label_command: Comando
+  label_error: Error
+  empty_output: (vacío)
+  load_failed: No se pudo cargar
+  confirm_cancel: ¿Cancelar esta ejecución?
+  cancel_requested: Cancelación solicitada
+  cancel_failed: La cancelación falló
+
+# Schedules list (schedules/list.html).
+schedules_list:
+  title: Programaciones
+  heading: Programaciones
+  intro: "Trabajos basados en cron. Hoy el ejecutor unificado lanza plantillas de tareas; las programaciones de copia de seguridad y limpieza se enumeran aquí para tener visibilidad, pero siguen gestionadas por sus bucles heredados."
+  new_schedule_button: + Nueva programación
+  col_name: Nombre
+  col_action: Acción
+  col_cron: Cron
+  col_next_run: Próxima ejecución
+  col_last_status: Último estado
+  col_actions: Acciones
+  badge_system: sistema
+  status_never: nunca
+  action_run_now: Ejecutar ahora
+  action_disable: Deshabilitar programación
+  action_enable: Habilitar programación
+  action_delete: Eliminar programación
+  action_system_locked: Programación del sistema (no se puede eliminar)
+  empty: Aún no hay programaciones.
+  modal_title: Nueva programación
+  field_name: Nombre
+  field_action: Acción
+  action_option_task: Ejecutar plantilla de tarea
+  action_help: "Las programaciones de copia de seguridad y limpieza también se lanzan desde el ejecutor unificado, pero se crean en otro lugar (página de recursos / ajustes de limpieza)."
+  field_template: Plantilla de tarea
+  field_server: Servidor
+  select_placeholder: "— seleccionar —"
+  field_cron: Expresión cron
+  next_runs_label: "Próximas ejecuciones:"
+  field_timezone: Zona horaria
+  submit_create: Crear
+  submit_working: Trabajando…
+  toast_load_failed: No se pudo cargar
+  cron_invalid: expresión no válida
+  toast_pick_template_server: Elige una plantilla y un servidor
+  toast_created: Programación creada
+  toast_create_failed: La creación falló
+  toast_toggle_failed: El cambio falló
+  toast_run_status: Ejecución %{status}
+  toast_run_failed: La ejecución falló
+  confirm_delete: '¿Eliminar la programación "%{name}"?'
+  toast_deleted: Programación eliminada
+  toast_delete_failed: La eliminación falló
+
+# Architecture canvas (canvas.html).
+canvas:
+  title: Arquitectura
+  dashboard: Panel
+  architecture: Arquitectura
+  services_suffix: servicios
+  create: Crear
+  show_dependency_arrows: Mostrar flechas de dependencia
+  deps: Deps
+  zoom_in: Acercar
+  zoom_out: Alejar
+  fit_to_view: Ajustar a la vista
+  fit: Ajustar
+  create_resource: Crear recurso
+  what_to_deploy: ¿Qué quieres desplegar?
+  databases: Bases de datos
+  services: Servicios
+  deploy: Desplegar
+  auto_generated_if_empty: Se genera automáticamente si está vacío
+  generate: Generar
+  project: Proyecto
+  no_project: Sin proyecto
+  network: Red
+  default_suffix: predeterminado
+  deploying: Desplegando...
+  deployed: ¡Desplegado!
+  deploy_failed: El despliegue falló
+  starting_deployment: Iniciando despliegue...
+  open_details: Abrir detalles
+  done: Listo
+  back_to_config: Volver a la configuración
+  start: Iniciar
+  stop: Detener
+  restart: Reiniciar
+  redeploy: Volver a desplegar
+  live: En vivo
+  cpu_usage: Uso de CPU
+  memory_usage: Uso de memoria
+  network_io: E/S de red
+  disk_io: E/S de disco
+  legend_running: En ejecución
+  legend_failed: Falló
+  legend_deploying: Desplegando
+  legend_stopped: Detenido
+  action_initiated: "%{action} iniciado"
+  failed_to_load_template: No se pudo cargar la plantilla
+  name_is_required: El nombre es obligatorio
+  log_deploying: 'Desplegando %{template} "%{name}"...'
+  log_creating_resource: Creando recurso...
+  log_container_created: Contenedor creado correctamente
+  log_deployment_log_header: Registro de despliegue
+  log_no_output: Sin salida
+  log_deployed_successfully: "¡%{name} desplegado correctamente!"
+  toast_deployed: "%{name} desplegado"
+  log_deploy_failed: "El despliegue falló: %{error}"
+
+# Support modal partial (partials/support_modal.html).
+support_modal:
+  close: Cerrar
+  heading: ¿Te encanta Pier? Apoya nuestro trabajo.
+  body_profitable: 'Ya somos rentables gracias a <span class="font-semibold text-gray-900 dark:text-white">TI</span> pero&hellip;'
+  body_features: Nos gustaría crear más funciones interesantes.
+  body_help: Para esto necesitamos tu ayuda para apoyar nuestro trabajo económicamente.
+  maybe_next_time: Quizás la próxima vez
+  support_project: Apoyar el proyecto
+
+errors:
+  unauthorized: No autorizado
+  docker: Error de Docker
+  database: Error de base de datos
+  internal: Error interno
+  name_conflict: "El recurso '%{name}' ya existe"
+  domains_require_confirmation: Desactivar el acceso público eliminará los dominios existentes
+  # Authentication / login flow (auth/handlers.rs).
+  auth:
+    setup_not_found: Configuración
+    username_required: El nombre de usuario es obligatorio
+    setup_already_completed: La configuración ya se completó
+    invalid_credentials: Credenciales no válidas
+  resources:
+    name_required: El nombre es obligatorio
+    create_without_project_requires_admin: crear recursos sin un proyecto requiere rol Admin
+    catalog_template_not_found: "La plantilla de catálogo '%{name}' no se encontró"
+    no_cluster_mode_support: "'%{name}' no admite el modo clúster"
+    node_count_range: El número de nodos debe estar entre %{min} y %{max}
+    compose_yaml_required: El YAML de Docker Compose es obligatorio
+    dockerfile_content_required: El contenido del Dockerfile es obligatorio
+    repository_url_required: La URL del repositorio es obligatoria
+    ssh_deploy_key_required: La clave de despliegue SSH es obligatoria
+    dockerfile_not_found_in_repo: "No se encontró el Dockerfile en '%{path}' del repositorio"
+    source_id_required_for_github_app: source_id es obligatorio para el despliegue con GitHub App
+    github_app_source_not_found: No se encontró la fuente de GitHub App %{source_id}
+    source_missing_app_id: A la fuente le falta app_id
+    source_missing_installation_id: A la fuente le falta installation_id
+    source_missing_private_key: A la fuente le falta private_key
+    github_app_requires_https: GitHub App requiere una URL HTTPS
+    resource_not_found: No se encontró el recurso %{id}
+    service_has_databases: El servicio tiene %{count} base(s) de datos. Elimínalas primero.
+    no_compose_content: No se encontró contenido de compose
+    not_a_cluster: El recurso no es un clúster
+    catalog_no_cluster_support: Catálogo no encontrado o sin soporte para clúster
+    cluster_use_scale: Los servicios en modo clúster usan /scale en su lugar
+    no_catalog_id_lb_unsupported: El recurso no tiene catalog_id; LB no es compatible
+    named_volumes_no_multireplica: El elemento del catálogo tiene volúmenes con nombre; el escalado multi-réplica está desactivado en la v1
+    catalog_no_docker_section: El catálogo no tiene sección docker
+    catalog_no_ports_lb: El catálogo no tiene puertos; LB no aplicable
+    unknown_lb_strategy: "lb_strategy desconocida '%{strategy}' (se esperaba round-robin|weighted|sticky)"
+    replicas_min_one: "replicas debe ser >= 1"
+    no_replicas_requested: No se solicitaron réplicas
+    max_replicas_per_service: Máximo %{max} réplicas por servicio
+    server_not_found: "El servidor '%{name}' no se encontró"
+    service_not_found: No se encontró el servicio %{id}
+    port_not_found: No se encontró el puerto %{id}
+    port_id_wrong_service: port_id no pertenece a este servicio
+    no_ports_for_resource: No hay puertos para el recurso %{id}
+    port_exposed_by_own_port: El puerto %{port} ya está expuesto públicamente por otro puerto de este servicio
+    port_exposed_by_other_service: El puerto %{port} ya está expuesto públicamente por otro servicio (%{service})
+    network_not_found: No se encontró la red %{name}
+    name_invalid_chars: El nombre solo debe contener letras minúsculas, números y guiones
+    no_compose_content_for_service: No se encontró contenido de compose para este servicio
+  projects:
+    not_found: No se encontró el proyecto %{id}
+    name_required: El nombre del proyecto es obligatorio
+    create_admin_only: solo Admin puede crear proyectos
+    port_range_both_required: port_range_start y port_range_end deben establecerse juntos
+    port_range_out_of_bounds: El rango de puertos debe estar dentro de 1024-65535 (se recibió %{start}-%{end})
+    port_range_inverted: El inicio del rango de puertos debe ser <= al final (se recibió %{start}-%{end})
+    port_range_overlap: "El rango de puertos %{start}-%{end} se solapa con el proyecto '%{name}' (%{other_start}-%{other_end})"
+    port_range_narrow_conflict: "No se puede reducir el rango de puertos a %{start}-%{end}: hay servicios usando puertos fuera del nuevo rango [%{services}]"
+    has_services: El proyecto tiene %{count} servicio(s). Elimínalos primero.
+  servers:
+    name_required: El nombre es obligatorio
+    host_required_for_agent: host es obligatorio para el agente
+    url_required_for_peer: url es obligatorio para el peer
+    url_must_be_http: "url debe comenzar con http:// o https://"
+    api_token_required_for_peer: api_token es obligatorio para el peer
+    unknown_kind_expected: "tipo desconocido '%{kind}' — se esperaba 'agent' o 'peer'"
+    unknown_kind: "tipo desconocido '%{kind}'"
+    rotate_agent_only: rotate solo es válido para servidores de tipo kind='agent'
+    local_no_token_to_rotate: el servidor local no tiene un agent_token remoto para rotar
+    no_active_token: el servidor aún no tiene un agent_token activo (¿bootstrap pendiente?)
+    agent_unreachable_at: "agente inaccesible en %{url}: %{error}"
+    agent_refused_rotation: "el agente rechazó la rotación (%{status}): %{body}"
+    bootstrap_token_required: bootstrap_token es obligatorio
+    server_not_found_or_local: Servidor no encontrado o es local (no se puede eliminar)
+    cannot_connect_agent_at: "No se puede conectar al agente en %{url}: %{error}"
+    agent_responded_status: "El agente respondió con estado: %{status}"
+    agent_unreachable: "Agente inaccesible: %{error}"
+    peer_not_found: No se encontró el peer %{id}
+    peer_not_found_federation: Peer %{id} no encontrado (los tokens de federación solo son válidos para kind='peer')
+    server_not_found: No se encontró el servidor %{id}
+    body_read_failed: "lectura del cuerpo: %{error}"
+    peer_unreachable: "peer inaccesible: %{error}"
+    stack_name_required: stack_name es obligatorio
+    compose_yaml_required: compose_yaml es obligatorio
+    token_param_required: el parámetro token es obligatorio
+    id_param_required: el parámetro id es obligatorio
+  databases:
+    resource_not_found: No se encontró el recurso %{id}
+    management_unsupported_engine: La gestión de bases de datos solo es compatible con PostgreSQL, MySQL y MongoDB
+    credentials_required: El nombre de la base de datos, el usuario y la contraseña son obligatorios
+    invalid_name_chars: Los nombres solo pueden contener letras, números y guiones bajos
+    unsupported_type: Tipo de base de datos no compatible
+    cannot_delete_system: No se pueden eliminar las bases de datos del sistema
+    password_required: La contraseña es obligatoria
+    owner_not_found: No se pudo encontrar el propietario de la base de datos %{name}
+    container_not_found: "El contenedor '%{name}' no se encontró. Asegúrate de que el servicio esté en ejecución."
+  domains:
+    domain_required: El dominio es obligatorio
+    domain_not_found: No se encontró el dominio %{name}
+    service_not_found: No se encontró el servicio %{name}
+    already_registered: El dominio %{name} ya está registrado
+    row_already_uses: Otra fila de dominio ya usa %{name}
+    no_port_for_compose_service: "El servicio %{name} no tiene puerto asignado para el servicio de compose '%{service}'"
+  federation:
+    peer_not_paired: "el peer %{server_id} no está emparejado para federación — establece su token en /servers/<id>"
+    name_and_yaml_required: name y yaml son obligatorios
+    peer_rejected_create: "el peer rechazó la creación: %{error}"
+    peer_rejected_deploy: "el peer rechazó el despliegue: %{error}"
+    peer_rejected_down: "el peer rechazó la detención: %{error}"
+    peer_rejected_restart: "el peer rechazó el reinicio: %{error}"
+    peer_rejected_logs: "el peer rechazó los logs: %{error}"
+    peer_rejected_release: "el peer rechazó la liberación: %{error}"
+  npm:
+    missing_name: Falta el nombre
+    missing_password: Falta la contraseña
+    tarball_extension: El tarball debe terminar en .tgz
+    malformed_tarball: Nombre de tarball mal formado
+    package_not_found: paquete %{name}
+    version_not_found: "%{name}@%{version}"
+    tarball_not_found: "%{name}/%{tarball}"
+    tarball_version_not_found: "%{name}-%{version}"
+    invalid_json: "json no válido: %{error}"
+    missing_versions: faltan versiones
+    single_version_required: publish debe contener exactamente una versión
+    empty_versions: versiones vacías
+    missing_attachments: faltan _attachments
+    no_attachments: sin _attachments
+    empty_attachments: _attachments vacíos
+    attachment_missing_data: al adjunto le faltan datos
+    base64_decode: "decodificación base64: %{error}"
+    attachment_name_mismatch: "el nombre del adjunto '%{actual}' no coincide con el esperado '%{expected_short}' o '%{expected_full}'"
+    integrity_mismatch: la integridad del tarball no coincide con dist.integrity
+    manifest_not_object: el manifest no es un objeto
+    already_published: "%{name}@%{version} ya está publicado"
+    dist_tag_not_found: dist-tag %{tag}
+    nothing_to_deprecate: nada que marcar como obsoleto
+    body_not_utf8: el cuerpo no es utf-8
+    missing_version_body: falta la versión en el cuerpo
+    invalid_package_name: nombre de paquete no válido
+    scoped_missing_name: al paquete con scope le falta /name
+    invalid_scoped_name: nombre de paquete con scope no válido
+    unscoped_has_slash: un paquete sin scope no puede contener /
+  backups:
+    s3_storage_required: El almacenamiento S3 es obligatorio
+    resource_not_found: No se encontró el recurso %{id}
+    backup_not_supported: la copia de seguridad no es compatible con %{catalog}
+    per_db_backup_not_supported: la copia de seguridad por base de datos no es compatible con %{catalog}
+    no_schedule_configured: No hay ninguna programación de copia de seguridad configurada. Configura una primero.
+    backup_not_found: No se encontró la copia de seguridad %{id}
+    backup_not_found_simple: No se encontró la copia de seguridad
+    backup_not_completed: Copia de seguridad no encontrada o no completada
+    target_database_name_required: target_database_name es obligatorio
+    per_db_restore_not_supported: la restauración por base de datos no es compatible con %{catalog}
+    backup_db_mismatch: "la copia de seguridad contiene la base de datos '%{backup_db}', se rechaza restaurarla en '%{target_db}' — elige una copia de la misma base de datos o usa una copia de todo el clúster"
+    database_name_required: el nombre de la base de datos es obligatorio
+    multipart_read_error: "error de lectura multipart: %{error}"
+    file_read_error: "error de lectura del archivo: %{error}"
+    multipart_missing_file: "falta el campo 'file' en multipart"
+    uploaded_file_no_name: el archivo subido no tiene nombre — no se puede detectar el formato de la copia de seguridad por la extensión
+    service_not_found: No se encontró el servicio %{id}
+    database_does_not_exist: "la base de datos '%{name}' no existe en este servicio — créala primero en la pestaña Bases de datos"
+    unrecognized_file_extension: "extensión de archivo de copia de seguridad no reconocida en '%{filename}'. Aceptadas: .dump, .sql, .sql.gz, .tar, .tar.gz, .archive, .archive.gz"
+    file_not_compatible: "el archivo de copia de seguridad '%{filename}' no es compatible con una base de datos %{catalog}"
+  alerts:
+    rule_not_found: No se encontró la alerta %{id}
+    channel_config_invalid: "channel_config: %{error}"
+    delivery_failed: "Error en la entrega: %{error}"
+    invalid_metric: "Métrica no válida: %{value}"
+    invalid_comparison: "Comparación no válida: %{value}"
+    invalid_severity: "Severidad no válida: %{value}"
+    unsupported_channel: "Canal no compatible: %{value}"
+    unknown_driver: "Driver desconocido: %{value}"
+    telegram_requires_credentials: bot_token y chat_id son obligatorios antes de activar Telegram
+    telegram_not_configured: Telegram no está configurado
+    email_requires_credentials: Completa las credenciales del driver y las direcciones de/para antes de activar
+    email_addresses_required: from_address y to_address son obligatorios
+    discord_requires_webhook: webhook_url es obligatorio antes de activar Discord
+    discord_not_configured: Discord no está configurado
+    slack_requires_webhook: webhook_url es obligatorio antes de activar Slack
+    slack_not_configured: Slack no está configurado
+  sources:
+    name_and_url_required: El nombre y la URL son obligatorios
+    source_not_found: No se encontró la fuente %{name}
+    missing_app_id: Falta app_id
+    missing_installation_id: Falta installation_id
+    missing_private_key: Falta private_key
+    fetch_repos_failed: "Error al obtener los repositorios: %{error}"
+    list_branches_failed: "Error al listar las ramas: %{error}"
+    platform_domain_required: Configura primero un dominio de plataforma en los ajustes de Proxy para el flujo OAuth de GitHub App
+    repo_required: repo es obligatorio
+  dependencies:
+    target_required: depends_on_service_id es obligatorio
+    self_dependency: un servicio no puede depender de sí mismo
+    service_not_found: No se encontró el servicio %{id}
+    target_not_found: servicio de destino no encontrado
+    cross_project: la dependencia debe estar dentro del mismo proyecto
+    cycle: esa arista crearía un ciclo de dependencias
+    already_exists: la dependencia ya existe
+    dependency_not_found: No se encontró la dependencia %{id}
+  users:
+    valid_email_required: se requiere un correo electrónico válido
+    owner_role_not_via_invitation: El rol Owner no se puede otorgar mediante invitación
+    unknown_role: "rol desconocido: %{name}"
+    only_owner_can_invite_admins: solo Owner puede invitar a nuevos Admins
+    active_invitation_exists: ya existe una invitación activa para este correo electrónico
+    use_account_endpoints: usa los endpoints de /account para editarte a ti mismo
+    user_not_found: usuario no encontrado
+    only_owner_can_edit_owner: solo Owner puede editar al Owner
+    cannot_delete_yourself: no puedes eliminarte a ti mismo
+    cannot_delete_last_owner: no se puede eliminar al último Owner activo
+    only_owner_can_delete_owner: solo Owner puede eliminar a un Owner
+    only_owner_can_delete_admins: solo Owner puede eliminar a otros Admins
+    cannot_demote_last_owner: no se puede degradar al último Owner activo
+  # Git push webhook receivers (api/webhooks.rs).
+  webhooks:
+    missing_repo_or_sha: Falta la URL del repositorio o el SHA del commit
+    invalid_json: "JSON no válido: %{error}"
+  # NoSQL data browser (api/db_nosql.rs) — Redis/Valkey & MongoDB.
+  db_nosql:
+    resource_not_found: No se encontró el recurso %{v}
+    no_host_port: Este servicio no tiene ningún puerto de host asignado.
+    not_redis_service: Este no es un servicio Redis.
+    redis_error: "Error de Redis: %{v}"
+    redis_client: "Cliente de Redis: %{v}"
+    redis_connect_failed: "No se pudo conectar a Redis: %{v}"
+    command_empty: El comando está vacío
+    not_mongodb_service: Este no es un servicio MongoDB.
+    unexpected_mongosh_output: "Salida inesperada de mongosh: %{v}"
+    parse_mongo_output_failed: "No se pudo analizar la salida de MongoDB: %{v}"
+    script_empty: El script está vacío
+  # Account tab: profile, password change, sessions, 2FA (api/account.rs).
+  account:
+    new_password_must_differ: La nueva contraseña debe ser distinta de la actual
+    cannot_revoke_current_session: "No se puede revocar tu sesión actual — usa /logout en su lugar"
+    session_not_found: No se encontró la sesión %{v}
+    two_fa_already_enabled: "2FA ya está activado — desactívalo primero para volver a inscribirte"
+    two_fa_code_mismatch: "El código no coincidió — comprueba la hora de tu dispositivo e inténtalo de nuevo"
+    two_fa_not_enabled: 2FA no está activado
+  # Embedded npm registry settings & upstream proxy (api/registry_settings.rs).
+  registry_settings:
+    s3_storage_not_found: "el almacenamiento s3 '%{v}' no se encontró"
+    proxy_upstream_url_empty: proxy_upstream_url no puede estar vacío
+    proxy_upstream_url_scheme: "proxy_upstream_url debe comenzar con http:// o https://"
+    no_latest_dist_tag: "no hay dist-tag 'latest' para el paquete"
+    no_upstream_url_cached: "%{v}: no hay URL de upstream en caché"
+    upstream_proxy_disabled: el proxy de upstream está desactivado en los ajustes
+    upstream_404: "404 de upstream para %{v}"
+  db_browser:
+    query_failed: "Error en la consulta: %{v}"
+    resource_not_found: No se encontró el recurso %{v}
+    unsupported_engine: "El explorador de datos admite PostgreSQL y MySQL/MariaDB. MongoDB y Redis llegarán en una fase posterior."
+    no_host_port: "Este servicio %{v} no tiene ningún puerto de host asignado, por lo que el panel no puede acceder a él."
+    connect_failed: "No se pudo conectar a %{engine} en %{host}:%{port}: %{err}"
+    table_not_found: No se encontró la tabla %{schema}.%{table}
+    schema_required: schema es obligatorio
+    table_required: table es obligatorio
+    no_primary_key: "Esta tabla no tiene clave primaria, por lo que las filas no se pueden editar de forma segura."
+    pk_mismatch: "La clave de la fila debe coincidir con las columnas de la clave primaria de la tabla."
+    unknown_column: Columna desconocida %{v}
+    no_values: No se proporcionaron valores.
+    empty_sql: La sentencia SQL está vacía
+    unnamed_columns: "El resultado tiene columnas sin nombre o duplicadas. Añade alias de columna explícitos para verlo en la cuadrícula."
+  migration:
+    not_found: No se encontró el stack %{v}
+    no_compose_content: El stack no tiene contenido de compose; nada que migrar
+    stateful: "%{v}. La migración con estado está en la hoja de ruta — consulta FUTURE.md."
+    remote_managed: El stack está gestionado por un primario remoto; migra desde allí en su lugar
+    already_in_progress: Ya hay otra migración en curso para este stack
+    target_not_paired: "El destino %{v} no está emparejado para federación; establece su token en /servers/<id>"
+    target_rejected_create: "el destino rechazó la creación: %{v}"
+    target_deploy_failed: "falló el despliegue en el destino (se revirtió la fila del destino): %{v}"
+  project_members:
+    unknown_project_role: "project_role desconocido: %{v}"
+    user_not_found: usuario no encontrado
+    user_with_email_not_found: no se encontró un usuario con ese correo electrónico
+    user_id_or_email_required: user_id o email es obligatorio
+    already_member: el usuario ya es miembro de este proyecto
+    membership_not_found: no se encontró la membresía
+    cannot_demote_last_admin: no se puede degradar al último Project Admin
+    cannot_remove_last_admin: no se puede eliminar al último Project Admin
+  service_dns:
+    name_refers_to_server: "el nombre '%{v}' ya hace referencia a un servidor (%{v}.mesh); elige una etiqueta diferente"
+    name_already_registered: "el nombre '%{v}' ya está registrado"
+    server_id_not_found: "server_id '%{v}' no existe"
+    mapping_not_found: "el mapeo de DNS de servicio '%{v}' no se encontró"
+    name_length: el nombre debe tener 1..=31 caracteres
+    name_must_start: el nombre debe comenzar con [a-z0-9]
+    name_must_end: el nombre debe terminar con [a-z0-9]
+    name_invalid_chars: "el nombre solo puede contener letras minúsculas, dígitos y '-'"
+    port_range: el puerto debe estar en 1..=65535
+  schedules:
+    unknown_action_type: "action_type desconocido '%{v}'"
+    name_required: El nombre es obligatorio
+    not_found: No se encontró la programación
+    system_no_delete: Las programaciones del sistema se pueden desactivar pero no eliminar
+  compose:
+    name_and_yaml_required: El nombre y el YAML son obligatorios
+    stack_no_yaml: El stack no tiene contenido YAML
+    stack_not_found: No se encontró el stack %{id}
+  deployments:
+    deployment_not_found: No se encontró el despliegue %{v}
+    deployment_not_in_progress: El despliegue no está en curso
+    service_not_found: No se encontró el servicio %{v}
+    git_not_configured: Git no está configurado para este servicio. Establece git_repo_url primero.
+    service_not_found_in_project: "El servicio '%{v}' no se encontró en el proyecto"
+  tasks:
+    name_required: El nombre es obligatorio
+    command_required: El comando es obligatorio
+    template_name_exists: "Ya existe una plantilla llamada '%{v}'"
+    template_not_found: No se encontró la plantilla
+    template_or_command_required: Se requiere template_id o command
+    run_not_found: No se encontró la ejecución de la tarea
+  s3:
+    required_fields: El nombre, el endpoint y el bucket son obligatorios
+    storage_not_found: No se encontró el almacenamiento S3 %{v}
+    bunny_test_failed: "Falló la prueba de Bunny.net: %{v}"
+    test_failed: "Falló la prueba de S3: %{v}"
+  promote:
+    server_not_found: No se encontró el servidor %{v}
+    local_server_full_core: No se puede promover el servidor local (este ya es un pier-core completo)
+    local_server: No se puede promover el servidor local
+    agent_unreachable: "agente inaccesible: %{v}"
+    agent_rejected: "agente: %{v}"
+  network:
+    listen_port_privileged: "listen_port debe ser ≥1024 (los puertos privilegiados no están permitidos)"
+    mesh_config_locked: la malla debe estar desactivada y sin peers antes de poder cambiar la configuración
+    mesh_already_enabled: la malla ya está activada
+    enable_before_configure: activa la malla antes de ejecutar configure
+    no_peers_allocated: no hay peers asignados; pulsa Activar Malla primero
+    invalid_subnet: "subred: %{error}"
+  federation_agent:
+    name_and_yaml_required: El nombre y el YAML son obligatorios
+    stack_no_yaml: El stack no tiene contenido YAML
+    stack_not_found: No se encontró el stack %{v}
+    stack_owned_by_other_primary: El stack está gestionado por un primario diferente
+    stack_locally_owned: El stack es propiedad local de este peer; pide al operador que lo libere primero
+  registries:
+    fields_required: registry, username y password son obligatorios
+    already_exists: "Ya existen credenciales para el registry '%{v}' en este ámbito"
+    not_found: No se encontró la credencial del registry %{v}
+    probe_mismatch: "La imagen de sondeo '%{image}' no pertenece al registry '%{registry}'"
+  rbac:
+    owner_only_peer_token: La ruta exclusiva de Owner no es accesible mediante token de peer
+    requires_global_role: requiere el rol %{v}
+    resource_not_bound: el recurso no está vinculado a un proyecto
+    not_project_member: no es miembro del proyecto %{v}
+    requires_project_role: requiere el rol %{v} del proyecto
+  networks:
+    name_required: El nombre de la red es obligatorio
+    name_invalid_chars: El nombre de la red solo puede contener letras, números, guiones y guiones bajos
+    not_found: No se encontró la red %{v}
+    cannot_delete_default: No se puede eliminar la red predeterminada
+    has_services: La red tiene %{v} servicio(s). Muévelos primero.
+  registry_admin:
+    dist_tag_not_found: dist-tag %{v}
+    version_not_found: "%{v}"
+    package_not_found: paquete %{v}
+  invitations:
+    not_found: no se encontró la invitación
+    username_required: el nombre de usuario es obligatorio
+  system_logs:
+    unit_not_allowed: "unidad no permitida: %{v}"
+    invalid_since: "preajuste de since no válido: %{v}"
+    invalid_lines: "líneas no válidas: %{v}"
+    invalid_priority: "prioridad no válida: %{v}"
+  npm_web_login:
+    session_not_found: sesión de inicio de sesión %{v}
+    session_expired: la sesión expiró
+    session_already_status: la sesión ya está %{v}
+  tokens:
+    name_required: El nombre es obligatorio
+    name_too_long: Nombre demasiado largo (máx. 100)
+    not_found: token %{v}
+  proxy:
+    fetch_latest_version_failed: "No se pudo obtener la última versión de Traefik: %{v}"
+    update_failed_rolled_back: "Falló la actualización a Traefik %{latest}: %{err}. Se revirtió a %{previous}."
+  grants:
+    name_required: El nombre es obligatorio
+    grant_not_found: No se encontró la concesión %{v}
+  env:
+    resource_not_found: No se encontró el recurso %{v}
+  federation_tokens:
+    label_required: La etiqueta es obligatoria
+    token_not_found: No se encontró el token %{v}
+  catalog:
+    template_not_found: "La plantilla de catálogo '%{v}' no se encontró"
+  settings_railpack:
+    max_parallel_builds_range: max_parallel_builds debe estar entre %{min} y %{max}
+  system:
+    invalid_timezone: "Zona horaria IANA no válida: %{v}"
+  pages:
+    package_not_found: paquete %{v}
+    login_session_not_found: sesión de inicio de sesión %{v}
+  executor:
+    task_run_not_found: no se encontró la ejecución de la tarea
+    task_already_status: la tarea ya está %{v}
+

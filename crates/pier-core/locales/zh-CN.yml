@@ -1,0 +1,2599 @@
+# Simplified Chinese (zh-CN) — machine translation of en.yml (Pier admin panel).
+# Same key structure as en.yml; any missing key falls back to en (i18n! fallback).
+# Machine-translated — native review advisable before production.
+
+common:
+  logout: 退出登录
+  view_all: 查看全部
+  loading: 加载中…
+  no_description: 无描述
+  cancel: 取消
+  copy: 复制
+  optional: （可选）
+  # Client-side toast / fetch messages emitted from shared scripts.
+  copied: 已复制！
+  copy_failed: 复制失败
+  request_failed: 请求失败
+
+# Sidebar navigation (labels + collapsed-sidebar tooltips share these keys).
+nav:
+  dashboard: 仪表盘
+  projects: 项目
+  servers: 服务器
+  sources: 源
+  s3: S3 存储
+  registries: 镜像仓库
+  packages: 软件包
+  domains: 域名
+  proxy: 代理
+  networks: 网络
+  team: 团队
+  tasks: 任务
+  schedules: 计划任务
+  settings: 设置
+  logs: 日志
+  updates: 更新
+  notifications: 通知
+  # Sidebar section headers.
+  group:
+    integrations: 集成
+    networking: 网络
+    system: 系统
+
+# Shared chrome rendered by base.html.
+layout:
+  support_pier: 支持 Pier
+  deploy_in_progress: 进行中
+  # Deploy badge count: "N deployment(s)". JS picks singular/plural by count.
+  deployment_one: 次部署
+  deployment_other: 次部署
+
+# Login + two-factor screen (login.html).
+login:
+  title: 登录
+  sign_in: 登录
+  two_factor: 双重认证
+  username: 用户名
+  # Example username shown as the field placeholder (the default account name).
+  username_placeholder: admin
+  password: 密码
+  signing_in: 登录中…
+  totp_hint: 请输入身份验证器应用中的 6 位验证码，或恢复码。
+  verify: 验证
+  verifying: 验证中…
+  back: ← 返回
+  error:
+    login_failed: 登录失败
+    invalid_code: 验证码无效
+    request_failed: 请求失败
+
+# Dashboard (dashboard.html).
+dashboard:
+  title: 仪表盘
+  subtitle: 系统概览与资源使用情况
+  architecture: 架构
+  cpu_usage: CPU 使用率
+  memory: 内存
+  disk: 磁盘
+  containers: 容器
+  # Suffixes/labels assembled in Alpine x-text expressions.
+  cores: 核
+  running: 运行中
+  stopped: 已停止
+  docker_engine: Docker 引擎
+  version: 版本
+  api_version: API 版本
+  storage_driver: 存储驱动
+  images: 镜像
+  projects: 项目
+  no_projects: 暂无项目
+  create_first_project: 创建你的第一个项目
+  system: 系统
+  hostname: 主机名
+  os: 操作系统
+  uptime: 运行时间
+  servers: 服务器
+  memory_by_container: 各容器内存使用情况
+  loading_stats: 正在加载统计数据…
+  no_running_containers: 没有正在运行的容器
+  disk_usage: 磁盘使用情况
+  volumes: 卷
+  build_cache: 构建缓存
+  total_disk_usage: Docker 磁盘总使用量
+
+# Shared auth-page chrome (auth_base.html).
+auth:
+  tagline: 部署一切，掌控一切。
+
+# First-run admin setup (setup.html).
+setup:
+  title: 安装设置
+  proxy_error_title: 反向代理（Traefik）启动失败
+  proxy_error_hint: "这通常是由于共享 IP 的 VPS 上 Docker Hub 速率限制导致的。要手动修复，请在服务器上运行："
+  proxy_error_after: "重启后，Pier 会自动重新启动 Traefik。此横幅将在 /setup 页面消失。"
+  create_admin: 创建管理员账户
+  subtitle: 首次设置。请创建管理员账户。
+  username: 用户名
+  username_placeholder: admin
+  email: 邮箱
+  password: 密码
+  generate_password: 生成强密码
+  password_placeholder: 至少 12 个字符，混合使用
+  confirm_password: 确认密码
+  confirm_placeholder: 再次输入密码
+  passwords_no_match: 两次输入的密码不一致
+  creating: 创建中…
+  strength:
+    very_weak: 非常弱
+    weak: 弱
+    fair: 一般
+    good: 良好
+    strong: 强
+  pw_copied: 密码已复制到剪贴板。请立即保存——它不会再次显示。
+  pw_generated: 密码已生成。请从输入框中复制——它不会再次显示。
+  fix_fields: 请先修正高亮显示的字段再继续。
+  setup_failed: 设置失败
+
+# CLI authorization page for `npm login --auth-type=web` (cli_login.html).
+cli_login:
+  title: 授权 CLI
+  request_desc: 一个命令行工具正在请求令牌，以便从此镜像仓库发布或安装 npm 软件包。
+  authorizing_as: 授权身份
+  hostname: 主机名
+  source_ip: 来源 IP
+  user_agent: User-Agent
+  expires_in: 过期于
+  expired_short: 已过期
+  token_name: 令牌名称
+  token_name_placeholder: 笔记本电脑、CI 运行器……
+  authorize: 授权
+  issuing: 正在签发令牌…
+  authorized: CLI 已授权
+  authorized_hint: "你的终端应会在几秒内获取该令牌。如果没有，请复制下方令牌并粘贴到 <code class=\"font-mono\">.npmrc</code> 中。"
+  token_fallback: 令牌（备用）
+  token_once: 这是该令牌在此处唯一一次显示。CLI 获取后，该条目即被清除。
+  back_to_packages: 返回软件包
+  session_expired: 会话已过期
+  expired_hint: "请在终端中重新运行 <code class=\"font-mono\">npm login --auth-type=web --registry=…</code> 以开始新的会话。"
+  auth_failed: 授权失败
+  clipboard_failed: 复制到剪贴板失败——请手动选择并复制。
+
+# Invitation acceptance (invitations/accept.html).
+invite:
+  title: 接受邀请
+  verifying: 正在验证邀请…
+  invalid_title: 邀请无效
+  invalid_desc: 此链接已过期、已被使用或从未存在。请联系邀请你的人重新发送一个。
+  back_to_login: 返回登录
+  welcome: 欢迎使用 Pier
+  invited_as: 你被邀请的身份为
+  choose_credentials: 选择用户名和密码以完成账户设置。
+  username: 用户名
+  password: 密码
+  password_hint: 至少 12 个字符，且不能由你的用户名或邮箱派生而来。
+  create_account: 创建账户
+  working: 处理中…
+  created_title: 账户已创建
+  created_desc: 你的账户已就绪。请使用刚才设置的凭据登录。
+  go_to_login: 前往登录
+  accept_failed: 接受邀请失败
+
+projects_list:
+  title: 项目
+  heading: 项目
+  subtitle: 管理项目和独立资源
+  all_servers: 所有服务器
+  this_server: 此服务器
+  new: 新建
+  menu_project: 项目
+  menu_project_desc: 为资源创建一个逻辑分组
+  menu_resource: 资源
+  menu_resource_desc: 部署数据库、应用程序或服务
+  federated: 已联邦
+  managed_on: 管理于
+  opens_server_ui: 打开该服务器的界面。
+  ports_label: '端口:'
+  created_label: '创建时间:'
+  synced_label: '同步时间:'
+  standalone_resources: 独立资源
+  open_prefix: 打开
+  public: 公开
+  empty_title: 暂无项目
+  empty_subtitle: 创建一个项目或部署一个资源即可开始
+  modal_title: 新建项目
+  name_label: 名称
+  description_label: 描述
+  description_placeholder: 可选描述
+  port_start_label: 起始端口
+  port_end_label: 结束端口
+  create: 创建
+  never: 从不
+  ago: 前
+  peer: peer
+  peer_plural_suffix: 个
+  offline: 离线
+  synced: 已同步
+  sync_pending: 同步待处理
+  error: 错误
+  unknown: 未知
+  last_sync: 上次同步
+  project_created: 项目已创建
+
+# Project detail (projects/detail.html).
+projects_detail:
+  title: 项目
+  edit: 编辑
+  delete: 删除
+  name: 名称
+  description: 描述
+  port_start: 起始端口
+  port_end: 结束端口
+  save_changes: 保存更改
+  port_range: 端口范围
+  not_set: 未设置
+  created: 已创建
+  services: 服务
+  new_service: 新建服务
+  open: 打开
+  public: 公开
+  no_services: 此项目中暂无服务
+  registry_credentials: 镜像仓库凭据
+  registry_credentials_desc: 项目级凭据会覆盖同一镜像仓库主机的全局凭据。
+  add: 添加
+  registry: 镜像仓库
+  username: 用户名
+  label: 标签
+  actions: 操作
+  test: 测试
+  no_project_creds: '没有项目级凭据。将回退到<a href="/settings/registries" class="text-blue-500 hover:underline">全局凭据</a>。'
+  add_registry_credential: 添加镜像仓库凭据
+  registry_host: 镜像仓库主机
+  password_token: 密码 / 令牌
+  saving: 保存中…
+  delete_project: 删除项目
+  has_services_prefix: 此项目有
+  service_singular: 个服务
+  service_plural_suffix: 个
+  delete_services_first: 在移除项目之前请先删除每一个服务。
+  close: 关闭
+  permanent_delete_warning: 这将永久删除该项目。
+  type_to_confirm_prefix: 输入
+  type_to_confirm_suffix: '以确认:'
+  account_password: 账户密码
+  enter_password_placeholder: 输入您的密码
+  deleting: 删除中…
+  toast_load_failed: 加载项目失败
+  confirm_delete_cred_prefix: '删除以下凭据：'
+  toast_cred_added: 凭据已添加
+  toast_connection_ok: 连接正常
+  toast_failed_prefix: '失败: '
+  unknown: 未知
+  toast_project_updated: 项目已更新
+  toast_project_deleted: 项目已删除
+
+# Servers list (servers/list.html).
+servers_list:
+  title: 服务器
+  heading: 服务器
+  subtitle: "本地核心、远程代理和联邦 peer 核心 —— 全部集中于一处。"
+  add_server: 添加服务器
+  add: 添加
+  edit: 编辑
+  delete: 删除
+  save: 保存
+  create: 创建
+  done: 完成
+  working: 处理中…
+  rename: 重命名
+  test: 测试
+  remove: 移除
+  revoke: 吊销
+  revoked: 已吊销
+  local: 本地
+  peer: peer
+  mesh_network: Mesh(网格)网络
+  mesh_disabled_desc: 每个 Pier 节点之间的 WireGuard 隧道。已禁用。
+  mesh_peers: peers
+  mesh_on: 开启
+  enable_mesh: 启用 Mesh(网格)
+  disable: 禁用
+  apply: 应用
+  applying: 应用中…
+  apply_title: 在每个 peer 上重新运行安装 + 密钥对 + 应用
+  preflight_title: Mesh(网格)预检
+  preflight_desc: '每个节点都需要运行 <span class="font-mono">pier-net-helper</span> 才能启用 mesh。请在每个缺失的节点上运行下方命令，然后点击<em>重新检查</em>。'
+  helper_online: helper 在线
+  helper_missing: helper 缺失
+  preflight_run_command: "在上方每个红色节点上以 root 身份运行此命令："
+  recheck: 重新检查
+  checking: 检查中…
+  preflight_unreachable: 预检端点不可达
+  service_dns: 服务 DNS
+  service_dns_empty: 暂无映射。注册一个逻辑名称，使各 stack 可以按角色而非按节点引用服务。
+  service_dns_count: 个映射 —— stack 会在变更时自动重新部署
+  new_plus: + 新建
+  edit_prefix: 编辑
+  service_dns_new_title: 新建服务-DNS 映射
+  service_dns_form_desc: '像 <span class="font-mono">db</span> 这样的名称在每个 stack 中会变为 <span class="font-mono">db.mesh</span>。小写，[a-z0-9-]，1-31 个字符。'
+  name_label: 名称
+  target_server_label: 目标服务器
+  select_option: "— 选择 —"
+  local_suffix: (本地)
+  meshed_only_hint: 只有已加入 mesh 的服务器才会实际注入；非 mesh 的 peer 在部署时会被静默跳过。
+  port_label: 端口
+  federation_tokens: 联邦令牌
+  fed_tokens_empty: 尚未签发任何令牌。生成一个，让远程的主 pier-core 能够在此处部署 stack。
+  fed_tokens_count: 个令牌已签发
+  new_token_plus: + 新建令牌
+  never_used: 从未使用
+  fed_token_create_title: 生成联邦令牌
+  fed_token_create_desc: '明文令牌只会显示<strong>一次</strong>。创建后请立即将其复制到主端的"连接到 peer"表单中。'
+  label_label: 标签
+  label_hint: 将使用此令牌的主端的任意标识符。
+  token_for: 令牌用于
+  reveal_warning: 立即复制 —— Pier 不会再次显示它。关闭此对话框后只能看到前缀。
+  reveal_instructions: '在主 pier-core 上：进入 <span class="font-mono">/servers</span> → 此 peer 所在行 → 将此值粘贴到<strong>联邦令牌</strong>字段中。'
+  copied_confirm: 我已复制
+  mesh_settings: Mesh(网格)设置
+  mesh_settings_desc: 仅在 mesh 禁用时可编辑 —— 在运行中的 mesh 上更改子网会使每个已分配的 IP 失效。
+  subnet_label: 子网 (CIDR)
+  subnet_hint: /30 或更短的前缀。/24 可容纳 254 个节点。
+  listen_port_label: 监听端口
+  listen_port_hint: UDP。必须在每个节点的防火墙中开放。
+  keepalive_label: PersistentKeepalive (秒)
+  keepalive_hint: 0 表示禁用 keepalive。如有任何节点位于 NAT 之后，请使用 ≥25。
+  cpu: CPU
+  ram: 内存
+  disk: 磁盘
+  hostname: 主机名
+  host: 主机
+  uptime: 运行时长
+  os: 操作系统
+  url: URL
+  last_heartbeat: 上次心跳
+  never: 从不
+  view_snapshot: 查看快照
+  open_panel: 打开面板
+  kind_agent: 代理
+  kind_agent_desc: 轻量级工作节点，元数据保留在此处
+  kind_peer: Peer 核心
+  kind_peer_desc: 拥有自己数据库的自治 pier-core
+  name_placeholder: 生产服务器
+  peer_token_instructions: "在目标服务器上：设置 → 外部访问 → 签发令牌，然后将令牌粘贴到下方。"
+  peer_token_label: Peer 令牌
+  peer_token_placeholder: 由远程核心签发的令牌
+  agent_created: 代理已创建
+  agent_created_desc: 在远程服务器上运行安装命令
+  install_command_expires: 安装命令 —— 引导令牌将过期
+  install_command_note: 该命令会用引导令牌换取一个长期令牌并启动代理。此引导令牌为一次性 —— 你不会再次看到它。如果安装失败，请删除该服务器并重新创建以签发新的引导令牌。
+  expires_soon: 即将
+  expires_now: 现在（请刷新 —— 引导令牌已过期）
+  expires_lt_minute: 不到一分钟后
+  expires_1_minute: 1 分钟后
+  expires_in_prefix: 在
+  expires_minutes_suffix: 分钟后
+  ago: 前
+  warn_ipv6_only: 此主机看起来仅支持 IPv6，但此服务器没有公网 IPv6 —— 握手将失败。请在此服务器上添加 v6 地址，或改用 v4 主机。
+  warn_ipv4_no_public: 此主机为 IPv4，但此服务器没有公网 IPv4。代理出站可能能正常连接核心，但 mesh 回退到公网 IPv4 将无法工作。
+  toast_name_required: 名称为必填
+  toast_agent_created: 代理已创建 —— 请运行安装命令
+  toast_peer_registered: Peer 已注册
+  toast_server_online: 服务器已上线
+  remove_confirm_prefix: 输入
+  remove_confirm_suffix: "以确认移除："
+  toast_name_mismatch: 名称不匹配
+  toast_server_removed: 服务器已移除
+  toast_renamed: 已重命名
+  configure_aborted: 在某个 peer 上配置已中止。请查看下方 peer 行了解详情。
+  toast_mesh_active: Mesh 已激活
+  toast_mesh_partial: Mesh 部分配置完成
+  toast_enable_mesh_failed: 启用 mesh 失败
+  toast_command_copied: 命令已复制
+  toast_create_failed: 创建失败
+  revoke_confirm_prefix: 吊销联邦令牌
+  revoke_confirm_suffix: "？使用它的主端调用将开始返回 401。"
+  toast_token_revoked: 令牌已吊销
+  toast_revoke_failed: 吊销失败
+  toast_token_copied: 令牌已复制
+  toast_mapping_updated: 映射已更新；正在重新部署 stack
+  toast_mapping_created: 映射已创建；正在重新部署 stack
+  toast_save_failed: 保存失败
+  delete_mapping_confirm_prefix: 删除映射
+  delete_mapping_confirm_suffix: "？引用它的 stack 在下次重新部署时将失去该主机。"
+  toast_mapping_removed: 映射已移除；正在重新部署 stack
+  toast_delete_failed: 删除失败
+  toast_mesh_reapplied: Mesh 已重新应用
+  toast_apply_partial: 应用部分失败
+  toast_apply_failed: 应用失败
+  disable_confirm: 禁用 mesh？这将在每个 peer 上关闭 wg0 并清除 Pier 端的分配。
+  disable_uninstall_confirm: 同时在每个 peer 上卸载 pier-net-helper / wireguard 软件包吗？（确定 = 卸载，取消 = 保留安装）
+  toast_mesh_disabled_prefix: Mesh 已禁用 ——
+  toast_mesh_disabled_suffix: 个 peer 出现问题
+  toast_mesh_disabled: Mesh 已禁用
+  toast_disable_failed: 禁用失败
+  toast_mesh_settings_saved: Mesh 设置已保存
+
+# Server detail (servers/detail.html).
+servers_detail:
+  title: 服务器详情
+  rename_hint: 双击以重命名
+  save: 保存
+  testing: 测试中...
+  test_connection: 测试连接
+  open_panel: 打开面板
+  promote_to_standalone: 升级为独立核心
+  remove: 移除
+  promote_modal_title: "将代理升级 → 独立 pier-core"
+  promote_modal_desc_pre: "导出一个捆绑包，包含当前与该服务器关联的所有服务、域名、环境变量、备份计划和全局配置 "
+  promote_modal_desc_post: "。在该服务器上应用它，使其能够作为完整的 Pier 面板运行，而不再是轻量级代理。"
+  promote_heads_up: 注意
+  promote_warn_core: 目标服务器必须运行 pier-core（相同主版本）。如果它只有 pier-agent，请先安装 pier-core。
+  promote_warn_empty_db: 目标数据库必须为空（不存在任何服务）。导入会拒绝覆盖。
+  promote_warn_secrets: "此面板的用户 / 会话 / 密钥<em>不会</em>被导出 —— 新面板启动时请在其上创建一个管理员。"
+  promote_automatic_title: 自动（推荐）
+  promote_automatic_desc: 核心将捆绑包推送给代理，代理下载 pier-core、导入捆绑包、安装 systemd 单元、停止自身并启动新的 pier-core。你可在目标端观察日志。
+  promote_detach_label: 在代理接受升级后，从我的面板中移除此服务器
+  promoting: 升级中...
+  promote_now: 立即升级
+  log_label: "日志:"
+  manual_alternative: 手动替代方案
+  manual_step1: 1. 下载捆绑包
+  download_bundle: 下载捆绑包 (.json)
+  manual_step2: 2. 在目标服务器上应用
+  close: 关闭
+  connection_info: 连接信息
+  host: 主机
+  port: 端口
+  agent_token: 代理令牌
+  agent_token_prefix_hint: 仅显示前缀。完整令牌保存在代理的 systemd 单元中。
+  bootstrap_pending: 引导待处理
+  os: 操作系统
+  hostname: 主机名
+  uptime: 运行时长
+  location_and_docker: "位置与 Docker"
+  location: 位置
+  docker_version: Docker 版本
+  containers: 容器
+  running: 运行中
+  total: 总计
+  images: 镜像
+  last_heartbeat: 上次心跳
+  local: 本地
+  never: 从不
+  system_metrics: 系统指标
+  unavailable: 不可用
+  refreshes_every_5s: 每 5 秒刷新
+  cpu_usage: CPU 使用率
+  memory: 内存
+  disk: 磁盘
+  containers_plural: 个容器
+  container_singular: 个容器
+  no_containers: 此服务器上未找到容器
+  col_name: 名称
+  col_image: 镜像
+  col_state: 状态
+  col_status: 状态
+  bootstrap_waiting: "正在等待远程主机运行安装命令。引导令牌为一次性，仅在创建时显示过 —— 我们不保留副本。"
+  bootstrap_expires_pre: "引导令牌过期时间 "
+  bootstrap_expires_post: "。如果你丢失了安装命令，请删除此代理并重新创建以签发新的引导令牌。"
+  federation_token: 联邦令牌
+  paired: 已配对
+  not_paired: 未配对
+  federation_token_desc: "粘贴此 peer 在 <span class=\"font-mono\">/servers</span> → 联邦令牌 → <em>新建令牌</em> 下生成的明文令牌。Pier 以明文形式存储它（与 <span class=\"font-mono\">agent_token</span> 相同的取舍）；保存后我们绝不会再次显示它。"
+  working: "处理中…"
+  clear: 清除
+  agent_credential: 代理凭据
+  rotate_hint: 生成一个新的长期令牌，推送给代理，并重新启动代理服务。
+  rotate: 轮换
+  rotating: "轮换中…"
+  agent_credential_desc: 正在使用的长期令牌（仅显示前缀；完整值保存在远程主机上代理的 systemd 单元中）。
+  version: 版本
+  last_rotated: 上次轮换
+  never_rotated: 从未轮换
+  err_load_server: 加载服务器失败
+  err_metrics_unavailable: 指标不可用
+  err_server_offline: 服务器已离线
+  err_fetch_metrics: 无法获取指标
+  toast_renamed: 服务器已重命名
+  toast_agent_online: 代理已上线
+  confirm_promote: "将 %{name} 升级为独立 pier-core？"
+  confirm_promote_detail: 代理将停止自身，pier-core 将在远程主机上接管。
+  toast_promotion_started: 升级已在目标服务器上启动
+  err_bundle_export: 捆绑包导出失败
+  toast_bundle_downloaded: 捆绑包已下载
+  prompt_confirm_removal: "输入 \"%{name}\" 以确认移除："
+  toast_name_mismatch: 名称不匹配
+  toast_server_removed: 服务器已移除
+  expires_soon: 即将
+  expires_now: "现在（已过期 —— 请删除并重新创建代理）"
+  expires_lt_minute: 不到一分钟后
+  expires_1_minute: 1 分钟后
+  expires_n_minutes: "%{count} 分钟后"
+  toast_federation_paired: 联邦已配对
+  toast_save_failed: "保存失败:"
+  confirm_unpair: 解除联邦配对？在你粘贴新令牌之前，主端将失去在此 peer 上部署/重启 stack 的能力。
+  toast_federation_unpaired: 联邦已解除配对
+  toast_unpair_failed: "解除配对失败:"
+  confirm_rotate: 现在轮换代理令牌？代理将由 systemd 重新启动，旧令牌将立即停止工作。
+  toast_token_rotated: 令牌已轮换；代理正在重启
+  toast_rotate_failed: "轮换失败:"
+
+resources_catalog:
+  title: 新建资源
+  heading: 新建资源
+  subtitle: 选择要在您的服务器上部署的资源
+  search_placeholder: 搜索…
+  filter_all: 所有类别
+  category_git: 基于 Git
+  category_docker: 基于 Docker
+  category_databases: 数据库
+  category_services: 服务
+  loading: 正在加载目录…
+  about_aria: 关于
+  empty_state: 没有与您的搜索匹配的模板
+  trademarks_note: 本页面中提及的相关商标归各自公司所有，使用这些商标并不意味着任何关联或认可。
+  load_failed: 加载目录失败
+
+# Resource creation wizard (resources/create.html).
+resources_create:
+  page_title: 部署资源
+  deploy_heading: 部署
+  loading_template: 正在加载模板…
+  service_name_label: 服务名称
+  service_name_fallback: service
+  service_name_hint: 用于容器和堆栈的名称
+  railpack_first_build_title: 首次构建可能需要 1–10 分钟
+  railpack_first_build_body: "Railpack 会下载依赖项并从源代码编译您的项目。峰值内存占用：Node 约 3 GB，Python 约 4 GB，Rust 约 8 GB。buildkit 容器在多次构建之间保留层缓存，因此后续部署会快得多。"
+  railpack_low_ram_title: "您的服务器只有 %{ram} GB 内存"
+  railpack_low_ram_body: 'Railpack 构建在此主机上很可能会因内存不足错误而失败。推荐：<strong>4 GB 以上内存</strong>（Rust 项目需 8 GB）。在小型 VPS 上也能良好运行的轻量替代方案：<a href="/resources/new/dockerfile" class="underline hover:no-underline">Dockerfile</a>、<a href="/resources/new/docker-image" class="underline hover:no-underline">Docker Image</a> 或 <a href="/resources/new/docker-compose" class="underline hover:no-underline">Docker Compose</a>。'
+  railpack_pick_github: 从已连接的 GitHub App 中选择
+  railpack_pick_github_note: （可选 — 公开仓库可留空）
+  github_app_source_label: GitHub App 来源
+  source_none_option: "— 无（公开仓库，或在下方粘贴 URL）—"
+  add_source_button: + 添加
+  railpack_no_sources: '未配置 GitHub App 来源。<a href="/sources" class="underline">连接一个</a>以部署私有仓库。'
+  repository_label: 仓库
+  select_repository_option: 选择一个仓库…
+  private_suffix: （私有）
+  loading_repositories: 正在加载仓库…
+  repo_filled_hint: 下方已填入 URL 和分支 — 请根据需要调整端口/启动命令。
+  auto_generated_placeholder: 留空则自动生成
+  generate_button: 生成
+  railpack_start_cmd_hint: "留空可让 Railpack 从您的项目自动检测（例如 Node 用 <code>npm start</code>，Python 用 <code>python app.py</code>）。仅在需要自定义入口点时才覆盖。"
+  railpack_env_vars_hint: "每行一个 <code>KEY=VALUE</code>。仅在<em>构建</em>期间可用 — 运行时环境变量请在服务创建后使用环境标签页。注释（<code>#</code>）和空行会被忽略。"
+  deployment_mode_label: 部署模式
+  standalone_button: 独立
+  cluster_button: 集群
+  cluster_unavailable_hint: 添加远程服务器以启用集群模式
+  number_of_nodes_label: 节点数量
+  nodes_suffix: 个节点
+  node_distribution_label: 节点分布
+  node_primary: 主节点
+  node_replica: 副本
+  local_suffix: （本地）
+  select_github_app_label: 选择一个 GitHub App
+  select_github_app_source_option: 选择一个 GitHub App 来源…
+  wizard_no_sources: '没有 GitHub App 来源。<a href="/sources" class="underline">请先连接一个</a>。'
+  pick_from_list_button: 从列表中选择
+  enter_url_manually_button: 手动输入 URL
+  already_deployed_suffix: "— 已部署"
+  repos_already_deployed_hint: 个仓库已在此 Pier 上部署 — 您可以再次部署它们（例如使用不同的 compose 文件）。
+  change_repos_github: 在 GitHub 上更改仓库 ↗
+  manual_url_hint: 必须是您的 GitHub App 安装可以访问的仓库。身份验证使用上方选择的来源。
+  configuration_heading: 配置
+  branch_label: 分支
+  loading_branches: 正在加载分支…
+  build_pack_label: 构建包
+  build_pack_railpack_option: Railpack（自动构建）
+  dockerfile_path_label: Dockerfile 路径
+  compose_location_label: Compose 位置
+  port_label: 端口
+  wizard_railpack_note: Railpack 会自动检测语言和启动命令。首次构建可能需要 1-10 分钟，并需要约 4 GB 内存（Rust 需 8 GB）。如需覆盖（启动命令/构建时环境变量），请使用独立的 Railpack 模板。
+  project_label: 项目（可选）
+  no_project_option: 无项目
+  network_label: 网络
+  default_suffix: （默认）
+  target_server_label: 目标服务器
+  local_dash_suffix: "— 本地"
+  offline_suffix: "[离线]"
+  target_server_hint: 资源将部署到的服务器
+  host_port_label: 主机端口（可选）
+  host_port_auto_placeholder: 自动
+  host_port_hint: "留空则自动：Pier 会尝试标准端口（例如 Postgres 用 5432），若被占用则从其端口池中选择。"
+  btn_creating: 正在创建…
+  btn_continue: 继续
+  btn_deploy_cluster: 部署集群
+  btn_deploy: 部署
+  toast_load_failed: 加载模板失败
+  toast_name_required: 名称为必填项
+  toast_select_source_first: 请先选择一个 GitHub App 来源
+  err_invalid_url: 请输入完整的 HTTPS URL，例如
+  toast_repo_url_invalid: 仓库 URL 无效
+  toast_deployed_success: 部署成功
+  toast_resource_exists: '资源 "%{name}" 已存在 — 正在打开它'
+
+# Catalog info modal partial (partials/catalog_info_modal.html).
+catalog_info_modal:
+  close: 关闭
+  no_extended_description: 此模板尚无可用的扩展描述。
+  deploy_this_service: 部署此服务
+
+resources_detail:
+  page_title: 资源
+  rename_hint: 双击以重命名
+  save: 保存
+  deploying: 部署中
+  redeploy: 重新部署
+  force_deploy: 强制部署（不使用缓存）
+  deploy: 部署
+  start: 启动
+  stop: 停止
+  restart: 重启
+  env_dirty_title: 环境变量更改尚未应用
+  env_dirty_desc: 运行中的容器仍在使用旧的值。请重新部署以应用新的环境变量。
+  redeploy_now: 立即重新部署
+  tab_overview: 概览
+  tab_databases: 数据库
+  tab_data: 数据
+  tab_monitor: 监控
+  tab_environment: 环境变量
+  tab_domains: 域名
+  tab_scale: 扩缩容
+  tab_git: Git
+  tab_deployments: 部署记录
+  tab_logs: 日志
+  tab_backups: 备份
+  tab_danger: 危险区域
+  cluster_nodes: 集群节点
+  nodes: 个节点
+  add_node: + 添加节点
+  remove_node: "- 移除节点"
+  primary: 主节点
+  replica: 副本
+  ports: 端口
+  public: 公开
+  local: 本地
+  domains_plural: 个域名
+  domain_singular: 域名
+  replicas_load_balanced: 个副本 &mdash; Traefik 在内部进行负载均衡
+  no_ports: 未分配端口
+  public_port: 公开端口
+  make_public: 公开访问
+  make_public_desc: "通过直接绑定 Docker 端口暴露原始 TCP（例如供数据库客户端使用）。切换会重建该服务的容器（约 3 秒停机）；平台保持在线。如需 HTTP 访问，请使用「域名」标签页。"
+  recreating_container: 正在使用新的端口绑定重建服务容器……
+  reachable_via: 可通过以下方式访问
+  domain_label: 域名
+  reachable_via_suffix: （通过 Traefik 使用 HTTPS）。此开关仅影响原始 TCP 暴露 — 无论如何域名都保持在线。请在下方的「域名」部分进行管理。
+  details: 详情
+  image: 镜像
+  mode: 模式
+  mode_cluster: 集群
+  mode_standalone: 独立
+  created: 创建时间
+  project: 项目
+  network: 网络
+  domains: 域名
+  multi_service: 多服务
+  reload_compose_title: 从 git 重新读取 docker-compose.yml 并刷新 port_allocations 与 Traefik 路由（不重新构建）
+  reload_from_git: ↻ 从 git 重新加载
+  reloading: 正在重新加载……
+  add_domain: + 添加域名
+  manage_in_domains_tab: 在「域名」标签页中管理 →
+  no_domains: 未配置域名
+  th_domain: 域名
+  th_target: 目标
+  th_status: 状态
+  th_ssl: SSL
+  th_actions: 操作
+  auto: 自动
+  inactive: 未激活
+  active: 已激活
+  activate_domain: 激活域名
+  deactivate_domain: 停用域名
+  edit_domain_title: 编辑（路径、去除前缀）
+  remove_domain_title: 移除域名（破坏性操作）
+  internal_network: 内部网络
+  internal_network_hint: 使用这些地址在 Docker 网络（pier-net）内连接服务
+  connection_urls: 连接 URL
+  hide_passwords: 隐藏密码
+  show_passwords: 显示密码
+  hide: 隐藏
+  show: 显示
+  host_from_server: 主机（来自服务器）
+  docker_from_containers: Docker（来自 pier-net 中的容器）
+  public_from_anywhere: 公开（来自任何位置）
+  advanced: 高级
+  auto_deploy: 自动部署
+  auto_deploy_desc: 收到 git push 时自动部署
+  force_https: 强制 HTTPS
+  force_https_desc: 将所有域名的 HTTP 重定向到 HTTPS
+  docker_compose: Docker Compose
+  raw: 原始
+  load_from_git: 从 Git 加载
+  compose_empty_hint: '部署后即可查看 compose 内容，或点击「Load from Git」预览。'
+  command: 命令
+  editor_audited_suffix: · 编辑者 · 已审计
+  run: 运行
+  scan: 扫描
+  no_keys: 此数据库中没有键。
+  load_more: 加载更多…
+  select_key: 选择一个键以查看其值。
+  th_field: 字段
+  th_value: 值
+  th_member: 成员
+  th_score: 分数
+  mongo_shell: Mongo Shell
+  running_ellipsis: 运行中…
+  database: 数据库
+  no_collections: 没有集合。
+  select_collection: 选择一个集合以查看文档。
+  skip: 跳过
+  total: 总计
+  prev: 上一页
+  next: 下一页
+  no_documents: 没有文档。
+  sql_runner: SQL 运行器
+  sql_editor_role_hint: 需要编辑者角色。语句将被审计。
+  history: 历史记录
+  history_load_title: 点击加载到运行器中
+  rows: 行
+  no_history: 暂无历史记录。
+  rows_affected: 行受影响
+  rows_count: 行
+  truncated_1000: "— 已截断为前 1000 行"
+  export: "导出："
+  no_rows_returned: 未返回任何行。
+  exit_fullscreen: 退出全屏
+  fullscreen: 全屏
+  minimize: 最小化
+  maximize: 最大化
+  no_tables: 没有表
+  rows_estimate: 行（估计值）
+  no_tables_in_db: 此数据库中没有表。
+  select_table: 选择一个表以查看其结构和数据。
+  view_data: 数据
+  view_structure: 结构
+  th_column: 列
+  th_type: 类型
+  th_nullable: 可空
+  th_default: 默认值
+  primary_key: 主键
+  "yes": "YES"
+  "no": "NO"
+  add_row: + 行
+  filter_column: "— 筛选列 —"
+  value_placeholder: 值
+  apply: 应用
+  clear: 清除
+  click_to_view: 点击查看
+  no_rows: 没有行。
+  of: 共
+  edit: 编辑
+  delete_row: 删除行
+  confirm_delete: 确认删除
+  read_only_no_pk: 只读（无主键）
+  saving: 正在保存…
+  set_null: 设为 NULL
+  set_value: 设置值
+  updates_by_pk_prefix: 更新
+  updates_by_pk_suffix: 按主键 · 编辑者 · 已审计。
+  insert_row: "插入行 —"
+  default_prefix: "默认值："
+  null_default: NULL / 默认值
+  insert: 插入
+  inserting: 正在插入…
+  empty_db_default: 留空 = 数据库默认值 · 编辑者 · 已审计
+  monitor_intro: "<strong>MONITOR</strong> 实时流式输出服务器运行的每一条命令（及其数据）— 这样你就能看到「数据」标签页快照和 Docker 日志永远不会显示的临时 / 短 TTL 键活动。<strong>仅限编辑者 · 已审计。</strong>它在运行时会给 Redis 增加负载 — 仅在调试时保持打开；<strong>Stop</strong> 会关闭流并立即移除负载。"
+  live: 实时
+  monitor_filter_placeholder: "筛选（例如 foooh:）"
+  autoscroll: 自动滚动
+  monitor_idle_hint: '按下 <strong>Start</strong> 即可实时流式输出 Redis 命令。在你的应用中触发活动，并实时观察键（例如 <span class="font-mono">"SET" "foooh:…"</span>）的出现，方括号中显示数据库索引。'
+  databases: 数据库
+  create_database_btn: + 创建数据库
+  th_database: 数据库
+  th_owner: 所有者
+  th_password: 密码
+  th_size: 大小
+  th_connection_url: 连接 URL
+  restore_from_file: 从文件恢复
+  change_password_title: 修改密码
+  delete_database_title: 删除数据库
+  no_databases: 未找到数据库
+  create_database: 创建数据库
+  database_name: 数据库名称
+  username: 用户名
+  password: 密码
+  auto_generated_placeholder: 留空则自动生成
+  generate: 生成
+  postgis_extensions: PostGIS 扩展
+  creating: 正在创建……
+  create: 创建
+  change_password: 修改密码
+  database_colon: "数据库："
+  user_colon: "用户："
+  new_password: 新密码
+  changing: 正在修改……
+  restore_database: 恢复数据库
+  owner_colon: "所有者："
+  restore_warning_prefix: ⚠ 数据库
+  restore_warning_suffix: 将被<strong>删除并重建</strong>。当前所有数据都将丢失。
+  backup_file: 备份文件
+  restore_accepted_hint: "支持格式：.dump（Postgres 自定义格式）、.sql.gz、.tar.gz 集群、.archive.gz（Mongo）。最大 5 GB。"
+  restoring: 正在恢复…
+  restore: 恢复
+  env_variables: 环境变量
+  add: + 添加
+  hide_values: 隐藏值
+  show_values: 显示值
+  developer_view: 开发者视图
+  normal_view: 普通视图
+  no_env_variables: 没有环境变量
+  env_dev_hint1: "这些变量通过 <code>env_file: .env</code> 自动注入到每个服务中。仅在需要覆盖时才在你的 <code>docker-compose.yml</code> 中定义 <code>environment:</code>。"
+  env_dev_hint2: 带有空格后跟 # 的行内注释（例如 KEY=value #comment）会被剥离。
+  reset: 重置
+  save_redeploy: 保存并重新部署
+  add_domain_btn: 添加域名
+  no_domains_service: 此服务未配置任何域名
+  activate: 激活
+  deactivate: 停用
+  delete: 删除
+  stack_defines_prefix: 此技术栈定义了
+  stack_defines_suffix: 个服务。每个服务都可以拥有自己的域名；路由将转发到匹配的容器。
+  domains_for: 域名所属
+  container_label: "容器："
+  port_label: · 端口
+  orphaned_domains: 孤立域名
+  orphaned_domains_desc: '这些域名引用了 <span class="font-mono">docker-compose.yml</span> 中已不存在的 compose 服务。请删除或修复 compose 文件。'
+  scale_load_balancer: 扩缩容 &amp; 负载均衡
+  scale_desc1: 运行此服务的多个副本，并通过 Traefik 分配流量。
+  scale_desc2: 公开 URL 和端口保持不变 — 每个副本都会获得仅用于路由的独立内部主机端口。
+  replicas_plural: 个副本
+  replica_singular: 副本
+  total_replicas: 副本总数
+  strategy: 策略
+  strategy_round_robin: 轮询
+  strategy_weighted: 加权
+  strategy_sticky: 会话保持（Cookie）
+  session_cookie_name: 会话 Cookie 名称
+  per_server_placement: 按服务器分配
+  per_server_placement_desc: 在哪些服务器上运行副本，以及每台服务器运行多少个。
+  replicas_label: 个副本
+  weight_label: 权重
+  running_of_requested: 运行中，共请求 %{total} 个
+  running: 运行中
+  applying: 正在应用…
+  git_configuration: Git 配置
+  repository_url: 仓库 URL
+  branch: 分支
+  build_strategy: 构建策略
+  git_source_optional: Git 源（可选）
+  none_public_repo: 无（公开仓库）
+  monorepo_optional: Monorepo（可选）
+  root_directory: 根目录
+  root_directory_hint: 用作构建上下文的子目录。留空 = 仓库根目录。
+  watch_paths: 监视路径
+  watch_paths_hint: 每行一个 glob 模式。仅当更改的文件匹配时，push 才会重新部署此服务。留空 = 从根目录推导，或监视所有内容。
+  save_git_config: 保存 Git 配置
+  dependencies: 依赖项
+  dependencies_desc: 当其中某个依赖项因 push 而被重新部署时，此服务也会一并重新部署。仅限同一项目内。
+  remove: 移除
+  no_dependencies: 未声明任何依赖项。
+  select_service: 选择一个服务…
+  webhook: Webhook
+  github_webhook_url: GitHub Webhook URL
+  gitlab_webhook_url: GitLab Webhook URL
+  webhook_secret: Webhook 密钥
+  compose_in_git: git 中的 docker-compose.yml
+  compose_live_read_prefix: 实时读取自
+  compose_live_read_suffix: '<strong>Reload</strong> 会重新同步 port_allocations 与 Traefik 路由，<em>而不会</em>重新构建容器 — 当 git 中仅 <span class="font-mono">ports:</span> 发生更改时很有用。'
+  refresh: 刷新
+  reload_ports_from_git: 从 git 重新加载端口
+  compose_refresh_hint: 点击 <strong>Refresh</strong> 以从 git 获取当前文件。
+  deploy_now: 立即部署
+  back_to_deployments: 返回部署记录
+  cicd_deployments: CI/CD 部署
+  rollback: 回滚
+  manual_deployment: 手动部署
+  cancelling: 正在取消…
+  cancel_deploy: 取消部署
+  commit: 提交
+  triggered_by: 触发者
+  duration: 持续时间
+  started: 开始时间
+  finished: 完成时间
+  build_log: 构建日志
+  autoscroll_bottom: 自动滚动到底部
+  copy_log: 复制日志
+  page: 页
+  services: 服务
+  logs: 日志
+  lines_label: "行数："
+  font_label: "字体："
+  find_in_logs: 在日志中查找
+  stop_streaming: 停止流式传输
+  start_streaming: 开始流式传输
+  download_logs: 下载日志
+  follow_autoscroll: 跟随（自动滚动）
+  no_logs: 没有可用的日志
+  matches: 个匹配项
+  cluster_wide_backup: 集群范围备份
+  backup_desc_mongo: 整个实例的单个归档文件。
+  backup_desc_sql: 包含每个数据库一个转储的归档文件。
+  backup_now: 立即备份
+  edit_schedule: 编辑计划
+  configure_schedule: 配置计划
+  delete_schedule: 删除计划
+  cron: Cron
+  keep: 保留
+  backups: 个备份
+  last_run: 上次运行
+  never: 从不
+  next_run: 下次运行
+  no_cluster_schedule: 未配置集群范围计划
+  per_db_schedules: 按数据库计划
+  per_db_schedules_desc: 每个数据库一个独立计划。当某个数据库频繁更改而其他数据库不变时很有用。
+  add_schedule: 添加计划
+  th_cron: Cron
+  th_keep: 保留
+  th_last_run: 上次运行
+  th_next_run: 下次运行
+  run_now: 立即运行
+  no_per_db_schedules: 没有按数据库计划
+  backup_history: 备份历史
+  cluster_badge: 集群
+  backup_singular: 备份
+  last: 上次
+  no_backups_yet: 暂无备份
+  manual: 手动
+  download: 下载
+  delete_backup_title: 删除备份（从存储中移除）
+  danger_zone: 危险区域
+  danger_zone_intro: 哇。希望你清楚自己在做什么。
+  delete_resource: 删除资源
+  delete_resource_desc: 此操作将停止你的容器、删除所有相关数据等。请注意！没有回头路！
+  for: 用于
+  domain_supports_hint: "支持：domain、https://domain、https://domain/path"
+  strip_path_prefix: 转发前去除路径前缀
+  strip_checked_default: "已勾选（默认）："
+  strip_checked_text_prefix: 后端在以下路径接收请求
+  strip_checked_text_mid: "— 该"
+  strip_checked_text_suffix: 前缀被去除。
+  strip_unchecked: "未勾选："
+  strip_unchecked_text_prefix: 后端按原样接收
+  strip_unchecked_text_suffix: 当你的后端路由本身监听该路径时使用此选项（Telegram 风格的 webhook 机器人）。
+  edit_domain: 编辑域名
+  path_prefix: 路径前缀
+  path_prefix_placeholder: /api/v1（或留空）
+  path_prefix_hint: 仅路由匹配此路径的请求。留空 = 整个主机。
+  strip_checked: "已勾选："
+  edit_strip_checked_text: '后端在 <code class="text-[11px] px-1 rounded bg-gray-100 dark:bg-gray-800">/</code> 接收请求（前缀已去除）。'
+  edit_strip_unchecked_text_prefix: 后端按原样接收完整路径（例如
+  edit_strip_unchecked_text_suffix: "）— 用于路由已包含该前缀的 Telegram 风格 webhook。"
+  hosts_databases_prefix: 此服务托管了
+  user_database_label: 个用户数据库
+  hosts_databases_suffix: 删除每个数据库后才能移除该服务。
+  open_databases_tab: 打开「数据库」标签页
+  delete_permanent_warning: 此操作将永久停止并移除该容器。
+  type_to_confirm_prefix: 输入
+  type_to_confirm_suffix: "以确认："
+  account_password: 账户密码
+  enter_password_placeholder: 请输入你的密码
+  delete_volumes: 同时删除卷（永久丢失数据）
+  delete_s3_backups: 同时删除 S3 备份（无法恢复）
+  deleting: 正在删除…
+  delete_db_warning: 此操作将<strong>删除数据库（DROP DATABASE）</strong>并从容器中移除其所有者用户。
+  delete_db_s3_backups: 同时删除此数据库的 S3 备份
+  delete_db_s3_backups_hint: 集群范围备份（涵盖所有数据库）无论如何都会保留。
+  restoring_from_prefix: 从以下时间开始的备份恢复已启动
+  source_label: "来源："
+  cluster_wide_archive: 集群范围归档
+  target_database: 目标数据库
+  select_database: 选择数据库...
+  target_database_hint: 必须已存在于「数据库」标签页中。将复用其所有者凭据。
+  restore_drop_warning_prefix: 此操作将<strong>删除（DROP）</strong>目标数据库，并用备份内容替换它。当前位于
+  restore_drop_warning_suffix: 中的数据将丢失。
+  to_confirm: 以确认
+  make_private_title: 将服务设为私有？
+  make_private_desc: "禁用公开访问将<strong>移除以下域名</strong>并拆除其 HTTPS 路由："
+  make_private_note: 原始 TCP 端口（如有）也将被关闭。此操作可逆 — 你之后可以重新添加域名。
+  remove_domains_disable: 移除域名并禁用
+  cluster_schedule_title: 集群范围备份计划
+  per_db_schedule_title_prefix: "按数据库计划： "
+  per_db_schedule_title: 按数据库计划
+  s3_storage: S3 存储
+  select_storage: 选择存储...
+  schedule: 计划
+  cron_daily_2am: 每天凌晨 2:00
+  cron_weekly_sunday: 每周（周日凌晨 2:00）
+  cron_every_6h: 每 6 小时
+  cron_every_hour: 每小时
+  retention: 保留（要保留的备份数）
+  ext_postgis_hint: "核心：几何类型、ST_* 函数（其余功能的必备项）"
+  ext_postgis_topology_hint: 拓扑模式与拓扑感知的几何类型
+  ext_postgis_raster_hint: 栅格数据类型与分析函数
+  ext_fuzzystrmatch_hint: soundex、levenshtein — 模糊字符串匹配
+  ext_tiger_geocoder_hint: "仅限美国：基于美国人口普查 TIGER 数据的地址地理编码器"
+  cluster_wide: 集群范围
+  err_conflict: 冲突
+  toast_public_enabled: 公开访问已启用（端口 %{port}）
+  toast_public_disabled: 公开访问已禁用
+  toast_public_port_updated: 公开端口已更新为 %{port}
+  confirm_change_network: 更改网络？此操作将重新部署该服务。
+  toast_network_changed: 网络已更改
+  err_db_connect: 连接数据库失败。
+  err_load_tables: 加载表失败。
+  err_no_pk_editable: 表没有主键 — 不可编辑。
+  err_update_failed: 更新失败
+  err_no_pk: 表没有主键。
+  err_delete_failed: 删除失败
+  err_enter_value: 请至少输入一个值（或将某列标记为 NULL）。
+  err_insert_failed: 插入失败
+  err_monitor_failed: "监控失败： "
+  err_load_keys: 加载键失败。
+  err_mongo_connect: 连接 MongoDB 失败。
+  no_output: （无输出）
+  confirm_destructive_sql: 这看起来像是一条破坏性语句（DROP/TRUNCATE，或不带 WHERE 的 DELETE/UPDATE）。仍要运行吗？
+  err_query_failed: 查询失败
+  toast_all_fields_required: 所有字段均为必填
+  toast_database_created: 数据库 %{name} 已创建
+  toast_database_deleted: 数据库已删除
+  toast_password_required: 密码为必填项
+  toast_password_changed: 密码已修改
+  toast_choose_backup_file: 请先选择一个备份文件
+  toast_database_restored: 数据库已恢复
+  toast_restore_failed: "恢复失败： "
+  building: 正在构建……
+  toast_load_resource_failed: 加载资源失败
+  action_add_node: 添加一个节点
+  action_remove_node: 移除一个节点
+  confirm_scale_cluster: "扩缩容集群：%{action}？新数量：%{count}"
+  toast_cluster_scaled: 集群已扩缩容至 %{count} 个节点
+  strategy_desc_round_robin: 请求在各副本间均匀循环。简单且可预测 — 当副本相同且无状态时最佳。
+  strategy_desc_weighted: 每个副本获得与其权重成正比的流量。当副本运行在容量不同的服务器上时很有用。
+  strategy_desc_sticky: Traefik 在首次请求时设置一个 Cookie，并将该客户端后续的每个请求固定到同一副本。内存中的 HTTP 会话或长连接 WebSocket 需要此策略。
+  toast_min_replica: 至少需要 1 个副本
+  toast_sticky_cookie_required: 会话保持策略需要一个 Cookie 名称
+  toast_scaled_to: 已扩缩容至 %{count} 个副本%{plural}
+  err_scale_failed: 扩缩容失败
+  toast_saved_redeploying: 已保存并正在重新部署...
+  toast_env_saved: 环境变量已保存 — 重新部署以应用
+  toast_select_s3: 请选择一个 S3 存储
+  toast_select_database: 请选择一个数据库
+  toast_schedule_saved: 计划已保存
+  confirm_delete_schedule: 删除此计划？S3 中现有的备份不会被移除。
+  toast_schedule_deleted: 计划已删除
+  toast_backup_started: 备份已启动
+  confirm_delete_backup: 删除 %{when} 的备份？此操作也会从 S3 中移除该对象。
+  toast_backup_deleted: 备份已删除
+  toast_restore_complete: 恢复完成
+  toast_resource_started: 资源已启动
+  toast_resource_stopped: 资源已停止
+  toast_resource_restarted: 资源已重启
+  toast_redeploying: 正在重新部署...
+  toast_force_deploying: 正在强制部署...
+  toast_resource_deleted: 资源已删除
+  log_not_deployed: 服务尚未部署
+  log_container_not_found: "未找到容器：%{name}"
+  log_load_failed: 加载日志失败
+  no_log_output: 无日志输出
+  toast_domain_required: 域名为必填项
+  toast_domain_added: 域名已添加
+  confirm_remove_domain: 移除此域名？
+  toast_domain_removed: 域名已移除
+  toast_domain_activated: 域名已激活 — 正在配置 SSL
+  toast_domain_deactivated: 域名已停用
+  confirm_deactivate_domain: 停用 %{name}？Traefik 路由将被移除，但 SSL 证书会保留在缓存中以便即时重新激活。
+  toast_domain_updated: 域名已更新
+  toast_pick_service: 请选择一个服务
+  toast_dependency_added: 依赖项已添加
+  toast_dependency_removed: 依赖项已移除
+  toast_repo_url_required: 仓库 URL 为必填项
+  toast_git_config_saved: Git 配置已保存
+  confirm_manual_deploy: 从已配置的 git 仓库启动一次新部署？
+  toast_deploy_started: 部署已启动
+  confirm_reload_compose: 从 git 重新加载 compose？端口和 Traefik 路由将被重新同步（运行中的容器不会被重新构建）。
+  toast_compose_reloaded: Compose 已重新加载 — 端口和 Traefik 路由已刷新
+  toast_no_git_source: 未配置 git 源
+  toast_detected_ports: "检测到的端口： "
+  toast_name_required: 名称为必填项
+  confirm_rename: 重命名将重启容器。是否继续？
+  toast_service_renamed: 服务已重命名
+  enabled: 已启用
+  disabled: 已禁用
+  confirm_cancel_deploy: 取消此部署？构建任务可能仍会在后台完成，但该部署将被标记为已取消。
+  toast_deployment_cancelled: 部署已取消
+  err_cancel_failed: 取消失败
+  confirm_rollback: 回滚到上一个版本？
+  toast_rollback_started: 回滚已启动
+
+sources_list:
+  title: 来源
+  heading: 来源
+  subtitle: 用于您应用程序的 Git 来源
+  connect_github: 连接 GitHub
+  add_source: 添加来源
+  empty_title: 尚未配置任何来源
+  empty_description: 连接您的 Git 仓库，直接从源代码部署应用程序。
+  remove: 移除
+  modal_title: 添加 Git 来源
+  name_label: 名称
+  name_placeholder: 我的 GitHub
+  type_label: 类型
+  type_github: GitHub (PAT)
+  type_github_app: GitHub App
+  type_gitlab: GitLab
+  type_bitbucket: Bitbucket
+  type_custom: 自定义 Git
+  base_url_label: 基础 URL / 组织
+  access_token_label: 访问令牌
+  app_id_label: App ID
+  installation_id_label: Installation ID
+  private_key_label: 私钥 (PEM)
+  github_app_help: "在 github.com/settings/apps 创建一个 GitHub App。在安装过程中选择您要授予访问权限的仓库。"
+  project_label: 项目
+  all_projects: 所有项目
+  save: 保存
+  err_name_required: 名称为必填项
+  err_github_app_required: "App ID、Installation ID 和私钥均为必填项"
+  err_url_required: URL 为必填项
+  err_connect_github: 连接 GitHub 失败
+  confirm_remove: 移除此来源？
+  toast_added: 已添加来源
+  toast_removed: 已移除来源
+
+# Git source detail (sources/detail.html).
+sources_detail:
+  title: 来源详情
+  github_app_for_private_repos: 用于私有仓库的 GitHub App
+  save: 保存
+  delete: 删除
+  app_name: App 名称
+  rename: 重命名
+  update_repos: 更新仓库
+  type: 类型
+  html_url: HTML URL
+  api_url: API URL
+  app_id: App ID
+  installation_id: Installation ID
+  not_installed_yet: 尚未安装
+  client_id: Client ID
+  client_secret: Client Secret
+  webhook_secret: Webhook Secret
+  base_url: 基础 URL
+  created: 创建时间
+  repositories: 仓库
+  repositories_accessible: 通过此 GitHub App 可访问的仓库。
+  refresh: 刷新
+  private: 私有
+  no_repositories: 没有仓库。请点击刷新或更新安装。
+  installation_required: 需要安装
+  installation_required_note: 此 GitHub App 需要安装到您的仓库上。安装后，Installation ID 将通过 webhook 自动保存。
+  install_on_repositories: 安装到仓库
+  resources: 资源
+  resources_note: 使用此来源部署的服务。
+  col_name: 名称
+  col_status: 状态
+  col_type: 类型
+  application: 应用程序
+  open: 打开
+  no_resources: 尚无资源使用此来源
+  failed_to_load_source: 加载来源失败
+  source_saved: 已保存来源
+  confirm_deletion: '输入 "%{name}" 以确认删除：'
+  name_does_not_match: 名称不匹配
+  source_deleted: 已删除来源
+
+# Registry credentials (registries/index.html).
+registries_index:
+  title: 注册表凭据
+  heading: 注册表凭据
+  subtitle: 登录私有容器注册表，使部署能够拉取镜像。
+  add_docker_hub: + 添加 Docker Hub
+  add_registry: 添加注册表
+  scope_all: 全部
+  scope_global_only: 仅全局
+  col_registry: 注册表
+  col_username: 用户名
+  col_scope: 范围
+  col_label: 标签
+  col_updated: 更新时间
+  col_actions: 操作
+  badge_global: 全局
+  badge_project: 项目
+  testing: 测试中…
+  test: 测试
+  edit: 编辑
+  delete: 删除
+  empty_state: 尚无注册表凭据。
+  modal_title_edit: 编辑注册表
+  modal_title_add: 添加注册表
+  field_registry_host: 注册表主机
+  field_username: 用户名
+  field_password_edit: 新密码 / 令牌（留空则保持不变）
+  field_password_add: 密码 / 令牌
+  field_label: 标签（可选）
+  field_label_placeholder: CI 令牌
+  saving: 保存中…
+  save: 保存
+  add: 添加
+  toast_saved: 已保存
+  toast_deleted: 已删除
+  toast_connection_ok: 连接正常
+  toast_failed: "失败：%{error}"
+  unknown_error: 未知
+  confirm_delete: 删除 %{registry} 的凭据？
+
+# npm packages list (packages/list.html).
+packages_list:
+  title: 软件包
+  heading: npm 软件包
+  subtitle: '内嵌的 npm 兼容注册表，服务于 <code class="text-xs font-mono">/registry/npm/</code>。'
+  configure_client: 配置您的客户端
+  in_your_npmrc: '在您项目的 <code class="font-mono">.npmrc</code> 中：'
+  always_auth_note: 'yarn 1.x 需要 <code class="font-mono">always-auth=true</code>（否则它会在 GET 请求时跳过 Bearer 令牌）。npm、pnpm 和 bun 会无害地忽略它。'
+  col_package: 软件包
+  col_latest: 最新版本
+  col_versions: 版本
+  col_total_size: 总大小
+  col_updated: 更新时间
+  badge_unpublished: 已取消发布
+  badge_deprecated: 已弃用
+  badge_deprecated_title: 最新版本已弃用。
+  bytes_unit: 字节
+  empty_packages: '尚无软件包。针对此注册表运行 <code class="font-mono text-gray-700 dark:text-gray-300">npm publish</code> 即可在此处看到它们。'
+  tokens_intro: 用于 npm 注册表、CI 运行器和外部集成的 Bearer 令牌。
+  new_token: + 新建令牌
+  copy_token_warning: 立即复制此令牌——它不会再次显示。
+  dismiss: 关闭
+  create_token: 创建令牌
+  token_name_placeholder: 例如 CI 发布令牌
+  creating: 创建中…
+  create: 创建
+  col_name: 名称
+  col_prefix: 前缀
+  col_created: 创建时间
+  col_last_used: 最后使用
+  col_actions: 操作
+  never: 从未
+  revoke: 撤销
+  empty_tokens: '尚无令牌。点击上方的 <strong>+ 新建令牌</strong> 来创建一个。'
+  proxy_intro: 从上游注册表镜像公共软件包。
+  proxy_help: '启用后，对此注册表中尚不存在的软件包的请求会透明地从上游 URL（默认为 <code>registry.npmjs.org</code>）获取 packument，使用 <code>is_proxy = 1</code> 在本地缓存，并在首次访问时延迟下载 tarball。私有发布不受影响——它们始终优先于代理条目。'
+  enable_proxy: 启用上游代理
+  upstream_url: 上游 URL
+  packument_ttl: Packument TTL（秒）
+  max_cache_size: 最大缓存大小（MiB，0 = 无限制）
+  max_cache_help: '后台 GC 会在总量超过此上限后丢弃最旧的 tarball。粗略参考：单次 <code>npm install next</code> 需要约 100 MiB；小型团队——2–5 GiB；CI / 共享镜像——20+ GiB。磁盘充裕的主机建议保留 0 表示无限制。'
+  cached_packages_suffix: 个已缓存的软件包
+  on_disk_suffix: 在磁盘上
+  saving: 保存中…
+  save: 保存
+  mirror_intro: 从上游注册表缓存的软件包。
+  mirror_help: 每一行都是此 Pier 至少获取过一次的公共软件包。Tarball 是延迟拉取的——只有客户端实际安装过的版本才会落到磁盘上。仅有元数据的版本存放在 SQLite 中，不计入缓存大小上限。
+  pinned_only: 仅已固定
+  refreshing: 刷新中…
+  refresh: 刷新
+  col_versions_cached: 已缓存的版本
+  col_tarballs_on_disk: 磁盘上的 Tarball
+  col_last_fetched: 最后获取
+  unpin: 取消固定
+  pin: 固定
+  empty_mirror: '尚无从上游缓存的软件包。针对此注册表运行 <code class="font-mono">npm install &lt;pkg&gt;</code> 即可填充缓存。'
+  s3_intro: 用于 tarball 的冷层存储。
+  s3_help: 选择一个 S3 兼容存储，将已发布的 tarball 镜像到其中。Tarball 仍以低延迟从本地文件系统提供——S3 是持久性后盾，让您在 VPS 重装后重新填充。留空则禁用镜像。
+  mirror_tarballs_to: 将 tarball 镜像到
+  s3_disabled_option: "— 已禁用（不镜像）—"
+  empty_s3: '尚未定义任何 S3 存储。请先在 <a href="/s3" class="text-blue-500 hover:underline">S3 存储</a> 下创建一个。'
+  tab_packages: 软件包
+  tab_mirror: 镜像
+  tab_tokens: 管理令牌
+  tab_proxy: 上游代理
+  tab_s3: S3 配置
+  revoke_confirm: '撤销令牌 "%{name}"？使用它的客户端将无法认证。'
+  err_create_token: 创建令牌失败
+  err_save: 保存失败
+  saved: 已保存
+
+# npm package detail (packages/detail.html).
+packages_detail:
+  title_suffix: 软件包
+  back_all_packages: 所有软件包
+  badge_unpublished: 已取消发布
+  badge_deprecated: 已弃用
+  latest_deprecated_title: "`latest` 版本已弃用。"
+  latest_label: "最新："
+  versions_plural: 个版本
+  versions_singular: 个版本
+  bytes_total: 字节总计
+  dist_tags_heading: Dist-tag
+  dist_tags_manage_html: '在终端中使用 <code class="font-mono text-gray-700 dark:text-gray-300">npm dist-tag add/rm</code> 进行管理。'
+  versions_heading_downloaded: 已下载的版本
+  versions_heading: 版本
+  manifest_only_note: '更多版本仅作为元数据缓存 · 当客户端安装时 tarball 才会落到磁盘上。'
+  unpublish_package_btn: 取消发布软件包
+  col_version: 版本
+  col_size: 大小
+  col_integrity: 完整性
+  col_published: 发布时间
+  col_cold_tier: 冷层
+  col_actions: 操作
+  badge_deprecated_inline: 已弃用
+  bytes_unit: 字节
+  cold_tier_uploaded: 已上传
+  cold_tier_fs_only: 仅文件系统
+  undeprecate_btn: 取消弃用
+  deprecate_btn: 弃用
+  unpublish_btn: 取消发布
+  no_tarballs_cached: 尚无本地缓存的 tarball。
+  download_latest: 下载最新版本
+  proxy_run_prefix: 或运行
+  proxy_run_suffix: 针对此注册表。Tarball 是延迟拉取的——只有客户端实际请求的版本才会落到磁盘上。
+  fetching_upstream: 正在从上游获取…
+  downloaded_version: '✓ 已下载 %{version}（%{size} KiB）'
+  reloading: 重新加载中…
+  fetch_failed: '获取失败（%{status}）'
+  downloaded_reloading: 已下载——重新加载中…
+  request_method_failed: '%{method} %{path} 失败（%{status}）'
+  deprecate_prompt: '%{name}@%{version} 的弃用消息：'
+  deprecate_prompt_default: 请使用最新版本
+  unpublish_version_confirm: '取消发布 %{name}@%{version}？安装此精确版本的操作将开始失败。'
+  unpublish_package_confirm: '取消发布 %{name} 的所有版本？在您重新发布之前，该软件包对每次安装都将返回 404。'
+
+# S3 storages list (s3/list.html).
+s3_list:
+  page_title: S3 存储
+  title: S3 存储
+  subtitle: 用于数据库备份和文件存储的 S3 兼容存储
+  add_storage: 添加存储
+  empty_title: 尚未配置任何 S3 存储
+  empty_desc: 添加 S3 兼容存储（AWS S3、MinIO、Backblaze B2 等）以实现自动化数据库备份。
+  test_connection: 测试连接
+  test: 测试
+  edit: 编辑
+  remove: 移除
+  modal_edit_title: 编辑 S3 存储
+  modal_add_title: 添加 S3 存储
+  label_name: 名称
+  placeholder_name: 我的 S3 备份
+  label_type: 类型
+  type_s3: S3 兼容
+  label_storage_hostname: 存储主机名
+  label_endpoint: Endpoint
+  label_region: 区域
+  label_bucket: Bucket
+  label_key_prefix: 键前缀
+  key_prefix_help: bucket 内的第一层文件夹——例如服务器名称。留空则写入 bucket 根目录。
+  label_access_key: Access Key
+  label_secret_key: Secret Key
+  placeholder_secret_keep: 留空则保持当前值
+  placeholder_secret: secret
+  save: 保存
+  toast_required: 名称、endpoint 和 bucket 均为必填项
+  toast_updated: 已更新存储
+  toast_added: 已添加存储
+  toast_connection_ok: 连接成功
+  confirm_remove: 移除此 S3 存储？
+  toast_removed: 已移除存储
+
+domains_list:
+  title: 域名
+  heading: 域名
+  subtitle: 管理自定义域名和 SSL 证书
+  add_domain: 添加域名
+  add_custom_domain: 添加自定义域名
+  domain_label: 域名
+  domain_supports: "支持："
+  service_label: 服务
+  select_service: 选择一个服务……
+  strip_prefix_label: 转发前去除路径前缀
+  strip_checked_label: "已勾选（默认）："
+  strip_checked_pre: 后端在以下路径接收请求
+  strip_checked_mid: "——"
+  strip_checked_post: 前缀已被去除。
+  strip_unchecked_label: "未勾选："
+  strip_unchecked_pre: 后端按原样接收
+  strip_unchecked_post: 不作改动。当你的后端路由本身监听该路径时使用（Telegram 风格的 webhook 机器人）。
+  add: 添加
+  filter_placeholder: 按服务筛选……
+  showing: 显示
+  of: 共
+  empty_title: 尚未配置任何域名
+  empty_hint: 添加自定义域名或部署一个已启用代理的服务
+  no_match: 没有符合筛选条件的域名
+  clear_filter: 清除筛选
+  col_domain: 域名
+  col_service: 服务
+  col_type: 类型
+  col_actions: 操作
+  type_auto: auto
+  type_custom: custom
+  delete: 删除
+  toast_load_failed: 加载域名失败
+  toast_required: 域名和服务为必填项
+  toast_added: 域名已添加
+  toast_add_failed: 添加域名失败
+  error_prefix: "错误："
+  confirm_remove: 移除此域名？
+  toast_removed: 域名已移除
+  toast_remove_failed: 移除域名失败
+
+# Reverse proxy settings (proxy/settings.html).
+proxy_settings:
+  title: 代理设置
+  heading: 反向代理
+  subtitle: Traefik 反向代理 —— 由 Pier 自动管理
+  version_title: Traefik 版本
+  version_current: 当前
+  version_latest: 最新可用
+  update_available: 有可用更新
+  up_to_date: 已是最新
+  checking: 检查中……
+  check_updates: 检查更新
+  updating: 更新中……
+  update_traefik: 更新 Traefik
+  status_title: 代理状态
+  running: 运行中
+  starting: 启动中...
+  server_ip: 服务器 IP
+  detecting: 检测中...
+  domains: 域名
+  active_certs: 已激活的 SSL 证书
+  restart_proxy: 重启代理
+  restarting: 重启中...
+  config_title: 配置
+  platform_domain_label: 平台域名
+  active: 已激活
+  not_loaded: 未加载 —— 保存以应用
+  platform_domain_note: "Pier 自身的自定义域名 —— 通过 SSL 路由到此面板。请勿包含 <code>https://</code>（例如 <code>pier.example.com</code>）。"
+  acme_email_label: ACME 邮箱
+  acme_email_placeholder: "admin@example.com"
+  acme_email_note: 用于接收 Let's Encrypt 证书通知的邮箱
+  wildcard_domain_label: 通配符域名
+  wildcard_domain_note: 用于自动生成子域名的可选通配符域名
+  dashboard_label: Traefik 仪表盘
+  dashboard_note: 在 8080 端口暴露 Traefik 仪表盘
+  save_settings: 保存设置
+  load_failed: 加载状态失败
+  version_check_failed: 检查 Traefik 版本失败
+  update_confirm: 拉取最新的 Traefik 镜像并重启代理？
+  update_success: Traefik 已更新至 %{version}
+  update_failed: 更新失败
+  error_prefix: "错误：%{message}"
+  restart_success: 代理已重启
+  restart_failed: 重启代理失败
+  save_success: 设置已保存
+  save_failed: 保存设置失败
+
+# Docker networks (networks/list.html).
+networks_list:
+  title: 网络
+  heading: 网络
+  subtitle: 管理用于服务隔离的 Docker 网络
+  create_network: 创建网络
+  default_badge: DEFAULT
+  driver_label: '驱动： '
+  service_count_suffix: ' 个服务'
+  delete: 删除
+  empty_state: 未找到网络
+  name_label: 名称
+  name_help: 仅限字母、数字、连字符和下划线
+  description_label: 描述
+  description_placeholder: 用于前端服务的网络
+  create: 创建
+  toast_created: 网络已创建
+  toast_deleted: 网络已删除
+  confirm_delete: '删除网络“%{name}”？'
+
+# Docker containers list (containers/list.html).
+containers_list:
+  title: 容器
+  heading: 容器
+  subtitle: 管理 Docker 容器
+  show_stopped: 显示已停止的
+  loading: 正在加载容器...
+  col_name: 名称
+  col_image: 镜像
+  col_status: 状态
+  col_ports: 端口
+  col_actions: 操作
+  action_start: 启动
+  action_stop: 停止
+  action_restart: 重启
+  empty: 未找到容器
+  action_done: 容器已%{action}
+
+# Docker container detail (containers/detail.html).
+containers_detail:
+  title: 容器详情
+  start: 启动
+  stop: 停止
+  restart: 重启
+  container_info: 容器信息
+  image: 镜像
+  created: 创建时间
+  platform: 平台
+  resource_usage: 资源使用情况
+  memory: 内存
+  network_io: 网络 I/O
+  logs: 日志
+  live: 实时
+  paused: 已暂停
+  clear: 清除
+  no_logs: 暂无可用日志
+  action_success: 容器%{action}
+
+# Docker images list (images/list.html).
+images_list:
+  title: 镜像
+  heading: 镜像
+  subtitle: 此主机上的 Docker 镜像
+  loading: 正在加载镜像...
+  col_repository: 仓库
+  col_tag: 标签
+  col_size: 大小
+  col_created: 创建时间
+  col_actions: 操作
+  remove: 移除
+  empty: 未找到镜像
+  confirm_remove: 移除此镜像？
+  removed: 镜像已移除
+
+# Compose stacks list (compose/list.html).
+compose_list:
+  title: 堆栈
+  heading: Compose 堆栈
+  subtitle: Docker Compose 部署
+  new_stack: 新建堆栈
+  loading_stacks: 正在加载堆栈...
+  open_on: 在 %{name} 上打开
+  created: "创建时间：%{value}"
+  synced: "同步时间：%{value}"
+  deploy: 部署
+  down: 下线
+  restart: 重启
+  logs: 日志
+  delete: 删除
+  move_to: 移动到…
+  move_to_tooltip: 将此堆栈移动到已配对的对等节点（仅限无状态）
+  open: 打开
+  managed_on: 管理于
+  not_paired: 未配对
+  not_paired_tooltip: 在 /servers/{peer-id} 上配对联邦以启用远程操作
+  empty: 暂无堆栈
+  create_first: 创建你的第一个堆栈
+  migrate_heading_prefix: 移动
+  migrate_heading_suffix: 到另一台服务器
+  migrate_explainer: Pier 将在所选对等节点上重建此堆栈，然后拆除本地副本。有状态堆栈（命名卷）会被 API 拒绝。
+  target_server: 目标服务器
+  select: 选择
+  dns_warning: DNS A 记录仍指向此服务器。移动后请更新它们，以便用户实际访问到新节点。
+  move_it: 移动它
+  moved_to: 已移动到
+  new_stack_id: "新堆栈 ID："
+  update_dns_for: "更新以下项的 DNS A 记录："
+  note: "备注：%{value}"
+  close: 关闭
+  follow: 跟随
+  creating_on_target: 正在目标上创建堆栈…
+  migration_complete: 迁移完成
+  never: 从未
+  ago_seconds: "%{n} 秒前"
+  ago_minutes: "%{n} 分钟前"
+  ago_hours: "%{n} 小时前"
+  ago_days: "%{n} 天前"
+  deploying_stack: 正在部署堆栈...
+  stack_deployed: 堆栈已部署
+  peer_action_running: "正在 %{peer} 上执行 %{action}..."
+  peer_action_ok: "%{action} 成功"
+  peer_action_failed: "%{action} 失败：%{error}"
+  logs_title: "日志 · %{name} 于 %{peer}"
+  loading_snapshot: 正在加载快照…
+  empty_log: （空）
+  snapshot_loaded: 快照已加载。
+  snapshot_failed: "快照失败：%{error}"
+  streaming_live_from: 正在从 %{peer} 实时串流
+  stream_error: 串流出错 —— 对等节点证书不受信任？请尝试重新打开此弹窗。
+  live_stream_unavailable: "实时串流不可用：%{error}"
+  stack_stopped: 堆栈已停止
+  confirm_remove: 移除此堆栈？
+  stack_removed: 堆栈已移除
+
+# Compose stack editor (compose/editor.html).
+compose_editor:
+  title_new: 新建堆栈
+  title_edit: 编辑堆栈
+  deploy_on: 部署于
+  deploy_on_help: '本地保留在此服务器上。对等节点条目需要在 <span class="font-mono">/servers/&lt;peer-id&gt;</span> 上配对联邦令牌。'
+  stack_name: 堆栈名称
+  compose_yaml: Compose YAML
+  saving: 保存中...
+  create_stack: 创建堆栈
+  save_changes: 保存更改
+  deploying: 部署中...
+  save_deploy: 保存并部署
+  target_local: 此服务器（本地）
+  target_peer: "%{name}（对等节点）"
+  error_load_stack: 加载堆栈失败
+  toast_created: 堆栈已创建
+  toast_created_peer: 堆栈已在对等节点上创建
+  toast_saved: 堆栈已保存
+  toast_deployed: 堆栈已部署
+
+settings_index:
+  page_title: 设置
+  heading: 设置
+  subheading: 应用配置
+  general_title: 常规
+  app_url: 应用 URL
+  app_url_desc: 用于访问 Pier 的 URL
+  timezone: 时区
+  timezone_desc: 用于通知和时间戳。
+  timezone_now: '当前： '
+  cleanup_title: 系统清理
+  build_cache: 构建缓存
+  build_cache_desc: 未使用的 Docker 构建层
+  clean: 清理
+  dangling_images: 悬空镜像
+  dangling_images_desc: 未被容器使用的无标签镜像
+  stopped_containers: 已停止的容器
+  stopped_containers_desc: 未在运行的容器
+  railpack_buildkit_cache: Railpack BuildKit 缓存
+  railpack_buildkit_cache_desc: 自动构建（Railpack）使用的层缓存 —— 位于 buildkit 容器内部，与 Docker 分离
+  cleaning: 清理中…
+  clean_all: 全部清理
+  auto_cleanup: 自动清理
+  enable_scheduled_cleanup: 启用计划清理
+  enable_scheduled_cleanup_desc: 自动清理 Docker 资源
+  interval: 间隔
+  every_12_hours: 每 12 小时
+  every_24_hours: 每 24 小时
+  every_48_hours: 每 48 小时
+  every_7_days: 每 7 天
+  unused_images: 未使用的镜像
+  autobuild_title: 自动构建（Railpack）
+  autobuild_desc: 控制可并行运行的 Railpack 构建数量。每个构建在编译期间可能使用数 GB 内存，因此默认上限 1 对于小型 VPS 主机是安全的选择。仅当主机有空余容量时才提高此值。
+  currently_running: 当前运行中
+  currently_running_desc: 实时信号量中的活跃许可数
+  parallel_build_one: ' 个并行构建'
+  parallel_build_other: ' 个并行构建'
+  max_parallel_builds: 最大并行构建数
+  saved_value_range: '已保存的值（在下次 pier-core 重启时应用）。范围：'
+  saving: 保存中…
+  save: 保存
+  env_override_notice: '<strong>由环境变量管理。</strong> <code class="text-[11px]">PIER_RAILPACK_MAX_PARALLEL_BUILDS</code> 已在 systemd 单元中设置，因此已保存的值会被忽略。取消设置该环境变量并重启 pier-core 即可使用 UI 中的值。'
+  restart_required: 需要重启。
+  restart_required_saved: 已保存的值
+  restart_required_differs: 与实时运行时的值不同
+  restart_required_run: 运行
+  restart_required_take_effect: 在主机上以使更改生效。
+  what_is_this: 这是什么？
+  federation_intro: '联邦在两个方向上工作。此选项卡涉及<strong>入站</strong>方向 —— 授予另一个 pier-core 控制此实例的权限。'
+  federation_outgoing: '<strong>出站</strong>（从此处控制其他服务器）通过 <a href="/servers" class="text-blue-500 hover:underline">服务器</a>页面以“Peer core”类型进行管理。'
+  federation_incoming: '<strong>入站</strong>在此处：你签发一个令牌并交给另一个 pier-core 的操作员。他们将其粘贴到自己的“添加服务器 → Peer core”表单中，其面板即可通过 REST 获得对你实例的管理员等效访问权限。'
+  tokens_grant_admin: 令牌授予完整的管理员权限 —— 可随时撤销；无论哪种方式，此实例都将继续自主运行。
+  protocol_note: '协议：使用 <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">X-Pier-Peer-Token</code> 头进行身份验证的请求会匹配 <code class="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">peer_grants</code> 中的一行，并在该次调用中被视为管理员会话。'
+  issued_tokens: 已签发的令牌
+  issue_token: 签发令牌
+  col_name: 名称
+  col_status: 状态
+  col_last_used: 最后使用
+  col_from_ip: 来源 IP
+  col_actions: 操作
+  status_active: 活跃
+  status_revoked: 已撤销
+  revoke: 撤销
+  no_tokens: 尚未签发任何令牌。
+  issue_peer_token: 签发对等令牌
+  issue_peer_token_desc: 生成一个长期有效的令牌，授权另一个 pier-core 通过其 API 管理此面板。
+  name_placeholder: 总部面板
+  generate: 生成
+  token_issued: 令牌已签发
+  token_shown_once: 此令牌仅显示一次。请立即复制。
+  done: 完成
+  profile: 个人资料
+  username: 用户名
+  email: 邮件
+  role: 角色
+  member_since: 注册于
+  last_login: 上次登录
+  change_password: 更改密码
+  current_password: 当前密码
+  new_password: 新密码（至少 8 个字符）
+  confirm_new_password: 确认新密码
+  all_sessions_logged_out: 所有其他活跃会话将被登出。
+  updating: 更新中…
+  update_password: 更新密码
+  active_sessions: 活跃会话
+  logout_everywhere_else: 登出其他所有位置
+  col_device: 设备
+  col_ip: IP
+  col_started: 开始时间
+  this_session: 当前会话
+  no_active_sessions: 无活跃会话。
+  account_security: 账户安全
+  two_factor_auth: 双因素身份验证
+  audit_log: 审计日志
+  delete_confirmation: 删除确认
+  require_account_password: 要求账户密码
+  require_account_password_desc: 删除项目、服务或数据库时提示输入密码。适用于此实例上的每个管理员。
+  danger_zone: 危险区域
+  reset_data: 重置数据
+  reset_data_desc: 删除所有项目、资源和设置
+  coming_soon: 即将推出
+  tab_general: 常规
+  tab_cleanup: 清理
+  tab_railpack: 自动构建（Railpack）
+  tab_external_access: 外部访问
+  tab_account: 账户
+  tab_security: 安全
+  tab_danger: 危险
+  name_required: 名称必填
+  confirm_revoke_token: '撤销令牌“%{name}”？'
+  token_revoked: 令牌已撤销
+  failed_load_railpack: 加载 Railpack 设置失败
+  must_be_between: 必须介于 %{min} 和 %{max} 之间
+  saved_restart_required: 已保存 —— 需要重启
+  saved: 已保存
+  save_failed: 保存失败
+  done_refreshing: 完成！正在刷新…
+  cleanup_complete: 清理完成
+  error_prefix: '错误： '
+  unknown: 未知
+  passwords_no_match: 密码不匹配
+  password_too_short: 密码必须至少包含 8 个字符
+  current_password_incorrect: 当前密码不正确
+  failed: 失败
+  password_updated: 密码已更新 —— 其他会话已登出
+  confirm_revoke_session: 撤销此会话？
+  session_revoked: 会话已撤销
+  confirm_logout_others: 登出所有其他会话？
+  sessions_revoked_count: 已撤销 %{count} 个会话
+
+# Settings — system logs (settings/logs.html).
+settings_logs:
+  title: 系统日志
+  heading: 系统日志
+  lines_suffix: 行
+  no_units: '此主机上未安装允许列表中的 systemd 单元（<code class="px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-xs">pier</code>、<code class="px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/40 text-xs">pier-agent</code>）。'
+  unit_title: 单元
+  period_title: 时段
+  period_5min: 5 分钟
+  period_15min: 15 分钟
+  period_1h: 1 小时
+  period_6h: 6 小时
+  period_24h: 24 小时
+  period_7d: 7 天
+  period_all: 全部
+  lines_title: 行数
+  lines_30: 30 行
+  lines_100: 100 行
+  lines_500: 500 行
+  lines_1000: 1000 行
+  lines_5000: 5000 行
+  priority_title: 优先级
+  priority_all: 所有级别
+  priority_err: 错误
+  priority_warning: 警告及以上
+  priority_info: 信息及以上
+  priority_debug: 调试及以上
+  refresh_title: 刷新快照
+  live: 实时
+  paused: 已暂停
+  clear_title: 清空缓冲区
+  clear: 清空
+  copy_title: 复制到剪贴板
+  download_title: 下载 .log
+  streaming: 流式传输中
+  snapshot: 快照
+  empty: 所选筛选条件没有日志行。
+  ws_connect_failed: 'WebSocket 连接失败：%{message}'
+
+# Settings — notifications (settings/notifications.html).
+settings_notifications:
+  title: 通知
+  heading: 通知
+  subtitle: 获取关于你基础设施的通知。
+  no_channel_warning: 尚未启用任何渠道。下方的开关会触发，但会静默跳过投递。
+  last_prefix: '上次： '
+  tab_alerts: 告警
+  email_subtitle: 通过 SMTP、Brevo API 或 Resend API 投递告警。
+  from_name_label: 发件人名称
+  from_address_label: 发件人地址
+  send_alerts_to_label: 将告警发送至
+  delivery_driver_label: 投递驱动
+  host_label: 主机
+  port_label: 端口
+  encryption_label: 加密
+  encryption_none: 无
+  username_label: 用户名
+  password_label: 密码
+  saved_badge: 已保存
+  password_keep_placeholder: 留空以保留已存储的密码
+  smtp_password_placeholder: SMTP 密码
+  timeout_label: 超时（秒）
+  brevo_api_key_label: Brevo API 密钥
+  key_keep_placeholder: 留空以保留已存储的密钥
+  brevo_help: '在 <span class="font-mono">app.brevo.com/settings/keys/api</span> 创建一个事务型 API 密钥。'
+  resend_api_key_label: Resend API 密钥
+  resend_help: '在 <span class="font-mono">resend.com/api-keys</span> 创建一个 API 密钥。'
+  saving: 保存中…
+  save: 保存
+  sending: 发送中…
+  send_test_email: 发送测试邮件
+  send_test: 发送测试
+  telegram_subtitle: 通过机器人将告警发送到 Telegram 聊天。
+  bot_token_label: 机器人令牌
+  bot_token_keep_placeholder: 留空以保留已存储的令牌
+  telegram_help: 在 Telegram 中通过 @BotFather 创建。令牌已加密且永不回显。
+  chat_id_label: 聊天 ID
+  chat_id_placeholder: '-1001234567890 或 @channelname'
+  discord_subtitle: 通过入站 webhook 将告警发送到 Discord 频道。
+  webhook_url_label: Webhook URL
+  url_keep_placeholder: 留空以保留已存储的 URL
+  discord_help: 服务器设置 → 集成 → Webhooks → 新建 Webhook → 复制 URL。
+  ping_channel_label: '触发告警时 ping 频道（<span class="font-mono">@here</span>）'
+  slack_subtitle: 通过入站 webhook 将告警发送到 Slack 频道。
+  slack_help: 通过 Slack App → Incoming Webhooks → 启用 → 向工作区添加新 Webhook 创建。
+  group_deployments: 部署
+  group_backups: 备份
+  group_server: 服务器
+  metric_disk: 磁盘
+  metric_heartbeat: 心跳
+  metric_container_cpu: 容器 CPU
+  metric_container_ram: 容器 RAM
+  metric_days_left: 剩余天数
+  metric_deploy_failure: 部署失败
+  metric_deploy_success: 部署成功
+  metric_backup_failure: 备份失败
+  metric_backup_success: 备份成功
+  metric_container_status: 容器状态变更
+  metric_docker_cleanup_success: docker 清理完成
+  metric_docker_cleanup_failure: docker 清理失败
+  metric_server_reachable: 服务器恢复在线
+  fires_on_every: 每次 %{label} 时触发
+  unit_days: ' 天'
+  sustained_suffix: ' 持续 %{min} 分钟'
+  load_alerts_failed: '加载告警失败： '
+  threshold_updated: 阈值已更新
+  update_failed: '更新失败： '
+  load_telegram_failed: '加载 telegram 失败： '
+  status_saved: 已保存
+  enter_telegram_first: 请先输入 bot_token 和 chat_id
+  test_notification_sent: 测试通知已发送
+  test_failed: '测试失败： '
+  load_email_failed: '加载邮件失败： '
+  test_email_sent: 测试邮件已发送
+  load_discord_failed: '加载 discord 失败： '
+  enter_discord_first: 请先输入 Discord webhook URL
+  test_discord_sent: 测试 Discord 消息已发送
+  load_slack_failed: '加载 slack 失败： '
+  enter_slack_first: 请先输入 Slack webhook URL
+  test_slack_sent: 测试 Slack 消息已发送
+
+# Settings — updates (settings/updates.html).
+settings_updates:
+  page_title: 更新
+  heading: 更新
+  subheading: 管理 Pier 版本和更新偏好
+  current_version: 当前版本
+  version_label: 版本
+  version_desc: 已安装的 Pier 版本
+  build_date_label: 二进制构建日期
+  build_date_desc: 此二进制文件的编译时间
+  uptime_label: 运行时长
+  uptime_desc: 自上次重启以来的时间
+  update_check: 更新检查
+  latest_build: 最新构建
+  badge_update_available: 有可用更新
+  badge_up_to_date: 已是最新
+  checking: 检查中…
+  check_for_updates: 检查更新
+  new_version_available: 有可用的新版本
+  build_prefix: '构建：'
+  download_size_prefix: '下载大小：'
+  install_update_label: 安装更新
+  install_update_desc: Pier 将在更新后自动重启
+  update_and_restart: 更新并重启
+  update_complete_title: 更新完成
+  update_complete_desc: Pier 已成功更新。
+  update_failed: 更新失败
+  check_failed_title: 检查失败
+  update_settings: 更新设置
+  update_mode_label: 更新模式
+  update_mode_desc: 选择 Pier 处理可用更新的方式
+  mode_auto_label: 自动
+  mode_auto_desc: 自动下载并安装更新
+  mode_notify_label: 仅通知
+  mode_notify_desc: 检查更新并通知，但不自动安装
+  mode_manual_label: 手动
+  mode_manual_desc: 仅在手动触发时检查并安装更新
+  auto_check_label: 自动检查更新
+  auto_check_desc: 在后台定期检查新版本
+  settings_saved: 设置已保存
+  saving: 保存中…
+  save_settings: 保存设置
+  check_status_initial: '点击“检查更新”以进行检查'
+  unknown: 未知
+  unknown_lower: 未知
+  unavailable: 不可用
+  load_settings_failed: 加载更新设置失败
+  check_failed_status: 检查失败
+  new_build_available: '有可用的新构建：%{build}'
+  running_latest: 你正在运行最新版本
+  check_updates_failed: '检查更新失败：%{error}'
+  confirm_install: Pier 将下载更新并重启。是否继续？
+  progress_downloading: 正在下载更新…
+  progress_downloading_detail: 这可能需要一些时间，取决于你的网络连接
+  progress_installing: 正在安装更新…
+  progress_installing_detail: 正在应用更新并准备重启
+  progress_restarting: 正在重启 Pier…
+  progress_restarting_detail: 服务器正在重启。请稍候…
+  progress_reconnecting: 正在重新连接…
+  update_failed_fallback: 更新失败
+  update_request_failed: '更新请求失败：%{error}'
+  progress_complete: 更新完成！
+  progress_complete_detail: Pier 已成功更新
+  reconnect_timeout: Pier 可能仍在重启。请尝试手动刷新页面。
+  save_settings_failed: 保存设置失败
+  save_failed: '保存失败：%{error}'
+
+account_security:
+  title: 安全
+  heading: 安全
+  subtitle: 为您的账户启用双重认证（TOTP）。
+  tfa_title: 双重认证
+  not_enabled: 未启用。每次登录时需额外输入认证器应用生成的一次性验证码。
+  enabled_since: 启用时间
+  recovery_codes_left: 个恢复码剩余。
+  enable_2fa: 启用 2FA
+  disable_2fa: 禁用 2FA
+  step1_scan: 1. 使用认证器应用扫描
+  enter_secret_manually: '或手动输入此密钥：'
+  step2_save_codes: 2. 保存您的恢复码
+  save_codes_hint: 请妥善保存在安全的地方。如果您无法访问认证器，每个恢复码可使用一次以登录。
+  step3_verify: 3. 使用当前验证码进行验证
+  confirm: 确认
+  disable_hint: 输入当前的 TOTP 验证码或您的某个恢复码以确认。
+  disable_placeholder: 123456 或 XXXX-XXXX-XXXX
+  disable: 禁用
+  setup_failed: 设置失败
+  verify_failed: 验证失败
+  disable_failed: 禁用失败
+  notice_enabled: 2FA 已启用 — 您下次登录将需要输入验证码。
+  notice_disabled: 2FA 已禁用。
+
+# Audit log (audit/index.html).
+audit_index:
+  title: 审计日志
+  heading: 审计日志
+  subtitle: 此服务器的认证和会话事件。
+  refresh: 刷新
+  filter_event_type: 事件类型
+  filter_all: 全部
+  filter_ip_prefix: IP 前缀
+  filter_since: 起始时间（UTC）
+  filter_until: 截止时间（UTC）
+  col_when: 时间（UTC）
+  col_event: 事件
+  col_user: 用户
+  col_ip: IP
+  col_ua: UA
+  col_details: 详情
+  empty: 没有符合这些筛选条件的事件。
+  prev: 上一页
+  next: 下一页
+  pagination_range: '<span x-text="offset + 1"></span>–<span x-text="Math.min(offset + events.length, total)"></span> 共 <span x-text="total"></span>'
+
+# Team management (team/index.html).
+team_index:
+  title: 团队
+  heading: 团队
+  subtitle: '邀请团队成员并管理他们的全局角色。项目专属的访问权限在每个项目的<span class="font-medium">成员</span>标签页中设置。'
+  invite_user_button: + 邀请用户
+  col_user: 用户
+  col_role: 角色
+  col_status: 状态
+  col_2fa: 2FA
+  col_joined: 加入时间
+  col_actions: 操作
+  status_active: 活跃
+  status_disabled: 已禁用
+  twofa_on: '已开启'
+  change_role: 更改角色
+  delete: 删除
+  empty_users: 暂无用户。
+  invite_modal_title: 邀请用户
+  email_label: 邮箱
+  default_role_label: 默认全局角色
+  role_option_user: 用户（无系统权限）
+  role_option_admin: 管理员（仅限所有者）
+  link_expires_label: 链接过期时间（小时）
+  create_invite: 创建邀请
+  working: 处理中…
+  invite_link_intro: 将此一次性链接发送给
+  invite_link_warning: 此链接不会再次显示。
+  expires_in_prefix: 将于
+  expires_in_suffix: 小时后过期。
+  done: 完成
+  toast_load_failed: 加载失败
+  toast_invite_failed: 邀请失败
+  confirm_delete_user: 删除 %{username}？此操作无法撤销。
+  toast_user_deleted: 用户已删除
+  toast_delete_failed: 删除失败
+  prompt_new_role: '为 %{username} 设置新的全局角色（owner/admin/user）：'
+  toast_role_updated: 角色已更新
+  toast_role_change_failed: 角色更改失败
+
+# Tasks list (tasks/list.html).
+tasks_list:
+  title: 任务
+  heading: 任务
+  subtitle: 已保存的 shell 任务以及每次运行的全局历史记录。对可重复的作业使用模板，或针对一次性操作执行临时命令。
+  new_template: + 新建模板
+  run_ad_hoc: 运行临时命令
+  templates: 模板
+  col_name: 名称
+  col_command: 命令
+  col_timeout: 超时
+  col_actions: 操作
+  run: 运行
+  delete: 删除
+  no_templates: 暂无模板。
+  recent_runs: 最近运行
+  col_status: 状态
+  col_server: 服务器
+  col_triggered_by: 触发者
+  col_started: 开始时间
+  no_runs: 暂无运行记录。
+  new_template_title: 新建任务模板
+  field_name: 名称
+  field_command: 命令
+  field_default_timeout: 默认超时（秒）
+  save: 保存
+  working: 处理中…
+  run_template_title: 运行模板
+  run_ad_hoc_title: 运行临时命令
+  field_server: 服务器
+  select_server_placeholder: "— 选择 —"
+  field_timeout: 超时（秒）
+  starting: 启动中…
+  toast_load_failed: 加载失败
+  toast_template_saved: 模板已保存
+  toast_save_failed: 保存失败
+  confirm_delete_template: '删除模板 "%{name}"？'
+  toast_template_deleted: 模板已删除
+  toast_delete_failed: 删除失败
+  toast_start_failed: 启动失败
+
+# Task run detail (tasks/run_detail.html).
+tasks_run_detail:
+  title: 任务运行
+  back_to_tasks: 任务
+  heading: 任务运行
+  label_server: 服务器
+  label_triggered_by: 触发者
+  label_exit_code: 退出码
+  label_started: 开始时间
+  label_finished: 完成时间
+  label_timeout: 超时
+  label_command: 命令
+  label_error: 错误
+  empty_output: （空）
+  load_failed: 加载失败
+  confirm_cancel: 取消此次运行？
+  cancel_requested: 已请求取消
+  cancel_failed: 取消失败
+
+# Schedules list (schedules/list.html).
+schedules_list:
+  title: 计划
+  heading: 计划
+  intro: "由 cron 驱动的作业。目前统一运行器触发任务模板；备份和清理计划在此列出以便查看，但仍由其各自的旧版循环管理。"
+  new_schedule_button: + 新建计划
+  col_name: 名称
+  col_action: 操作
+  col_cron: Cron
+  col_next_run: 下次运行
+  col_last_status: 上次状态
+  col_actions: 操作
+  badge_system: 系统
+  status_never: 从未
+  action_run_now: 立即运行
+  action_disable: 禁用计划
+  action_enable: 启用计划
+  action_delete: 删除计划
+  action_system_locked: 系统计划（无法删除）
+  empty: 暂无计划。
+  modal_title: 新建计划
+  field_name: 名称
+  field_action: 操作
+  action_option_task: 运行任务模板
+  action_help: "备份和清理计划也由统一运行器触发，但它们是在其他位置创建的（资源页面 / 清理设置）。"
+  field_template: 任务模板
+  field_server: 服务器
+  select_placeholder: "— 选择 —"
+  field_cron: Cron 表达式
+  next_runs_label: "下次运行："
+  field_timezone: 时区
+  submit_create: 创建
+  submit_working: 处理中…
+  toast_load_failed: 加载失败
+  cron_invalid: 表达式无效
+  toast_pick_template_server: 请选择一个模板和一个服务器
+  toast_created: 计划已创建
+  toast_create_failed: 创建失败
+  toast_toggle_failed: 切换失败
+  toast_run_status: 运行 %{status}
+  toast_run_failed: 运行失败
+  confirm_delete: '删除计划 "%{name}"？'
+  toast_deleted: 计划已删除
+  toast_delete_failed: 删除失败
+
+# Architecture canvas (canvas.html).
+canvas:
+  title: 架构
+  dashboard: 仪表盘
+  architecture: 架构
+  services_suffix: 个服务
+  create: 创建
+  show_dependency_arrows: 显示依赖箭头
+  deps: 依赖
+  zoom_in: 放大
+  zoom_out: 缩小
+  fit_to_view: 适应视图
+  fit: 适应
+  create_resource: 创建资源
+  what_to_deploy: 您想部署什么？
+  databases: 数据库
+  services: 服务
+  deploy: 部署
+  auto_generated_if_empty: 留空则自动生成
+  generate: 生成
+  project: 项目
+  no_project: 无项目
+  network: 网络
+  default_suffix: 默认
+  deploying: 部署中...
+  deployed: 已部署！
+  deploy_failed: 部署失败
+  starting_deployment: 正在开始部署...
+  open_details: 打开详情
+  done: 完成
+  back_to_config: 返回配置
+  start: 启动
+  stop: 停止
+  restart: 重启
+  redeploy: 重新部署
+  live: 实时
+  cpu_usage: CPU 使用率
+  memory_usage: 内存使用率
+  network_io: 网络 I/O
+  disk_io: 磁盘 I/O
+  legend_running: 运行中
+  legend_failed: 失败
+  legend_deploying: 部署中
+  legend_stopped: 已停止
+  action_initiated: "已发起 %{action}"
+  failed_to_load_template: 加载模板失败
+  name_is_required: 名称为必填项
+  log_deploying: '正在部署 %{template} "%{name}"...'
+  log_creating_resource: 正在创建资源...
+  log_container_created: 容器创建成功
+  log_deployment_log_header: 部署日志
+  log_no_output: 无输出
+  log_deployed_successfully: "%{name} 部署成功！"
+  toast_deployed: "%{name} 已部署"
+  log_deploy_failed: "部署失败：%{error}"
+
+# Support modal partial (partials/support_modal.html).
+support_modal:
+  close: 关闭
+  heading: 喜欢 Pier 吗？支持我们的工作。
+  body_profitable: '多亏了<span class="font-semibold text-gray-900 dark:text-white">您</span>，我们已经实现盈利，但是&hellip;'
+  body_features: 我们希望开发更多很酷的功能。
+  body_help: 为此我们需要您在资金上支持我们的工作。
+  maybe_next_time: 下次再说
+  support_project: 支持项目
+
+errors:
+  unauthorized: 未授权
+  docker: Docker 错误
+  database: 数据库错误
+  internal: 内部错误
+  name_conflict: "资源 '%{name}' 已存在"
+  domains_require_confirmation: 禁用公开访问将移除现有域名
+  # Authentication / login flow (auth/handlers.rs).
+  auth:
+    setup_not_found: 安装设置
+    username_required: 用户名为必填项
+    setup_already_completed: 安装设置已完成
+    invalid_credentials: 凭据无效
+  resources:
+    name_required: 名称为必填项
+    create_without_project_requires_admin: 在没有项目的情况下创建资源需要 Admin 权限
+    catalog_template_not_found: "未找到目录模板 '%{name}'"
+    no_cluster_mode_support: "'%{name}' 不支持集群模式"
+    node_count_range: 节点数量必须介于 %{min} 和 %{max} 之间
+    compose_yaml_required: Docker Compose YAML 为必填项
+    dockerfile_content_required: Dockerfile 内容为必填项
+    repository_url_required: 仓库 URL 为必填项
+    ssh_deploy_key_required: SSH 部署密钥为必填项
+    dockerfile_not_found_in_repo: "在仓库的 '%{path}' 处未找到 Dockerfile"
+    source_id_required_for_github_app: GitHub App 部署需要 source_id
+    github_app_source_not_found: 未找到 GitHub App 来源 %{source_id}
+    source_missing_app_id: 来源缺少 app_id
+    source_missing_installation_id: 来源缺少 installation_id
+    source_missing_private_key: 来源缺少 private_key
+    github_app_requires_https: GitHub App 需要 HTTPS URL
+    resource_not_found: 未找到资源 %{id}
+    service_has_databases: 服务有 %{count} 个数据库。请先删除它们。
+    no_compose_content: 未找到 compose 内容
+    not_a_cluster: 资源不是集群
+    catalog_no_cluster_support: 未找到目录或不支持集群
+    cluster_use_scale: 集群模式服务请改用 /scale
+    no_catalog_id_lb_unsupported: 资源没有 catalog_id；不支持负载均衡
+    named_volumes_no_multireplica: 目录项含有命名卷；v1 中已禁用多副本扩展
+    catalog_no_docker_section: 目录没有 docker 部分
+    catalog_no_ports_lb: 目录没有端口；不适用负载均衡
+    unknown_lb_strategy: "未知的 lb_strategy '%{strategy}'（应为 round-robin|weighted|sticky）"
+    replicas_min_one: "replicas 必须 >= 1"
+    no_replicas_requested: 未请求任何副本
+    max_replicas_per_service: 每个服务最多 %{max} 个副本
+    server_not_found: "未找到服务器 '%{name}'"
+    service_not_found: 未找到服务 %{id}
+    port_not_found: 未找到端口 %{id}
+    port_id_wrong_service: port_id 不属于此服务
+    no_ports_for_resource: 资源 %{id} 没有端口
+    port_exposed_by_own_port: 端口 %{port} 已被此服务的另一个端口公开暴露
+    port_exposed_by_other_service: 端口 %{port} 已被另一个服务（%{service}）公开暴露
+    network_not_found: 未找到网络 %{name}
+    name_invalid_chars: 名称只能包含小写字母、数字和连字符
+    no_compose_content_for_service: 未找到此服务的 compose 内容
+  projects:
+    not_found: 未找到项目 %{id}
+    name_required: 项目名称为必填项
+    create_admin_only: 只有 Admin 才能创建项目
+    port_range_both_required: port_range_start 和 port_range_end 必须同时设置
+    port_range_out_of_bounds: 端口范围必须在 1024-65535 之内（实际为 %{start}-%{end}）
+    port_range_inverted: 端口范围的起始值必须 <= 结束值（实际为 %{start}-%{end}）
+    port_range_overlap: "端口范围 %{start}-%{end} 与项目 '%{name}'（%{other_start}-%{other_end}）重叠"
+    port_range_narrow_conflict: "无法将端口范围收窄为 %{start}-%{end}：有服务正在使用新范围之外的端口 [%{services}]"
+    has_services: 项目有 %{count} 个服务。请先删除它们。
+  servers:
+    name_required: 名称为必填项
+    host_required_for_agent: agent 需要 host
+    url_required_for_peer: peer 需要 url
+    url_must_be_http: "url 必须以 http:// 或 https:// 开头"
+    api_token_required_for_peer: peer 需要 api_token
+    unknown_kind_expected: "未知的 kind '%{kind}' — 应为 'agent' 或 'peer'"
+    unknown_kind: "未知的 kind '%{kind}'"
+    rotate_agent_only: rotate 仅对 kind='agent' 的服务器有效
+    local_no_token_to_rotate: 本地服务器没有可轮换的远程 agent_token
+    no_active_token: 服务器尚无活动的 agent_token（bootstrap 待处理？）
+    agent_unreachable_at: "无法在 %{url} 访问 agent：%{error}"
+    agent_refused_rotation: "agent 拒绝轮换（%{status}）：%{body}"
+    bootstrap_token_required: bootstrap_token 为必填项
+    server_not_found_or_local: 未找到服务器或为本地服务器（无法删除）
+    cannot_connect_agent_at: "无法连接到 %{url} 处的 agent：%{error}"
+    agent_responded_status: "agent 返回状态：%{status}"
+    agent_unreachable: "无法访问 agent：%{error}"
+    peer_not_found: 未找到 peer %{id}
+    peer_not_found_federation: 未找到 peer %{id}（联邦令牌仅对 kind='peer' 有效）
+    server_not_found: 未找到服务器 %{id}
+    body_read_failed: "读取正文失败：%{error}"
+    peer_unreachable: "无法访问 peer：%{error}"
+    stack_name_required: stack_name 为必填项
+    compose_yaml_required: compose_yaml 为必填项
+    token_param_required: token 参数为必填项
+    id_param_required: id 参数为必填项
+  databases:
+    resource_not_found: 未找到资源 %{id}
+    management_unsupported_engine: 数据库管理仅支持 PostgreSQL、MySQL 和 MongoDB
+    credentials_required: 数据库名称、用户名和密码为必填项
+    invalid_name_chars: 名称只能包含字母、数字和下划线
+    unsupported_type: 不支持的数据库类型
+    cannot_delete_system: 无法删除系统数据库
+    password_required: 密码为必填项
+    owner_not_found: 找不到数据库 %{name} 的所有者
+    container_not_found: "未找到容器 '%{name}'。请确保服务正在运行。"
+  domains:
+    domain_required: 域名为必填项
+    domain_not_found: 未找到域名 %{name}
+    service_not_found: 未找到服务 %{name}
+    already_registered: 域名 %{name} 已注册
+    row_already_uses: 另一个域名行已使用 %{name}
+    no_port_for_compose_service: "服务 %{name} 未为 compose 服务 '%{service}' 分配端口"
+  federation:
+    peer_not_paired: "peer %{server_id} 未为联邦配对 — 请在 /servers/<id> 中设置其令牌"
+    name_and_yaml_required: name 和 yaml 为必填项
+    peer_rejected_create: "peer 拒绝了创建：%{error}"
+    peer_rejected_deploy: "peer 拒绝了部署：%{error}"
+    peer_rejected_down: "peer 拒绝了停止：%{error}"
+    peer_rejected_restart: "peer 拒绝了重启：%{error}"
+    peer_rejected_logs: "peer 拒绝了日志：%{error}"
+    peer_rejected_release: "peer 拒绝了发布：%{error}"
+  npm:
+    missing_name: 缺少 name
+    missing_password: 缺少 password
+    tarball_extension: tarball 必须以 .tgz 结尾
+    malformed_tarball: tarball 名称格式不正确
+    package_not_found: 包 %{name}
+    version_not_found: "%{name}@%{version}"
+    tarball_not_found: "%{name}/%{tarball}"
+    tarball_version_not_found: "%{name}-%{version}"
+    invalid_json: "无效的 json：%{error}"
+    missing_versions: 缺少 versions
+    single_version_required: publish 必须恰好包含一个版本
+    empty_versions: versions 为空
+    missing_attachments: 缺少 _attachments
+    no_attachments: 没有 _attachments
+    empty_attachments: _attachments 为空
+    attachment_missing_data: attachment 缺少 data
+    base64_decode: "base64 解码：%{error}"
+    attachment_name_mismatch: "attachment 名称 '%{actual}' 与预期的 '%{expected_short}' 或 '%{expected_full}' 不匹配"
+    integrity_mismatch: tarball 完整性与 dist.integrity 不匹配
+    manifest_not_object: manifest 不是对象
+    already_published: "%{name}@%{version} 已发布"
+    dist_tag_not_found: dist-tag %{tag}
+    nothing_to_deprecate: 没有可弃用的内容
+    body_not_utf8: 正文不是 utf-8
+    missing_version_body: 正文中缺少版本
+    invalid_package_name: 无效的包名称
+    scoped_missing_name: scoped 包缺少 /name
+    invalid_scoped_name: 无效的 scoped 包名称
+    unscoped_has_slash: unscoped 包不能包含 /
+  backups:
+    s3_storage_required: S3 存储为必填项
+    resource_not_found: 未找到资源 %{id}
+    backup_not_supported: "%{catalog} 不支持备份"
+    per_db_backup_not_supported: "%{catalog} 不支持单库备份"
+    no_schedule_configured: 未配置备份计划。请先配置一个。
+    backup_not_found: 未找到备份 %{id}
+    backup_not_found_simple: 未找到备份
+    backup_not_completed: 未找到备份或备份未完成
+    target_database_name_required: target_database_name 为必填项
+    per_db_restore_not_supported: "%{catalog} 不支持单库恢复"
+    backup_db_mismatch: "备份包含数据库 '%{backup_db}'，拒绝恢复到 '%{target_db}' — 请选择同一数据库的备份，或使用集群范围的备份"
+    database_name_required: 数据库名称为必填项
+    multipart_read_error: "multipart 读取错误：%{error}"
+    file_read_error: "文件读取错误：%{error}"
+    multipart_missing_file: "multipart 缺少 'file' 字段"
+    uploaded_file_no_name: 上传的文件没有名称 — 无法从扩展名检测备份格式
+    service_not_found: 未找到服务 %{id}
+    database_does_not_exist: "数据库 '%{name}' 在此服务上不存在 — 请先在“数据库”选项卡中创建它"
+    unrecognized_file_extension: "无法识别 '%{filename}' 中的备份文件扩展名。可接受的扩展名：.dump、.sql、.sql.gz、.tar、.tar.gz、.archive、.archive.gz"
+    file_not_compatible: "备份文件 '%{filename}' 与 %{catalog} 数据库不兼容"
+  alerts:
+    rule_not_found: 未找到告警 %{id}
+    channel_config_invalid: "channel_config：%{error}"
+    delivery_failed: "投递失败：%{error}"
+    invalid_metric: "无效的指标：%{value}"
+    invalid_comparison: "无效的比较：%{value}"
+    invalid_severity: "无效的严重级别：%{value}"
+    unsupported_channel: "不支持的渠道：%{value}"
+    unknown_driver: "未知的驱动：%{value}"
+    telegram_requires_credentials: 启用 Telegram 前需要 bot_token 和 chat_id
+    telegram_not_configured: 未配置 Telegram
+    email_requires_credentials: 启用前请填写驱动凭据和发件/收件地址
+    email_addresses_required: from_address 和 to_address 为必填项
+    discord_requires_webhook: 启用 Discord 前需要 webhook_url
+    discord_not_configured: 未配置 Discord
+    slack_requires_webhook: 启用 Slack 前需要 webhook_url
+    slack_not_configured: 未配置 Slack
+  sources:
+    name_and_url_required: 名称和 URL 为必填项
+    source_not_found: 未找到来源 %{name}
+    missing_app_id: 缺少 app_id
+    missing_installation_id: 缺少 installation_id
+    missing_private_key: 缺少 private_key
+    fetch_repos_failed: "获取仓库失败：%{error}"
+    list_branches_failed: "列出分支失败：%{error}"
+    platform_domain_required: 请先在 Proxy 设置中配置平台域名以用于 GitHub App OAuth 流程
+    repo_required: repo 为必填项
+  dependencies:
+    target_required: depends_on_service_id 为必填项
+    self_dependency: 服务不能依赖自身
+    service_not_found: 未找到服务 %{id}
+    target_not_found: 未找到目标服务
+    cross_project: 依赖必须在同一项目内
+    cycle: 该边将造成依赖循环
+    already_exists: 依赖已存在
+    dependency_not_found: 未找到依赖 %{id}
+  users:
+    valid_email_required: 需要有效的电子邮件
+    owner_role_not_via_invitation: 无法通过邀请授予 Owner 角色
+    unknown_role: "未知角色：%{name}"
+    only_owner_can_invite_admins: 只有 Owner 才能邀请新的 Admin
+    active_invitation_exists: 此电子邮件已存在一个有效的邀请
+    use_account_endpoints: 请使用 /account 端点来编辑自己
+    user_not_found: 未找到用户
+    only_owner_can_edit_owner: 只有 Owner 才能编辑 Owner
+    cannot_delete_yourself: 无法删除自己
+    cannot_delete_last_owner: 无法删除最后一个活动的 Owner
+    only_owner_can_delete_owner: 只有 Owner 才能删除 Owner
+    only_owner_can_delete_admins: 只有 Owner 才能删除其他 Admin
+    cannot_demote_last_owner: 无法降级最后一个活动的 Owner
+  # Git push webhook receivers (api/webhooks.rs).
+  webhooks:
+    missing_repo_or_sha: 缺少仓库 URL 或提交 SHA
+    invalid_json: "无效的 JSON：%{error}"
+  # NoSQL data browser (api/db_nosql.rs) — Redis/Valkey & MongoDB.
+  db_nosql:
+    resource_not_found: 未找到资源 %{v}
+    no_host_port: 此服务未分配主机端口。
+    not_redis_service: 这不是 Redis 服务。
+    redis_error: "Redis 错误：%{v}"
+    redis_client: "Redis 客户端：%{v}"
+    redis_connect_failed: "无法连接到 Redis：%{v}"
+    command_empty: 命令为空
+    not_mongodb_service: 这不是 MongoDB 服务。
+    unexpected_mongosh_output: "意外的 mongosh 输出：%{v}"
+    parse_mongo_output_failed: "无法解析 MongoDB 输出：%{v}"
+    script_empty: 脚本为空
+  # Account tab: profile, password change, sessions, 2FA (api/account.rs).
+  account:
+    new_password_must_differ: 新密码必须与当前密码不同
+    cannot_revoke_current_session: "无法吊销当前会话 — 请改用 /logout"
+    session_not_found: 未找到会话 %{v}
+    two_fa_already_enabled: "2FA 已启用 — 请先禁用再重新注册"
+    two_fa_code_mismatch: "验证码不匹配 — 请检查设备上的时间后重试"
+    two_fa_not_enabled: 未启用 2FA
+  # Embedded npm registry settings & upstream proxy (api/registry_settings.rs).
+  registry_settings:
+    s3_storage_not_found: "未找到 s3 存储 '%{v}'"
+    proxy_upstream_url_empty: proxy_upstream_url 不能为空
+    proxy_upstream_url_scheme: "proxy_upstream_url 必须以 http:// 或 https:// 开头"
+    no_latest_dist_tag: "该包没有 'latest' dist-tag"
+    no_upstream_url_cached: "%{v}：未缓存上游 URL"
+    upstream_proxy_disabled: 设置中已禁用上游代理
+    upstream_404: "%{v} 的上游返回 404"
+  db_browser:
+    query_failed: "查询失败：%{v}"
+    resource_not_found: 未找到资源 %{v}
+    unsupported_engine: "数据浏览器支持 PostgreSQL 和 MySQL/MariaDB。MongoDB 和 Redis 将在后续阶段推出。"
+    no_host_port: "此 %{v} 服务未分配主机端口，因此面板无法访问它。"
+    connect_failed: "无法连接到 %{host}:%{port} 处的 %{engine}：%{err}"
+    table_not_found: 未找到表 %{schema}.%{table}
+    schema_required: schema 为必填项
+    table_required: table 为必填项
+    no_primary_key: "此表没有主键，因此无法安全地编辑行。"
+    pk_mismatch: "行键必须与表的主键列匹配。"
+    unknown_column: 未知列 %{v}
+    no_values: 未提供任何值。
+    empty_sql: SQL 语句为空
+    unnamed_columns: "结果含有未命名或重复的列。请添加明确的列别名以在网格中查看它。"
+  migration:
+    not_found: 未找到堆栈 %{v}
+    no_compose_content: 堆栈没有 compose 内容；没有可迁移的内容
+    stateful: "%{v}。有状态迁移已列入路线图 — 参见 FUTURE.md。"
+    remote_managed: 堆栈由远程主控管理；请从那里进行迁移
+    already_in_progress: 此堆栈已有另一个迁移正在进行中
+    target_not_paired: "目标 %{v} 未为联邦配对；请在 /servers/<id> 中设置其令牌"
+    target_rejected_create: "目标拒绝了创建：%{v}"
+    target_deploy_failed: "目标部署失败（目标行已回滚）：%{v}"
+  project_members:
+    unknown_project_role: "未知的 project_role：%{v}"
+    user_not_found: 未找到用户
+    user_with_email_not_found: 未找到使用该电子邮件的用户
+    user_id_or_email_required: user_id 或 email 为必填项
+    already_member: 用户已是此项目的成员
+    membership_not_found: 未找到成员关系
+    cannot_demote_last_admin: 无法降级最后一个 Project Admin
+    cannot_remove_last_admin: 无法移除最后一个 Project Admin
+  service_dns:
+    name_refers_to_server: "名称 '%{v}' 已指向某个服务器（%{v}.mesh）；请选择不同的标签"
+    name_already_registered: "名称 '%{v}' 已注册"
+    server_id_not_found: "server_id '%{v}' 不存在"
+    mapping_not_found: "未找到 service-DNS 映射 '%{v}'"
+    name_length: 名称必须为 1..=31 个字符
+    name_must_start: 名称必须以 [a-z0-9] 开头
+    name_must_end: 名称必须以 [a-z0-9] 结尾
+    name_invalid_chars: "名称只能包含小写字母、数字和 '-'"
+    port_range: 端口必须在 1..=65535 范围内
+  schedules:
+    unknown_action_type: "未知的 action_type '%{v}'"
+    name_required: 名称为必填项
+    not_found: 未找到计划
+    system_no_delete: 系统计划可以禁用但不能删除
+  compose:
+    name_and_yaml_required: 名称和 YAML 为必填项
+    stack_no_yaml: 堆栈没有 YAML 内容
+    stack_not_found: 未找到堆栈 %{id}
+  deployments:
+    deployment_not_found: 未找到部署 %{v}
+    deployment_not_in_progress: 部署未在进行中
+    service_not_found: 未找到服务 %{v}
+    git_not_configured: 此服务未配置 Git。请先设置 git_repo_url。
+    service_not_found_in_project: "在项目中未找到服务 '%{v}'"
+  tasks:
+    name_required: 名称为必填项
+    command_required: 命令为必填项
+    template_name_exists: "名为 '%{v}' 的模板已存在"
+    template_not_found: 未找到模板
+    template_or_command_required: template_id 或 command 至少需要一个
+    run_not_found: 未找到任务运行
+  s3:
+    required_fields: 名称、endpoint 和 bucket 为必填项
+    storage_not_found: 未找到 S3 存储 %{v}
+    bunny_test_failed: "Bunny.net 测试失败：%{v}"
+    test_failed: "S3 测试失败：%{v}"
+  promote:
+    server_not_found: 未找到服务器 %{v}
+    local_server_full_core: 无法提升本地服务器（它已经是完整的 pier-core）
+    local_server: 无法提升本地服务器
+    agent_unreachable: "无法访问 agent：%{v}"
+    agent_rejected: "agent：%{v}"
+  network:
+    listen_port_privileged: "listen_port 必须 ≥1024（不允许使用特权端口）"
+    mesh_config_locked: 在更改配置前，mesh 必须被禁用且没有 peer
+    mesh_already_enabled: mesh 已启用
+    enable_before_configure: 在运行 configure 前请先启用 mesh
+    no_peers_allocated: 未分配任何 peer；请先按下“启用 Mesh”
+    invalid_subnet: "subnet：%{error}"
+  federation_agent:
+    name_and_yaml_required: 名称和 YAML 为必填项
+    stack_no_yaml: 堆栈没有 YAML 内容
+    stack_not_found: 未找到堆栈 %{v}
+    stack_owned_by_other_primary: 堆栈由另一个主控管理
+    stack_locally_owned: 堆栈由此 peer 本地拥有；请让操作员先释放它
+  registries:
+    fields_required: registry、username 和 password 为必填项
+    already_exists: "此范围内已存在 registry '%{v}' 的凭据"
+    not_found: 未找到 registry 凭据 %{v}
+    probe_mismatch: "探测镜像 '%{image}' 不属于 registry '%{registry}'"
+  rbac:
+    owner_only_peer_token: 仅限 Owner 的路由无法通过 peer 令牌访问
+    requires_global_role: 需要 %{v} 角色
+    resource_not_bound: 资源未绑定到项目
+    not_project_member: 不是项目 %{v} 的成员
+    requires_project_role: 需要项目 %{v} 角色
+  networks:
+    name_required: 网络名称为必填项
+    name_invalid_chars: 网络名称只能包含字母、数字、连字符和下划线
+    not_found: 未找到网络 %{v}
+    cannot_delete_default: 无法删除默认网络
+    has_services: 网络有 %{v} 个服务。请先移动它们。
+  registry_admin:
+    dist_tag_not_found: dist-tag %{v}
+    version_not_found: "%{v}"
+    package_not_found: 包 %{v}
+  invitations:
+    not_found: 未找到邀请
+    username_required: 用户名为必填项
+  system_logs:
+    unit_not_allowed: "不允许的单元：%{v}"
+    invalid_since: "无效的 since 预设：%{v}"
+    invalid_lines: "无效的行数：%{v}"
+    invalid_priority: "无效的优先级：%{v}"
+  npm_web_login:
+    session_not_found: 登录会话 %{v}
+    session_expired: 会话已过期
+    session_already_status: 会话已经是 %{v}
+  tokens:
+    name_required: 名称为必填项
+    name_too_long: 名称过长（最多 100）
+    not_found: 令牌 %{v}
+  proxy:
+    fetch_latest_version_failed: "无法获取最新的 Traefik 版本：%{v}"
+    update_failed_rolled_back: "更新到 Traefik %{latest} 失败：%{err}。已回滚到 %{previous}。"
+  grants:
+    name_required: 名称为必填项
+    grant_not_found: 未找到授权 %{v}
+  env:
+    resource_not_found: 未找到资源 %{v}
+  federation_tokens:
+    label_required: 标签为必填项
+    token_not_found: 未找到令牌 %{v}
+  catalog:
+    template_not_found: "未找到目录模板 '%{v}'"
+  settings_railpack:
+    max_parallel_builds_range: max_parallel_builds 必须介于 %{min} 和 %{max} 之间
+  system:
+    invalid_timezone: "无效的 IANA 时区：%{v}"
+  pages:
+    package_not_found: 包 %{v}
+    login_session_not_found: 登录会话 %{v}
+  executor:
+    task_run_not_found: 未找到任务运行
+    task_already_status: 任务已经是 %{v}
+

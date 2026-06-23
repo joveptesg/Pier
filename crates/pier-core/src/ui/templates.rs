@@ -29,6 +29,10 @@ pub fn init_templates() -> Environment<'static> {
     // `crate::i18n` for how the locale is bound per request.
     env.add_function("t", crate::i18n::translate);
 
+    // `{{ current_locale() }}` — the active request locale (e.g. "en", "es",
+    // "zh-CN"). Used by the language switcher to highlight the selected entry.
+    env.add_function("current_locale", crate::i18n::current_locale);
+
     tracing::info!("Loaded {} templates", TemplateAssets::iter().count());
     env
 }
