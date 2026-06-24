@@ -305,6 +305,30 @@ pub async fn create(
         }
     }
 
+    // Apply UI-field defaults so compose templates that reference a field by
+    // its key (e.g. {{port}}, {{kibana_port}}, {{ssh_port}}) resolve even when
+    // the operator did not override it. User-supplied non-empty values win;
+    // auto_generate fields are handled above.
+    if let Some(ui) = &item.ui {
+        for (key, field) in &ui.fields {
+            if field.auto_generate {
+                continue;
+            }
+            let val = body
+                .config
+                .get(key)
+                .filter(|v| !v.is_empty())
+                .cloned()
+                .or_else(|| field.default.clone());
+            if let Some(v) = val {
+                vars.entry(key.clone()).or_insert_with(|| v.clone());
+                if let Some(maps_to) = &field.maps_to {
+                    vars.entry(maps_to.clone()).or_insert(v);
+                }
+            }
+        }
+    }
+
     // Apply env defaults
     let env_defaults: Vec<(String, String)> = item
         .env

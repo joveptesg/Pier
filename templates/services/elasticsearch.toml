@@ -32,8 +32,8 @@ description = "Node transport"
 mount = "/usr/share/elasticsearch/data"
 
 [env]
-discovery.type = { default = "single-node", description = "Discovery type" }
-xpack.security.enabled = { default = "false", description = "Enable security" }
+"discovery.type" = { default = "single-node", description = "Discovery type" }
+"xpack.security.enabled" = { default = "false", description = "Enable security" }
 ES_JAVA_OPTS = { default = "-Xms512m -Xmx512m", description = "JVM options" }
 
 [healthcheck]

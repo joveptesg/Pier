@@ -46,6 +46,17 @@ pub struct DockerConfig {
     pub image: String,
     #[serde(default)]
     pub command: Vec<String>,
+    #[serde(default)]
+    pub entrypoint: Vec<String>,
+    /// Linux capabilities to add (e.g. `NET_ADMIN` for VPN containers).
+    #[serde(default)]
+    pub cap_add: Vec<String>,
+    /// `sysctls` entries (e.g. `net.ipv4.ip_forward=1`).
+    #[serde(default)]
+    pub sysctls: Vec<String>,
+    /// Host devices to expose (e.g. `/dev/net/tun:/dev/net/tun`).
+    #[serde(default)]
+    pub devices: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -338,10 +349,15 @@ pub fn build_compose_yaml_scaled(
         .iter()
         .map(|c| format!("\"{}\"", substitute(c, env_vars)))
         .collect();
+    let entry_entries: Vec<String> = docker
+        .entrypoint
+        .iter()
+        .map(|c| format!("\"{}\"", substitute(c, env_vars)))
+        .collect();
 
     let env_entries: Vec<_> = env_vars
         .iter()
-        .filter(|(key, _)| key.chars().next().is_some_and(|c| c.is_uppercase()))
+        .filter(|(key, _)| key.contains('.') || key.chars().next().is_some_and(|c| c.is_uppercase()))
         .collect();
 
     let mut yaml = String::from("services:\n");
@@ -360,8 +376,30 @@ pub fn build_compose_yaml_scaled(
         yaml.push_str(&format!("    image: {image}\n"));
         yaml.push_str(&format!("    container_name: {container_name}\n"));
 
+        if !entry_entries.is_empty() {
+            yaml.push_str(&format!("    entrypoint: [{}]\n", entry_entries.join(", ")));
+        }
         if !cmd_entries.is_empty() {
             yaml.push_str(&format!("    command: [{}]\n", cmd_entries.join(", ")));
+        }
+
+        if !docker.cap_add.is_empty() {
+            yaml.push_str("    cap_add:\n");
+            for cap in &docker.cap_add {
+                yaml.push_str(&format!("      - {cap}\n"));
+            }
+        }
+        if !docker.devices.is_empty() {
+            yaml.push_str("    devices:\n");
+            for dev in &docker.devices {
+                yaml.push_str(&format!("      - {}\n", substitute(dev, env_vars)));
+            }
+        }
+        if !docker.sysctls.is_empty() {
+            yaml.push_str("    sysctls:\n");
+            for sysctl in &docker.sysctls {
+                yaml.push_str(&format!("      - {}\n", substitute(sysctl, env_vars)));
+            }
         }
 
         if !ports.is_empty() {

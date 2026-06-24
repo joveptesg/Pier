@@ -31,13 +31,6 @@ description = "gRPC API"
 [volumes.storage]
 mount = "/qdrant/storage"
 
-[healthcheck]
-test = ["CMD-SHELL", "curl -f http://localhost:6333/healthz || exit 1"]
-interval = "10s"
-timeout = "5s"
-retries = 5
-start_period = "10s"
-
 [versions]
 available = ["1.13.2", "1.13.1", "1.12.5", "1.11.5"]
 default = "1.13.2"

@@ -17,6 +17,7 @@ When to upgrade — once you have more than a handful of active users or join bu
 
 [docker]
 image = "matrixdotorg/synapse:{{version}}"
+entrypoint = ["sh", "-c", "/start.py generate && /start.py run"]
 
 [ports.primary]
 internal = 8008

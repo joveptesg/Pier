@@ -125,9 +125,12 @@ if [[ "${PIER_SKIP_RAILPACK:-0}" != "1" ]]; then
         RAILPACK_TAG=$(curl -fsSL https://api.github.com/repos/railwayapp/railpack/releases/latest 2>/dev/null \
             | grep -oP '"tag_name":\s*"\K[^"]+' | head -n1)
         if [[ -n "$RAILPACK_TAG" ]]; then
-            if curl -fsSL -o /usr/local/bin/railpack \
-                "https://github.com/railwayapp/railpack/releases/download/${RAILPACK_TAG}/railpack-linux-amd64" 2>/dev/null; then
-                chmod +x /usr/local/bin/railpack
+            # railpack ships a versioned musl tarball (the old flat
+            # railpack-linux-amd64 asset name 404s on current releases).
+            if curl -fsSL --retry 5 --retry-all-errors -o /tmp/railpack.tgz \
+                "https://github.com/railwayapp/railpack/releases/download/${RAILPACK_TAG}/railpack-${RAILPACK_TAG}-x86_64-unknown-linux-musl.tar.gz" 2>/dev/null \
+                && tar xzf /tmp/railpack.tgz -C /tmp 2>/dev/null \
+                && install -m755 "$(find /tmp -maxdepth 2 -name railpack -type f | head -n1)" /usr/local/bin/railpack; then
                 info "Installed railpack $RAILPACK_TAG"
             else
                 warn "Failed to download railpack binary — Auto-build will be unavailable"

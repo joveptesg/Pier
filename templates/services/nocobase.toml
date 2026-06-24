@@ -27,11 +27,13 @@ description = "Web UI"
 mount = "/app/storage"
 
 [env]
-DB_STORAGE = { default = "/app/storage/db", description = "Database storage path" }
+APP_KEY = { default = "{{password}}", description = "Application secret key", secret = true }
 APP_PORT = { default = "8000", description = "Application port" }
+DB_DIALECT = { default = "sqlite", description = "Database dialect" }
+DB_STORAGE = { default = "/app/storage/nocobase.sqlite", description = "SQLite database file" }
 
 [healthcheck]
-test = ["CMD-SHELL", "wget --spider -q http://localhost:8000/ || exit 1"]
+test = ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8000/ || exit 1"]
 interval = "10s"
 timeout = "5s"
 retries = 5
@@ -51,3 +53,9 @@ placeholder = "my-nocobase"
 type = "select"
 label = "Version"
 options_from = "versions.available"
+
+[ui.fields.app_key]
+type = "password"
+label = "App Key"
+auto_generate = true
+maps_to = "APP_KEY"

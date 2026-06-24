@@ -32,6 +32,13 @@ DIFFICULTY = { default = "normal", description = "Game difficulty" }
 MODE = { default = "survival", description = "Game mode" }
 MOTD = { default = "Pier Minecraft Server", description = "Message of the day" }
 
+[healthcheck]
+test = ["CMD", "mc-monitor", "status", "--host", "localhost"]
+interval = "30s"
+timeout = "10s"
+retries = 10
+start_period = "300s"
+
 [versions]
 available = ["latest", "java21", "java17"]
 default = "latest"

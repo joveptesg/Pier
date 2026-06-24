@@ -16,7 +16,7 @@ Because every Supabase feature is a Postgres extension or sidecar, your data sta
 """
 
 [docker]
-image = "supabase/postgres:latest"
+image = "supabase/postgres:15.8.1.060"
 
 [ports.primary]
 internal = 5432

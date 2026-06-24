@@ -20,6 +20,7 @@ template = """services:
   synapse:
     image: matrixdotorg/synapse:{{version}}
     container_name: pier-{{name}}-synapse
+    entrypoint: ["sh", "-c", "/start.py generate && /start.py run"]
     ports:
       - "{{port}}:8008"
     environment:
