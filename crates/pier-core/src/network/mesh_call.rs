@@ -50,14 +50,25 @@ pub async fn dispatch<P: Serialize>(
     op: &str,
     params: &P,
 ) -> Result<MeshOpResult> {
-    let (kind, host, port, agent_token, is_local) = lookup_server(state, server_id)?;
+    let (kind, host, port, agent_token, is_local, tls_fingerprint) =
+        lookup_server(state, server_id)?;
 
     if is_local {
         return call_local_socket(op, params).await;
     }
 
     match kind.as_str() {
-        "agent" => call_remote_agent(&host, port, &agent_token, op, params).await,
+        "agent" => {
+            call_remote_agent(
+                &host,
+                port,
+                &agent_token,
+                tls_fingerprint.as_deref(),
+                op,
+                params,
+            )
+            .await
+        }
         "peer" => Err(anyhow!(
             "mesh orchestration against peer-kind servers is not yet supported \
              (server_id={server_id})"
@@ -69,7 +80,7 @@ pub async fn dispatch<P: Serialize>(
 fn lookup_server(
     state: &SharedState,
     server_id: &str,
-) -> Result<(String, String, i64, String, bool)> {
+) -> Result<(String, String, i64, String, bool, Option<String>)> {
     let db = state.db.lock().map_err(|e| anyhow!("DB lock: {e}"))?;
     // Same mesh-preference logic as servers::get_server_info: once a
     // peer's wireguard_peers.status is `active`, subsequent mesh ops
@@ -80,7 +91,7 @@ fn lookup_server(
     let row = db
         .query_row(
             "SELECT s.kind, s.host, s.port, s.agent_token, s.is_local,
-                    wp.assigned_ip, wp.status, wc.enabled
+                    wp.assigned_ip, wp.status, wc.enabled, s.agent_tls_fingerprint
              FROM servers s
              LEFT JOIN wireguard_peers wp ON wp.server_id = s.id
              LEFT JOIN wireguard_config wc ON wc.id = 1
@@ -96,13 +107,24 @@ fn lookup_server(
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| anyhow!("server {server_id} not found"))?;
 
-    let (kind, mut host, port, token, is_local, mesh_ip, mesh_status, mesh_enabled) = row;
+    let (
+        kind,
+        mut host,
+        port,
+        token,
+        is_local,
+        mesh_ip,
+        mesh_status,
+        mesh_enabled,
+        tls_fingerprint,
+    ) = row;
     let mesh_active = mesh_enabled.unwrap_or(0) == 1
         && mesh_status.as_deref() == Some("active")
         && mesh_ip.is_some();
@@ -111,7 +133,7 @@ fn lookup_server(
             host = ip;
         }
     }
-    Ok((kind, host, port, token, is_local))
+    Ok((kind, host, port, token, is_local, tls_fingerprint))
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +192,7 @@ async fn call_remote_agent<P: Serialize>(
     host: &str,
     port: i64,
     agent_token: &str,
+    fingerprint: Option<&str>,
     op: &str,
     params: &P,
 ) -> Result<MeshOpResult> {
@@ -187,13 +210,12 @@ async fn call_remote_agent<P: Serialize>(
     }
 
     let url = format!(
-        "http://{}/api/v1/agent/mesh/{op}",
+        "https://{}/api/v1/agent/mesh/{op}",
         super::address::authority(host, port)
     );
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(150)) // > helper's 120s op timeout
-        .build()
-        .context("building http client")?;
+    // > helper's 120s op timeout. Pinned to the agent's leaf fingerprint.
+    let client = super::agent_client::build_agent_client(fingerprint, Duration::from_secs(150))
+        .context("building pinned agent client")?;
 
     let body = serde_json::to_value(params).context("serializing params")?;
     let resp = client

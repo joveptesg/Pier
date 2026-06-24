@@ -15,8 +15,16 @@ tokio = { workspace = true }
 
 # HTTP / API
 axum = { workspace = true }
+axum-server = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
+
+# TLS — the agent serves HTTPS with a self-signed cert; core pins its
+# leaf-cert SHA-256 fingerprint (no PKI chain/hostname validation).
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+rcgen = { workspace = true }
+sha2 = { workspace = true }
 
 # Docker
 bollard = { workspace = true }

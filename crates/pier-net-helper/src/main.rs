@@ -42,7 +42,8 @@ mod imp {
     use tracing::{error, info, warn};
 
     use crate::protocol::{
-        inject_private_key, validate_wg_config, validate_wg_config_no_privkey, Op, Request, Response,
+        inject_private_key, validate_wg_config, validate_wg_config_no_privkey, Op, Request,
+        Response,
     };
 
     /// Default unix-socket path. Created by the helper; the systemd unit
@@ -315,9 +316,11 @@ mod imp {
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| anyhow!("no local WireGuard private key — run generate_keypair first"))?;
-        let content = inject_private_key(content, &private_key)
-            .context("injecting node-local PrivateKey")?;
+            .ok_or_else(|| {
+                anyhow!("no local WireGuard private key — run generate_keypair first")
+            })?;
+        let content =
+            inject_private_key(content, &private_key).context("injecting node-local PrivateKey")?;
         // Belt and suspenders: the final text (now WITH the injected
         // PrivateKey) must still pass the full directive whitelist.
         validate_wg_config(&content).context("rejecting injected wg0.conf")?;

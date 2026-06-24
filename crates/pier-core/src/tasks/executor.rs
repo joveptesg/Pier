@@ -21,7 +21,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 
-use crate::api::servers::get_server_info;
+use crate::api::servers::{get_server_info, AgentConn};
 use crate::error::AppError;
 use crate::state::SharedState;
 use crate::tasks::models;
@@ -80,7 +80,14 @@ pub async fn start_run(state: &SharedState, spec: StartSpec) -> Result<String, A
         .map_err(|e| anyhow!("insert task_run: {e}"))?
     };
 
-    let (host, port, agent_token, is_local, kind) = get_server_info(state, &spec.server_id)?;
+    let AgentConn {
+        host,
+        port,
+        token: agent_token,
+        is_local,
+        kind,
+        tls_fingerprint,
+    } = get_server_info(state, &spec.server_id)?;
     if kind == "peer" {
         return finalize_unreachable(state, &task_id, "tasks not supported on peer servers");
     }
@@ -96,6 +103,7 @@ pub async fn start_run(state: &SharedState, spec: StartSpec) -> Result<String, A
         &host,
         port,
         &agent_token,
+        tls_fingerprint.as_deref(),
         &spec.command,
         spec.timeout_sec,
         &spec.env,
@@ -136,8 +144,8 @@ pub fn spawn_driver(state: SharedState, task_id: String, server_id: String, agen
             // mesh transitions don't strand the poller against a stale
             // host/port.
             let conn_info = get_server_info(&state, &server_id);
-            let (host, port, agent_token) = match conn_info {
-                Ok((h, p, t, _, _)) => (h, p, t),
+            let (host, port, agent_token, tls_fingerprint) = match conn_info {
+                Ok(c) => (c.host, c.port, c.token, c.tls_fingerprint),
                 Err(e) => {
                     failures += 1;
                     if failures >= MAX_POLL_FAILURES {
@@ -152,7 +160,15 @@ pub fn spawn_driver(state: SharedState, task_id: String, server_id: String, agen
                 }
             };
 
-            match fetch_agent_snapshot(&host, port, &agent_token, &agent_run_id).await {
+            match fetch_agent_snapshot(
+                &host,
+                port,
+                &agent_token,
+                tls_fingerprint.as_deref(),
+                &agent_run_id,
+            )
+            .await
+            {
                 Ok(snap) => {
                     failures = 0;
                     let finished =
@@ -219,8 +235,21 @@ pub async fn cancel_run(state: &SharedState, task_id: &str) -> Result<(), AppErr
     };
 
     if let Some(agent_run_id) = agent_run_id {
-        let (host, port, agent_token, _, _) = get_server_info(state, &server_id)?;
-        let _ = call_agent_cancel(&host, port, &agent_token, &agent_run_id).await;
+        let AgentConn {
+            host,
+            port,
+            token: agent_token,
+            tls_fingerprint,
+            ..
+        } = get_server_info(state, &server_id)?;
+        let _ = call_agent_cancel(
+            &host,
+            port,
+            &agent_token,
+            tls_fingerprint.as_deref(),
+            &agent_run_id,
+        )
+        .await;
     }
     Ok(())
 }
@@ -235,18 +264,17 @@ async fn call_agent_start(
     host: &str,
     port: i64,
     token: &str,
+    fingerprint: Option<&str>,
     command: &str,
     timeout_sec: i64,
     env: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<AgentStart> {
     let url = format!(
-        "http://{}/api/v1/agent/shell",
+        "https://{}/api/v1/agent/shell",
         crate::network::address::authority(host, port)
     );
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| anyhow!("http client: {e}"))?;
+    let client =
+        crate::network::agent_client::build_agent_client(fingerprint, Duration::from_secs(15))?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {token}"))
@@ -274,13 +302,15 @@ async fn fetch_agent_snapshot(
     host: &str,
     port: i64,
     token: &str,
+    fingerprint: Option<&str>,
     agent_run_id: &str,
 ) -> Result<AgentSnapshot> {
-    let url = format!("http://{host}:{port}/api/v1/agent/shell/{agent_run_id}");
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|e| anyhow!("http client: {e}"))?;
+    let url = format!(
+        "https://{}/api/v1/agent/shell/{agent_run_id}",
+        crate::network::address::authority(host, port)
+    );
+    let client =
+        crate::network::agent_client::build_agent_client(fingerprint, Duration::from_secs(5))?;
     let resp = client
         .get(&url)
         .header("Authorization", format!("Bearer {token}"))
@@ -300,12 +330,19 @@ async fn fetch_agent_snapshot(
     Ok(snap)
 }
 
-async fn call_agent_cancel(host: &str, port: i64, token: &str, agent_run_id: &str) -> Result<()> {
-    let url = format!("http://{host}:{port}/api/v1/agent/shell/{agent_run_id}/cancel");
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|e| anyhow!("http client: {e}"))?;
+async fn call_agent_cancel(
+    host: &str,
+    port: i64,
+    token: &str,
+    fingerprint: Option<&str>,
+    agent_run_id: &str,
+) -> Result<()> {
+    let url = format!(
+        "https://{}/api/v1/agent/shell/{agent_run_id}/cancel",
+        crate::network::address::authority(host, port)
+    );
+    let client =
+        crate::network::agent_client::build_agent_client(fingerprint, Duration::from_secs(5))?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {token}"))

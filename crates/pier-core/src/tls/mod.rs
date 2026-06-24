@@ -96,11 +96,11 @@ fn primary_outbound_ip_v6() -> Option<IpAddr> {
     sock.local_addr().ok().map(|a| a.ip())
 }
 
-/// Connecting a UDP socket to a public IP doesn't send any packets; it just
-/// forces the kernel to pick the source IP of the default route. That IP is
-/// what an external client (or Let's Encrypt) will see, so it's the right
-/// thing to put in the cert SAN. Both v4 and v6 variants live above as
-/// `primary_outbound_ip_v4` / `primary_outbound_ip_v6`.
+// Connecting a UDP socket to a public IP doesn't send any packets; it just
+// forces the kernel to pick the source IP of the default route. That IP is
+// what an external client (or Let's Encrypt) will see, so it's the right
+// thing to put in the cert SAN. Both v4 and v6 variants live above as
+// `primary_outbound_ip_v4` / `primary_outbound_ip_v6`.
 
 #[cfg(unix)]
 fn write_secret(path: &Path, bytes: &[u8]) -> Result<()> {

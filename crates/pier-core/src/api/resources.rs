@@ -2847,8 +2847,10 @@ pub async fn load_balance(
     }
 
     // Resolve server info once per unique server_id
-    let mut server_info: std::collections::HashMap<String, (String, i64, String, bool)> =
-        std::collections::HashMap::new();
+    let mut server_info: std::collections::HashMap<
+        String,
+        (String, i64, String, bool, Option<String>),
+    > = std::collections::HashMap::new();
     {
         let db = state
             .db
@@ -2860,7 +2862,8 @@ pub async fn load_balance(
             }
             let info = db
                 .query_row(
-                    "SELECT host, port, agent_token, is_local FROM servers WHERE id = ?1",
+                    "SELECT host, port, agent_token, is_local, agent_tls_fingerprint
+                     FROM servers WHERE id = ?1",
                     [&slot.server_id],
                     |row| {
                         Ok((
@@ -2868,6 +2871,7 @@ pub async fn load_balance(
                             row.get::<_, i64>(1)?,
                             row.get::<_, String>(2)?,
                             row.get::<_, bool>(3)?,
+                            row.get::<_, Option<String>>(4)?,
                         ))
                     },
                 )
@@ -2975,7 +2979,7 @@ pub async fn load_balance(
     let mut public_pending = primary_public;
     for (slot_idx, (slot, replicas_for_server)) in per_server_plan.iter().enumerate() {
         let _ = slot_idx; // index reserved for future per-slot diagnostics
-        let (host, port, agent_token, is_local) = server_info
+        let (host, port, agent_token, is_local, tls_fingerprint) = server_info
             .get(&slot.server_id)
             .cloned()
             .expect("server_info populated above");
@@ -3014,13 +3018,14 @@ pub async fn load_balance(
             }
         } else {
             let url = format!(
-                "http://{}/api/v1/agent/deploy",
+                "https://{}/api/v1/agent/deploy",
                 crate::network::address::authority(&host, port)
             );
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+            let client = crate::network::agent_client::build_agent_client(
+                tls_fingerprint.as_deref(),
+                std::time::Duration::from_secs(120),
+            )
+            .map_err(AppError::Internal)?;
             let payload = serde_json::json!({
                 "stack_name": stack_name,
                 "compose_yaml": yaml,
@@ -3086,7 +3091,7 @@ pub async fn load_balance(
     let name_slug = slug(&name);
     let mut upstreams: Vec<crate::proxy::config::LbUpstream> = Vec::new();
     for (slot, replicas_for_server) in &per_server_plan {
-        let (host, _port, _tok, is_local) = server_info
+        let (host, _port, _tok, is_local, _fp) = server_info
             .get(&slot.server_id)
             .cloned()
             .expect("server_info populated");

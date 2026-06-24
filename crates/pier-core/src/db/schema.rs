@@ -1529,6 +1529,20 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_service_deps_depends_on
         ON service_dependencies(depends_on_service_id);
     "#,
+    // Migration 66: pin the agent's TLS leaf-cert fingerprint per server.
+    //
+    // The core→agent channel is now HTTPS with the agent serving a
+    // self-signed cert. Core pins the SHA-256 of the agent's leaf cert
+    // (lowercase hex) instead of validating a chain/hostname — agents are
+    // reached by raw IP or mesh IP, so PKI hostname validation never
+    // applied. The fingerprint is delivered over the bootstrap-authenticated
+    // /handshake (and re-affirmed on heartbeat), so it never rides an
+    // unauthenticated TLS-TOFU. NULL == not yet pinned: core falls back to
+    // accept-any for that one server until the next handshake/heartbeat sets
+    // it (covers the brief pre-enrollment window and legacy rows).
+    r#"
+    ALTER TABLE servers ADD COLUMN agent_tls_fingerprint TEXT;
+    "#,
 ];
 
 /// Run all pending database migrations.

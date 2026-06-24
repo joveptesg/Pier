@@ -15,6 +15,7 @@ use tracing_subscriber::EnvFilter;
 mod helper_client;
 
 mod shell;
+mod tls;
 
 // ---------------------------------------------------------------------------
 // State
@@ -24,6 +25,10 @@ struct AgentState {
     token: String,
     docker: Docker,
     data_dir: String,
+    /// Lowercase-hex SHA-256 of this agent's TLS leaf cert. Core pins this
+    /// value; exposed read-only via `GET /api/v1/agent/tls/fingerprint` for
+    /// diagnostics and re-pinning.
+    tls_fingerprint: String,
     /// In-memory registry of running and recently-finished shell runs.
     /// Core polls these via `GET /api/v1/agent/shell/{run_id}` to drive the
     /// Tasks UI. Entries are GC'd a few minutes after `finished_at` (see
@@ -62,6 +67,24 @@ pub(crate) use require_auth;
 
 async fn health() -> impl IntoResponse {
     Json(serde_json::json!({"status": "ok"}))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/agent/tls/fingerprint
+//
+// Returns the SHA-256 leaf fingerprint of the cert this agent serves. Core
+// pins this during enrollment; the endpoint lets an operator (or a future
+// re-pin flow) read it back. Authenticated — the fingerprint is not secret
+// (it's in every TLS handshake), but keeping it behind the bearer avoids
+// leaking which hosts run an agent.
+// ---------------------------------------------------------------------------
+
+async fn tls_fingerprint(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    require_auth!(headers, state);
+    Json(serde_json::json!({ "fingerprint": state.tls_fingerprint })).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -732,6 +755,10 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
+    // Install the process-wide rustls crypto provider before any TLS use.
+    // `.ok()` because a second install (e.g. in tests) is harmless.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let token = std::env::var("PIER_AGENT_TOKEN").unwrap_or_else(|_| {
         tracing::warn!("PIER_AGENT_TOKEN not set — using empty token (insecure!)");
         String::new()
@@ -746,6 +773,14 @@ async fn main() -> Result<()> {
         std::env::var("PIER_AGENT_DATA_DIR").unwrap_or_else(|_| "/var/lib/pier-agent".into());
     tokio::fs::create_dir_all(&data_dir).await?;
 
+    // TLS: load (or generate) the agent's self-signed cert. The installer
+    // normally pre-generates it via openssl so the leaf fingerprint is known
+    // to core at handshake time; we generate one here only as a fallback.
+    let tls_dir =
+        std::env::var("PIER_AGENT_TLS_DIR").unwrap_or_else(|_| "/etc/pier-agent/tls".into());
+    let agent_tls = tls::load_or_generate(std::path::Path::new(&tls_dir)).await?;
+    tracing::info!("Agent TLS leaf fingerprint: {}", agent_tls.fingerprint);
+
     let docker = Docker::connect_with_local_defaults()
         .map_err(|e| anyhow::anyhow!("Docker connect failed: {e}"))?;
 
@@ -753,6 +788,7 @@ async fn main() -> Result<()> {
         token,
         docker,
         data_dir,
+        tls_fingerprint: agent_tls.fingerprint.clone(),
         shell_runs: Arc::new(RwLock::new(HashMap::new())),
     });
 
@@ -767,6 +803,7 @@ async fn main() -> Result<()> {
         .route("/health", get(health))
         // Authenticated endpoints
         .route("/metrics", get(metrics))
+        .route("/api/v1/agent/tls/fingerprint", get(tls_fingerprint))
         .route("/api/v1/agent/deploy", post(deploy))
         .route("/api/v1/agent/stop", post(stop))
         .route("/api/v1/agent/exec", post(exec_cmd))
@@ -800,10 +837,16 @@ async fn main() -> Result<()> {
     // PIER_AGENT_BIND=0.0.0.0 below.
     let bind_host = std::env::var("PIER_AGENT_BIND").unwrap_or_else(|_| "[::]".to_string());
     let addr = format!("{bind_host}:{port}");
-    tracing::info!("Pier Agent listening on {addr}");
+    let sock_addr: std::net::SocketAddr = addr
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid bind address {addr:?}: {e}"))?;
+    tracing::info!("Pier Agent listening on https://{addr}");
 
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    // HTTPS only: core pins the leaf fingerprint, so the channel is both
+    // encrypted and authenticated against cert swaps.
+    axum_server::bind_rustls(sock_addr, agent_tls.config)
+        .serve(app.into_make_service())
+        .await?;
 
     Ok(())
 }

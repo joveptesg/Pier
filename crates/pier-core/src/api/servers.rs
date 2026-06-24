@@ -60,6 +60,10 @@ pub struct HeartbeatRequest {
     pub cpu_count: Option<i64>,
     pub memory_total: Option<i64>,
     pub docker_version: Option<String>,
+    /// Re-affirm the agent's TLS leaf fingerprint (lowercase hex). Lets core
+    /// re-pin after a cert regeneration without a fresh bootstrap; NULL keeps
+    /// the existing pin.
+    pub agent_tls_fingerprint: Option<String>,
 }
 
 /// GET /api/v1/servers
@@ -281,7 +285,14 @@ pub async fn rotate_token_internal(state: &SharedState, id: &str) -> AppResult<R
     // Resolve the current server (host honors mesh-IP preference set in
     // 0.3e). Only agent-kind makes sense here — peers carry their own
     // user-issued grant token that this endpoint doesn't own.
-    let (host, port, current_token, is_local, kind) = get_server_info(state, id)?;
+    let AgentConn {
+        host,
+        port,
+        token: current_token,
+        is_local,
+        kind,
+        tls_fingerprint,
+    } = get_server_info(state, id)?;
     if kind != KIND_AGENT {
         return Err(AppError::BadRequest(crate::i18n::te(
             "errors.servers.rotate_agent_only",
@@ -308,13 +319,14 @@ pub async fn rotate_token_internal(state: &SharedState, id: &str) -> AppResult<R
     // sees the new token (network blip, agent down, helper rejected
     // the file write), we don't want core thinking it succeeded.
     let url = format!(
-        "http://{}/api/v1/agent/auth/rotate",
+        "https://{}/api/v1/agent/auth/rotate",
         crate::network::address::authority(&host, port)
     );
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("http client: {e}")))?;
+    let client = crate::network::agent_client::build_agent_client(
+        tls_fingerprint.as_deref(),
+        std::time::Duration::from_secs(10),
+    )
+    .map_err(AppError::Internal)?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {current_token}"))
@@ -374,6 +386,10 @@ pub struct HandshakeRequest {
     /// without waiting for the first heartbeat round-trip.
     pub os_info: Option<String>,
     pub docker_version: Option<String>,
+    /// SHA-256 (lowercase hex) of the agent's TLS leaf cert. The installer
+    /// computes this from the cert it pre-generated; core pins it so every
+    /// subsequent core→agent call validates the agent's identity.
+    pub agent_tls_fingerprint: Option<String>,
 }
 
 /// POST /api/v1/servers/{id}/handshake (public — bootstrap-token auth)
@@ -463,6 +479,7 @@ pub async fn handshake(
                  last_heartbeat = datetime('now'),
                  os_info = COALESCE(?4, os_info),
                  docker_version = COALESCE(?5, docker_version),
+                 agent_tls_fingerprint = COALESCE(?8, agent_tls_fingerprint),
                  last_error = NULL,
                  updated_at = datetime('now')
              WHERE id = ?6
@@ -476,6 +493,7 @@ pub async fn handshake(
                 body.docker_version,
                 id,
                 bootstrap_hash,
+                body.agent_tls_fingerprint,
             ],
         )?;
         // Race: another concurrent handshake redeemed first. Treat as
@@ -524,15 +542,22 @@ pub async fn test_connection(
             ))
         }
         KIND_AGENT => {
-            let (host, port, agent_token, _, _) = get_server_info(&state, &id)?;
+            let AgentConn {
+                host,
+                port,
+                token: agent_token,
+                tls_fingerprint,
+                ..
+            } = get_server_info(&state, &id)?;
             let url = format!(
-                "http://{}/health",
+                "https://{}/health",
                 crate::network::address::authority(&host, port)
             );
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+            let client = crate::network::agent_client::build_agent_client(
+                tls_fingerprint.as_deref(),
+                std::time::Duration::from_secs(5),
+            )
+            .map_err(AppError::Internal)?;
             let resp = client
                 .get(&url)
                 .header("Authorization", format!("Bearer {agent_token}"))
@@ -843,19 +868,20 @@ pub async fn metrics(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let (host, port, agent_token) = {
+    let (host, port, agent_token, tls_fingerprint) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT host, port, agent_token FROM servers WHERE id = ?1",
+            "SELECT host, port, agent_token, agent_tls_fingerprint FROM servers WHERE id = ?1",
             [&id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
                 ))
             },
         )
@@ -867,11 +893,15 @@ pub async fn metrics(
         })?
     };
 
-    let url = format!("http://{}:{}/metrics", host, port);
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+    let url = format!(
+        "https://{}/metrics",
+        crate::network::address::authority(&host, port)
+    );
+    let client = crate::network::agent_client::build_agent_client(
+        tls_fingerprint.as_deref(),
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(AppError::Internal)?;
 
     let resp = client
         .get(&url)
@@ -973,6 +1003,7 @@ pub async fn heartbeat(
                      cpu_count = COALESCE(?4, cpu_count),
                      memory_total = COALESCE(?5, memory_total),
                      docker_version = COALESCE(?6, docker_version),
+                     agent_tls_fingerprint = COALESCE(?7, agent_tls_fingerprint),
                      updated_at = datetime('now')
                  WHERE id = ?1",
                 rusqlite::params![
@@ -981,7 +1012,8 @@ pub async fn heartbeat(
                     body.os_info,
                     body.cpu_count,
                     body.memory_total,
-                    body.docker_version
+                    body.docker_version,
+                    body.agent_tls_fingerprint
                 ],
             )?
         } else {
@@ -993,6 +1025,7 @@ pub async fn heartbeat(
                      cpu_count = COALESCE(?3, cpu_count),
                      memory_total = COALESCE(?4, memory_total),
                      docker_version = COALESCE(?5, docker_version),
+                     agent_tls_fingerprint = COALESCE(?6, agent_tls_fingerprint),
                      updated_at = datetime('now')
                  WHERE id = ?1",
                 rusqlite::params![
@@ -1000,7 +1033,8 @@ pub async fn heartbeat(
                     body.os_info,
                     body.cpu_count,
                     body.memory_total,
-                    body.docker_version
+                    body.docker_version,
+                    body.agent_tls_fingerprint
                 ],
             )?
         }
@@ -1199,7 +1233,14 @@ pub async fn containers(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let (host, port, agent_token, is_local, _) = get_server_info(&state, &id)?;
+    let AgentConn {
+        host,
+        port,
+        token: agent_token,
+        is_local,
+        tls_fingerprint,
+        ..
+    } = get_server_info(&state, &id)?;
 
     if is_local {
         // Return local containers directly
@@ -1227,11 +1268,15 @@ pub async fn containers(
     }
 
     // Proxy to remote agent
-    let url = format!("http://{}:{}/api/v1/agent/status", host, port);
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+    let url = format!(
+        "https://{}/api/v1/agent/status",
+        crate::network::address::authority(&host, port)
+    );
+    let client = crate::network::agent_client::build_agent_client(
+        tls_fingerprint.as_deref(),
+        std::time::Duration::from_secs(10),
+    )
+    .map_err(AppError::Internal)?;
     let resp = client
         .get(&url)
         .header("Authorization", format!("Bearer {agent_token}"))
@@ -1256,7 +1301,14 @@ pub async fn deploy_to_server(
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> AppResult<impl IntoResponse> {
-    let (host, port, agent_token, is_local, _) = get_server_info(&state, &id)?;
+    let AgentConn {
+        host,
+        port,
+        token: agent_token,
+        is_local,
+        tls_fingerprint,
+        ..
+    } = get_server_info(&state, &id)?;
 
     if is_local {
         // Deploy locally
@@ -1274,11 +1326,15 @@ pub async fn deploy_to_server(
     }
 
     // Proxy to remote agent
-    let url = format!("http://{}:{}/api/v1/agent/deploy", host, port);
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+    let url = format!(
+        "https://{}/api/v1/agent/deploy",
+        crate::network::address::authority(&host, port)
+    );
+    let client = crate::network::agent_client::build_agent_client(
+        tls_fingerprint.as_deref(),
+        std::time::Duration::from_secs(120),
+    )
+    .map_err(AppError::Internal)?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {agent_token}"))
@@ -1304,7 +1360,14 @@ pub async fn stop_on_server(
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> AppResult<impl IntoResponse> {
-    let (host, port, agent_token, is_local, _) = get_server_info(&state, &id)?;
+    let AgentConn {
+        host,
+        port,
+        token: agent_token,
+        is_local,
+        tls_fingerprint,
+        ..
+    } = get_server_info(&state, &id)?;
 
     if is_local {
         let stack_name = body["stack_name"].as_str().ok_or_else(|| {
@@ -1316,11 +1379,15 @@ pub async fn stop_on_server(
         return Ok(Json(serde_json::json!({"ok": true, "output": output})));
     }
 
-    let url = format!("http://{}:{}/api/v1/agent/stop", host, port);
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+    let url = format!(
+        "https://{}/api/v1/agent/stop",
+        crate::network::address::authority(&host, port)
+    );
+    let client = crate::network::agent_client::build_agent_client(
+        tls_fingerprint.as_deref(),
+        std::time::Duration::from_secs(30),
+    )
+    .map_err(AppError::Internal)?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {agent_token}"))
@@ -1538,14 +1605,38 @@ else
     echo "Warning: pier-net-helper binary unavailable; mesh features will be unavailable until you re-run with a working release."
 fi
 
+# 3c. Generate the agent's own TLS certificate. The core→agent channel is
+#     HTTPS; core pins this cert's SHA-256 leaf fingerprint (no PKI chain or
+#     hostname validation — agents are reached by raw IP / mesh IP), so a
+#     minimal self-signed cert suffices. We compute the fingerprint here and
+#     hand it to core in the handshake so it can pin it from the first call.
+echo "Generating agent TLS certificate..."
+AGENT_TLS_DIR=/etc/pier-agent/tls
+mkdir -p "$AGENT_TLS_DIR"
+if [ ! -s "$AGENT_TLS_DIR/cert.pem" ] || [ ! -s "$AGENT_TLS_DIR/key.pem" ]; then
+    if ! openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$AGENT_TLS_DIR/key.pem" -out "$AGENT_TLS_DIR/cert.pem" \
+        -days 3650 -subj "/CN=pier-agent" >/dev/null 2>&1; then
+        echo "Error: openssl failed to generate the agent TLS cert."
+        exit 1
+    fi
+    chmod 600 "$AGENT_TLS_DIR/key.pem"
+fi
+AGENT_FP=$(openssl x509 -in "$AGENT_TLS_DIR/cert.pem" -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)
+if [ -z "$AGENT_FP" ]; then
+    echo "Error: could not compute the agent TLS fingerprint (is openssl installed?)."
+    exit 1
+fi
+echo "Agent TLS fingerprint: $AGENT_FP"
+
 # 4. Handshake — spend the one-shot bootstrap for a long-term agent token.
 #    The plaintext returned here is the only place the long-term token ever
 #    exists outside the systemd Environment= file we're about to write.
 echo "Performing handshake with Pier core..."
 OS_INFO="$(uname -srm)"
 DOCKER_VERSION="$(docker --version 2>/dev/null | cut -d' ' -f3 | tr -d ',' || echo unknown)"
-HANDSHAKE_BODY=$(printf '{{"bootstrap_token":"%s","os_info":"%s","docker_version":"%s"}}' \
-    "$BOOTSTRAP_TOKEN" "$OS_INFO" "$DOCKER_VERSION")
+HANDSHAKE_BODY=$(printf '{{"bootstrap_token":"%s","os_info":"%s","docker_version":"%s","agent_tls_fingerprint":"%s"}}' \
+    "$BOOTSTRAP_TOKEN" "$OS_INFO" "$DOCKER_VERSION" "$AGENT_FP")
 
 HANDSHAKE_RESPONSE=$(curl -fsSL {cacert_arg} \
     -X POST "$PIER_CORE_URL/api/v1/servers/$SERVER_ID/handshake" \
@@ -1596,6 +1687,7 @@ Type=simple
 EnvironmentFile=/etc/pier-agent/auth.env
 Environment="PIER_AGENT_PORT=$AGENT_PORT"
 Environment="PIER_AGENT_DATA_DIR=/var/lib/pier-agent"
+Environment="PIER_AGENT_TLS_DIR=$AGENT_TLS_DIR"
 Environment="RUST_LOG=info"
 ExecStart=/opt/pier/bin/pier-agent
 Restart=always
@@ -1622,8 +1714,8 @@ echo "Logs:   journalctl -u pier-agent -f"
 sleep 2
 curl -fsS {cacert_arg} -X POST "$PIER_CORE_URL/api/v1/servers/heartbeat" \
     -H "Content-Type: application/json" \
-    -d "$(printf '{{"agent_token":"%s","os_info":"%s","docker_version":"%s"}}' \
-            "$AGENT_TOKEN" "$OS_INFO" "$DOCKER_VERSION")" \
+    -d "$(printf '{{"agent_token":"%s","os_info":"%s","docker_version":"%s","agent_tls_fingerprint":"%s"}}' \
+            "$AGENT_TOKEN" "$OS_INFO" "$DOCKER_VERSION" "$AGENT_FP")" \
     || echo "Warning: first heartbeat failed; agent will retry."
 
 echo ""
@@ -1637,13 +1729,25 @@ echo "Agent registered with Pier core."
     ))
 }
 
-/// Helper: extract server connection info
-/// Returns (host, port, agent_token, is_local, kind). For peer kind, `host`/`port`
-/// are empty/0 and callers should route through the proxy handler instead.
-pub(crate) fn get_server_info(
-    state: &SharedState,
-    id: &str,
-) -> Result<(String, i64, String, bool, String), AppError> {
+/// Resolved connection info for a server, used by every core→agent call.
+///
+/// `host`/`port` honor the mesh-IP preference (once a peer's WireGuard tunnel
+/// is `active`, outbound traffic flips onto the private IP). `tls_fingerprint`
+/// is the agent's pinned leaf-cert SHA-256 (lowercase hex), `None` until the
+/// handshake has delivered it — callers pass it to
+/// [`crate::network::agent_client::build_agent_client`]. For `kind = "peer"`,
+/// `host`/`port` are empty/0 and callers route through the proxy handler.
+pub(crate) struct AgentConn {
+    pub host: String,
+    pub port: i64,
+    pub token: String,
+    pub is_local: bool,
+    pub kind: String,
+    pub tls_fingerprint: Option<String>,
+}
+
+/// Helper: extract server connection info. See [`AgentConn`].
+pub(crate) fn get_server_info(state: &SharedState, id: &str) -> Result<AgentConn, AppError> {
     let db = state
         .db
         .lock()
@@ -1663,7 +1767,7 @@ pub(crate) fn get_server_info(
     let row = db
         .query_row(
             "SELECT s.host, s.port, s.agent_token, s.is_local, s.kind,
-                    wp.assigned_ip, wp.status, wc.enabled
+                    wp.assigned_ip, wp.status, wc.enabled, s.agent_tls_fingerprint
              FROM servers s
              LEFT JOIN wireguard_peers wp ON wp.server_id = s.id
              LEFT JOIN wireguard_config wc ON wc.id = 1
@@ -1679,6 +1783,7 @@ pub(crate) fn get_server_info(
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
                 ))
             },
         )
@@ -1689,7 +1794,17 @@ pub(crate) fn get_server_info(
             ))
         })?;
 
-    let (mut host, port, token, is_local, kind, mesh_ip, mesh_status, mesh_enabled) = row;
+    let (
+        mut host,
+        port,
+        token,
+        is_local,
+        kind,
+        mesh_ip,
+        mesh_status,
+        mesh_enabled,
+        tls_fingerprint,
+    ) = row;
     let mesh_active = mesh_enabled.unwrap_or(0) == 1
         && mesh_status.as_deref() == Some("active")
         && mesh_ip.is_some();
@@ -1698,5 +1813,12 @@ pub(crate) fn get_server_info(
             host = ip;
         }
     }
-    Ok((host, port, token, is_local, kind))
+    Ok(AgentConn {
+        host,
+        port,
+        token,
+        is_local,
+        kind,
+        tls_fingerprint,
+    })
 }

@@ -357,7 +357,9 @@ pub fn build_compose_yaml_scaled(
 
     let env_entries: Vec<_> = env_vars
         .iter()
-        .filter(|(key, _)| key.contains('.') || key.chars().next().is_some_and(|c| c.is_uppercase()))
+        .filter(|(key, _)| {
+            key.contains('.') || key.chars().next().is_some_and(|c| c.is_uppercase())
+        })
         .collect();
 
     let mut yaml = String::from("services:\n");

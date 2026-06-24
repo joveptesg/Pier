@@ -94,15 +94,16 @@ pub async fn trigger(
     Json(body): Json<PromoteRequest>,
 ) -> AppResult<impl IntoResponse> {
     // 1. Resolve server connection info + build bundle under a scoped lock.
-    let (bundle, host, port, agent_token) = {
+    let (bundle, host, port, agent_token, tls_fingerprint) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-        let (name, host, port, agent_token, is_local) = db
+        let (name, host, port, agent_token, is_local, tls_fingerprint) = db
             .query_row(
-                "SELECT name, host, port, agent_token, is_local FROM servers WHERE id = ?1",
+                "SELECT name, host, port, agent_token, is_local, agent_tls_fingerprint
+                 FROM servers WHERE id = ?1",
                 [&id],
                 |row| {
                     Ok((
@@ -111,6 +112,7 @@ pub async fn trigger(
                         row.get::<_, i64>(2)?,
                         row.get::<_, String>(3)?,
                         row.get::<_, bool>(4)?,
+                        row.get::<_, Option<String>>(5)?,
                     ))
                 },
             )
@@ -126,12 +128,12 @@ pub async fn trigger(
             )));
         }
         let bundle = build_bundle(&db, &id, &name)?;
-        (bundle, host, port, agent_token)
+        (bundle, host, port, agent_token, tls_fingerprint)
     };
 
     // 2. POST to the agent.
     let url = format!(
-        "http://{}/api/v1/agent/promote",
+        "https://{}/api/v1/agent/promote",
         crate::network::address::authority(&host, port)
     );
     let payload = serde_json::json!({
@@ -139,10 +141,11 @@ pub async fn trigger(
         "core_download_url": body.core_download_url,
         "core_port": body.core_port,
     });
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+    let client = crate::network::agent_client::build_agent_client(
+        tls_fingerprint.as_deref(),
+        std::time::Duration::from_secs(60),
+    )
+    .map_err(AppError::Internal)?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {agent_token}"))

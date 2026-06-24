@@ -69,10 +69,10 @@ async fn fetch_server_host_metric(
     server_id: &str,
 ) -> Option<f64> {
     // If it's the local server, use sysinfo directly
-    let (is_local, host, port, token) = {
+    let (is_local, host, port, token, tls_fingerprint) = {
         let db = state.db.lock().ok()?;
         db.query_row(
-            "SELECT is_local, host, port, agent_token FROM servers WHERE id = ?1",
+            "SELECT is_local, host, port, agent_token, agent_tls_fingerprint FROM servers WHERE id = ?1",
             [server_id],
             |row| {
                 Ok((
@@ -80,6 +80,7 @@ async fn fetch_server_host_metric(
                     row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             },
         )
@@ -90,13 +91,14 @@ async fn fetch_server_host_metric(
         return fetch_local_host_metric(metric);
     }
 
-    // Remote: call agent /metrics
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .ok()?;
+    // Remote: call agent /metrics (pinned to the agent's leaf fingerprint).
+    let client = crate::network::agent_client::build_agent_client(
+        tls_fingerprint.as_deref(),
+        Duration::from_secs(5),
+    )
+    .ok()?;
     let url = format!(
-        "http://{}/metrics",
+        "https://{}/metrics",
         crate::network::address::authority(&host, port)
     );
     let resp = client
