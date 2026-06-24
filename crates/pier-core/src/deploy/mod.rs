@@ -492,6 +492,21 @@ pub async fn run_pipeline_with_id(
 
             if let Err(e) = build_result {
                 log.push_str(&format!("Railpack build failed: {e}\n"));
+                // Actionable hint for the most common failure on restricted /
+                // egress-filtered networks: Railpack bootstraps its toolchain
+                // manager (mise) from GitHub's release CDN before anything else,
+                // so a blocked release-assets.githubusercontent.com surfaces as a
+                // cryptic TLS/i-o timeout. Point the operator at the real cause.
+                if log.contains("release-assets.githubusercontent.com")
+                    || log.contains("Failed to ensure mise")
+                {
+                    log.push_str(
+                        "\nHint: Railpack could not download its build toolchain (mise) from \
+                         GitHub's release CDN (release-assets.githubusercontent.com). Ensure this \
+                         server can reach that host, or provide a mirror — other build hosts \
+                         (nodejs.org, npm registry) are unaffected.\n",
+                    );
+                }
                 finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
                 let _ = tokio::fs::remove_dir_all(&repo_dir).await;
                 return;
