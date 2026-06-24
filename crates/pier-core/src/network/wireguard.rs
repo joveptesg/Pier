@@ -232,20 +232,14 @@ pub fn allocate_ip(subnet: &Subnet, used: &[Ipv4Addr]) -> Result<Ipv4Addr> {
 /// guarantees only directives in the helper's whitelist
 /// (PrivateKey/Address/ListenPort/PublicKey/Endpoint/AllowedIPs/PersistentKeepalive),
 /// so `pier-net-helper`'s `validate_wg_config` will always accept the
-/// output.
-///
-/// `private_key` is the local node's WireGuard private key (the
-/// counterpart to `local.public_key`). It's passed in separately so the
-/// `Peer` struct can stay public-only.
-pub fn render_wg_conf(
-    local: &Peer,
-    peers: &[Peer],
-    config: &MeshConfig,
-    private_key: &str,
-) -> String {
+/// output. The `[Interface]` block intentionally omits `PrivateKey` — the
+/// private key never leaves the node; `pier-net-helper` injects its
+/// node-local key (from `wg0.privkey`) when it writes the config.
+pub fn render_wg_conf(local: &Peer, peers: &[Peer], config: &MeshConfig) -> String {
     let mut out = String::with_capacity(256 + peers.len() * 192);
+    // NOTE: no `PrivateKey` line — it never leaves the node. pier-net-helper
+    // injects the node-local key from wg0.privkey when it writes the config.
     out.push_str("[Interface]\n");
-    out.push_str(&format!("PrivateKey = {private_key}\n"));
     out.push_str(&format!("Address = {}/32\n", local.assigned_ip));
     out.push_str(&format!("ListenPort = {}\n", config.listen_port));
 
@@ -368,9 +362,12 @@ mod tests {
             public_key: None,
             ..peer("b", "vps2", Ipv4Addr::new(10, 42, 0, 2))
         };
-        let out = render_wg_conf(&local, &[local.clone(), pending], &cfg, "PRIV1");
+        let out = render_wg_conf(&local, &[local.clone(), pending], &cfg);
         assert!(out.contains("[Interface]"));
-        assert!(out.contains("PrivateKey = PRIV1"));
+        assert!(
+            !out.contains("PrivateKey"),
+            "core must not render a private key — helper injects it"
+        );
         assert!(out.contains("Address = 10.42.0.1/32"));
         assert!(out.contains("ListenPort = 51820"));
         assert!(!out.contains("[Peer]"), "pending peer must be skipped");
@@ -390,7 +387,7 @@ mod tests {
         p2.public_key = Some("PUB2".into());
         let mut p3 = peer("c", "vps3", Ipv4Addr::new(10, 42, 0, 3));
         p3.public_key = Some("PUB3".into());
-        let out = render_wg_conf(&local, &[local.clone(), p2, p3], &cfg, "PRIV1");
+        let out = render_wg_conf(&local, &[local.clone(), p2, p3], &cfg);
         assert_eq!(out.matches("[Peer]").count(), 2, "{out}");
         assert!(out.contains("PublicKey = PUB2"));
         assert!(out.contains("AllowedIPs = 10.42.0.2/32"));
@@ -410,7 +407,7 @@ mod tests {
         };
         let mut local = peer("a", "vps1", Ipv4Addr::new(10, 42, 0, 1));
         local.public_key = Some("PUB1".into());
-        let out = render_wg_conf(&local, &[local.clone()], &cfg, "PRIV1");
+        let out = render_wg_conf(&local, &[local.clone()], &cfg);
         assert!(
             !out.contains("[Peer]"),
             "self must never appear as a peer block: {out}"

@@ -41,7 +41,9 @@ mod imp {
     use tokio::task::JoinHandle;
     use tracing::{error, info, warn};
 
-    use crate::protocol::{validate_wg_config, Op, Request, Response};
+    use crate::protocol::{
+        inject_private_key, validate_wg_config, validate_wg_config_no_privkey, Op, Request, Response,
+    };
 
     /// Default unix-socket path. Created by the helper; the systemd unit
     /// owns the parent `/run/pier` via `RuntimeDirectory=pier`.
@@ -51,6 +53,10 @@ mod imp {
     /// only ever manages a single `wg0` interface on the Pier mesh.
     const WG_CONFIG_PATH: &str = "/etc/wireguard/wg0.conf";
     const WG_CONFIG_BAK_PATH: &str = "/etc/wireguard/wg0.conf.bak";
+    /// Node-local WireGuard private key. Generated and kept here by the
+    /// helper (mode 0600 root); the private half NEVER crosses the socket.
+    /// `op_write_config` injects it into the `[Interface]` block locally.
+    const WG_PRIVKEY_PATH: &str = "/etc/wireguard/wg0.privkey";
 
     /// Hard ceiling on the dead-man's switch so a caller can't park a
     /// rollback for hours and let a broken config sit. 10 minutes is more
@@ -217,25 +223,9 @@ mod imp {
         Ok(serde_json::json!({}))
     }
 
-    async fn op_generate_keypair() -> Result<serde_json::Value> {
-        let priv_out = tokio::process::Command::new("wg")
-            .arg("genkey")
-            .output()
-            .await
-            .context("running `wg genkey`")?;
-        if !priv_out.status.success() {
-            return Err(anyhow!(
-                "wg genkey failed: {}",
-                String::from_utf8_lossy(&priv_out.stderr)
-            ));
-        }
-        let private_key = String::from_utf8(priv_out.stdout)?.trim().to_string();
-        if private_key.is_empty() {
-            return Err(anyhow!("wg genkey produced empty output"));
-        }
-
-        // `wg pubkey` reads the private key on stdin. We pipe it in so
-        // the key never touches argv (which would leak it to `ps`).
+    /// Derive the WireGuard public key from a private key via `wg pubkey`.
+    /// The key is piped on stdin so it never touches argv (no `ps` leak).
+    async fn derive_pubkey(private_key: &str) -> Result<String> {
         use std::process::Stdio;
         let mut child = tokio::process::Command::new("wg")
             .arg("pubkey")
@@ -263,22 +253,80 @@ mod imp {
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
-        let public_key = String::from_utf8(out.stdout)?.trim().to_string();
+        Ok(String::from_utf8(out.stdout)?.trim().to_string())
+    }
 
-        Ok(serde_json::json!({
-            "private_key": private_key,
-            "public_key":  public_key,
-        }))
+    /// Generate (or reuse) this node's WireGuard keypair. The private key is
+    /// persisted to `wg0.privkey` (0600 root) and NEVER returned — only the
+    /// public half crosses the socket. Idempotent: a re-run after a partial
+    /// configure returns the same public key instead of churning the key
+    /// (which would invalidate every peer's view of this node).
+    async fn op_generate_keypair() -> Result<serde_json::Value> {
+        let existing = tokio::fs::read_to_string(WG_PRIVKEY_PATH)
+            .await
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        let private_key = if let Some(key) = existing {
+            key
+        } else {
+            let priv_out = tokio::process::Command::new("wg")
+                .arg("genkey")
+                .output()
+                .await
+                .context("running `wg genkey`")?;
+            if !priv_out.status.success() {
+                return Err(anyhow!(
+                    "wg genkey failed: {}",
+                    String::from_utf8_lossy(&priv_out.stderr)
+                ));
+            }
+            let key = String::from_utf8(priv_out.stdout)?.trim().to_string();
+            if key.is_empty() {
+                return Err(anyhow!("wg genkey produced empty output"));
+            }
+            // Persist atomically with 0600 before we ever return.
+            use std::os::unix::fs::PermissionsExt;
+            let new_path = format!("{WG_PRIVKEY_PATH}.new");
+            tokio::fs::write(&new_path, format!("{key}\n"))
+                .await
+                .with_context(|| format!("writing {new_path}"))?;
+            tokio::fs::set_permissions(&new_path, std::fs::Permissions::from_mode(0o600))
+                .await
+                .with_context(|| format!("chmod 0600 {new_path}"))?;
+            tokio::fs::rename(&new_path, WG_PRIVKEY_PATH)
+                .await
+                .with_context(|| format!("renaming {new_path} → {WG_PRIVKEY_PATH}"))?;
+            key
+        };
+
+        let public_key = derive_pubkey(&private_key).await?;
+        Ok(serde_json::json!({ "public_key": public_key }))
     }
 
     async fn op_write_config(content: &str) -> Result<serde_json::Value> {
-        validate_wg_config(content).context("rejecting wg0.conf")?;
+        // The core renders wg0.conf WITHOUT a PrivateKey line. Reject any
+        // private key arriving over the wire (defense in depth), then inject
+        // the node-local key from wg0.privkey before writing.
+        validate_wg_config_no_privkey(content).context("rejecting wg0.conf")?;
+        let private_key = tokio::fs::read_to_string(WG_PRIVKEY_PATH)
+            .await
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("no local WireGuard private key — run generate_keypair first"))?;
+        let content = inject_private_key(content, &private_key)
+            .context("injecting node-local PrivateKey")?;
+        // Belt and suspenders: the final text (now WITH the injected
+        // PrivateKey) must still pass the full directive whitelist.
+        validate_wg_config(&content).context("rejecting injected wg0.conf")?;
 
         // Atomic replace: write to wg0.conf.new, fsync via rename. This
         // matters because `wg-quick up` / `wg syncconf` read the file
         // unbuffered.
         let new_path = format!("{WG_CONFIG_PATH}.new");
-        tokio::fs::write(&new_path, content)
+        tokio::fs::write(&new_path, &content)
             .await
             .with_context(|| format!("writing {new_path}"))?;
         use std::os::unix::fs::PermissionsExt;
@@ -485,6 +533,10 @@ mod imp {
             .await;
         let _ = tokio::fs::remove_file(WG_CONFIG_PATH).await;
         let _ = tokio::fs::remove_file(WG_CONFIG_BAK_PATH).await;
+        // Leaving the mesh discards the node identity so a future re-enable
+        // mints a fresh key. (op_down deliberately keeps wg0.privkey so a
+        // disable/enable cycle preserves the node's identity.)
+        let _ = tokio::fs::remove_file(WG_PRIVKEY_PATH).await;
         Ok(serde_json::json!({}))
     }
 }

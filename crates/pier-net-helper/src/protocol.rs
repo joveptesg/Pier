@@ -82,6 +82,19 @@ pub struct Response<'a> {
 /// attacker could fit into a `PostUp =` directive.
 #[cfg_attr(not(unix), allow(dead_code))]
 pub fn validate_wg_config(content: &str) -> Result<()> {
+    validate_wg_config_inner(content, false)
+}
+
+/// Like [`validate_wg_config`], but additionally rejects a `PrivateKey`
+/// directive in `[Interface]`. The core renders wg0.conf WITHOUT the private
+/// key (it never leaves the node); the helper injects the locally-held key
+/// from `wg0.privkey`. This entry point validates the config arriving over
+/// the wire so a stray/attacker-supplied private key is refused.
+pub fn validate_wg_config_no_privkey(content: &str) -> Result<()> {
+    validate_wg_config_inner(content, true)
+}
+
+fn validate_wg_config_inner(content: &str, forbid_private_key: bool) -> Result<()> {
     const ALLOWED_INTERFACE: &[&str] =
         &["PrivateKey", "Address", "ListenPort", "DNS", "MTU", "Table"];
     const ALLOWED_PEER: &[&str] = &[
@@ -117,6 +130,13 @@ pub fn validate_wg_config(content: &str) -> Result<()> {
             return Err(anyhow!("line {}: not a key=value", lineno + 1));
         };
         let key = key.trim();
+        if forbid_private_key && section == Section::Interface && key == "PrivateKey" {
+            return Err(anyhow!(
+                "line {}: PrivateKey must not be supplied over the wire — \
+                 the helper injects the node-local key",
+                lineno + 1
+            ));
+        }
         let allowed = match section {
             Section::None => {
                 return Err(anyhow!(
@@ -136,6 +156,30 @@ pub fn validate_wg_config(content: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Insert `PrivateKey = <key>` as the first directive immediately after the
+/// first `[Interface]` header. Pure string transform (unit-tested). Errors if
+/// the config has no `[Interface]` section.
+pub fn inject_private_key(content: &str, private_key: &str) -> Result<String> {
+    let mut out = String::with_capacity(content.len() + private_key.len() + 16);
+    let mut injected = false;
+    for line in content.lines() {
+        out.push_str(line);
+        out.push('\n');
+        if !injected && line.trim() == "[Interface]" {
+            out.push_str("PrivateKey = ");
+            out.push_str(private_key);
+            out.push('\n');
+            injected = true;
+        }
+    }
+    if !injected {
+        return Err(anyhow!(
+            "config has no [Interface] section to inject PrivateKey into"
+        ));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

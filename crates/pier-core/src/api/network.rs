@@ -287,19 +287,16 @@ pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl 
         (cfg, peers)
     };
 
-    // server_id → private_key plaintext. Lives only for this handler's
-    // scope; never written to disk by core.
-    let mut private_keys: std::collections::HashMap<String, String> = Default::default();
     let mut per_peer_result: Vec<serde_json::Value> = Vec::with_capacity(peers.len());
 
     // -- Phase 1: install + keypair per peer ----------------------------
     for peer in peers.iter_mut() {
         let sid = peer.server_id.clone();
 
-        // Skip already-keyed peers so a re-run after a partial failure
-        // doesn't churn the private key (which would invalidate every
-        // other peer's view of this node).
-        if peer.public_key.is_some() && private_keys.contains_key(&sid) {
+        // Skip already-keyed peers. The on-node wg0.privkey is the durable
+        // "is keyed" anchor (the helper's generate_keypair is idempotent);
+        // the DB public_key is its core-side mirror. No core-RAM state.
+        if peer.public_key.is_some() {
             per_peer_result.push(per_peer(&sid, "keyed", None));
             continue;
         }
@@ -343,15 +340,6 @@ pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl 
             }
         };
 
-        let priv_key = kp
-            .get("private_key")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                AppError::Internal(anyhow::anyhow!(
-                    "helper returned no private_key field on generate_keypair"
-                ))
-            })?
-            .to_string();
         let pub_key = kp
             .get("public_key")
             .and_then(|v| v.as_str())
@@ -362,7 +350,8 @@ pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl 
             })?
             .to_string();
 
-        // Persist pub_key + status='keyed'. Private key stays in RAM.
+        // Persist pub_key + status='keyed'. The private key never leaves
+        // the node — the helper keeps it in wg0.privkey.
         {
             let db = state
                 .db
@@ -376,7 +365,6 @@ pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl 
             )?;
         }
         peer.public_key = Some(pub_key);
-        private_keys.insert(sid.clone(), priv_key);
         per_peer_result.push(per_peer(&sid, "keyed", None));
     }
 
@@ -386,12 +374,7 @@ pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl 
     // every other peer in one shot. No two-pass dance.
     for peer in &peers {
         let sid = peer.server_id.clone();
-        let priv_key = private_keys.get(&sid).ok_or_else(|| {
-            AppError::Internal(anyhow::anyhow!(
-                "internal: no private key stashed for {sid} (skipped phase 1?)"
-            ))
-        })?;
-        let conf = render_wg_conf(peer, &peers, &cfg, priv_key);
+        let conf = render_wg_conf(peer, &peers, &cfg);
 
         // write_config — helper validates the directive whitelist and
         // rejects anything PreUp/PostUp/etc, so corrupt renders fail
