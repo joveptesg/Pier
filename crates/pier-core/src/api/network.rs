@@ -178,13 +178,18 @@ pub async fn enable_mesh(State(state): State<SharedState>) -> AppResult<impl Int
         }
     }
 
-    // List every server eligible for the mesh. `local` always gets the
-    // first host so the operator can hard-code `https://10.42.0.1:PORT`
-    // in env files and runbooks.
+    // List every server this core provisions directly: the local node and
+    // its agents. `kind='peer'` rows are OTHER cores — they join the mesh
+    // through the core↔core pairing protocol (wireguard_external_peers), not
+    // through a wireguard_peers row here, so they're excluded. `local` always
+    // gets the first host so the operator can hard-code
+    // `https://10.42.0.1:PORT` in env files and runbooks.
     let mut servers: Vec<(String, String, bool)> = Vec::new();
     {
         let mut stmt = tx.prepare(
-            "SELECT id, host, is_local FROM servers ORDER BY is_local DESC, created_at ASC",
+            "SELECT id, host, is_local FROM servers
+             WHERE COALESCE(kind, 'local') != 'peer'
+             ORDER BY is_local DESC, created_at ASC",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
@@ -267,7 +272,7 @@ pub async fn enable_mesh(State(state): State<SharedState>) -> AppResult<impl Int
 pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     // Snapshot config + peers up front so we don't hold the DB lock
     // across the long-running helper round-trips.
-    let (cfg, mut peers) = {
+    let (cfg, mut peers, externals) = {
         let db = state
             .db
             .lock()
@@ -284,7 +289,12 @@ pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl 
                 "errors.network.no_peers_allocated",
             )));
         }
-        (cfg, peers)
+        // Nodes contributed by a paired remote core (peer-kind mesh). Rendered
+        // into every local node's wg0.conf as ordinary [Peer] blocks; we never
+        // provision them (the remote core owns their helper).
+        let externals =
+            crate::network::wireguard::ExternalPeer::load_all(&db).map_err(AppError::Internal)?;
+        (cfg, peers, externals)
     };
 
     let mut per_peer_result: Vec<serde_json::Value> = Vec::with_capacity(peers.len());
@@ -371,10 +381,16 @@ pub async fn configure_mesh(State(state): State<SharedState>) -> AppResult<impl 
     // -- Phase 2: render + write_config + up per peer -------------------
     //
     // Every peer now has a public_key, so each rendered config lists
-    // every other peer in one shot. No two-pass dance.
+    // every other peer in one shot. No two-pass dance. External (remote-core)
+    // nodes are appended so each local node also gets a [Peer] block for them.
+    let render_peers: Vec<Peer> = peers
+        .iter()
+        .cloned()
+        .chain(externals.iter().map(|e| e.as_render_peer()))
+        .collect();
     for peer in &peers {
         let sid = peer.server_id.clone();
-        let conf = render_wg_conf(peer, &peers, &cfg);
+        let conf = render_wg_conf(peer, &render_peers, &cfg);
 
         // write_config — helper validates the directive whitelist and
         // rejects anything PreUp/PostUp/etc, so corrupt renders fail
@@ -565,6 +581,24 @@ pub async fn peer_preflight(State(state): State<SharedState>) -> AppResult<impl 
         "ok": all_ok,
         "peers": results,
     })))
+}
+
+/// `POST /api/v1/network/mesh/pair/{id}` — pair this core's mesh with the
+/// registered peer core `id` (initiator side, see [`crate::network::core_mesh`]).
+pub async fn pair_peer_mesh(
+    State(state): State<SharedState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> AppResult<impl IntoResponse> {
+    Ok(Json(crate::network::core_mesh::pair(&state, &id).await?))
+}
+
+/// `POST /api/v1/network/mesh/peer/{id}/unpair` — tear down the mesh pairing
+/// with peer core `id` (both sides; remote teardown is best-effort).
+pub async fn unpair_peer_mesh(
+    State(state): State<SharedState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> AppResult<impl IntoResponse> {
+    Ok(Json(crate::network::core_mesh::unpair(&state, &id).await?))
 }
 
 #[derive(Default, Deserialize)]

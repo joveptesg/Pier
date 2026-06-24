@@ -31,6 +31,7 @@ pub mod network;
 pub mod networks;
 pub mod npm;
 pub mod npm_web_login;
+pub mod peer_mesh;
 pub mod project_members;
 pub mod projects;
 pub mod promote;
@@ -348,6 +349,12 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // X-Pier-Peer-Token; require_auth recognises the header and the
         // handler returns identity info. Not admin-gated.
         .route("/peers/probe", get(grants::probe))
+        // Peer-kind (core↔core) mesh — responder side. A paired remote core
+        // hits these with its X-Pier-Peer-Token to describe our nodes and
+        // propose/teardown a shared mesh. Same auth path as /peers/probe.
+        .route("/peers/mesh/describe", get(peer_mesh::describe))
+        .route("/peers/mesh/propose", post(peer_mesh::propose))
+        .route("/peers/mesh/teardown", post(peer_mesh::teardown))
         // Read-only federation cache view.
         .route("/federation/projects", get(federation::list_projects))
         .route("/federation/stacks", get(federation::list_stacks))
@@ -745,6 +752,13 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // so the Enable Mesh wizard can refuse to start with missing
         // helpers instead of failing halfway through configure.
         .route("/network/mesh/preflight", get(network::peer_preflight))
+        // Peer-kind (core↔core) mesh — initiator side. Pair/unpair this
+        // core's mesh with a registered peer core.
+        .route("/network/mesh/pair/{id}", post(network::pair_peer_mesh))
+        .route(
+            "/network/mesh/peer/{id}/unpair",
+            post(network::unpair_peer_mesh),
+        )
         // Mesh service-DNS CRUD (Etap 3.2). Operators register logical
         // names (`db`, `cache`) that the deploy pipeline injects as
         // `<name>.mesh` extra_hosts entries so consumer stacks don't

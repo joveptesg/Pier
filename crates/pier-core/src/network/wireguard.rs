@@ -118,6 +118,96 @@ impl Peer {
     }
 }
 
+/// A node owned by a *paired remote core* (peer-kind mesh). We render it into
+/// our `wg0.conf` as a `[Peer]` block but never provision it — the remote core
+/// is authoritative for its own helper. Mirrors a `wireguard_external_peers`
+/// row (migration 67).
+#[derive(Debug, Clone)]
+pub struct ExternalPeer {
+    /// `<remote_core_uid>:<their server_id>` — globally unique across cores.
+    pub node_uid: String,
+    pub name: String,
+    pub public_key: Option<String>,
+    pub endpoint: String,
+    pub assigned_ip: Ipv4Addr,
+}
+
+impl ExternalPeer {
+    /// Load every external peer for rendering. The owning `peer_server_id`
+    /// column drives CASCADE/teardown in SQL and isn't needed in the rendered
+    /// view, so it's intentionally not selected here.
+    pub fn load_all(conn: &Connection) -> Result<Vec<ExternalPeer>> {
+        let mut stmt = conn.prepare(
+            "SELECT node_uid, name, public_key, endpoint, assigned_ip
+             FROM wireguard_external_peers
+             ORDER BY assigned_ip",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                let ip_str: String = row.get(4)?;
+                let assigned_ip = ip_str.parse::<Ipv4Addr>().map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        4,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(ExternalPeer {
+                    node_uid: row.get(0)?,
+                    name: row.get(1)?,
+                    public_key: row.get(2)?,
+                    endpoint: row.get(3)?,
+                    assigned_ip,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// View this external node as a [`Peer`] so [`render_wg_conf`] can emit a
+    /// `[Peer]` block for it. `server_id` is the `node_uid`, which never
+    /// matches a local server UUID, so the renderer never mistakes it for
+    /// "self".
+    pub fn as_render_peer(&self) -> Peer {
+        Peer {
+            server_id: self.node_uid.clone(),
+            server_name: self.name.clone(),
+            is_local: false,
+            assigned_ip: self.assigned_ip,
+            public_key: self.public_key.clone(),
+            endpoint: self.endpoint.clone(),
+            status: "external".to_string(),
+            error_message: None,
+            last_handshake: None,
+        }
+    }
+}
+
+/// Read this core's stable mesh identity (`wireguard_config.core_uid`),
+/// minting a fresh UUID once on first use. The value is NEVER rotated — a
+/// paired remote core namespaces our nodes by it, so changing it would orphan
+/// every external-peer row pointing at us.
+pub fn ensure_core_uid(conn: &Connection) -> Result<String> {
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT core_uid FROM wireguard_config WHERE id = 1",
+            [],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten()
+        .filter(|s| !s.is_empty());
+    if let Some(uid) = existing {
+        return Ok(uid);
+    }
+    let uid = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "UPDATE wireguard_config SET core_uid = ?1 WHERE id = 1",
+        params![uid],
+    )?;
+    Ok(uid)
+}
+
 // ---------------------------------------------------------------------------
 // Subnet parsing + IP allocation
 // ---------------------------------------------------------------------------

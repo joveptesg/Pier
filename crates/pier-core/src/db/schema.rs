@@ -1543,6 +1543,39 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE servers ADD COLUMN agent_tls_fingerprint TEXT;
     "#,
+    // Migration 67: peer-kind (core↔core) mesh.
+    //
+    // Two pier-cores can pair their meshes. Each core stays authoritative for
+    // its OWN nodes (local helper + its agents) and never writes a remote
+    // core's helper. Cores exchange PUBLIC node descriptors over the existing
+    // peer-token HTTPS channel; each side merges the other's nodes into its
+    // own wg0.conf as [Peer] blocks.
+    //
+    //   * wireguard_config.core_uid — this core's stable identity, minted
+    //     once (UUID). Namespaces external node_uids and lets a core detect
+    //     itself in a descriptor exchange. NEVER rotated.
+    //   * servers.peer_core_uid — for a kind='peer' row, the paired remote
+    //     core's core_uid once mesh-paired. NULL = not mesh-paired.
+    //   * wireguard_external_peers — nodes owned by a paired remote core that
+    //     we render into our wg0.conf but never provision. node_uid is
+    //     "<remote_core_uid>:<their server_id>" so two peers' duplicate
+    //     server_ids can't collide. public_key NULL until the remote reports
+    //     it; rows CASCADE-delete when the peer server row is removed.
+    r#"
+    ALTER TABLE wireguard_config ADD COLUMN core_uid TEXT;
+    ALTER TABLE servers ADD COLUMN peer_core_uid TEXT;
+    CREATE TABLE IF NOT EXISTS wireguard_external_peers (
+        node_uid        TEXT PRIMARY KEY NOT NULL,
+        peer_server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        name            TEXT NOT NULL,
+        public_key      TEXT,
+        endpoint        TEXT NOT NULL,
+        assigned_ip     TEXT NOT NULL,
+        created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_wg_external_peers_server
+        ON wireguard_external_peers(peer_server_id);
+    "#,
 ];
 
 /// Run all pending database migrations.

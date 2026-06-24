@@ -11,5 +11,6 @@
 
 pub mod address;
 pub mod agent_client;
+pub mod core_mesh;
 pub mod mesh_call;
 pub mod wireguard;

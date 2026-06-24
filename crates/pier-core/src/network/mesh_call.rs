@@ -70,8 +70,9 @@ pub async fn dispatch<P: Serialize>(
             .await
         }
         "peer" => Err(anyhow!(
-            "mesh orchestration against peer-kind servers is not yet supported \
-             (server_id={server_id})"
+            "helper ops are never dispatched to a peer-kind server — a peer core \
+             owns its own helpers and joins via the core↔core pairing protocol \
+             (/network/mesh/pair), not direct dispatch (server_id={server_id})"
         )),
         other => Err(anyhow!("unknown server kind {other:?} for {server_id}")),
     }

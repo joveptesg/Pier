@@ -26,6 +26,10 @@ pub async fn probe(axum::Extension(user): axum::Extension<AuthUser>) -> impl Int
         "role": user.role,
         "global_role": user.global_role.as_str(),
         "principal": user.username,
+        // Advertises that this core implements the core↔core mesh protocol
+        // (/peers/mesh/describe|propose|teardown), so an initiator can refuse
+        // to pair against an older peer that would 404 those routes.
+        "supports_mesh": true,
     }))
 }
 
