@@ -7,7 +7,9 @@ Requires=docker.service
 Type=simple
 User=pier
 Group=docker
-SupplementaryGroups=systemd-journal adm
+# `pier` group lets pier-core reach the pier-net-helper socket
+# (/run/pier/net.sock, mode 0660 root:pier) for local WireGuard mesh ops.
+SupplementaryGroups=systemd-journal adm pier
 WorkingDirectory=/opt/pier
 EnvironmentFile=/opt/pier/.env
 ExecStart=/opt/pier/bin/pier
