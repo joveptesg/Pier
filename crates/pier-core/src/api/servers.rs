@@ -480,6 +480,7 @@ pub async fn handshake(
                  os_info = COALESCE(?4, os_info),
                  docker_version = COALESCE(?5, docker_version),
                  agent_tls_fingerprint = COALESCE(?8, agent_tls_fingerprint),
+                 token_rotated_at = ?9,
                  last_error = NULL,
                  updated_at = datetime('now')
              WHERE id = ?6
@@ -494,6 +495,7 @@ pub async fn handshake(
                 id,
                 bootstrap_hash,
                 body.agent_tls_fingerprint,
+                now,
             ],
         )?;
         // Race: another concurrent handshake redeemed first. Treat as

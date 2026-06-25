@@ -568,6 +568,41 @@ pub async fn create(
         })));
     }
 
+    // A standalone catalog deploy only supports the LOCAL node. The compose is
+    // built for the core's Docker (project network, proxy upstream on
+    // localhost); routing it to a remote agent needs network/proxy wiring this
+    // path doesn't do yet. Rather than silently deploy on the core while the
+    // request asked for a remote server, reject explicitly and point at the
+    // supported cross-server flow. (Cluster mode is handled above and is
+    // intentionally single-host until cross-server distribution lands.)
+    if let Some(sid) = body
+        .server_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "local")
+    {
+        let is_remote = state
+            .db
+            .lock()
+            .ok()
+            .and_then(|db| {
+                db.query_row("SELECT is_local FROM servers WHERE id = ?1", [sid], |r| {
+                    r.get::<_, bool>(0)
+                })
+                .ok()
+            })
+            .map(|is_local| !is_local)
+            .unwrap_or(false);
+        if is_remote {
+            return Err(AppError::BadRequest(
+                "Deploying a catalog service to a remote server isn't supported here yet. \
+                 Leave the server unset to deploy on this core, or use the remote server's \
+                 own deploy flow (POST /api/v1/servers/{id}/deploy)."
+                    .into(),
+            ));
+        }
+    }
+
     // ── Standard (standalone) compose YAML ─────────────────
     let yaml = if let Some(compose) = &item.compose {
         catalog::build_from_template(&compose.template, &vars)
