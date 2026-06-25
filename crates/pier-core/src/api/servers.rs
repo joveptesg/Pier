@@ -1598,6 +1598,10 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE
 WantedBy=multi-user.target
 HELPER_UNIT
     chmod 644 /etc/systemd/system/pier-net-helper.service
+    # The helper writes wg0.conf + wg0.privkey under /etc/wireguard. systemd's
+    # ReadWritePaths can only make that path writable if it EXISTS when the unit
+    # starts, so create it now (the helper's own sandbox can't mkdir in /etc).
+    mkdir -p /etc/wireguard && chmod 700 /etc/wireguard
     systemctl daemon-reload
     systemctl enable --now pier-net-helper.service || \
         echo "Warning: pier-net-helper.service failed to start; mesh features will be unavailable."

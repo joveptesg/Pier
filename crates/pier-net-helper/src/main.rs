@@ -370,7 +370,40 @@ mod imp {
         if !status.success() {
             return Err(anyhow!("wg syncconf exit {}", status.code().unwrap_or(-1)));
         }
+        // `wg syncconf` updates peers/keys but — unlike `wg-quick up` — does
+        // NOT manage routes. A peer added by syncconf (e.g. a paired core's
+        // node on a re-configure) would have no route, so its /32 falls through
+        // to the default gateway and traffic never enters the tunnel. Add the
+        // AllowedIPs routes ourselves; `ip route replace` is idempotent.
+        sync_routes().await;
         Ok(())
+    }
+
+    /// Ensure a `dev wg0` route exists for every peer AllowedIP. Best-effort:
+    /// individual `ip route replace` failures (e.g. a malformed CIDR) are
+    /// ignored so one bad peer can't strand the rest.
+    async fn sync_routes() {
+        let out = match tokio::process::Command::new("wg")
+            .args(["show", "wg0", "allowed-ips"])
+            .output()
+            .await
+        {
+            Ok(o) if o.status.success() => o,
+            _ => return, // interface gone or wg unavailable — nothing to do
+        };
+        let text = String::from_utf8_lossy(&out.stdout);
+        for line in text.lines() {
+            // "<pubkey>\t<cidr> <cidr> ..." — skip the pubkey, route each CIDR.
+            for cidr in line.split_whitespace().skip(1) {
+                if cidr == "(none)" {
+                    continue;
+                }
+                let _ = tokio::process::Command::new("ip")
+                    .args(["route", "replace", cidr, "dev", "wg0"])
+                    .status()
+                    .await;
+            }
+        }
     }
 
     /// Predictable, race-resistant temp path inside the helper's
@@ -481,6 +514,23 @@ mod imp {
     }
 
     async fn op_up() -> Result<serde_json::Value> {
+        // If wg0 is already up, `wg-quick up` errors with "already exists".
+        // That makes re-configuring a *running* mesh (e.g. adding a paired
+        // core's nodes, or any second configure pass) abort. Detect the live
+        // interface and apply the freshly written config via `wg syncconf`
+        // instead, so `up` is idempotent and non-disruptive.
+        let already_up = tokio::process::Command::new("wg")
+            .args(["show", "wg0"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if already_up {
+            wg_syncconf().await?;
+            return Ok(serde_json::json!({ "synced": true }));
+        }
         let status = tokio::process::Command::new("wg-quick")
             .args(["up", "wg0"])
             .status()
