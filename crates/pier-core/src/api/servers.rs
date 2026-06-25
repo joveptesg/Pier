@@ -1730,6 +1730,10 @@ if [ "${{PIER_SKIP_FIREWALL:-0}}" != "1" ] && command -v ufw >/dev/null 2>&1; th
     ufw allow 51820/udp >/dev/null 2>&1 || true
     # Trust the WireGuard mesh subnet (intra-mesh DB replication / service access).
     ufw allow from 10.42.0.0/24 >/dev/null 2>&1 || true
+    # Cross-server DB clusters are every-node-to-every: a co-located container
+    # reaching its OWN host mesh IP:published-port leaves with a docker-bridge
+    # source (172.x). Allow it to the cluster port band (10000-20000) only.
+    ufw allow from 172.16.0.0/12 to any port 10000:20000 proto tcp >/dev/null 2>&1 || true
     ufw --force enable >/dev/null 2>&1 \
         && echo "Firewall enabled (ssh:$SSH_PORT, agent:$AGENT_PORT, mesh:51820/udp)" \
         || echo "Warning: ufw enable failed; review the host firewall manually."

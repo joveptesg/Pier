@@ -610,7 +610,10 @@ pub struct ClusterNodePlan {
 /// the addressing is simple. Quorum/replica-set/seed DBs (mongodb, cassandra,
 /// scylladb, redis) need every-node-to-every-node addressing — a follow-up.
 pub fn cross_server_cluster_supported(catalog_id: &str) -> bool {
-    matches!(catalog_id, "postgresql" | "mysql" | "mariadb")
+    matches!(
+        catalog_id,
+        "postgresql" | "mysql" | "mariadb" | "mongodb" | "redis" | "cassandra" | "scylladb"
+    )
 }
 
 /// Build the docker-compose for the nodes assigned to `target_server_id`,
@@ -625,8 +628,266 @@ pub fn build_cluster_compose_for_server(
         "postgresql" => build_repl_distributed(target_server_id, nodes, vars, &PG_CFG),
         "mysql" => build_repl_distributed(target_server_id, nodes, vars, &MYSQL_CFG),
         "mariadb" => build_repl_distributed(target_server_id, nodes, vars, &MARIADB_CFG),
+        "mongodb" => build_mongodb_distributed(target_server_id, nodes, vars),
+        "redis" => build_redis_distributed(target_server_id, nodes, vars),
+        "cassandra" => build_cassandra_distributed(target_server_id, nodes, vars),
+        "scylladb" => build_scylladb_distributed(target_server_id, nodes, vars),
         _ => bail!("cross-server cluster distribution is not supported for {catalog_id} yet"),
     }
+}
+
+/// Reject co-located nodes for gossip databases. Cassandra/Scylla peers find
+/// each other via seeds at a UNIFORM `storage_port` (7000), so two nodes on one
+/// host would collide on that fixed port. Require one node per server.
+fn ensure_one_node_per_server(nodes: &[ClusterNodePlan], kind: &str) -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    for n in nodes {
+        if !seen.insert(n.server_id.as_str()) {
+            bail!(
+                "{kind} cross-server clusters require one node per server (uniform gossip \
+                 port 7000); assign each node to a distinct server"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Cassandra gossip cluster across servers (official image). Each node lives on
+/// its own server with fixed ports 7000 (storage/gossip) + 9042 (CQL) and
+/// advertises its MESH IP via `CASSANDRA_BROADCAST_ADDRESS`, so cross-host
+/// gossip rides the mesh. Seeds = the first 1–2 nodes' mesh IPs.
+fn build_cassandra_distributed(
+    target: &str,
+    nodes: &[ClusterNodePlan],
+    vars: &HashMap<String, String>,
+) -> Result<String> {
+    ensure_one_node_per_server(nodes, "cassandra")?;
+    let name = vars.get("name").map(|s| s.as_str()).unwrap_or("cassandra");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("5.0");
+    let default_cluster = format!("pier-{name}");
+    let cluster_name = vars
+        .get("CASSANDRA_CLUSTER_NAME")
+        .map(|s| s.as_str())
+        .unwrap_or(&default_cluster);
+
+    let seed_count = std::cmp::min(2, nodes.len());
+    let seeds_str = nodes
+        .iter()
+        .take(seed_count)
+        .map(|n| n.mesh_addr.clone())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let mut yaml = String::from("services:\n");
+    let mut vols: Vec<String> = Vec::new();
+    for n in nodes.iter().filter(|n| n.server_id == target) {
+        let num = n.index + 1;
+        let mesh = &n.mesh_addr;
+        yaml.push_str(&format!(
+            r#"  cassandra-{num}:
+    image: cassandra:{version}
+    container_name: pier-{name}-node-{num}
+    ports:
+      - "0.0.0.0:7000:7000"
+      - "0.0.0.0:9042:9042"
+    environment:
+      CASSANDRA_SEEDS: "{seeds_str}"
+      CASSANDRA_CLUSTER_NAME: "{cluster_name}"
+      CASSANDRA_BROADCAST_ADDRESS: "{mesh}"
+      CASSANDRA_BROADCAST_RPC_ADDRESS: "{mesh}"
+      CASSANDRA_DC: dc1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 100M
+    volumes:
+      - node{num}_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep -q 'UN'"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    restart: unless-stopped
+    labels:
+      pier.cluster.role: node
+"#
+        ));
+        vols.push(format!("node{num}_data"));
+    }
+    if !vols.is_empty() {
+        yaml.push_str("volumes:\n");
+        for v in &vols {
+            yaml.push_str(&format!("  {v}:\n"));
+        }
+    }
+    Ok(yaml)
+}
+
+/// ScyllaDB gossip cluster across servers. Same one-per-server + fixed-port
+/// (7000/9042) model as Cassandra, but Scylla takes its addresses as CLI flags:
+/// `--broadcast-address` / `--broadcast-rpc-address` = the node's mesh IP.
+fn build_scylladb_distributed(
+    target: &str,
+    nodes: &[ClusterNodePlan],
+    vars: &HashMap<String, String>,
+) -> Result<String> {
+    ensure_one_node_per_server(nodes, "scylladb")?;
+    let name = vars.get("name").map(|s| s.as_str()).unwrap_or("scylla");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("6.2");
+    let smp = vars.get("smp").map(|s| s.as_str()).unwrap_or("1");
+    let memory = vars.get("memory").map(|s| s.as_str()).unwrap_or("750M");
+
+    let seed_count = std::cmp::min(2, nodes.len());
+    let seeds_str = nodes
+        .iter()
+        .take(seed_count)
+        .map(|n| n.mesh_addr.clone())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let mut yaml = String::from("services:\n");
+    let mut vols: Vec<String> = Vec::new();
+    for n in nodes.iter().filter(|n| n.server_id == target) {
+        let num = n.index + 1;
+        let mesh = &n.mesh_addr;
+        yaml.push_str(&format!(
+            r#"  scylla-{num}:
+    image: scylladb/scylla:{version}
+    container_name: pier-{name}-node-{num}
+    command: --seeds={seeds_str} --smp {smp} --memory {memory} --overprovisioned 1 --api-address 0.0.0.0 --listen-address 0.0.0.0 --broadcast-address {mesh} --broadcast-rpc-address {mesh}
+    ports:
+      - "0.0.0.0:7000:7000"
+      - "0.0.0.0:9042:9042"
+    volumes:
+      - node{num}_data:/var/lib/scylla
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep -E '^UN'"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    labels:
+      pier.cluster.role: node
+"#
+        ));
+        vols.push(format!("node{num}_data"));
+    }
+    if !vols.is_empty() {
+        yaml.push_str("volumes:\n");
+        for v in &vols {
+            yaml.push_str(&format!("  {v}:\n"));
+        }
+    }
+    Ok(yaml)
+}
+
+/// Redis master/replica across servers (bitnami). node 0 is the master; each
+/// replica dials it at its mesh IP + published port. One port per node, so
+/// co-located replicas are fine (replica → master only, no inter-replica gossip).
+fn build_redis_distributed(
+    target: &str,
+    nodes: &[ClusterNodePlan],
+    vars: &HashMap<String, String>,
+) -> Result<String> {
+    let name = vars.get("name").map(|s| s.as_str()).unwrap_or("redis");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("8.0");
+    let password = vars
+        .get("password")
+        .map(|s| s.as_str())
+        .unwrap_or("changeme");
+    let master = nodes
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("redis cluster needs at least one node"))?;
+
+    let mut yaml = String::from("services:\n");
+    let mut vols: Vec<String> = Vec::new();
+    for n in nodes.iter().filter(|n| n.server_id == target) {
+        let num = n.index + 1;
+        let hp = n.host_port;
+        let head = format!(
+            "  redis-{num}:\n    image: bitnami/redis:{version}\n    container_name: pier-{name}-node-{num}\n    ports:\n      - \"0.0.0.0:{hp}:6379\"\n    environment:\n"
+        );
+        yaml.push_str(&head);
+        if n.index == 0 {
+            yaml.push_str(&format!(
+                "      REDIS_REPLICATION_MODE: master\n      REDIS_PASSWORD: \"{password}\"\n    volumes:\n      - node{num}_data:/bitnami/redis/data\n    restart: unless-stopped\n    labels:\n      pier.cluster.role: master\n"
+            ));
+        } else {
+            yaml.push_str(&format!(
+                "      REDIS_REPLICATION_MODE: slave\n      REDIS_MASTER_HOST: \"{mh}\"\n      REDIS_MASTER_PORT_NUMBER: \"{mp}\"\n      REDIS_MASTER_PASSWORD: \"{password}\"\n      REDIS_PASSWORD: \"{password}\"\n    volumes:\n      - node{num}_data:/bitnami/redis/data\n    restart: unless-stopped\n    labels:\n      pier.cluster.role: replica\n",
+                mh = master.mesh_addr,
+                mp = master.host_port
+            ));
+        }
+        vols.push(format!("node{num}_data"));
+    }
+    if !vols.is_empty() {
+        yaml.push_str("volumes:\n");
+        for v in &vols {
+            yaml.push_str(&format!("  {v}:\n"));
+        }
+    }
+    Ok(yaml)
+}
+
+/// MongoDB replica set across servers. Every member must reach every other, so
+/// the `rs.initiate` member list addresses each node by its server's mesh IP +
+/// published port. node 0 runs the `rs.initiate` from a healthcheck.
+fn build_mongodb_distributed(
+    target: &str,
+    nodes: &[ClusterNodePlan],
+    vars: &HashMap<String, String>,
+) -> Result<String> {
+    let name = vars.get("name").map(|s| s.as_str()).unwrap_or("mongo");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("8.0");
+
+    // Full member list by mesh address (used in the rs.initiate on node 0).
+    let members: Vec<String> = nodes
+        .iter()
+        .map(|n| {
+            format!(
+                "{{_id:{}, host:'{}:{}'{}}}",
+                n.index,
+                n.mesh_addr,
+                n.host_port,
+                if n.index == 0 {
+                    ", priority:2"
+                } else {
+                    ", priority:1"
+                }
+            )
+        })
+        .collect();
+    let members_str = members.join(",");
+
+    let mut yaml = String::from("services:\n");
+    let mut vols: Vec<String> = Vec::new();
+    for n in nodes.iter().filter(|n| n.server_id == target) {
+        let hp = n.host_port;
+        let num = n.index + 1; // 1-based service/container naming
+        let common = format!(
+            "  mongo-{num}:\n    image: mongo:{version}\n    container_name: pier-{name}-node-{num}\n    command: [\"mongod\", \"--replSet\", \"rs0\", \"--bind_ip_all\"]\n    ports:\n      - \"0.0.0.0:{hp}:27017\"\n    volumes:\n      - node{num}_data:/data/db\n"
+        );
+        yaml.push_str(&common);
+        if n.index == 0 {
+            yaml.push_str(&format!(
+                "    healthcheck:\n      test: [\"CMD-SHELL\", \"mongosh --quiet --eval \\\"try {{ var s = rs.status(); if(s.ok) quit(0); }} catch(e) {{ rs.initiate({{_id:'rs0', members:[{members_str}]}}); }} quit(1);\\\"\"]\n      interval: 10s\n      timeout: 10s\n      retries: 15\n      start_period: 15s\n    restart: unless-stopped\n    labels:\n      pier.cluster.role: primary\n"
+            ));
+        } else {
+            yaml.push_str(
+                "    restart: unless-stopped\n    labels:\n      pier.cluster.role: secondary\n",
+            );
+        }
+        vols.push(format!("node{num}_data"));
+    }
+    if !vols.is_empty() {
+        yaml.push_str("volumes:\n");
+        for v in &vols {
+            yaml.push_str(&format!("  {v}:\n"));
+        }
+    }
+    Ok(yaml)
 }
 
 /// Per-DB knobs for the Bitnami streaming-replication trio.

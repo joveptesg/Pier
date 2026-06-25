@@ -499,6 +499,13 @@ if [[ "${PIER_SKIP_FIREWALL:-0}" != "1" ]]; then
         # replication, remote service access) arrives on wg0 from 10.42.0.0/24
         # and is authenticated by WireGuard. Default subnet; adjust if changed.
         ufw allow from 10.42.0.0/24  >/dev/null 2>&1 || true
+        # Cross-server DB clusters (mongo/redis/cassandra) are "every-node-to-
+        # every": a node must reach ALL members — including itself — at
+        # mesh-IP:published-port. A container hitting its OWN host's mesh IP
+        # leaves with a docker-bridge source (172.x), so allow that source to
+        # the cluster published-port band (10000-20000) only — NOT the panel
+        # (8443) or ssh.
+        ufw allow from 172.16.0.0/12 to any port 10000:20000 proto tcp >/dev/null 2>&1 || true
         if ufw --force enable >/dev/null 2>&1; then
             info "Firewall enabled"
         else
