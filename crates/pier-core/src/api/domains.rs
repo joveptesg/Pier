@@ -309,7 +309,7 @@ pub async fn update(
     // stay quiet — regenerate_for_service filters by is_active anyway, so a
     // call would be a no-op for inactive rows; we just save the round-trip.
     if is_active {
-        regenerate_for_service(&state, &service_id)?;
+        regenerate_for_service_routed(&state, &service_id).await?;
     }
 
     Ok(Json(serde_json::json!({"ok": true, "id": id})))
@@ -431,7 +431,7 @@ pub async fn deactivate(
         db.execute("UPDATE domains SET is_active = 0 WHERE id = ?1", [&id])?;
     }
 
-    if let Err(e) = regenerate_for_service(&state, &service_id) {
+    if let Err(e) = regenerate_for_service_routed(&state, &service_id).await {
         tracing::warn!(
             "Failed to regenerate Traefik config for {service_id} after deactivate: {e}"
         );
@@ -489,7 +489,7 @@ pub async fn remove(
         sid
     };
 
-    if let Err(e) = regenerate_for_service(&state, &service_id) {
+    if let Err(e) = regenerate_for_service_routed(&state, &service_id).await {
         tracing::warn!("Failed to regenerate Traefik config for {service_id}: {e}");
     }
 
@@ -677,16 +677,17 @@ pub(crate) fn build_target_url(
 /// Rebuild the Traefik dynamic config for a service from the current set of
 /// domains in the DB. Each row's `compose_service` (NULL or string) determines
 /// which upstream URL it gets routed to.
-pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppResult<()> {
+/// Build the Traefik `DomainTarget` list for a service's ACTIVE domains.
+/// Inactive rows (is_active = 0) are drafts: no route, no SSL issuance.
+pub(crate) fn build_domain_targets(
+    state: &AppState,
+    service_id: &str,
+) -> AppResult<Vec<DomainTarget>> {
     let domain_rows: Vec<(String, String, Option<String>, bool)> = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        // Only ACTIVE domains end up in the Traefik dynamic config.
-        // Inactive rows (is_active = 0) are stored as drafts: no route,
-        // no SSL issuance. Activating one writes the route + kicks the
-        // SSL monitor; deactivating drops the route but keeps the cert.
         let mut stmt = db.prepare(
             "SELECT domain, COALESCE(path_prefix, ''), compose_service, strip_prefix \
              FROM domains WHERE service_id = ?1 AND is_active = 1",
@@ -705,14 +706,6 @@ pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppR
         rows
     };
 
-    if domain_rows.is_empty() {
-        config::regenerate_service_config_multi(&state.config.data_dir, service_id, &[])
-            .map_err(|e| anyhow::anyhow!("Remove Traefik config: {e}"))?;
-        return Ok(());
-    }
-
-    // Resolve target URL once per (compose_service) group to avoid repeating
-    // the same SQL queries for every domain.
     let mut url_cache: std::collections::HashMap<Option<String>, String> =
         std::collections::HashMap::new();
     let mut targets: Vec<DomainTarget> = Vec::new();
@@ -725,15 +718,6 @@ pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppR
             url_cache.insert(key.clone(), u.clone());
             u
         };
-
-        // Reconstruct the routed domain from hostname + path_prefix column.
-        // After migration 60 these are guaranteed consistent for legacy
-        // rows; for fresh rows add_domain writes them in sync. If they
-        // still disagree (operator-edited path_prefix without updating
-        // domain — supported workflow for in-place path fixes), the
-        // path_prefix column wins. That guarantees the StripPrefix
-        // middleware (which uses the path part of `domain` in the
-        // generator) matches what the operator actually intends.
         let hostname = match domain.find('/') {
             Some(pos) => &domain[..pos],
             None => domain.as_str(),
@@ -743,14 +727,6 @@ pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppR
         } else {
             format!("{hostname}{path_prefix}")
         };
-        if domain != &domain_for_router {
-            tracing::warn!(
-                "regenerate_for_service: domain/path_prefix mismatch for {service_id}: \
-                 domain={domain:?} path_prefix={path_prefix:?} → using {domain_for_router:?}. \
-                 Fix the DB row to align both columns."
-            );
-        }
-
         targets.push(DomainTarget {
             domain: domain_for_router,
             use_tls: true,
@@ -759,9 +735,147 @@ pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppR
             strip_prefix: *strip_prefix,
         });
     }
+    Ok(targets)
+}
 
+/// Write the local core's Traefik dynamic config for a service. For services
+/// deployed on a REMOTE agent, use [`regenerate_for_service_routed`] instead —
+/// the config belongs on that agent's own Traefik.
+pub(crate) fn regenerate_for_service(state: &AppState, service_id: &str) -> AppResult<()> {
+    let targets = build_domain_targets(state, service_id)?;
     config::regenerate_service_config_multi(&state.config.data_dir, service_id, &targets)
         .map_err(|e| anyhow::anyhow!("Write Traefik config: {e}"))?;
+    Ok(())
+}
+
+/// `(server_id, is_local, public_host)` for the server a service runs on.
+fn service_server(state: &AppState, service_id: &str) -> (String, bool, String) {
+    let Ok(db) = state.db.lock() else {
+        return ("local".into(), true, String::new());
+    };
+    let sid: String = db
+        .query_row(
+            "SELECT COALESCE(server_id, 'local') FROM services WHERE id = ?1",
+            [service_id],
+            |r| r.get(0),
+        )
+        .unwrap_or_else(|_| "local".into());
+    if sid.is_empty() || sid == "local" {
+        return ("local".into(), true, String::new());
+    }
+    let (is_local, host): (bool, String) = db
+        .query_row(
+            "SELECT is_local, host FROM servers WHERE id = ?1",
+            [&sid],
+            |r| Ok((r.get::<_, bool>(0)?, r.get::<_, String>(1)?)),
+        )
+        .unwrap_or((true, String::new()));
+    (sid, is_local, host)
+}
+
+/// Server-aware Traefik regenerate. Local services write the core's Traefik
+/// dynamic config; services on a remote agent push their config to THAT
+/// agent's own Traefik (provisioning it on first use).
+pub(crate) async fn regenerate_for_service_routed(
+    state: &SharedState,
+    service_id: &str,
+) -> AppResult<()> {
+    let (server_id, is_local, _host) = service_server(state, service_id);
+    if is_local {
+        return regenerate_for_service(state, service_id);
+    }
+    let conn = crate::api::servers::get_server_info(state, &server_id)?;
+    ensure_agent_traefik(state, &conn).await?;
+    let targets = build_domain_targets(state, service_id)?;
+    let path = format!("traefik/dynamic/{service_id}.yml");
+    if targets.is_empty() {
+        agent_file_op(&conn, &path, "", true).await?;
+    } else {
+        let yaml = config::generate_dynamic_config_multi_target(service_id, &targets);
+        agent_file_op(&conn, &path, &yaml, false).await?;
+    }
+    Ok(())
+}
+
+/// Write or delete a file on a remote agent via its `/api/v1/agent/files`
+/// endpoint (pinned-TLS channel).
+async fn agent_file_op(
+    conn: &crate::api::servers::AgentConn,
+    path: &str,
+    content: &str,
+    delete: bool,
+) -> AppResult<()> {
+    let url = format!(
+        "https://{}/api/v1/agent/files",
+        crate::network::address::authority(&conn.host, conn.port)
+    );
+    let client = crate::network::agent_client::build_agent_client(
+        conn.tls_fingerprint.as_deref(),
+        std::time::Duration::from_secs(15),
+    )
+    .map_err(AppError::Internal)?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", conn.token))
+        .json(&serde_json::json!({ "path": path, "content": content, "delete": delete }))
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("agent files unreachable: {e}")))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(AppError::BadRequest(format!(
+            "agent files {status}: {}",
+            resp.text().await.unwrap_or_default()
+        )));
+    }
+    Ok(())
+}
+
+/// Idempotently provision a Traefik instance on the agent: push the static
+/// config + (re)deploy the Traefik stack. Requires a `pier-net` docker network
+/// on the agent (created by the installer).
+async fn ensure_agent_traefik(
+    state: &SharedState,
+    conn: &crate::api::servers::AgentConn,
+) -> AppResult<()> {
+    let email = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        crate::proxy::read_acme_email(&db)
+    };
+    let static_cfg = config::generate_static_config(&email, false);
+    agent_file_op(conn, "traefik/traefik.yml", &static_cfg, false).await?;
+
+    let compose = format!(
+        "services:\n  pier-traefik:\n    image: traefik:{ver}\n    container_name: pier-traefik\n    command: --configFile=/data/traefik/traefik.yml\n    ports:\n      - \"0.0.0.0:80:80\"\n      - \"0.0.0.0:443:443\"\n    volumes:\n      - {data}/traefik:/data/traefik\n    networks:\n      - pier-net\n    restart: unless-stopped\nnetworks:\n  pier-net:\n    external: true\n",
+        ver = crate::proxy::DEFAULT_TRAEFIK_VERSION,
+        data = "/var/lib/pier-agent",
+    );
+    let url = format!(
+        "https://{}/api/v1/agent/deploy",
+        crate::network::address::authority(&conn.host, conn.port)
+    );
+    let client = crate::network::agent_client::build_agent_client(
+        conn.tls_fingerprint.as_deref(),
+        std::time::Duration::from_secs(120),
+    )
+    .map_err(AppError::Internal)?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", conn.token))
+        .json(&serde_json::json!({ "stack_name": "pier-traefik", "compose_yaml": compose }))
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("agent traefik deploy: {e}")))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(AppError::BadRequest(format!(
+            "agent traefik deploy {status}: {}",
+            resp.text().await.unwrap_or_default()
+        )));
+    }
     Ok(())
 }
 
@@ -790,7 +904,14 @@ pub async fn create_service_domain(
         return Ok(String::new());
     }
 
-    let server_ip = get_server_ip(state).await?;
+    // For a service on a remote agent, the public domain points at the AGENT's
+    // IP (its own Traefik serves it), not the core's.
+    let (_, is_local, public_host) = service_server(state, service_id);
+    let server_ip = if !is_local && !public_host.is_empty() {
+        public_host
+    } else {
+        get_server_ip(state).await?
+    };
     let domain = config::generate_service_domain(service_name, service_id, &server_ip);
     let id = uuid::Uuid::new_v4().to_string();
 
@@ -821,7 +942,7 @@ pub async fn create_service_domain(
         )?;
     }
 
-    regenerate_for_service(state, service_id)?;
+    regenerate_for_service_routed(state, service_id).await?;
 
     {
         let db = state

@@ -212,6 +212,74 @@ async fn deploy(
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/v1/agent/files — write (or delete) a file under the agent data dir.
+//
+// Used by the core to push this agent's Traefik config (static traefik.yml +
+// per-service dynamic/*.yml). Paths are RELATIVE to PIER_AGENT_DATA_DIR and
+// validated to stay within it (no absolute paths, no `..`), so this endpoint
+// can never write outside the agent's data area.
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct FileOpRequest {
+    /// Path relative to the agent data dir, e.g. "traefik/dynamic/svc.yml".
+    path: String,
+    #[serde(default)]
+    content: String,
+    /// When true, delete the file instead of writing.
+    #[serde(default)]
+    delete: bool,
+}
+
+async fn write_file(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(body): Json<FileOpRequest>,
+) -> impl IntoResponse {
+    require_auth!(headers, state);
+
+    let rel = std::path::Path::new(&body.path);
+    if rel.is_absolute()
+        || rel.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "path must be relative and contain no `..`"})),
+        )
+            .into_response();
+    }
+    let target = std::path::Path::new(&state.data_dir).join(rel);
+
+    if body.delete {
+        let _ = tokio::fs::remove_file(&target).await;
+        return Json(serde_json::json!({"ok": true, "deleted": true})).into_response();
+    }
+
+    if let Some(parent) = target.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("mkdir: {e}")})),
+            )
+                .into_response();
+        }
+    }
+    match tokio::fs::write(&target, &body.content).await {
+        Ok(()) => Json(serde_json::json!({"ok": true, "path": body.path})).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("write: {e}")})),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/v1/agent/stop
 // ---------------------------------------------------------------------------
 
@@ -805,6 +873,7 @@ async fn main() -> Result<()> {
         .route("/metrics", get(metrics))
         .route("/api/v1/agent/tls/fingerprint", get(tls_fingerprint))
         .route("/api/v1/agent/deploy", post(deploy))
+        .route("/api/v1/agent/files", post(write_file))
         .route("/api/v1/agent/stop", post(stop))
         .route("/api/v1/agent/exec", post(exec_cmd))
         .route("/api/v1/agent/status", get(stack_status))

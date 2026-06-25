@@ -832,10 +832,10 @@ pub async fn create(
     // agent being unreachable surfaces as 400, not 500).
     deploy_result?;
 
-    // Auto-generate service domain. Skipped for databases (no HTTP to proxy)
-    // and for REMOTE services: agents don't run Traefik, so there's no local
-    // proxy to own the domain — remote proxying is a follow-up.
-    if !remote && item.meta.category != "database" {
+    // Auto-generate service domain (skip for databases — no HTTP to proxy).
+    // Remote services route the domain to their OWN agent Traefik (Feature C),
+    // handled server-aware inside create_service_domain.
+    if item.meta.category != "database" {
         if let Some(http_port) = pick_http_port(&allocated_ports) {
             try_create_service_domain(&state, &service_id, &name, http_port).await;
         }

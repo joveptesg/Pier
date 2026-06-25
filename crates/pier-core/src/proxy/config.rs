@@ -381,7 +381,10 @@ pub struct DomainTarget {
 ///
 /// Routers are grouped by `compose_service` (None = single shared service).
 /// Within a group every domain points at the same Traefik service block.
-fn generate_dynamic_config_multi_target(service_id: &str, targets: &[DomainTarget]) -> String {
+pub(crate) fn generate_dynamic_config_multi_target(
+    service_id: &str,
+    targets: &[DomainTarget],
+) -> String {
     use std::collections::BTreeMap;
 
     // Stable group key: None comes first, then sorted compose_service names.

@@ -1540,6 +1540,10 @@ if ! docker compose version &>/dev/null; then
     apt-get install -y docker-compose-plugin 2>/dev/null || true
 fi
 
+# 2b. Create the pier-net docker network. The agent's Traefik and the services
+#     deployed here share it so Traefik can reach them by container DNS.
+docker network create pier-net >/dev/null 2>&1 || true
+
 # 3. Download pier-agent binary
 echo "Downloading pier-agent..."
 mkdir -p /opt/pier/bin
@@ -1721,6 +1725,8 @@ if [ "${{PIER_SKIP_FIREWALL:-0}}" != "1" ] && command -v ufw >/dev/null 2>&1; th
     ufw allow "$SSH_PORT"/tcp >/dev/null 2>&1 || true
     ufw allow 22/tcp >/dev/null 2>&1 || true
     ufw allow "$AGENT_PORT"/tcp >/dev/null 2>&1 || true
+    ufw allow 80/tcp >/dev/null 2>&1 || true
+    ufw allow 443/tcp >/dev/null 2>&1 || true
     ufw allow 51820/udp >/dev/null 2>&1 || true
     # Trust the WireGuard mesh subnet (intra-mesh DB replication / service access).
     ufw allow from 10.42.0.0/24 >/dev/null 2>&1 || true

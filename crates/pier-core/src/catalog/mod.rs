@@ -456,9 +456,12 @@ pub fn build_compose_yaml_scaled(
         yaml.push_str(&format!("      pier.catalog.id: \"{}\"\n", item.meta.id));
         yaml.push_str(&format!("      pier.replica.idx: \"{idx}\"\n"));
 
-        // Remote nodes don't have the core's external networks; let the compose
-        // create its own default per-stack network instead of referencing them.
-        if !remote {
+        if remote {
+            // Remote: attach the agent's own `pier-net` (created by the
+            // installer) so the agent's Traefik reaches this service by
+            // container DNS — not the core's project networks (absent there).
+            yaml.push_str("    networks:\n      - pier-net\n");
+        } else {
             yaml.push_str("    networks:\n");
             yaml.push_str(&format!("      - {net}\n"));
             if net != "pier-net" {
@@ -474,7 +477,9 @@ pub fn build_compose_yaml_scaled(
         }
     }
 
-    if !remote {
+    if remote {
+        yaml.push_str("networks:\n  pier-net:\n    external: true\n");
+    } else {
         yaml.push_str("networks:\n");
         yaml.push_str(&format!("  {net}:\n"));
         yaml.push_str("    external: true\n");
