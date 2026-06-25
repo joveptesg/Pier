@@ -574,6 +574,20 @@ pub async fn create(
                     body.catalog_id
                 )));
             }
+            // Cassandra/Scylla peers find each other via seeds at a uniform
+            // gossip port (7000), so two co-located nodes would collide on it.
+            // Require a distinct server per node for these (returns a clear 400
+            // instead of the builder's internal guard surfacing as a 500).
+            if matches!(body.catalog_id.as_str(), "cassandra" | "scylladb")
+                && unique_servers.len() < node_count
+            {
+                return Err(AppError::BadRequest(format!(
+                    "{} cross-server clusters require one node per server (a uniform \
+                     gossip port is shared across nodes); give each of the {node_count} \
+                     nodes a distinct server",
+                    body.catalog_id
+                )));
+            }
             // Resolve each target server's connection + active mesh IP.
             let mut conns: std::collections::HashMap<String, crate::api::servers::AgentConn> =
                 std::collections::HashMap::new();
