@@ -70,6 +70,57 @@ async fn try_create_service_domain(state: &SharedState, service_id: &str, name: 
     }
 }
 
+/// Deploy a stack to the server identified by `conn`: locally on the core, or to
+/// a remote agent over the pinned-TLS channel. For remote, mesh `extra_hosts`
+/// are injected on the core first (the agent's deploy endpoint only runs
+/// `docker compose up` on the YAML it receives). Returns the deploy stdout.
+async fn deploy_to_target(
+    state: &SharedState,
+    conn: &crate::api::servers::AgentConn,
+    service_id: &str,
+    stack_name: &str,
+    yaml: &str,
+    auth: crate::docker::compose::ComposeAuth,
+) -> Result<String, AppError> {
+    if conn.is_local {
+        return crate::docker::deploy_service_stack(state, service_id, stack_name, yaml, auth)
+            .await
+            .map_err(AppError::Internal);
+    }
+    // Remote agent: the agent doesn't inject mesh hosts, so do it here, then
+    // POST the compose to the agent's deploy endpoint with the pinned client.
+    let hosts = crate::deploy::mesh_hosts_for_inject(state);
+    let yaml = crate::deploy::inject_mesh_extra_hosts_into_services(yaml, &hosts);
+    let url = format!(
+        "https://{}/api/v1/agent/deploy",
+        crate::network::address::authority(&conn.host, conn.port)
+    );
+    let client = crate::network::agent_client::build_agent_client(
+        conn.tls_fingerprint.as_deref(),
+        std::time::Duration::from_secs(120),
+    )
+    .map_err(AppError::Internal)?;
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", conn.token))
+        .json(&serde_json::json!({ "stack_name": stack_name, "compose_yaml": yaml }))
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("agent {} unreachable: {e}", conn.host)))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(AppError::BadRequest(format!(
+            "agent deploy failed ({status}): {body}"
+        )));
+    }
+    let v: serde_json::Value = resp.json().await.unwrap_or_else(|_| serde_json::json!({}));
+    Ok(v.get("stdout")
+        .and_then(|s| s.as_str())
+        .unwrap_or("deployed")
+        .to_string())
+}
+
 #[derive(Deserialize)]
 pub struct CreateResourceRequest {
     pub catalog_id: String,
@@ -347,43 +398,6 @@ pub async fn create(
         vars.insert(k, v);
     }
 
-    // A standalone catalog deploy only supports the LOCAL node: the compose is
-    // built for the core's Docker (project network, proxy upstream on
-    // localhost), so routing it to a remote agent needs network/proxy wiring
-    // this path doesn't do yet. Reject a remote server_id up front — before we
-    // create the service row / allocate ports — instead of silently deploying
-    // on the core. (Cluster mode below is intentionally single-host until
-    // cross-server distribution lands, so it's exempt.)
-    if body.deployment_mode.as_deref() != Some("cluster") {
-        if let Some(sid) = body
-            .server_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && *s != "local")
-        {
-            let is_remote = state
-                .db
-                .lock()
-                .ok()
-                .and_then(|db| {
-                    db.query_row("SELECT is_local FROM servers WHERE id = ?1", [sid], |r| {
-                        r.get::<_, bool>(0)
-                    })
-                    .ok()
-                })
-                .map(|is_local| !is_local)
-                .unwrap_or(false);
-            if is_remote {
-                return Err(AppError::BadRequest(
-                    "Deploying a catalog service to a remote server isn't supported here yet. \
-                     Leave the server unset to deploy on this core, or use the remote server's \
-                     own deploy flow (POST /api/v1/servers/{id}/deploy)."
-                        .into(),
-                ));
-            }
-        }
-    }
-
     // Determine port pool — uses project's range if set, otherwise global.
     let (port_start, port_end) = with_db(&state, |db| {
         Ok(resolve_port_range(&state, db, body.project_id.as_deref()))
@@ -512,69 +526,197 @@ pub async fn create(
             )));
         }
 
-        // Generate cluster compose YAML (single-server for now, all on localhost)
-        let cluster_yaml = cluster_gen::build_cluster_compose(&body.catalog_id, node_count, &vars)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Cluster compose: {e}")))?;
-
-        // Build cluster_config_json
-        let nodes: Vec<serde_json::Value> = (0..node_count)
+        // ── Resolve per-node server placement (default: local core) ──
+        let node_servers: Vec<String> = (0..node_count)
             .map(|i| {
-                let role = if i == 0 { "primary" } else { "replica" };
-                let server_id = body
-                    .node_distribution
+                body.node_distribution
                     .get(i)
-                    .map(|n| n.server_id.clone())
-                    .unwrap_or_else(|| "localhost".to_string());
-                serde_json::json!({
-                    "index": i,
-                    "role": role,
-                    "server_id": server_id,
-                })
+                    .map(|n| n.server_id.trim().to_string())
+                    .filter(|s| !s.is_empty() && s != "localhost")
+                    .unwrap_or_else(|| "local".to_string())
             })
             .collect();
+        let unique_servers: std::collections::BTreeSet<String> =
+            node_servers.iter().cloned().collect();
 
-        let cluster_config = serde_json::json!({
-            "node_count": node_count,
-            "nodes": nodes,
-        });
+        // Build (conn, per-server yaml) deployments + per-node cluster config.
+        let mut deployments: Vec<(crate::api::servers::AgentConn, String)> = Vec::new();
+        let mut cluster_nodes: Vec<serde_json::Value> = Vec::new();
+        let combined_yaml: String;
 
-        // Update DB with cluster info
-        let cluster_json = cluster_config.to_string();
-        let yaml_clone = cluster_yaml.clone();
-        let sid = service_id.clone();
-        with_db(&state, |db| {
-            let _ = db.execute(
-                "UPDATE services SET cluster_mode = 'cluster', cluster_config_json = ?1, compose_content = ?2 WHERE id = ?3",
-                rusqlite::params![cluster_json, yaml_clone, sid],
-            );
-            Ok(())
-        })?;
+        if unique_servers.len() <= 1 {
+            // Single-server cluster: the existing monolithic compose (container
+            // DNS, default compose network) deployed to that one server — local
+            // (unchanged behaviour) OR a single remote agent.
+            let target = node_servers
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "local".to_string());
+            let conn = crate::api::servers::get_server_info(&state, &target)?;
+            let yaml = cluster_gen::build_cluster_compose(&body.catalog_id, node_count, &vars)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Cluster compose: {e}")))?;
+            combined_yaml = yaml.clone();
+            for i in 0..node_count {
+                cluster_nodes.push(serde_json::json!({
+                    "index": i,
+                    "role": if i == 0 { "primary" } else { "replica" },
+                    "server_id": target,
+                }));
+            }
+            deployments.push((conn, yaml));
+        } else {
+            // Multi-server distributed cluster: each node on its server, cross-
+            // server replicas reach the primary at its mesh IP + published port.
+            if !cluster_gen::cross_server_cluster_supported(&body.catalog_id) {
+                return Err(AppError::BadRequest(format!(
+                    "cross-server cluster distribution isn't supported for {} yet — \
+                     place all nodes on a single server",
+                    body.catalog_id
+                )));
+            }
+            // Resolve each target server's connection + active mesh IP.
+            let mut conns: std::collections::HashMap<String, crate::api::servers::AgentConn> =
+                std::collections::HashMap::new();
+            let mut mesh_ips: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            for sid in &unique_servers {
+                let conn = crate::api::servers::get_server_info(&state, sid)?;
+                let ip: Option<String> = {
+                    let db = state
+                        .db
+                        .lock()
+                        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                    db.query_row(
+                        "SELECT wp.assigned_ip FROM wireguard_peers wp
+                         JOIN wireguard_config wc ON wc.id = 1
+                         WHERE wp.server_id = ?1 AND wp.status = 'active' AND wc.enabled = 1",
+                        [sid],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .ok()
+                };
+                let ip = ip.ok_or_else(|| {
+                    AppError::BadRequest(format!(
+                        "server {sid} is not on an active WireGuard mesh — cross-server \
+                         cluster replication requires the mesh up on every target server"
+                    ))
+                })?;
+                conns.insert(sid.clone(), conn);
+                mesh_ips.insert(sid.clone(), ip);
+            }
+            // Allocate one published host port per node.
+            let node_cport: u16 = vars
+                .get("port")
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(5432);
+            let port_specs: Vec<(String, u16)> = (0..node_count)
+                .map(|i| (format!("node{i}"), node_cport))
+                .collect();
+            let allocs = {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                crate::db::ports::allocate_ports(
+                    &db,
+                    &service_id,
+                    &port_specs,
+                    LB_PORT_RANGE_START,
+                    LB_PORT_RANGE_END,
+                    &[],
+                )
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("allocate cluster ports: {e}")))?
+            };
+            let plans: Vec<cluster_gen::ClusterNodePlan> = (0..node_count)
+                .map(|i| cluster_gen::ClusterNodePlan {
+                    index: i,
+                    role: if i == 0 {
+                        "primary".to_string()
+                    } else {
+                        "replica".to_string()
+                    },
+                    server_id: node_servers[i].clone(),
+                    mesh_addr: mesh_ips.get(&node_servers[i]).cloned().unwrap_or_default(),
+                    host_port: allocs.get(i).map(|a| a.host_port as u16).unwrap_or(0),
+                })
+                .collect();
+            for p in &plans {
+                cluster_nodes.push(serde_json::json!({
+                    "index": p.index,
+                    "role": p.role,
+                    "server_id": p.server_id,
+                    "mesh_addr": p.mesh_addr,
+                    "host_port": p.host_port,
+                }));
+            }
+            let mut combined = String::new();
+            for sid in &unique_servers {
+                let yaml = cluster_gen::build_cluster_compose_for_server(
+                    &body.catalog_id,
+                    sid,
+                    &plans,
+                    &vars,
+                )
+                .map_err(|e| {
+                    AppError::Internal(anyhow::anyhow!("cluster compose for {sid}: {e}"))
+                })?;
+                combined.push_str(&format!("# ---- server {sid} ----\n{yaml}\n"));
+                deployments.push((conns.get(sid).cloned().expect("conn resolved above"), yaml));
+            }
+            combined_yaml = combined;
+        }
 
-        // Deploy cluster stack
-        let deploy_result =
-            docker::deploy_service_stack(&state, &service_id, &stack_name, &cluster_yaml, None)
-                .await;
+        // Persist cluster config + combined compose.
+        {
+            let cluster_json =
+                serde_json::json!({ "node_count": node_count, "nodes": cluster_nodes }).to_string();
+            let yaml_clone = combined_yaml.clone();
+            let sid = service_id.clone();
+            with_db(&state, |db| {
+                let _ = db.execute(
+                    "UPDATE services SET cluster_mode = 'cluster', cluster_config_json = ?1, compose_content = ?2 WHERE id = ?3",
+                    rusqlite::params![cluster_json, yaml_clone, sid],
+                );
+                Ok(())
+            })?;
+        }
 
-        let status = if deploy_result.is_ok() {
+        // Deploy each server's nodes (local on the core, remote via the agent).
+        let mut deploy_errors: Vec<String> = Vec::new();
+        for (conn, yaml) in &deployments {
+            if let Err(e) =
+                deploy_to_target(&state, conn, &service_id, &stack_name, yaml, None).await
+            {
+                deploy_errors.push(format!("{}: {e}", conn.host));
+            }
+        }
+        let status = if deploy_errors.is_empty() {
             "running"
         } else {
             "failed"
         };
-        let log_output = match &deploy_result {
-            Ok(out) => out.clone(),
-            Err(e) => format!("{e}"),
+        let log_output = if deploy_errors.is_empty() {
+            "cluster deployed".to_string()
+        } else {
+            deploy_errors.join("; ")
         };
-        let sid = service_id.clone();
-        with_db(&state, |db| {
-            let _ = db.execute(
-                "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-                rusqlite::params![status, sid],
-            );
-            record_deployment_log(db, &sid, "deploy", status, &log_output);
-            Ok(())
-        })?;
-
-        deploy_result.map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy failed: {e}")))?;
+        {
+            let sid = service_id.clone();
+            with_db(&state, |db| {
+                let _ = db.execute(
+                    "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
+                    rusqlite::params![status, sid],
+                );
+                record_deployment_log(db, &sid, "deploy", status, &log_output);
+                Ok(())
+            })?;
+        }
+        if !deploy_errors.is_empty() {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "cluster deploy failed: {}",
+                deploy_errors.join("; ")
+            )));
+        }
 
         // Auto-generate service domain (skip for databases — no HTTP to proxy)
         if item.meta.category != "database" {
@@ -606,8 +748,30 @@ pub async fn create(
     }
 
     // ── Standard (standalone) compose YAML ─────────────────
+    // Resolve the target server (default: local core). A remote agent gets a
+    // remote-flavoured compose (0.0.0.0 bindings, no core-external networks)
+    // deployed over the pinned channel via `deploy_to_target`.
+    let target_conn = crate::api::servers::get_server_info(
+        &state,
+        body.server_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("local"),
+    )?;
+    let remote = !target_conn.is_local;
     let yaml = if let Some(compose) = &item.compose {
         catalog::build_from_template(&compose.template, &vars)
+    } else if remote {
+        catalog::build_compose_yaml_scaled(
+            &item,
+            &service_id,
+            &name,
+            &vars,
+            &[(1, port_mappings.clone())],
+            network_name.as_deref(),
+            true,
+        )
     } else {
         catalog::build_compose_yaml(
             &item,
@@ -632,9 +796,16 @@ pub async fn create(
         Some(auth_map)
     };
 
-    // Deploy (the only await point)
-    let deploy_result =
-        docker::deploy_service_stack(&state, &service_id, &stack_name, &yaml, deploy_auth).await;
+    // Deploy: local on the core, or to the chosen remote agent.
+    let deploy_result = deploy_to_target(
+        &state,
+        &target_conn,
+        &service_id,
+        &stack_name,
+        &yaml,
+        deploy_auth,
+    )
+    .await;
 
     // Update status based on result
     let status = if deploy_result.is_ok() {
@@ -657,11 +828,14 @@ pub async fn create(
         Ok(())
     })?;
 
-    // Propagate deploy error
-    deploy_result.map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy failed: {e}")))?;
+    // Propagate deploy error (preserves the AppError status — e.g. a remote
+    // agent being unreachable surfaces as 400, not 500).
+    deploy_result?;
 
-    // Auto-generate service domain (skip for databases — no HTTP to proxy)
-    if item.meta.category != "database" {
+    // Auto-generate service domain. Skipped for databases (no HTTP to proxy)
+    // and for REMOTE services: agents don't run Traefik, so there's no local
+    // proxy to own the domain — remote proxying is a follow-up.
+    if !remote && item.meta.category != "database" {
         if let Some(http_port) = pick_http_port(&allocated_ports) {
             try_create_service_domain(&state, &service_id, &name, http_port).await;
         }

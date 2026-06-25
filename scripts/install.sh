@@ -495,6 +495,10 @@ if [[ "${PIER_SKIP_FIREWALL:-0}" != "1" ]]; then
         ufw allow 80/tcp             >/dev/null 2>&1 || true
         ufw allow 443/tcp            >/dev/null 2>&1 || true
         ufw allow 51820/udp          >/dev/null 2>&1 || true
+        # Trust the WireGuard mesh subnet: intra-mesh traffic (cross-server DB
+        # replication, remote service access) arrives on wg0 from 10.42.0.0/24
+        # and is authenticated by WireGuard. Default subnet; adjust if changed.
+        ufw allow from 10.42.0.0/24  >/dev/null 2>&1 || true
         if ufw --force enable >/dev/null 2>&1; then
             info "Firewall enabled"
         else

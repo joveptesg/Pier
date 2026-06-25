@@ -320,11 +320,14 @@ pub type ReplicaSlot = (i64, Vec<ReplicaPortMapping>);
 ///   one compose service. When `replicas.len() == 1`, the service key and
 ///   container name keep the legacy (no-suffix) form to preserve compatibility
 ///   with existing deployments.
-/// - `bind_public`: when `true`, the **base** `host_port:container_port` mapping
-///   binds to `0.0.0.0` (used on remote servers reached from the main Traefik);
-///   when `false`, `127.0.0.1`. Independent of the per-port `public_port` flag —
-///   `public_port` always adds a separate `0.0.0.0:{public}:{container}` line
-///   so the operator-chosen public port is exposed even on local main-server.
+/// - `remote`: when `true`, the service is deployed to a REMOTE node (agent).
+///   The **base** `host_port:container_port` mapping binds to `0.0.0.0` (so the
+///   core / its mesh peers can reach it), and the core's external project
+///   networks (`pier-net` / custom) are NOT referenced — they don't exist on
+///   the agent, so the compose uses its own default per-stack network. When
+///   `false` (local main-server), bindings are `127.0.0.1` and the external
+///   networks are attached. Independent of the per-port `public_port` flag,
+///   which always adds a separate `0.0.0.0:{public}:{container}` line.
 pub fn build_compose_yaml_scaled(
     item: &CatalogItem,
     service_id: &str,
@@ -332,7 +335,7 @@ pub fn build_compose_yaml_scaled(
     env_vars: &HashMap<String, String>,
     replicas: &[ReplicaSlot],
     network_name: Option<&str>,
-    bind_public: bool,
+    remote: bool,
 ) -> String {
     let docker = match &item.docker {
         Some(d) => d,
@@ -341,7 +344,7 @@ pub fn build_compose_yaml_scaled(
 
     let image = substitute(&docker.image, env_vars);
     let net = network_name.unwrap_or("pier-net");
-    let bind_addr = if bind_public { "0.0.0.0" } else { "127.0.0.1" };
+    let bind_addr = if remote { "0.0.0.0" } else { "127.0.0.1" };
     let single_replica = replicas.len() == 1;
 
     let cmd_entries: Vec<String> = docker
@@ -414,7 +417,7 @@ pub fn build_compose_yaml_scaled(
                 // base binding (remote-server `0.0.0.0:host:container` with the
                 // same `public == host`).
                 if let Some(p) = public {
-                    if !(bind_public && *p == *host) {
+                    if !(remote && *p == *host) {
                         yaml.push_str(&format!("      - \"0.0.0.0:{p}:{container}\"\n"));
                     }
                 }
@@ -453,10 +456,14 @@ pub fn build_compose_yaml_scaled(
         yaml.push_str(&format!("      pier.catalog.id: \"{}\"\n", item.meta.id));
         yaml.push_str(&format!("      pier.replica.idx: \"{idx}\"\n"));
 
-        yaml.push_str("    networks:\n");
-        yaml.push_str(&format!("      - {net}\n"));
-        if net != "pier-net" {
-            yaml.push_str("      - pier-net\n");
+        // Remote nodes don't have the core's external networks; let the compose
+        // create its own default per-stack network instead of referencing them.
+        if !remote {
+            yaml.push_str("    networks:\n");
+            yaml.push_str(&format!("      - {net}\n"));
+            if net != "pier-net" {
+                yaml.push_str("      - pier-net\n");
+            }
         }
     }
 
@@ -467,12 +474,14 @@ pub fn build_compose_yaml_scaled(
         }
     }
 
-    yaml.push_str("networks:\n");
-    yaml.push_str(&format!("  {net}:\n"));
-    yaml.push_str("    external: true\n");
-    if net != "pier-net" {
-        yaml.push_str("  pier-net:\n");
+    if !remote {
+        yaml.push_str("networks:\n");
+        yaml.push_str(&format!("  {net}:\n"));
         yaml.push_str("    external: true\n");
+        if net != "pier-net" {
+            yaml.push_str("  pier-net:\n");
+            yaml.push_str("    external: true\n");
+        }
     }
 
     yaml

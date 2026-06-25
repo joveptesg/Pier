@@ -1722,6 +1722,8 @@ if [ "${{PIER_SKIP_FIREWALL:-0}}" != "1" ] && command -v ufw >/dev/null 2>&1; th
     ufw allow 22/tcp >/dev/null 2>&1 || true
     ufw allow "$AGENT_PORT"/tcp >/dev/null 2>&1 || true
     ufw allow 51820/udp >/dev/null 2>&1 || true
+    # Trust the WireGuard mesh subnet (intra-mesh DB replication / service access).
+    ufw allow from 10.42.0.0/24 >/dev/null 2>&1 || true
     ufw --force enable >/dev/null 2>&1 \
         && echo "Firewall enabled (ssh:$SSH_PORT, agent:$AGENT_PORT, mesh:51820/udp)" \
         || echo "Warning: ufw enable failed; review the host firewall manually."
@@ -1762,6 +1764,7 @@ echo "Agent registered with Pier core."
 /// handshake has delivered it — callers pass it to
 /// [`crate::network::agent_client::build_agent_client`]. For `kind = "peer"`,
 /// `host`/`port` are empty/0 and callers route through the proxy handler.
+#[derive(Clone)]
 pub(crate) struct AgentConn {
     pub host: String,
     pub port: i64,
