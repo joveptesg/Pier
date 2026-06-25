@@ -241,6 +241,79 @@ else
     warn "будущими config.json автоматически."
 fi
 
+# ── Install WireGuard tools (for the optional mesh) ──────────────────────────
+# pier-net-helper runs sandboxed (ProtectSystem=strict) and CANNOT apt-get, so
+# the WireGuard CLI must be present on the host before any mesh op runs. Install
+# it here (best-effort — mesh is opt-in; non-fatal if the package is missing).
+if ! command -v wg &>/dev/null; then
+    info "Installing WireGuard tools..."
+    if command -v apt-get &>/dev/null; then
+        DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard wireguard-tools >/dev/null 2>&1 \
+            || warn "apt-get install wireguard failed — mesh unavailable until installed"
+    elif command -v dnf &>/dev/null; then
+        dnf install -y wireguard-tools >/dev/null 2>&1 || warn "dnf install wireguard-tools failed"
+    elif command -v yum &>/dev/null; then
+        yum install -y wireguard-tools >/dev/null 2>&1 || warn "yum install wireguard-tools failed"
+    fi
+fi
+# The helper writes wg0.conf + wg0.privkey here; systemd ReadWritePaths only
+# makes the path writable if it EXISTS when the unit starts.
+mkdir -p /etc/wireguard && chmod 700 /etc/wireguard
+
+# ── Provision the local pier-net-helper (privileged mesh helper) ─────────────
+# The core drives its OWN mesh node through this helper over a unix socket
+# (/run/pier/net.sock). Dormant until the operator enables the mesh in the UI.
+# Prefer a binary shipped next to the core binary; otherwise pull from release.
+HELPER_BIN=/usr/local/bin/pier-net-helper
+HELPER_SRC="$(dirname "$BINARY_PATH")/pier-net-helper"
+if [[ -f "$HELPER_SRC" ]]; then
+    install -m755 "$HELPER_SRC" "$HELPER_BIN"
+    info "Installed pier-net-helper from $HELPER_SRC"
+elif curl -fsSL -o "$HELPER_BIN" \
+        "https://github.com/joveptesg/Pier/releases/download/latest/pier-net-helper-linux-amd64" 2>/dev/null; then
+    chmod 0755 "$HELPER_BIN"
+    info "Installed pier-net-helper from release"
+else
+    warn "pier-net-helper unavailable — WireGuard mesh features will be disabled"
+fi
+if [[ -x "$HELPER_BIN" ]]; then
+    cat > /etc/systemd/system/pier-net-helper.service <<HELPER_UNIT
+[Unit]
+Description=Pier Network Helper (privileged WireGuard mesh operations)
+After=network-pre.target
+Before=pier.service
+
+[Service]
+Type=simple
+ExecStart=${HELPER_BIN}
+Restart=on-failure
+RestartSec=2
+User=root
+# Group=pier so /run/pier/net.sock is created root:pier and pier-core (running
+# as the pier user) can reach it.
+Group=pier
+RuntimeDirectory=pier
+RuntimeDirectoryMode=0750
+ProtectSystem=strict
+ReadWritePaths=-/etc/wireguard /run/pier
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE
+HELPER_UNIT
+    chmod 644 /etc/systemd/system/pier-net-helper.service
+    systemctl daemon-reload
+    systemctl enable --now pier-net-helper.service \
+        || warn "pier-net-helper failed to start; mesh features unavailable"
+fi
+
 # ── Install binary ───────────────────────────────────────────────────────────
 
 info "Installing binary to ${PIER_BIN}"
@@ -341,7 +414,9 @@ Requires=docker.service
 Type=simple
 User=${PIER_USER}
 Group=docker
-SupplementaryGroups=systemd-journal adm
+# `pier` group lets pier-core reach the pier-net-helper socket
+# (/run/pier/net.sock, 0660 root:pier) for local WireGuard mesh ops.
+SupplementaryGroups=systemd-journal adm pier
 WorkingDirectory=${PIER_DIR}
 EnvironmentFile=${PIER_ENV}
 ExecStart=${PIER_BIN}
@@ -403,6 +478,32 @@ if [[ "$PIER_READY" != true ]]; then
         error "Pier failed to start. Check logs: journalctl -u pier --no-pager -n 50"
     fi
     warn "Pier process is running but did not respond on :${PIER_PORT} within 30s — continuing anyway"
+fi
+
+# ── Firewall (ufw) ───────────────────────────────────────────────────────────
+# Lock the host down to the ports Pier needs. Opt out with PIER_SKIP_FIREWALL=1
+# (e.g. if you manage nftables yourself). The live SSH port is detected and
+# allowed FIRST so enabling ufw can't lock you out.
+if [[ "${PIER_SKIP_FIREWALL:-0}" != "1" ]]; then
+    if command -v ufw &>/dev/null; then
+        SSH_PORT=$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')
+        SSH_PORT=${SSH_PORT:-22}
+        info "Configuring firewall (ufw): SSH ${SSH_PORT}, ${PIER_PORT}/80/443 tcp, 51820/udp"
+        ufw allow "${SSH_PORT}"/tcp  >/dev/null 2>&1 || true
+        ufw allow 22/tcp             >/dev/null 2>&1 || true
+        ufw allow "${PIER_PORT}"/tcp >/dev/null 2>&1 || true
+        ufw allow 80/tcp             >/dev/null 2>&1 || true
+        ufw allow 443/tcp            >/dev/null 2>&1 || true
+        ufw allow 51820/udp          >/dev/null 2>&1 || true
+        if ufw --force enable >/dev/null 2>&1; then
+            info "Firewall enabled"
+        else
+            warn "ufw enable failed — review the host firewall manually"
+        fi
+    else
+        warn "ufw not installed — the host firewall is UNMANAGED."
+        warn "Recommended: allow only SSH, ${PIER_PORT}/tcp (panel), 80,443/tcp (proxy), 51820/udp (mesh)."
+    fi
 fi
 
 # Detect public IP for display

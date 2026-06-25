@@ -1562,6 +1562,10 @@ chmod +x /opt/pier/bin/pier-agent
 #     is non-fatal: the agent works without mesh; the operator can run
 #     /install-helper.sh later to retrofit.
 echo "Installing pier-net-helper (dormant)..."
+# WireGuard tools must be present on the host — the sandboxed helper
+# (ProtectSystem=strict) cannot apt-get them itself; it only verifies them.
+DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard wireguard-tools >/dev/null 2>&1 \
+    || echo "Warning: apt install wireguard failed; mesh will be unavailable until installed."
 HELPER_URL="https://github.com/joveptesg/Pier/releases/download/latest/pier-net-helper-linux-amd64"
 if curl -fsSL -o /usr/local/bin/pier-net-helper "$HELPER_URL"; then
     chmod 0755 /usr/local/bin/pier-net-helper
@@ -1707,6 +1711,21 @@ chmod 600 /etc/systemd/system/pier-agent.service
 # 6. Start agent
 systemctl daemon-reload
 systemctl enable --now pier-agent
+
+# 6b. Firewall — allow SSH, the agent API port, and WireGuard, then enable ufw.
+#     SSH is detected + allowed FIRST so this can't lock you out. Opt out with
+#     PIER_SKIP_FIREWALL=1 in the environment.
+if [ "${{PIER_SKIP_FIREWALL:-0}}" != "1" ] && command -v ufw >/dev/null 2>&1; then
+    SSH_PORT=$(sshd -T 2>/dev/null | awk '/^port /{{print $2; exit}}')
+    SSH_PORT=${{SSH_PORT:-22}}
+    ufw allow "$SSH_PORT"/tcp >/dev/null 2>&1 || true
+    ufw allow 22/tcp >/dev/null 2>&1 || true
+    ufw allow "$AGENT_PORT"/tcp >/dev/null 2>&1 || true
+    ufw allow 51820/udp >/dev/null 2>&1 || true
+    ufw --force enable >/dev/null 2>&1 \
+        && echo "Firewall enabled (ssh:$SSH_PORT, agent:$AGENT_PORT, mesh:51820/udp)" \
+        || echo "Warning: ufw enable failed; review the host firewall manually."
+fi
 
 echo ""
 echo "=== Pier Agent installed ==="

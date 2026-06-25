@@ -209,16 +209,24 @@ mod imp {
     // ------------------------------------------------------------------
 
     async fn op_install_wireguard() -> Result<serde_json::Value> {
-        let status = tokio::process::Command::new("apt-get")
-            .env("DEBIAN_FRONTEND", "noninteractive")
-            .args(["install", "-y", "wireguard", "wireguard-tools"])
+        // WireGuard is installed by the PROVISIONING script (install.sh for a
+        // core, the agent installer for an agent) — OUTSIDE this sandbox. The
+        // helper runs under `ProtectSystem=strict` and cannot `apt-get` (it
+        // would fail with a read-only-filesystem error), so here we only
+        // VERIFY the tools are present. A misprovisioned node then fails fast
+        // with a clear message instead of deep inside `generate_keypair`/`up`.
+        let present = tokio::process::Command::new("wg")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .status()
             .await
-            .context("spawning apt-get")?;
-        if !status.success() {
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !present {
             return Err(anyhow!(
-                "apt-get install wireguard failed (exit {})",
-                status.code().unwrap_or(-1)
+                "WireGuard tools (`wg`) are not installed on this node. The Pier \
+                 installer apt-installs them; install the `wireguard` package and retry."
             ));
         }
         Ok(serde_json::json!({}))
