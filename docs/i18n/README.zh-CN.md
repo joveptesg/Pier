@@ -344,6 +344,18 @@ Pier 可免费自托管和修改。如果您将修改后的版本作为网络服
 
 如需商业许可（免除 AGPL 义务），请联系 [info@devcom.app](mailto:info@devcom.app)。
 
+## Star 历史
+
+<p align="center">
+  <a href="https://star-history.com/#joveptesg/Pier&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" width="720" />
+    </picture>
+  </a>
+</p>
+
 ---
 
 <p align="center">

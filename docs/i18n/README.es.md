@@ -344,6 +344,18 @@ Pier es libre para autoalojar y modificar. Si ofreces una versión modificada co
 
 Para licenciamiento comercial (uso sin obligaciones AGPL), contacta a [info@devcom.app](mailto:info@devcom.app).
 
+## Historial de estrellas
+
+<p align="center">
+  <a href="https://star-history.com/#joveptesg/Pier&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" width="720" />
+    </picture>
+  </a>
+</p>
+
 ---
 
 <p align="center">

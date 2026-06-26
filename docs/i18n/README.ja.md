@@ -344,6 +344,18 @@ Pier はセルフホストおよび改変が自由に行えます。改変版を
 
 商用ライセンス（AGPL 義務なしでの利用）については、[info@devcom.app](mailto:info@devcom.app) までお問い合わせください。
 
+## スター履歴
+
+<p align="center">
+  <a href="https://star-history.com/#joveptesg/Pier&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" width="720" />
+    </picture>
+  </a>
+</p>
+
 ---
 
 <p align="center">
