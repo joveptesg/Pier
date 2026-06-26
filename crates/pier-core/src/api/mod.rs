@@ -139,6 +139,13 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // long-term agent_token. Public because install.sh calls it before
         // the agent has any session/long-term credential.
         .route("/servers/{id}/handshake", post(servers::handshake))
+        // Agent binary download — the enrollment script fetches pier-agent /
+        // pier-net-helper from the CORE (not GitHub releases, which 404 on a
+        // private repo). Gated by a live bootstrap token, not a session.
+        .route(
+            "/servers/download/{name}",
+            get(servers::download_agent_binary),
+        )
         // Webhooks (public — GitHub/GitLab need to reach these)
         .route("/webhooks/github", post(webhooks::github))
         .route("/webhooks/gitlab", post(webhooks::gitlab))

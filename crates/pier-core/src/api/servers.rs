@@ -392,6 +392,68 @@ pub struct HandshakeRequest {
     pub agent_tls_fingerprint: Option<String>,
 }
 
+/// GET /api/v1/servers/download/{name} (public — bootstrap-token auth)
+///
+/// Serves `pier-agent` / `pier-net-helper` to a freshly-enrolling agent from the
+/// CORE's own bin dir (next to the running core binary). Replaces fetching from
+/// GitHub releases, which return 404 for a PRIVATE repo's unauthenticated curl.
+/// Gated by the live bootstrap token (`Authorization: Bearer`), not consumed.
+pub async fn download_agent_binary(
+    State(state): State<SharedState>,
+    headers: axum::http::HeaderMap,
+    Path(name): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    // Whitelist — only the two enrollment binaries; blocks path traversal.
+    if !matches!(name.as_str(), "pier-agent" | "pier-net-helper") {
+        return Err(AppError::NotFound("unknown binary".to_string()));
+    }
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .unwrap_or("")
+        .trim();
+    if token.is_empty() {
+        return Err(AppError::Unauthorized);
+    }
+    // Validate the bootstrap token WITHOUT consuming it (handshake consumes it).
+    let hash = server_token::hash(token);
+    let now = chrono::Utc::now().timestamp();
+    let alive = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT bootstrap_expires_at FROM servers \
+             WHERE bootstrap_token_hash = ?1 AND kind = 'agent'",
+            [&hash],
+            |r| r.get::<_, Option<i64>>(0),
+        )
+        .ok()
+        .map(|exp| server_token::bootstrap_alive(exp, now))
+        .unwrap_or(false)
+    };
+    if !alive {
+        return Err(AppError::Unauthorized);
+    }
+    // Serve from the dir holding the running core binary (/opt/pier/bin).
+    let bin_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("/opt/pier/bin"));
+    let bytes = tokio::fs::read(bin_dir.join(&name)).await.map_err(|e| {
+        AppError::NotFound(format!("binary {name} not staged on core: {e}"))
+    })?;
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/octet-stream",
+        )],
+        bytes,
+    ))
+}
+
 /// POST /api/v1/servers/{id}/handshake (public — bootstrap-token auth)
 ///
 /// Spends a one-shot bootstrap token and mints the long-term agent credential.
@@ -1549,11 +1611,11 @@ echo "Downloading pier-agent..."
 mkdir -p /opt/pier/bin
 curl -fsSL {cacert_arg} "$PIER_CORE_URL/api/v1/health" >/dev/null 2>&1 || echo "Warning: Cannot reach Pier core"
 
-# Try to download from GitHub release (uses public CA chain, no pinning needed)
-DOWNLOAD_URL="https://github.com/joveptesg/Pier/releases/download/latest/pier-agent-linux-amd64"
-curl -fsSL -o /opt/pier/bin/pier-agent "$DOWNLOAD_URL" || {{
-    echo "Error: Could not download pier-agent"
-    echo "Please build from source: cargo build --release -p pier-agent"
+# Download pier-agent from the CORE (gated by the bootstrap token). The core
+# serves it from its own bin dir — works for private repos, no GitHub dependency.
+DOWNLOAD_URL="$PIER_CORE_URL/api/v1/servers/download/pier-agent"
+curl -fsSL {cacert_arg} -H "Authorization: Bearer $BOOTSTRAP_TOKEN" -o /opt/pier/bin/pier-agent "$DOWNLOAD_URL" || {{
+    echo "Error: Could not download pier-agent from core"
     exit 1
 }}
 chmod +x /opt/pier/bin/pier-agent
@@ -1570,8 +1632,8 @@ echo "Installing pier-net-helper (dormant)..."
 # (ProtectSystem=strict) cannot apt-get them itself; it only verifies them.
 DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard wireguard-tools >/dev/null 2>&1 \
     || echo "Warning: apt install wireguard failed; mesh will be unavailable until installed."
-HELPER_URL="https://github.com/joveptesg/Pier/releases/download/latest/pier-net-helper-linux-amd64"
-if curl -fsSL -o /usr/local/bin/pier-net-helper "$HELPER_URL"; then
+HELPER_URL="$PIER_CORE_URL/api/v1/servers/download/pier-net-helper"
+if curl -fsSL {cacert_arg} -H "Authorization: Bearer $BOOTSTRAP_TOKEN" -o /usr/local/bin/pier-net-helper "$HELPER_URL"; then
     chmod 0755 /usr/local/bin/pier-net-helper
     cat > /etc/systemd/system/pier-net-helper.service <<HELPER_UNIT
 [Unit]

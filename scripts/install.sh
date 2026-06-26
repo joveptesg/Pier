@@ -320,6 +320,20 @@ info "Installing binary to ${PIER_BIN}"
 cp "$BINARY_PATH" "$PIER_BIN"
 chmod 755 "$PIER_BIN"
 
+# Stage agent binaries next to the core so it can SERVE them to enrolling agents
+# (GET /api/v1/servers/download/{name}). Required because the repo is private —
+# agents cannot fetch pier-agent/pier-net-helper from GitHub releases. The
+# enrollment install_script downloads them from the core instead.
+BIN_DIR="$(dirname "$PIER_BIN")"
+for _b in pier-agent pier-net-helper; do
+    if [[ -f "$(dirname "$BINARY_PATH")/$_b" ]]; then
+        install -m755 "$(dirname "$BINARY_PATH")/$_b" "$BIN_DIR/$_b"
+        info "Staged $_b for agent enrollment"
+    else
+        warn "$_b not found next to core binary — agent enrollment of $_b will fail"
+    fi
+done
+
 # ── Create .env (only if not exists — preserve existing config on upgrade) ───
 
 if [[ ! -f "$PIER_ENV" ]]; then
