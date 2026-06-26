@@ -29,11 +29,17 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      - name: Prepare artifact
+      - name: Prepare artifacts
         run: |
-          cp target/release/pier pier-linux-amd64
-          chmod +x pier-linux-amd64
-          sha256sum pier-linux-amd64 > pier-linux-amd64.sha256
+          # cargo build --release builds the whole workspace, so pier-agent and
+          # pier-net-helper are already present alongside pier. The agent
+          # enrollment script downloads these exact filenames from the `latest`
+          # release, so publishing them here is required for fresh enrollment.
+          for bin in pier pier-agent pier-net-helper; do
+            cp "target/release/$bin" "$bin-linux-amd64"
+            chmod +x "$bin-linux-amd64"
+            sha256sum "$bin-linux-amd64" > "$bin-linux-amd64.sha256"
+          done
 
       - name: Upload to GitHub Release (latest)
         uses: softprops/action-gh-release@v2
@@ -48,5 +54,9 @@ jobs:
           files: |
             pier-linux-amd64
             pier-linux-amd64.sha256
+            pier-agent-linux-amd64
+            pier-agent-linux-amd64.sha256
+            pier-net-helper-linux-amd64
+            pier-net-helper-linux-amd64.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
