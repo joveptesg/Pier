@@ -1782,7 +1782,9 @@ systemctl enable --now pier-agent
 #     SSH is detected + allowed FIRST so this can't lock you out. Opt out with
 #     PIER_SKIP_FIREWALL=1 in the environment.
 if [ "${{PIER_SKIP_FIREWALL:-0}}" != "1" ] && command -v ufw >/dev/null 2>&1; then
-    SSH_PORT=$(sshd -T 2>/dev/null | awk '/^port /{{print $2; exit}}')
+    # awk must NOT exit early — that SIGPIPEs sshd and (with set -o pipefail)
+    # aborts enrollment before the firewall is configured. Read all, print last.
+    SSH_PORT=$(sshd -T 2>/dev/null | awk '/^port /{{p=$2}} END{{print p}}')
     SSH_PORT=${{SSH_PORT:-22}}
     ufw allow "$SSH_PORT"/tcp >/dev/null 2>&1 || true
     ufw allow 22/tcp >/dev/null 2>&1 || true

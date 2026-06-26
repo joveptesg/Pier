@@ -428,7 +428,7 @@ Requires=docker.service
 Type=simple
 User=${PIER_USER}
 Group=docker
-# `pier` group lets pier-core reach the pier-net-helper socket
+# The pier group lets pier-core reach the pier-net-helper socket
 # (/run/pier/net.sock, 0660 root:pier) for local WireGuard mesh ops.
 SupplementaryGroups=systemd-journal adm pier
 WorkingDirectory=${PIER_DIR}
@@ -500,7 +500,11 @@ fi
 # allowed FIRST so enabling ufw can't lock you out.
 if [[ "${PIER_SKIP_FIREWALL:-0}" != "1" ]]; then
     if command -v ufw &>/dev/null; then
-        SSH_PORT=$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')
+        # NOTE: awk must NOT `exit` early here — closing the pipe makes `sshd`
+        # receive SIGPIPE, and under `set -o pipefail`+`set -e` that aborts the
+        # whole installer right before the firewall is configured (host left
+        # with ufw inactive). Read all input, print the last `port` line.
+        SSH_PORT=$(sshd -T 2>/dev/null | awk '/^port /{p=$2} END{print p}')
         SSH_PORT=${SSH_PORT:-22}
         info "Configuring firewall (ufw): SSH ${SSH_PORT}, ${PIER_PORT}/80/443 tcp, 51820/udp"
         ufw allow "${SSH_PORT}"/tcp  >/dev/null 2>&1 || true
