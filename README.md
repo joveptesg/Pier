@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="Pier" height="120">
+  <img src="docs/og-banner.png" alt="Pier — A lightweight, self-hosted PaaS. Single binary. 20 MB RAM. Deploy anything." width="820">
 </p>
-
-<h3 align="center">A lightweight, self-hosted PaaS.<br>Single binary. 20 MB RAM. Deploy anything.</h3>
 
 <p align="center">
   <a href="https://github.com/joveptesg/Pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/Pier?color=blue" alt="License"></a>
