@@ -194,7 +194,72 @@ mod imp {
             Op::Down => op_down().await,
             Op::Status => op_status().await,
             Op::Uninstall => op_uninstall(state).await,
+            Op::SelfUpdate => op_self_update().await,
         }
+    }
+
+    /// Swap in a core binary the core staged at `/opt/pier/data/pier.new`
+    /// (it can't write `/opt/pier/bin` itself under ProtectSystem=strict), then
+    /// restart pier. Validates the staged file is a real ELF before touching
+    /// the live binary so a truncated download can't brick the install.
+    async fn op_self_update() -> Result<serde_json::Value> {
+        const STAGED: &str = "/opt/pier/data/pier.new";
+        const TARGET: &str = "/opt/pier/bin/pier";
+        const BACKUP: &str = "/opt/pier/bin/pier.old";
+
+        let meta = tokio::fs::metadata(STAGED)
+            .await
+            .with_context(|| format!("staged binary {STAGED} not found"))?;
+        if meta.len() < 1024 {
+            return Err(anyhow!(
+                "staged binary {STAGED} too small ({} bytes) — refusing",
+                meta.len()
+            ));
+        }
+        // ELF magic check — reject anything that isn't a Linux executable.
+        let mut magic = [0u8; 4];
+        {
+            use tokio::io::AsyncReadExt;
+            let mut f = tokio::fs::File::open(STAGED)
+                .await
+                .context("open staged binary")?;
+            f.read_exact(&mut magic)
+                .await
+                .context("read staged binary header")?;
+        }
+        if magic != [0x7f, b'E', b'L', b'F'] {
+            return Err(anyhow!("staged binary is not an ELF executable — refusing"));
+        }
+
+        // Swap: backup the live binary, move the staged one into place.
+        let _ = tokio::fs::remove_file(BACKUP).await;
+        if tokio::fs::metadata(TARGET).await.is_ok() {
+            tokio::fs::rename(TARGET, BACKUP)
+                .await
+                .context("backing up current binary")?;
+        }
+        tokio::fs::rename(STAGED, TARGET)
+            .await
+            .context("installing new binary")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(TARGET, std::fs::Permissions::from_mode(0o755))
+                .await
+                .context("chmod new binary")?;
+        }
+
+        // Reply to the core FIRST, then restart it ~1s later so its HTTP
+        // response makes it out before the process is replaced.
+        tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let _ = tokio::process::Command::new("systemctl")
+                .args(["restart", "pier"])
+                .status()
+                .await;
+        });
+
+        Ok(serde_json::json!({ "applied": true }))
     }
 
     // ------------------------------------------------------------------

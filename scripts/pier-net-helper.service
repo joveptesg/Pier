@@ -31,7 +31,9 @@ Group=root
 RuntimeDirectory=pier
 RuntimeDirectoryMode=0750
 ProtectSystem=strict
-ReadWritePaths=/etc/wireguard /run/pier
+# /opt/pier/bin: the helper applies core self-updates here (Op::SelfUpdate) —
+# the pier service can't write its own bin dir under ProtectSystem=strict.
+ReadWritePaths=/etc/wireguard /run/pier /opt/pier/bin
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true

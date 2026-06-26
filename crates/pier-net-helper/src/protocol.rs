@@ -48,6 +48,13 @@ pub enum Op {
     /// `wg-quick down wg0` + remove the helper's config files. Does NOT
     /// `apt remove wireguard` — the operator may have other tunnels.
     Uninstall,
+    /// Apply a self-update of the CORE binary. The core (User=pier,
+    /// ProtectSystem=strict) cannot write `/opt/pier/bin`, so it stages the
+    /// downloaded binary at `/opt/pier/data/pier.new` and asks us (root) to
+    /// swap it into `/opt/pier/bin/pier` and `systemctl restart pier`. No
+    /// params — the staged path is fixed, so the core can't point us at an
+    /// arbitrary file.
+    SelfUpdate,
 }
 
 #[cfg_attr(not(unix), allow(dead_code))]

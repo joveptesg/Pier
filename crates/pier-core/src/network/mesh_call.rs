@@ -142,7 +142,7 @@ fn lookup_server(
 // ---------------------------------------------------------------------------
 
 #[cfg(unix)]
-async fn call_local_socket<P: Serialize>(op: &str, params: &P) -> Result<MeshOpResult> {
+pub async fn call_local_socket<P: Serialize>(op: &str, params: &P) -> Result<MeshOpResult> {
     use std::path::PathBuf;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::UnixStream;
@@ -179,7 +179,7 @@ async fn call_local_socket<P: Serialize>(op: &str, params: &P) -> Result<MeshOpR
 }
 
 #[cfg(not(unix))]
-async fn call_local_socket<P: Serialize>(_op: &str, _params: &P) -> Result<MeshOpResult> {
+pub async fn call_local_socket<P: Serialize>(_op: &str, _params: &P) -> Result<MeshOpResult> {
     Err(anyhow!(
         "local helper socket is Linux-only; running mesh ops on a non-unix host is not supported"
     ))

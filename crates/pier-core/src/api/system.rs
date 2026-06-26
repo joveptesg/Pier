@@ -647,26 +647,66 @@ pub async fn update_now() -> AppResult<impl IntoResponse> {
         .await
         .map_err(|e| anyhow::anyhow!("Read binary: {e}"))?;
 
-    // Write to pier.new
+    // Stage the binary in the data dir — the only writable spot under the
+    // hardened unit (ProtectSystem=strict; /opt/pier/bin is read-only). The
+    // root pier-net-helper swaps it into /opt/pier/bin and restarts pier (the
+    // pier service can neither write its bin dir nor restart its own unit).
+    const STAGED: &str = "/opt/pier/data/pier.new";
+    tokio::fs::write(STAGED, &bytes)
+        .await
+        .map_err(|e| anyhow::anyhow!("Stage update binary: {e}"))?;
+
+    match crate::network::mesh_call::call_local_socket("self_update", &serde_json::json!({})).await {
+        Ok(r) if r.ok => {
+            tracing::info!(
+                "Self-update applied via helper ({} bytes), restarting...",
+                bytes.len()
+            );
+            Ok(Json(serde_json::json!({
+                "ok": true,
+                "message": "Update installed, restarting...",
+                "size": bytes.len(),
+            })))
+        }
+        Ok(r) => {
+            let _ = tokio::fs::remove_file(STAGED).await;
+            Err(AppError::Internal(anyhow::anyhow!(
+                "helper rejected self-update: {}",
+                r.error.unwrap_or_else(|| "unknown error".into())
+            )))
+        }
+        Err(e) => {
+            // No helper socket (mesh helper not installed). Fall back to a
+            // direct swap — succeeds only on a non-hardened / root-run install;
+            // a hardened one hits EROFS and surfaces a manual-update hint.
+            tracing::warn!("helper self-update unavailable ({e}); attempting direct swap");
+            apply_update_direct(STAGED, &bytes).await
+        }
+    }
+}
+
+/// Fallback for installs without the privileged helper: write + swap the binary
+/// in /opt/pier/bin and restart via systemctl, directly. Works only when the
+/// pier unit isn't sandboxed (e.g. running as root / no ProtectSystem=strict).
+async fn apply_update_direct(staged: &str, bytes: &[u8]) -> AppResult<Json<serde_json::Value>> {
+    let _ = tokio::fs::remove_file(staged).await;
     let bin_dir = std::path::PathBuf::from("/opt/pier/bin");
     let new_path = bin_dir.join("pier.new");
     let current_path = bin_dir.join("pier");
     let old_path = bin_dir.join("pier.old");
 
-    tokio::fs::write(&new_path, &bytes)
-        .await
-        .map_err(|e| anyhow::anyhow!("Write pier.new: {e}"))?;
-
-    // chmod +x
+    tokio::fs::write(&new_path, bytes).await.map_err(|e| {
+        AppError::Internal(anyhow::anyhow!(
+            "Write {}: {e}. Update manually: curl -fsSL https://pier.team/install | sudo bash",
+            new_path.display()
+        ))
+    })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&new_path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| anyhow::anyhow!("chmod: {e}"))?;
+        let _ = std::fs::set_permissions(&new_path, std::fs::Permissions::from_mode(0o755));
     }
-
-    // Atomic swap: pier → pier.old, pier.new → pier
-    let _ = std::fs::remove_file(&old_path); // remove previous .old
+    let _ = std::fs::remove_file(&old_path);
     if current_path.exists() {
         std::fs::rename(&current_path, &old_path)
             .map_err(|e| anyhow::anyhow!("Backup current binary: {e}"))?;
@@ -674,9 +714,6 @@ pub async fn update_now() -> AppResult<impl IntoResponse> {
     std::fs::rename(&new_path, &current_path)
         .map_err(|e| anyhow::anyhow!("Replace binary: {e}"))?;
 
-    tracing::info!("Update downloaded ({} bytes), restarting...", bytes.len());
-
-    // Restart via systemctl (async, doesn't block response)
     tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let _ = tokio::process::Command::new("systemctl")
@@ -684,10 +721,9 @@ pub async fn update_now() -> AppResult<impl IntoResponse> {
             .output()
             .await;
     });
-
     Ok(Json(serde_json::json!({
         "ok": true,
-        "message": "Update installed, restarting...",
+        "message": "Update installed (direct), restarting...",
         "size": bytes.len(),
     })))
 }

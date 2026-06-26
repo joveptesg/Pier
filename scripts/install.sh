@@ -295,7 +295,9 @@ Group=pier
 RuntimeDirectory=pier
 RuntimeDirectoryMode=0750
 ProtectSystem=strict
-ReadWritePaths=-/etc/wireguard /run/pier
+# /opt/pier/bin: the helper swaps in self-update binaries here (the pier service
+# can't — its own sandbox makes /opt/pier/bin read-only). See Op::SelfUpdate.
+ReadWritePaths=-/etc/wireguard /run/pier /opt/pier/bin
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
