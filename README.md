@@ -323,28 +323,6 @@ For projects that need overrides, drop a [`railpack.json`](https://railpack.com/
 
 > For detailed architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Roadmap
-
-- [x] Container management (Docker API)
-- [x] Docker Compose stacks with YAML editor
-- [x] One-click service templates (30+)
-- [x] Reverse proxy + auto-SSL (Traefik + Let's Encrypt)
-- [x] Git webhooks + auto-deploy (GitHub, GitLab)
-- [x] Multi-server management with agents
-- [x] Backup scheduler with S3 support
-- [x] Web dashboard (HTMX + Tailwind, dark mode)
-- [x] S3 bucket management
-- [x] Architecture visualization (Canvas)
-- [x] RBAC (role-based access control)
-- [x] 2FA (TOTP + recovery codes)
-- [x] Load balancing + horizontal scaling
-- [x] Alert notifications (Telegram, Discord, Slack, Email)
-- [x] Auto-update mechanism
-- [x] Docker network isolation per project
-- [x] Built-in data editor (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
-- [ ] WebAuthn / passkeys (second 2FA factor)
-- [ ] Pingora-based reverse proxy (replace Traefik)
-
 ## Contributing
 
 We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request. All contributors must agree to our [CLA](CLA.md).

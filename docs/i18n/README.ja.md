@@ -7,9 +7,9 @@
 <h3 align="center">軽量なセルフホスト型 PaaS。<br>単一バイナリ。20 MB RAM。何でもデプロイ。</h3>
 
 <p align="center">
-  <a href="https://github.com/joveptesg/pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/pier?color=blue" alt="License"></a>
-  <a href="https://github.com/joveptesg/pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/pier?style=flat" alt="Stars"></a>
-  <a href="https://github.com/joveptesg/pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/pier" alt="Release"></a>
+  <a href="https://github.com/joveptesg/Pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/Pier?color=blue" alt="License"></a>
+  <a href="https://github.com/joveptesg/Pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/Pier?style=flat" alt="Stars"></a>
+  <a href="https://github.com/joveptesg/Pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/Pier?include_prereleases" alt="Release"></a>
   <img src="https://img.shields.io/badge/rust-1.93%2B-orange" alt="Rust">
 </p>
 
@@ -242,6 +242,37 @@ npm install left-pad         # npmjs.org からプロキシ + キャッシュ
 - **ARM / aarch64 で動きますか？** はい — `railpack` と `moby/buildkit` の両方が linux/arm64 バイナリを提供しています。インストールスクリプトが自動で正しいアーキテクチャを選択します。
 - **無効にできますか？** はい — `PIER_SKIP_RAILPACK=1 bash install.sh` でセットアップをスキップできます。Dockerfile / Compose / Docker Image ソースは引き続き利用可能です。
 
+## データエディタ
+
+**ダッシュボードから直接データベースを閲覧・クエリ — Adminer も pgweb も外部クライアントも不要。** 各データベースサービスに **Data** タブが追加され、スキーマの確認、行のページ送り、インラインでのクエリ実行ができます。バイナリに組み込まれ、RBAC で保護され、すべてのクエリが監査されます。
+
+### 対応エンジン
+
+| エンジン | ドライバ | 閲覧 | クエリランナー |
+|---|---|---|---|
+| **PostgreSQL**（PostGIS、TimescaleDB を含む） | ネイティブ `sqlx` | スキーマ · テーブル · ビュー · 構造 · 行 | 任意の SQL |
+| **MySQL / MariaDB** | ネイティブ `sqlx` | データベース · テーブル · ビュー · 構造 · 行 | 任意の SQL |
+| **MongoDB** | `mongosh`（docker-exec） | データベース · コレクション · ドキュメント | `mongosh` スクリプト |
+| **Redis / Valkey** | ネイティブ `redis` | キー（SCAN） · 型を考慮した値 · TTL | 生のコマンド |
+
+### 閲覧
+
+- **SQL** — スキーマ/テーブルツリー、テーブルごとの構造（カラム、型、NULL 許容、デフォルト値、主キー、インデックス）、総件数付きのページ送り行。
+- **MongoDB** — 「データベース → コレクション」ツリー、EJSON でレンダリングされるページ送りドキュメント。
+- **Redis** — `SCAN` ベースのキーブラウザ。キーごとの型、型を考慮した値ビュー（string / list / set / zset / hash / stream）、TTL を表示。DB 0–15 を切り替え可能。
+
+### クエリ
+
+- **SQL Runner** — PostgreSQL または MySQL/MariaDB に対して任意のステートメントを実行。読み取りはグリッドを返し（最大 1,000 行）、書き込みは影響を受けた行数を返します。15 秒のステートメントタイムアウトにより、暴走したクエリがデータベースを占有するのを防ぎます。
+- **Mongo Shell** — 選択したデータベースに対して任意の `mongosh` スクリプトを実行。
+- **Redis コマンド** — 任意のコマンド（`GET`、`HGETALL`、`TTL` など）を実行し、応答を JSON として読み取り。
+
+### アクセスと監査
+
+- **読み取り**（閲覧、構造、行）には `Viewer`、**書き込み**（任意のランナー）には `Editor` が必要 — Pier の RBAC によりリソースごとに強制されます。
+- ランナーの実行はすべて監査テーブル `db_query_log` に記録されます — 誰が、どのデータベースに対して、何を実行したか、ステータス・行数・所要時間とともに。
+- 接続にはサービスの暗号化された環境から復号された認証情報を使用します。プライベートなデータベースには `pier-net` Docker ネットワーク経由でアクセスするため、ホストにポートを公開する必要はありません。
+
 ## テンプレート
 
 **データベース** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
@@ -293,27 +324,6 @@ npm install left-pad         # npmjs.org からプロキシ + キャッシュ
 ```
 
 > 詳細なアーキテクチャについては、[ARCHITECTURE.md](../../ARCHITECTURE.md) を参照してください。
-
-## ロードマップ
-
-- [x] コンテナ管理 (Docker API)
-- [x] Docker Compose スタック（YAML エディタ付き）
-- [x] ワンクリックサービステンプレート (30+)
-- [x] リバースプロキシ + 自動 SSL (Traefik + Let's Encrypt)
-- [x] Git Webhook + 自動デプロイ (GitHub, GitLab)
-- [x] エージェントによるマルチサーバー管理
-- [x] S3 対応バックアップスケジューラ
-- [x] Web ダッシュボード (HTMX + Tailwind、ダークモード)
-- [x] S3 バケット管理
-- [x] アーキテクチャ可視化 (Canvas)
-- [ ] RBAC（ロールベースアクセス制御）
-- [ ] 2FA（TOTP + WebAuthn）
-- [ ] 負荷分散 + 水平スケーリング
-- [ ] アラート通知 (Telegram, Discord, Slack)
-- [ ] 自動アップデート機能
-- [x] 組み込みデータエディタ（PostgreSQL、MySQL/MariaDB、MongoDB、Redis）
-- [ ] プロジェクトごとの Docker ネットワーク分離
-- [ ] Pingora ベースのリバースプロキシ (Traefik 置換)
 
 ## コントリビューション
 

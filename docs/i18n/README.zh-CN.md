@@ -7,9 +7,9 @@
 <h3 align="center">轻量级自托管 PaaS 平台。<br>单一二进制文件。20 MB 内存。部署一切。</h3>
 
 <p align="center">
-  <a href="https://github.com/joveptesg/pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/pier?color=blue" alt="License"></a>
-  <a href="https://github.com/joveptesg/pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/pier?style=flat" alt="Stars"></a>
-  <a href="https://github.com/joveptesg/pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/pier" alt="Release"></a>
+  <a href="https://github.com/joveptesg/Pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/Pier?color=blue" alt="License"></a>
+  <a href="https://github.com/joveptesg/Pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/Pier?style=flat" alt="Stars"></a>
+  <a href="https://github.com/joveptesg/Pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/Pier?include_prereleases" alt="Release"></a>
   <img src="https://img.shields.io/badge/rust-1.93%2B-orange" alt="Rust">
 </p>
 
@@ -242,6 +242,37 @@ npm install left-pad         # 从 npmjs.org 代理 + 缓存
 - **支持 ARM/aarch64 吗?** 支持 —— `railpack` 和 `moby/buildkit` 都提供 linux/arm64 构建产物。install.sh 自动选择正确架构。
 - **可以关闭吗?** 可以 —— `PIER_SKIP_RAILPACK=1 bash install.sh` 会跳过安装。Dockerfile / Compose / Docker Image 源类型不受影响。
 
+## 数据编辑器
+
+**直接在控制面板中浏览和查询数据库 —— 无需 Adminer、pgweb 或任何外部客户端。** 每个数据库服务都会获得一个 **Data** 标签页：查看模式结构、分页浏览行、内联执行查询。内置于二进制文件中，受 RBAC 管控，且每条查询都会被审计。
+
+### 支持的引擎
+
+| 引擎 | 驱动 | 浏览 | 查询运行器 |
+|---|---|---|---|
+| **PostgreSQL**（含 PostGIS、TimescaleDB） | 原生 `sqlx` | 模式 · 表 · 视图 · 结构 · 行 | 任意 SQL |
+| **MySQL / MariaDB** | 原生 `sqlx` | 数据库 · 表 · 视图 · 结构 · 行 | 任意 SQL |
+| **MongoDB** | `mongosh`（docker-exec） | 数据库 · 集合 · 文档 | `mongosh` 脚本 |
+| **Redis / Valkey** | 原生 `redis` | 键（SCAN） · 按类型展示的值 · TTL | 原始命令 |
+
+### 浏览
+
+- **SQL** —— 模式/表树、每张表的结构（列、类型、可空性、默认值、主键、索引）以及带总数的分页行。
+- **MongoDB** —— 数据库 → 集合树，以 EJSON 渲染的分页文档。
+- **Redis** —— 基于 `SCAN` 的键浏览器，显示每个键的类型、按类型展示的值视图（string / list / set / zset / hash / stream）和 TTL；可在 0–15 号数据库之间切换。
+
+### 查询
+
+- **SQL Runner** —— 对 PostgreSQL 或 MySQL/MariaDB 执行任意语句。读取返回表格（上限 1000 行），写入返回受影响的行数。15 秒的语句超时可防止失控查询拖垮数据库。
+- **Mongo Shell** —— 对所选数据库执行任意 `mongosh` 脚本。
+- **Redis 命令** —— 执行任意命令（`GET`、`HGETALL`、`TTL` 等）并以 JSON 读取回复。
+
+### 访问与审计
+
+- **读取**（浏览、结构、行）需要 `Viewer` 角色；**写入**（任意运行器）需要 `Editor` 角色 —— 由 Pier 的 RBAC 按资源强制执行。
+- 每次运行器执行都会记录到 `db_query_log` 审计表中 —— 谁、对哪个数据库、执行了什么，以及状态、行数和耗时。
+- 连接使用从服务加密环境中解密的凭据。私有数据库通过 `pier-net` Docker 网络访问，因此无需向主机发布任何端口。
+
 ## 模板
 
 **数据库** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
@@ -293,27 +324,6 @@ npm install left-pad         # 从 npmjs.org 代理 + 缓存
 ```
 
 > 如需了解详细架构，请参阅 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
-
-## 路线图
-
-- [x] 容器管理（Docker API）
-- [x] Docker Compose 堆栈与 YAML 编辑器
-- [x] 一键服务模板（30+）
-- [x] 反向代理 + 自动 SSL（Traefik + Let's Encrypt）
-- [x] Git Webhooks + 自动部署（GitHub、GitLab）
-- [x] 多服务器管理与代理
-- [x] 定时备份与 S3 支持
-- [x] Web 控制面板（HTMX + Tailwind，暗色模式）
-- [x] S3 存储桶管理
-- [x] 架构可视化（Canvas）
-- [ ] RBAC（基于角色的访问控制）
-- [ ] 双因素认证（TOTP + WebAuthn）
-- [ ] 负载均衡 + 水平扩展
-- [ ] 告警通知（Telegram、Discord、Slack）
-- [ ] 自动更新机制
-- [x] 内置数据编辑器（PostgreSQL、MySQL/MariaDB、MongoDB、Redis）
-- [ ] 按项目隔离 Docker 网络
-- [ ] 基于 Pingora 的反向代理（替代 Traefik）
 
 ## 参与贡献
 

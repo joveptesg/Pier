@@ -7,9 +7,9 @@
 <h3 align="center">Eine leichtgewichtige, selbst gehostete PaaS.<br>Ein einzelnes Binary. 20 MB RAM. Alles deployen.</h3>
 
 <p align="center">
-  <a href="https://github.com/joveptesg/pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/pier?color=blue" alt="License"></a>
-  <a href="https://github.com/joveptesg/pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/pier?style=flat" alt="Stars"></a>
-  <a href="https://github.com/joveptesg/pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/pier" alt="Release"></a>
+  <a href="https://github.com/joveptesg/Pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/Pier?color=blue" alt="License"></a>
+  <a href="https://github.com/joveptesg/Pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/Pier?style=flat" alt="Stars"></a>
+  <a href="https://github.com/joveptesg/Pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/Pier?include_prereleases" alt="Release"></a>
   <img src="https://img.shields.io/badge/rust-1.93%2B-orange" alt="Rust">
 </p>
 
@@ -242,6 +242,37 @@ Für Projekte, die Overrides brauchen, legen Sie eine [`railpack.json`](https://
 - **Läuft es auf ARM/aarch64?** Ja — sowohl `railpack` als auch `moby/buildkit` liefern linux/arm64-Binärdateien. Das Installationsskript wählt die richtige Architektur automatisch.
 - **Kann ich es deaktivieren?** Ja — `PIER_SKIP_RAILPACK=1 bash install.sh` überspringt die Bereitstellung. Dockerfile / Compose / Docker Image bleiben uneingeschränkt nutzbar.
 
+## Daten-Editor
+
+**Durchsuchen und befragen Sie Ihre Datenbanken direkt im Dashboard — kein Adminer, kein pgweb, kein externer Client.** Jeder Datenbank-Service erhält einen **Data**-Tab: Schema erkunden, Zeilen durchblättern und Abfragen inline ausführen. In die Binärdatei integriert, durch RBAC abgesichert, und jede Abfrage wird auditiert.
+
+### Unterstützte Engines
+
+| Engine | Treiber | Durchsuchen | Query-Runner |
+|---|---|---|---|
+| **PostgreSQL** (inkl. PostGIS, TimescaleDB) | nativ `sqlx` | Schemas · Tabellen · Views · Struktur · Zeilen | beliebiges SQL |
+| **MySQL / MariaDB** | nativ `sqlx` | Datenbanken · Tabellen · Views · Struktur · Zeilen | beliebiges SQL |
+| **MongoDB** | `mongosh` (docker-exec) | Datenbanken · Collections · Dokumente | `mongosh`-Skripte |
+| **Redis / Valkey** | nativ `redis` | Schlüssel (SCAN) · typbewusste Werte · TTL | rohe Befehle |
+
+### Durchsuchen
+
+- **SQL** — Schema-/Tabellenbaum, Struktur je Tabelle (Spalten, Typen, Nullability, Standardwerte, Primärschlüssel, Indizes) und paginierte Zeilen mit Gesamtanzahl.
+- **MongoDB** — Baum „Datenbank → Collection“, paginierte Dokumente als EJSON dargestellt.
+- **Redis** — `SCAN`-basierter Schlüssel-Browser mit Typ je Schlüssel, typbewusster Wertansicht (string / list / set / zset / hash / stream) und TTL; Umschalten zwischen DBs 0–15.
+
+### Abfragen
+
+- **SQL Runner** — beliebige Anweisung gegen PostgreSQL oder MySQL/MariaDB ausführen. Lesezugriffe liefern ein Raster (max. 1.000 Zeilen), Schreibzugriffe melden die Anzahl betroffener Zeilen. Ein 15-Sekunden-Timeout verhindert, dass eine außer Kontrolle geratene Abfrage die Datenbank blockiert.
+- **Mongo Shell** — beliebiges `mongosh`-Skript gegen die ausgewählte Datenbank ausführen.
+- **Redis-Befehle** — beliebigen Befehl (`GET`, `HGETALL`, `TTL`, …) ausführen und die Antwort als JSON lesen.
+
+### Zugriff & Audit
+
+- **Lesen** (Durchsuchen, Struktur, Zeilen) erfordert `Viewer`; **Schreiben** (jeder Runner) erfordert `Editor` — pro Ressource durch Piers RBAC durchgesetzt.
+- Jede Runner-Ausführung wird in der Audit-Tabelle `db_query_log` erfasst — wer was gegen welche Datenbank ausgeführt hat, mit Status, Zeilenanzahl und Dauer.
+- Verbindungen verwenden Anmeldedaten, die aus der verschlüsselten Umgebung des Service entschlüsselt werden. Private Datenbanken werden über das Docker-Netzwerk `pier-net` erreicht, sodass kein Port auf dem Host veröffentlicht werden muss.
+
 ## Vorlagen
 
 **Datenbanken** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
@@ -293,27 +324,6 @@ Für Projekte, die Overrides brauchen, legen Sie eine [`railpack.json`](https://
 ```
 
 > Für eine detaillierte Architekturübersicht siehe [ARCHITECTURE.md](../../ARCHITECTURE.md).
-
-## Roadmap
-
-- [x] Container-Verwaltung (Docker API)
-- [x] Docker-Compose-Stacks mit YAML-Editor
-- [x] Ein-Klick-Service-Vorlagen (30+)
-- [x] Reverse Proxy + automatisches SSL (Traefik + Let's Encrypt)
-- [x] Git-Webhooks + Auto-Deploy (GitHub, GitLab)
-- [x] Multi-Server-Verwaltung mit Agenten
-- [x] Backup-Planer mit S3-Unterstützung
-- [x] Web-Dashboard (HTMX + Tailwind, Dark Mode)
-- [x] S3-Bucket-Verwaltung
-- [x] Architektur-Visualisierung (Canvas)
-- [ ] RBAC (rollenbasierte Zugriffskontrolle)
-- [ ] 2FA (TOTP + WebAuthn)
-- [ ] Lastverteilung + horizontale Skalierung
-- [ ] Benachrichtigungen (Telegram, Discord, Slack)
-- [ ] Automatischer Update-Mechanismus
-- [x] Integrierter Daten-Editor (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
-- [ ] Docker-Netzwerkisolierung pro Projekt
-- [ ] Pingora-basierter Reverse Proxy (Traefik ersetzen)
 
 ## Mitwirken
 

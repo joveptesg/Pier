@@ -7,9 +7,9 @@
 <h3 align="center">Un PaaS ligero y autoalojado.<br>Un solo binario. 20 MB de RAM. Despliega lo que sea.</h3>
 
 <p align="center">
-  <a href="https://github.com/joveptesg/pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/pier?color=blue" alt="Licencia"></a>
-  <a href="https://github.com/joveptesg/pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/pier?style=flat" alt="Estrellas"></a>
-  <a href="https://github.com/joveptesg/pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/pier" alt="Versión"></a>
+  <a href="https://github.com/joveptesg/Pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/Pier?color=blue" alt="Licencia"></a>
+  <a href="https://github.com/joveptesg/Pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/Pier?style=flat" alt="Estrellas"></a>
+  <a href="https://github.com/joveptesg/Pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/Pier?include_prereleases" alt="Versión"></a>
   <img src="https://img.shields.io/badge/rust-1.93%2B-orange" alt="Rust">
 </p>
 
@@ -242,6 +242,37 @@ Si tu proyecto necesita anular el comportamiento por defecto, deja un [`railpack
 - **¿Funciona en ARM/aarch64?** Sí — tanto `railpack` como `moby/buildkit` distribuyen binarios linux/arm64. El install.sh elige la arquitectura correcta automáticamente.
 - **¿Puedo desactivarlo?** Sí — `PIER_SKIP_RAILPACK=1 bash install.sh` salta la instalación. Las fuentes Dockerfile / Compose / Docker Image siguen funcionando sin cambios.
 
+## Editor de datos
+
+**Explora y consulta tus bases de datos desde el panel — sin Adminer, sin pgweb, sin clientes externos.** Cada servicio de base de datos obtiene una pestaña **Data**: explora el esquema, navega por las filas y ejecuta consultas en línea. Integrado en el binario, protegido por RBAC, y cada consulta queda auditada.
+
+### Motores compatibles
+
+| Motor | Driver | Explorar | Ejecutor de consultas |
+|---|---|---|---|
+| **PostgreSQL** (incl. PostGIS, TimescaleDB) | `sqlx` nativo | esquemas · tablas · vistas · estructura · filas | SQL arbitrario |
+| **MySQL / MariaDB** | `sqlx` nativo | bases de datos · tablas · vistas · estructura · filas | SQL arbitrario |
+| **MongoDB** | `mongosh` (docker-exec) | bases de datos · colecciones · documentos | scripts de `mongosh` |
+| **Redis / Valkey** | `redis` nativo | claves (SCAN) · valores según el tipo · TTL | comandos en crudo |
+
+### Explorar
+
+- **SQL** — árbol de esquemas/tablas, estructura de cada tabla (columnas, tipos, nulabilidad, valores por defecto, claves primarias, índices) y filas paginadas con recuento total.
+- **MongoDB** — árbol «base de datos → colección», documentos paginados renderizados como EJSON.
+- **Redis** — explorador de claves basado en `SCAN` con el tipo de cada clave, una vista del valor según el tipo (string / list / set / zset / hash / stream) y TTL; cambia entre las BD 0–15.
+
+### Consultas
+
+- **SQL Runner** — ejecuta cualquier sentencia contra PostgreSQL o MySQL/MariaDB. Las lecturas devuelven una cuadrícula (máx. 1000 filas); las escrituras informan el número de filas afectadas. Un tiempo límite de 15 segundos por sentencia evita que una consulta descontrolada bloquee la base de datos.
+- **Mongo Shell** — ejecuta cualquier script de `mongosh` contra la base de datos seleccionada.
+- **Comandos de Redis** — ejecuta cualquier comando (`GET`, `HGETALL`, `TTL`, …) y lee la respuesta como JSON.
+
+### Acceso y auditoría
+
+- La **lectura** (explorar, estructura, filas) requiere `Viewer`; la **escritura** (cualquier ejecutor) requiere `Editor` — aplicado por recurso mediante el RBAC de Pier.
+- Cada ejecución del ejecutor se registra en la tabla de auditoría `db_query_log` — quién ejecutó qué, contra qué base de datos, con estado, número de filas y duración.
+- Las conexiones usan credenciales descifradas del entorno cifrado del servicio. Las bases de datos privadas se alcanzan a través de la red Docker `pier-net`, por lo que no hay que publicar ningún puerto en el host.
+
 ## Plantillas
 
 **Bases de datos** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
@@ -293,27 +324,6 @@ Si tu proyecto necesita anular el comportamiento por defecto, deja un [`railpack
 ```
 
 > Para la arquitectura detallada, consulta [ARCHITECTURE.md](../../ARCHITECTURE.md).
-
-## Hoja de ruta
-
-- [x] Gestión de contenedores (API de Docker)
-- [x] Stacks de Docker Compose con editor YAML
-- [x] Plantillas de servicios con un clic (30+)
-- [x] Proxy inverso + SSL automático (Traefik + Let's Encrypt)
-- [x] Webhooks de Git + despliegue automático (GitHub, GitLab)
-- [x] Gestión multi-servidor con agentes
-- [x] Programador de respaldos con soporte S3
-- [x] Panel web (HTMX + Tailwind, modo oscuro)
-- [x] Gestión de buckets S3
-- [x] Visualización de arquitectura (Canvas)
-- [ ] RBAC (control de acceso basado en roles)
-- [ ] 2FA (TOTP + WebAuthn)
-- [ ] Balanceo de carga + escalado horizontal
-- [ ] Notificaciones de alertas (Telegram, Discord, Slack)
-- [ ] Mecanismo de actualización automática
-- [x] Editor de datos integrado (PostgreSQL, MySQL/MariaDB, MongoDB, Redis)
-- [ ] Aislamiento de red Docker por proyecto
-- [ ] Proxy inverso basado en Pingora (reemplazo de Traefik)
 
 ## Contribuir
 
