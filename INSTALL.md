@@ -1,55 +1,55 @@
-# Pier — Установка на чистый Ubuntu-сервер
+# Pier — Installation on a Clean Ubuntu Server
 
-## Быстрая установка (one-liner)
+## Quick install (one-liner)
 
-Если нужен Pier «здесь и сейчас», без ручной сборки из исходников:
+If you need Pier right here and now, without building from source manually:
 
 ```bash
 curl -fsSL https://pier.team/install | sudo bash
 ```
 
-Скрипт ставит Docker, скачивает готовый бинарь из [GitHub Releases](https://github.com/joveptesg/pier/releases/tag/latest) (с проверкой sha256) и запускает [`install.sh`](scripts/install.sh). Подходит для свежей Ubuntu/Debian. Дальнейшие шаги (создание admin-аккаунта на `http://SERVER_IP:8443/setup`) — см. §8.
+The script installs Docker, downloads the pre-built binary from [GitHub Releases](https://github.com/joveptesg/pier/releases/tag/latest) (with sha256 verification), and runs [`install.sh`](scripts/install.sh). Works on a fresh Ubuntu/Debian. For the next steps (creating an admin account at `http://SERVER_IP:8443/setup`) — see §8.
 
-> Альтернативные варианты установки (Docker, ручная сборка) — см. [README.md](README.md#quick-start).
+> For alternative installation options (Docker, building from source) — see [README.md](README.md#quick-start).
 
-Если нужен полный контроль над каждым шагом (security hardening, firewall, hardening SSH, ручная сборка из исходников) — следуй секциям §0-§9 ниже.
+If you want full control over every step (security hardening, firewall, SSH hardening, building from source) — follow sections §0–§9 below.
 
 ---
 
-## 0. Безопасность сервера
+## 0. Server security
 
-### 0.1 Создать sudo-юзера (на сервере под root)
+### 0.1 Create a sudo user (on the server, as root)
 
 ```bash
 adduser deploy
 usermod -aG sudo deploy
 ```
 
-### 0.2 Скопировать SSH-ключ (с локальной машины)
+### 0.2 Copy your SSH key (from your local machine)
 
-Если SSH-ключа ещё нет — сначала сгенерировать:
+If you don't have an SSH key yet, generate one first:
 
 ```bash
 ssh-keygen -t ed25519
 ```
 
-Скопировать на сервер:
+Copy it to the server:
 
 ```bash
 ssh-copy-id deploy@SERVER_IP
 ```
 
-### 0.3 Проверить вход по ключу
+### 0.3 Verify key-based login
 
-**Не закрывая текущую сессию**, в новом терминале:
+**Without closing your current session**, in a new terminal:
 
 ```bash
 ssh deploy@SERVER_IP
 ```
 
-Должен пустить **без пароля**. Если нет — не переходить к следующему шагу.
+It should log you in **without a password**. If it doesn't — do not proceed to the next step.
 
-### 0.4 SSH hardening (только после успешной проверки 0.3)
+### 0.4 SSH hardening (only after a successful check in 0.3)
 
 ```bash
 sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
@@ -77,7 +77,7 @@ sudo apt install -y fail2ban
 sudo systemctl enable --now fail2ban
 ```
 
-### Автообновления безопасности
+### Automatic security updates
 
 ```bash
 sudo apt install -y unattended-upgrades
@@ -86,13 +86,13 @@ sudo dpkg-reconfigure -plow unattended-upgrades
 
 ---
 
-## 1. Обновление системы
+## 1. Update the system
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 ```
 
-## 2. Зависимости для сборки
+## 2. Build dependencies
 
 ```bash
 sudo apt install -y curl git build-essential pkg-config libssl-dev
@@ -101,40 +101,40 @@ sudo apt install -y curl git build-essential pkg-config libssl-dev
 ## 3. Docker
 
 ```bash
-# Удалить старые версии
+# Remove old versions
 sudo apt remove -y docker docker-engine docker.io containerd runc 2>/dev/null
 
-# Добавить репозиторий Docker
+# Add the Docker repository
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-# Установить
+# Install
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Добавить юзера в docker group
+# Add the user to the docker group
 sudo usermod -aG docker $USER
 newgrp docker
 
-# Проверить
+# Verify
 docker --version
 docker compose version
 ```
 
 ## 4. Rust
 
-Минимальная версия — **Rust 1.93+** (см. `rust-version` в [Cargo.toml](Cargo.toml)). `rustup` ставит свежий stable, этого достаточно. Если используется `rustup` из apt — сначала `rustup update stable`.
+Minimum version — **Rust 1.93+** (see `rust-version` in [Cargo.toml](Cargo.toml)). `rustup` installs the latest stable, which is enough. If you use `rustup` from apt — run `rustup update stable` first.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source ~/.cargo/env
-rustc --version   # должно быть >= 1.93
+rustc --version   # should be >= 1.93
 ```
 
-## 5. Сборка и установка Pier
+## 5. Build and install Pier
 
 ```bash
 git clone https://github.com/joveptesg/pier.git /tmp/pier
@@ -142,13 +142,13 @@ cd /tmp/pier
 sudo bash scripts/build-from-source.sh
 ```
 
-Скрипт сам определит RAM, при необходимости создаст swap (постоянный, через `/etc/fstab`) и подберёт профиль сборки и `--jobs`. На сервере с ≥ 6 ГБ работает в полном режиме (`profile = release`), на 1–2 ГБ — в `release-lowmem` с `jobs = 1` и swap до 4 ГБ суммарно. По окончании автоматически вызывает `install.sh`.
+The script detects your RAM, creates swap if needed (persistent, via `/etc/fstab`), and picks the build profile and `--jobs` accordingly. On a server with ≥ 6 GB it runs in full mode (`profile = release`); on 1–2 GB it uses `release-lowmem` with `jobs = 1` and up to 4 GB of swap total. When finished, it automatically runs `install.sh`.
 
-Флаги: `--no-swap`, `--profile NAME`, `--jobs N`, `--no-install`, `--port PORT`, `-y` (без подтверждения swap).
+Flags: `--no-swap`, `--profile NAME`, `--jobs N`, `--no-install`, `--port PORT`, `-y` (skip swap confirmation).
 
-> Сборка занимает ~5–15 минут в зависимости от мощности сервера.
+> The build takes ~5–15 minutes depending on the server's power.
 >
-> Если не нужен исходник — можно пропустить шаги 4–5 и взять готовый бинарь:
+> If you don't need the source — you can skip steps 4–5 and grab the pre-built binary:
 > ```bash
 > mkdir -p /tmp/pier && cd /tmp/pier
 > curl -fsSL -o pier https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64
@@ -159,7 +159,7 @@ sudo bash scripts/build-from-source.sh
 > sudo bash install.sh --binary /tmp/pier/pier
 > ```
 
-## 6. Проверка
+## 6. Verify
 
 ```bash
 systemctl status pier
@@ -167,66 +167,66 @@ curl localhost:8443/health
 journalctl -u pier -f
 ```
 
-## 7. Первый вход
+## 7. First login
 
-Открыть в браузере:
+Open in your browser:
 
 ```
 http://SERVER_IP:8443/setup
 ```
 
-Создать admin-аккаунт. После этого Pier готов к работе.
+Create an admin account. After that, Pier is ready to use.
 
 ---
 
-## 8. Docker Hub / приватные registry
+## 8. Docker Hub / private registries
 
-Чтобы Pier мог тянуть образы из Docker Hub без rate-limit (или из приватных registry), есть два пути:
+To let Pier pull images from Docker Hub without rate limits (or from private registries), there are two ways:
 
-### Вариант A — `docker login` под root
+### Option A — `docker login` as root
 
 ```bash
 sudo docker login -u YOUR_USERNAME
-# (использовать PAT, не пароль: https://app.docker.com/settings)
+# (use a PAT, not your password: https://app.docker.com/settings)
 ```
 
-`install.sh` настраивает systemd unit так, что `/root/.docker/config.json` через bind-mount виден pier-сервису (read-only, в `/opt/pier/host-docker`). При ротации PAT повторяешь `docker login` — Pier сразу подхватывает, рестарт не нужен.
+`install.sh` configures the systemd unit so that `/root/.docker/config.json` is visible to the pier service via a bind-mount (read-only, at `/opt/pier/host-docker`). When you rotate the PAT, just re-run `docker login` — Pier picks it up immediately, no restart needed.
 
-> **Требуется пакет `acl`** — `install.sh` ставит его автоматически (apt/dnf/yum/apk). Если не получилось — увидишь warn:
+> **The `acl` package is required** — `install.sh` installs it automatically (apt/dnf/yum/apk). If that fails, you'll see a warning:
 >
 > ```
-> [WARN] setfacl not found — пакет 'acl' не установлен...
+> [WARN] setfacl not found — the 'acl' package is not installed and could not be installed automatically...
 > ```
 >
-> В этом случае сделай:
+> In that case, run:
 > ```bash
 > apt install -y acl
 > sudo bash /tmp/pier/scripts/install.sh --binary /tmp/pier/target/release/pier
 > ```
 >
-> Без `acl` сработает fallback `chmod 644` на `config.json`, но **следующий `docker login` сбросит права** и Pier снова перестанет видеть. Установка `acl` решает это навсегда — default ACL наследуется любым будущим `config.json`.
+> Without `acl`, a `chmod 644` fallback is applied to `config.json`, but **the next `docker login` will reset the permissions** and Pier will stop seeing it again. Installing `acl` fixes this permanently — the default ACL is inherited by any future `config.json`.
 
-### Вариант B — через UI Pier
+### Option B — via the Pier UI
 
-Settings → Registries → **«+ Add Docker Hub»** → username + PAT → Save.
+Settings → Registries → **"+ Add Docker Hub"** → username + PAT → Save.
 
-Креды хранятся в БД Pier (зашифрованы), per-project или global. Подходит, когда не хочется давать pier-сервису доступ к `/root/.docker` или нужны разные креды для разных проектов.
+Credentials are stored in Pier's database (encrypted), per-project or global. This is a good fit when you don't want to give the pier service access to `/root/.docker`, or when you need different credentials for different projects.
 
 ---
 
-## Порты
+## Ports
 
-| Порт | Назначение |
+| Port | Purpose |
 |------|-----------|
 | 22 | SSH |
 | 80 | Traefik (HTTP → HTTPS redirect, ACME) |
-| 443 | Traefik (reverse proxy для сервисов) |
+| 443 | Traefik (reverse proxy for services) |
 | 8443 | Pier dashboard |
-| 10000+ | Автовыделяемые порты контейнеров |
+| 10000+ | Auto-allocated container ports |
 
 ---
 
-## Обновление Pier
+## Updating Pier
 
 ```bash
 cd /tmp/pier
@@ -236,22 +236,22 @@ sudo bash scripts/build-from-source.sh
 
 ---
 
-## Управление
+## Management
 
 ```bash
-# Логи
+# Logs
 journalctl -u pier -f
 journalctl -u pier --since "1h ago"
 journalctl -u pier -p err
 
-# Управление сервисом
+# Service management
 sudo systemctl restart pier
 sudo systemctl stop pier
 sudo systemctl start pier
 
-# Конфигурация
+# Configuration
 sudo nano /opt/pier/.env
 
-# Данные
+# Data
 ls /opt/pier/data/
 ```
