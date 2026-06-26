@@ -315,7 +315,11 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
 HELPER_UNIT
     chmod 644 /etc/systemd/system/pier-net-helper.service
     systemctl daemon-reload
-    systemctl enable --now pier-net-helper.service \
+    systemctl enable pier-net-helper.service >/dev/null 2>&1 || true
+    # `restart` (not `enable --now`) so a re-install/upgrade actually swaps in the
+    # newly-installed helper binary + unit — the helper is never self-updated, so
+    # this is the only path that refreshes it (e.g. to pick up Op::SelfUpdate).
+    systemctl restart pier-net-helper.service \
         || warn "pier-net-helper failed to start; mesh features unavailable"
 fi
 
