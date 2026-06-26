@@ -3302,16 +3302,21 @@ dependencies = [
 
 [[package]]
 name = "pier-agent"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "axum",
+ "axum-server",
  "bollard",
  "futures-util",
  "hex",
  "rand 0.10.0",
+ "rcgen",
+ "rustls 0.23.37",
+ "rustls-pemfile",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "thiserror 2.0.18",
  "tokio",
@@ -3323,7 +3328,7 @@ dependencies = [
 
 [[package]]
 name = "pier-core"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "accept-language",
  "aes-gcm",
@@ -3389,7 +3394,7 @@ dependencies = [
 
 [[package]]
 name = "pier-net-helper"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -3402,7 +3407,7 @@ dependencies = [
 
 [[package]]
 name = "pier-tests"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
