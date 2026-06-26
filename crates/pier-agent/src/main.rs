@@ -286,6 +286,14 @@ async fn write_file(
 #[derive(Deserialize)]
 struct StopRequest {
     stack_name: String,
+    /// `docker compose down -v` — also remove the stack's named volumes.
+    /// Used by the core on service DELETE; default off keeps "stop" semantics.
+    #[serde(default)]
+    delete_volumes: bool,
+    /// After `down`, remove the stack directory `{data_dir}/stacks/{stack}`.
+    /// Used on service DELETE so the agent doesn't accumulate orphan dirs.
+    #[serde(default)]
+    remove_dir: bool,
 }
 
 async fn stop(
@@ -295,18 +303,26 @@ async fn stop(
 ) -> impl IntoResponse {
     require_auth!(headers, state);
 
-    let compose_path = format!(
-        "{}/stacks/{}/docker-compose.yml",
-        state.data_dir, body.stack_name
-    );
+    let stack_dir = format!("{}/stacks/{}", state.data_dir, body.stack_name);
+    let compose_path = format!("{stack_dir}/docker-compose.yml");
 
+    let mut args = vec!["compose", "-f", &compose_path, "down"];
+    if body.delete_volumes {
+        args.push("-v");
+    }
     let output = tokio::process::Command::new("docker")
-        .args(["compose", "-f", &compose_path, "down"])
+        .args(&args)
         .output()
         .await;
 
     match output {
-        Ok(out) if out.status.success() => Json(serde_json::json!({"ok": true})).into_response(),
+        Ok(out) if out.status.success() => {
+            if body.remove_dir {
+                // Best-effort: the stack is gone; drop its compose dir too.
+                let _ = tokio::fs::remove_dir_all(&stack_dir).await;
+            }
+            Json(serde_json::json!({"ok": true})).into_response()
+        }
         Ok(out) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({

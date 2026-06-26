@@ -20,6 +20,11 @@ use super::models::PortAllocation;
 ///
 /// `host_port_overrides`, when non-empty, must have exactly `port_specs.len()`
 /// entries — one per port spec. Pass an empty slice for "auto for all".
+///
+/// `pool_only` skips step 2 (the standard-port shortcut) and allocates strictly
+/// from `[start, end)`. Cross-server CLUSTER nodes MUST use this: their published
+/// ports have to land in the mesh firewall band (the pool range), otherwise a
+/// node can't reach its own published port for replica-set/sentinel self-checks.
 pub fn allocate_ports(
     conn: &Connection,
     service_id: &str,
@@ -27,6 +32,7 @@ pub fn allocate_ports(
     start: u16,
     end: u16,
     host_port_overrides: &[Option<u16>],
+    pool_only: bool,
 ) -> Result<Vec<PortAllocation>> {
     let count = port_specs.len();
     if count == 0 {
@@ -66,7 +72,8 @@ pub fn allocate_ports(
             }
             None => {
                 let standard = *container_port;
-                if standard >= 1024
+                if !pool_only
+                    && standard >= 1024
                     && !is_port_used(standard)
                     && !newly_allocated.contains(&standard)
                 {
@@ -255,7 +262,8 @@ mod tests {
         // host_port=5432 (NOT a number from the 10000+ pool). Round 5 fix.
         let conn = test_conn();
         let specs = vec![("primary".to_string(), 5432u16)];
-        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[]).expect("allocate");
+        let allocs =
+            allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false).expect("allocate");
         assert_eq!(allocs.len(), 1);
         assert_eq!(
             allocs[0].host_port, 5432,
@@ -271,10 +279,10 @@ mod tests {
         seed_alt_service(&conn, "svc-2");
 
         let specs = vec![("primary".to_string(), 5432u16)];
-        let first = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[]).unwrap();
+        let first = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false).unwrap();
         assert_eq!(first[0].host_port, 5432);
 
-        let second = allocate_ports(&conn, "svc-2", &specs, 10000, 20000, &[]).unwrap();
+        let second = allocate_ports(&conn, "svc-2", &specs, 10000, 20000, &[], false).unwrap();
         assert_eq!(
             second[0].host_port, 10000,
             "second standard-port request must fall through to pool start"
@@ -286,8 +294,8 @@ mod tests {
         // Operator explicitly asked for host_port=15432 → it's free, give it.
         let conn = test_conn();
         let specs = vec![("primary".to_string(), 5432u16)];
-        let allocs =
-            allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[Some(15432)]).expect("allocate");
+        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[Some(15432)], false)
+            .expect("allocate");
         assert_eq!(allocs[0].host_port, 15432);
     }
 
@@ -299,9 +307,9 @@ mod tests {
         let conn = test_conn();
         seed_alt_service(&conn, "svc-2");
         let specs = vec![("primary".to_string(), 5432u16)];
-        allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[]).unwrap();
+        allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false).unwrap();
 
-        let err = allocate_ports(&conn, "svc-2", &specs, 10000, 20000, &[Some(5432)])
+        let err = allocate_ports(&conn, "svc-2", &specs, 10000, 20000, &[Some(5432)], false)
             .expect_err("must bail");
         assert!(
             err.to_string().contains("already in use"),
@@ -317,7 +325,7 @@ mod tests {
         // pier-core.
         let conn = test_conn();
         let specs = vec![("primary".to_string(), 80u16)];
-        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[]).unwrap();
+        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false).unwrap();
         assert!(
             allocs[0].host_port >= 10000,
             "privileged container port must NOT be picked; got {}",

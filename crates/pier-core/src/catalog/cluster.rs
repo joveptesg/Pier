@@ -603,6 +603,9 @@ pub struct ClusterNodePlan {
     pub mesh_addr: String,
     /// Host port this node publishes its DB port on (for cross-server access).
     pub host_port: u16,
+    /// Optional second published port for DBs that need one per node. For redis
+    /// this is the co-located Sentinel's port (26379); `None` for others.
+    pub extra_port: Option<u16>,
 }
 
 /// Catalog IDs whose cluster mode supports CROSS-SERVER distribution today.
@@ -782,9 +785,15 @@ fn build_scylladb_distributed(
     Ok(yaml)
 }
 
-/// Redis master/replica across servers (bitnami). node 0 is the master; each
-/// replica dials it at its mesh IP + published port. One port per node, so
-/// co-located replicas are fine (replica → master only, no inter-replica gossip).
+/// Redis master/replica + Sentinel across servers (bitnami). node 0 starts as
+/// master; each replica dials it at its mesh IP + published port. Every node
+/// runs a co-located Sentinel (published on its own `extra_port`) so quorum
+/// holds across servers and a master failure triggers automatic promotion.
+///
+/// Mesh addressing is the crux: each redis node advertises itself with
+/// `--replica-announce-ip/-port = mesh:host_port`, and each Sentinel with
+/// `REDIS_SENTINEL_ANNOUNCE_IP/PORT = mesh:extra_port`, so peers on OTHER
+/// servers discover and reach the right addresses after a failover.
 fn build_redis_distributed(
     target: &str,
     nodes: &[ClusterNodePlan],
@@ -799,28 +808,56 @@ fn build_redis_distributed(
     let master = nodes
         .first()
         .ok_or_else(|| anyhow::anyhow!("redis cluster needs at least one node"))?;
+    let master_set = format!("pier-{name}");
+    let quorum = (nodes.len() / 2) + 1;
+    let mh = &master.mesh_addr;
+    let mp = master.host_port;
 
     let mut yaml = String::from("services:\n");
     let mut vols: Vec<String> = Vec::new();
     for n in nodes.iter().filter(|n| n.server_id == target) {
         let num = n.index + 1;
         let hp = n.host_port;
-        let head = format!(
-            "  redis-{num}:\n    image: bitnami/redis:{version}\n    container_name: pier-{name}-node-{num}\n    ports:\n      - \"0.0.0.0:{hp}:6379\"\n    environment:\n"
-        );
-        yaml.push_str(&head);
+        let ip = &n.mesh_addr;
+        // Redis node. Announce self by mesh IP:published port (used when this
+        // node is/becomes a replica) so Sentinel + the master see a reachable
+        // address. REDIS_MASTER_PASSWORD is masterauth for after a promotion.
+        yaml.push_str(&format!(
+            "  redis-{num}:\n    image: bitnami/redis:{version}\n    container_name: pier-{name}-node-{num}\n    ports:\n      - \"0.0.0.0:{hp}:6379\"\n    environment:\n      REDIS_PASSWORD: \"{password}\"\n      REDIS_MASTER_PASSWORD: \"{password}\"\n      REDIS_EXTRA_FLAGS: \"--replica-announce-ip {ip} --replica-announce-port {hp}\"\n"
+        ));
         if n.index == 0 {
-            yaml.push_str(&format!(
-                "      REDIS_REPLICATION_MODE: master\n      REDIS_PASSWORD: \"{password}\"\n    volumes:\n      - node{num}_data:/bitnami/redis/data\n    restart: unless-stopped\n    labels:\n      pier.cluster.role: master\n"
-            ));
+            yaml.push_str("      REDIS_REPLICATION_MODE: master\n");
         } else {
             yaml.push_str(&format!(
-                "      REDIS_REPLICATION_MODE: slave\n      REDIS_MASTER_HOST: \"{mh}\"\n      REDIS_MASTER_PORT_NUMBER: \"{mp}\"\n      REDIS_MASTER_PASSWORD: \"{password}\"\n      REDIS_PASSWORD: \"{password}\"\n    volumes:\n      - node{num}_data:/bitnami/redis/data\n    restart: unless-stopped\n    labels:\n      pier.cluster.role: replica\n",
-                mh = master.mesh_addr,
-                mp = master.host_port
+                "      REDIS_REPLICATION_MODE: slave\n      REDIS_MASTER_HOST: \"{mh}\"\n      REDIS_MASTER_PORT_NUMBER: \"{mp}\"\n"
             ));
         }
+        yaml.push_str(&format!(
+            "    volumes:\n      - node{num}_data:/bitnami/redis/data\n    restart: unless-stopped\n    labels:\n      pier.cluster.role: {role}\n",
+            role = if n.index == 0 { "master" } else { "replica" }
+        ));
         vols.push(format!("node{num}_data"));
+
+        // Co-located Sentinel. Monitors the master at its mesh address; announces
+        // itself by mesh IP:extra_port so cross-server sentinels form a quorum.
+        // Run from the OFFICIAL redis image (ships the redis-sentinel binary and
+        // is widely cached) driven by a generated conf — avoids a second image
+        // (bitnami/redis-sentinel) that may be uncached / Docker-Hub-rate-limited.
+        if let Some(sp) = n.extra_port {
+            let conf = format!(
+                "echo 'port 26379' > /tmp/s.conf; \
+                 echo 'sentinel announce-ip {ip}' >> /tmp/s.conf; \
+                 echo 'sentinel announce-port {sp}' >> /tmp/s.conf; \
+                 echo 'sentinel monitor {master_set} {mh} {mp} {quorum}' >> /tmp/s.conf; \
+                 echo 'sentinel auth-pass {master_set} {password}' >> /tmp/s.conf; \
+                 echo 'sentinel down-after-milliseconds {master_set} 10000' >> /tmp/s.conf; \
+                 echo 'sentinel failover-timeout {master_set} 15000' >> /tmp/s.conf; \
+                 exec redis-sentinel /tmp/s.conf"
+            );
+            yaml.push_str(&format!(
+                "  sentinel-{num}:\n    image: redis:{version}\n    container_name: pier-{name}-sentinel-{num}\n    ports:\n      - \"0.0.0.0:{sp}:26379\"\n    command: [\"sh\", \"-c\", \"{conf}\"]\n    restart: unless-stopped\n    labels:\n      pier.cluster.role: sentinel\n"
+            ));
+        }
     }
     if !vols.is_empty() {
         yaml.push_str("volumes:\n");

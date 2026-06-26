@@ -471,6 +471,7 @@ pub async fn create(
             port_start,
             port_end,
             &host_port_overrides,
+            false,
         )?)
     })?;
 
@@ -618,14 +619,30 @@ pub async fn create(
                 conns.insert(sid.clone(), conn);
                 mesh_ips.insert(sid.clone(), ip);
             }
-            // Allocate one published host port per node.
-            let node_cport: u16 = vars
-                .get("port")
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(5432);
-            let port_specs: Vec<(String, u16)> = (0..node_count)
+            // Allocate published host ports. Most DBs need one per node; redis
+            // needs a SECOND per node for its co-located Sentinel (26379).
+            // node_cport is the node's real container port (recorded metadata);
+            // the actual host port is always pool-allocated (pool_only below).
+            let node_cport: u16 = match body.catalog_id.as_str() {
+                "postgresql" => 5432,
+                "mysql" | "mariadb" => 3306,
+                "mongodb" => 27017,
+                "redis" => 6379,
+                "cassandra" | "scylladb" => 9042,
+                _ => vars
+                    .get("port")
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or(5432),
+            };
+            let is_redis = body.catalog_id == "redis";
+            let mut port_specs: Vec<(String, u16)> = (0..node_count)
                 .map(|i| (format!("node{i}"), node_cport))
                 .collect();
+            if is_redis {
+                for i in 0..node_count {
+                    port_specs.push((format!("sentinel{i}"), 26379));
+                }
+            }
             let allocs = {
                 let db = state
                     .db
@@ -638,9 +655,11 @@ pub async fn create(
                     LB_PORT_RANGE_START,
                     LB_PORT_RANGE_END,
                     &[],
+                    true, // cluster nodes must land in the mesh firewall band
                 )
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("allocate cluster ports: {e}")))?
             };
+            // allocs are spec-ordered: [node0..node{N-1}, sentinel0..sentinel{N-1}].
             let plans: Vec<cluster_gen::ClusterNodePlan> = (0..node_count)
                 .map(|i| cluster_gen::ClusterNodePlan {
                     index: i,
@@ -652,6 +671,11 @@ pub async fn create(
                     server_id: node_servers[i].clone(),
                     mesh_addr: mesh_ips.get(&node_servers[i]).cloned().unwrap_or_default(),
                     host_port: allocs.get(i).map(|a| a.host_port as u16).unwrap_or(0),
+                    extra_port: if is_redis {
+                        allocs.get(node_count + i).map(|a| a.host_port as u16)
+                    } else {
+                        None
+                    },
                 })
                 .collect();
             for p in &plans {
@@ -661,6 +685,7 @@ pub async fn create(
                     "server_id": p.server_id,
                     "mesh_addr": p.mesh_addr,
                     "host_port": p.host_port,
+                    "sentinel_port": p.extra_port,
                 }));
             }
             let mut combined = String::new();
@@ -682,8 +707,15 @@ pub async fn create(
 
         // Persist cluster config + combined compose.
         {
-            let cluster_json =
-                serde_json::json!({ "node_count": node_count, "nodes": cluster_nodes }).to_string();
+            let mut cluster_obj =
+                serde_json::json!({ "node_count": node_count, "nodes": cluster_nodes });
+            if body.catalog_id == "redis" {
+                // Sentinel master-set name clients pass to `sentinel get-master-
+                // addr-by-name`. Matches REDIS_MASTER_SET in build_redis_distributed.
+                let rname = vars.get("name").map(|s| s.as_str()).unwrap_or("redis");
+                cluster_obj["master_set"] = serde_json::Value::String(format!("pier-{rname}"));
+            }
+            let cluster_json = cluster_obj.to_string();
             let yaml_clone = combined_yaml.clone();
             let sid = service_id.clone();
             with_db(&state, |db| {
@@ -1021,6 +1053,7 @@ async fn create_dockerfile(
             port_start,
             port_end,
             &[],
+            false,
         )?)
     })?;
 
@@ -1228,6 +1261,7 @@ async fn create_git_deploy(
             port_start,
             port_end,
             &[],
+            false,
         )?)
     })?;
 
@@ -1517,6 +1551,7 @@ async fn create_git_deploy_deferred(
             port_start,
             port_end,
             &[],
+            false,
         )?)
     })?;
 
@@ -1688,6 +1723,7 @@ async fn create_git_deploy_github_app(
             port_start,
             port_end,
             &[],
+            false,
         )?)
     })?;
 
@@ -1809,6 +1845,7 @@ async fn create_railpack_app(
             port_start,
             port_end,
             &[],
+            false,
         )?)
     })?;
 
@@ -2163,7 +2200,12 @@ pub(crate) async fn purge_backup_blobs(state: &SharedState, blobs: &[(String, St
 /// agent's Traefik dynamic config for this service. Best-effort — failures are
 /// logged, not fatal, so a partially-reachable agent can't block deletion of
 /// the core's DB record.
-async fn agent_teardown(conn: &crate::api::servers::AgentConn, stack_name: &str, service_id: &str) {
+async fn agent_teardown(
+    conn: &crate::api::servers::AgentConn,
+    stack_name: &str,
+    service_id: &str,
+    delete_volumes: bool,
+) {
     let base = crate::network::address::authority(&conn.host, conn.port);
     let client = match crate::network::agent_client::build_agent_client(
         conn.tls_fingerprint.as_deref(),
@@ -2178,7 +2220,13 @@ async fn agent_teardown(conn: &crate::api::servers::AgentConn, stack_name: &str,
     match client
         .post(format!("https://{base}/api/v1/agent/stop"))
         .header("Authorization", format!("Bearer {}", conn.token))
-        .json(&serde_json::json!({ "stack_name": stack_name }))
+        // The service is being deleted: remove the agent's stack dir too, and
+        // its named volumes when the caller requested volume deletion.
+        .json(&serde_json::json!({
+            "stack_name": stack_name,
+            "delete_volumes": delete_volumes,
+            "remove_dir": true,
+        }))
         .send()
         .await
     {
@@ -2328,7 +2376,7 @@ pub async fn remove(
 
     // Stop containers (with or without volumes).
     if let Some(conn) = &remote_conn {
-        agent_teardown(conn, &stack_name, &id).await;
+        agent_teardown(conn, &stack_name, &id, delete_volumes).await;
     } else if delete_volumes {
         // docker compose down -v (removes named volumes)
         let result = docker::compose::down_stack_with_volumes(&stack_name, &state.config).await;
@@ -2722,11 +2770,65 @@ pub async fn get_nodes(
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or(serde_json::json!({}));
 
+    let nodes = config["nodes"].as_array().cloned().unwrap_or_default();
+
+    // Failover-capable client connection info. Cluster nodes are reachable only
+    // INSIDE the mesh (firewall opens the 10000-20000 band to 10.42.0.0/24 +
+    // docker-bridge, not the public internet), so URIs use mesh addresses —
+    // usable by in-mesh apps (the typical "DB backend for a Pier service" case).
+    let mut connection_uri = serde_json::Value::Null;
+    let mut sentinels = serde_json::Value::Null;
+    let mut master_set = serde_json::Value::Null;
+    match catalog_id.as_deref() {
+        Some("mongodb") => {
+            // mongodb://m1:p1,m2:p2,.../?replicaSet=rs0 — the driver tracks the
+            // current primary across the listed members and survives failover.
+            let hosts: Vec<String> = nodes
+                .iter()
+                .filter_map(|n| {
+                    Some(format!(
+                        "{}:{}",
+                        n["mesh_addr"].as_str()?,
+                        n["host_port"].as_u64()?
+                    ))
+                })
+                .collect();
+            if !hosts.is_empty() {
+                connection_uri = serde_json::Value::String(format!(
+                    "mongodb://{}/?replicaSet=rs0",
+                    hosts.join(",")
+                ));
+            }
+        }
+        Some("redis") => {
+            // Clients connect via Sentinel (mesh addr + sentinel port) and ask
+            // for `master_set` to discover the current master after a failover.
+            let s: Vec<String> = nodes
+                .iter()
+                .filter_map(|n| {
+                    Some(format!(
+                        "{}:{}",
+                        n["mesh_addr"].as_str()?,
+                        n["sentinel_port"].as_u64()?
+                    ))
+                })
+                .collect();
+            if !s.is_empty() {
+                sentinels = serde_json::json!(s);
+                master_set = config["master_set"].clone();
+            }
+        }
+        _ => {}
+    }
+
     Ok(Json(serde_json::json!({
         "cluster": true,
         "catalog_id": catalog_id,
         "node_count": config["node_count"],
         "nodes": config["nodes"],
+        "connection_uri": connection_uri,
+        "sentinels": sentinels,
+        "master_set": master_set,
     })))
 }
 
@@ -3242,6 +3344,7 @@ pub async fn load_balance(
             LB_PORT_RANGE_START,
             LB_PORT_RANGE_END,
             &[],
+            true, // cluster nodes must land in the mesh firewall band
         )
         .map_err(|e| AppError::Internal(anyhow::anyhow!("allocate_ports: {e}")))?;
         // Re-apply public flag so the user's toggle survives a scale.
