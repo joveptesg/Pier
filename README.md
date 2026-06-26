@@ -325,9 +325,25 @@ cargo build        # Build
 
 [AGPL-3.0](LICENSE)
 
-Pier is free to self-host and modify. If you offer a modified version as a network service, you must share your modifications under the same license.
+Pier is free to self-host and modify. If you offer a modified version as a network service, you must share your modifications under the same license. The AGPL covers Pier's own source code — **not** the apps you deploy with it, which stay entirely yours.
 
 For commercial licensing (use without AGPL obligations), contact [info@devcom.app](mailto:info@devcom.app).
+
+### Trademark
+
+The Pier **code** is open source, but the **"Pier" name and logo are trademarks** and are not covered by the AGPL. See the [Trademark Policy](TRADEMARK.md) for what you can and can't do with the Pier brand.
+
+## Star History
+
+<p align="center">
+  <a href="https://star-history.com/#joveptesg/Pier&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" width="720" />
+    </picture>
+  </a>
+</p>
 
 ---
 
