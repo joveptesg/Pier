@@ -24,19 +24,22 @@
         </div>
         <div class="flex items-center gap-3">
             <!-- Language switcher -->
-            <div x-data="{ open: false, cur: '{{ current_locale() }}' }" class="relative">
+            <div x-data="{ open: false, cur: '{{ current_locale() }}', langs: [{ c: 'en', n: 'English', f: 'gb' }, { c: 'es', n: 'Español', f: 'es' }, { c: 'zh-CN', n: '中文', f: 'cn' }] }" class="relative">
                 <button @click="open = !open" type="button" aria-label="Language"
-                        class="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+                        class="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors flex items-center">
+                    <img :src="'/static/icons/flags/' + (langs.find(l => l.c === cur)?.f || 'gb') + '.svg'" :alt="cur" style="width:22px;height:16px;border-radius:2px;object-fit:cover;flex:none">
                 </button>
                 <div x-show="open" x-cloak @click.away="open = false"
                      class="absolute right-0 mt-2 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden z-50">
-                    <template x-for="lang in [{ c: 'en', n: 'English' }, { c: 'es', n: 'Español' }, { c: 'zh-CN', n: '中文' }]" :key="lang.c">
+                    <template x-for="lang in langs" :key="lang.c">
                         <button type="button"
                                 @click="document.cookie = 'pier_locale=' + lang.c + ';Path=/;Max-Age=31536000;SameSite=Lax'; location.reload()"
                                 class="w-full flex items-center justify-between px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/50"
                                 :class="lang.c === cur ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'">
-                            <span x-text="lang.n"></span>
+                            <span class="flex items-center gap-2">
+                                <img :src="'/static/icons/flags/' + lang.f + '.svg'" :alt="lang.n" style="width:20px;height:15px;border-radius:2px;object-fit:cover;flex:none">
+                                <span x-text="lang.n"></span>
+                            </span>
                             <svg x-show="lang.c === cur" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         </button>
                     </template>
