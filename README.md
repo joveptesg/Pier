@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/joveptesg/Pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/Pier?color=blue" alt="License"></a>
   <a href="https://github.com/joveptesg/Pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/Pier?style=flat" alt="Stars"></a>
-  <a href="https://github.com/joveptesg/Pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/Pier" alt="Release"></a>
+  <a href="https://github.com/joveptesg/Pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/Pier?include_prereleases" alt="Release"></a>
   <img src="https://img.shields.io/badge/rust-1.93%2B-orange" alt="Rust">
 </p>
 
