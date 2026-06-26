@@ -231,14 +231,19 @@ mod imp {
             return Err(anyhow!("staged binary is not an ELF executable — refusing"));
         }
 
-        // Swap: backup the live binary, move the staged one into place.
+        // Swap: backup the live binary (rename within /opt/pier/bin), then COPY
+        // the staged binary into place. It must be a copy, not a rename: the
+        // staged file lives in /opt/pier/data, which is a READ-ONLY mount for
+        // this sandboxed helper (not in its ReadWritePaths), so a rename can't
+        // unlink the source. Writing the pier-owned /opt/pier/bin needs
+        // CAP_DAC_OVERRIDE (the unit grants it).
         let _ = tokio::fs::remove_file(BACKUP).await;
         if tokio::fs::metadata(TARGET).await.is_ok() {
             tokio::fs::rename(TARGET, BACKUP)
                 .await
                 .context("backing up current binary")?;
         }
-        tokio::fs::rename(STAGED, TARGET)
+        tokio::fs::copy(STAGED, TARGET)
             .await
             .context("installing new binary")?;
         #[cfg(unix)]

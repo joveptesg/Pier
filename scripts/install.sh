@@ -307,8 +307,11 @@ RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
-AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE
+# CAP_DAC_OVERRIDE: write the pier-owned /opt/pier/bin during a core self-update
+# (Op::SelfUpdate). Without it, even root (this helper) is bound by DAC and can't
+# replace a file in a directory it doesn't own.
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
 HELPER_UNIT
     chmod 644 /etc/systemd/system/pier-net-helper.service
     systemctl daemon-reload

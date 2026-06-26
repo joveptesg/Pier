@@ -658,6 +658,9 @@ pub async fn update_now() -> AppResult<impl IntoResponse> {
 
     match crate::network::mesh_call::call_local_socket("self_update", &serde_json::json!({})).await {
         Ok(r) if r.ok => {
+            // Helper copied (not moved) the staged binary; clean it from our
+            // own writable data dir before the helper's delayed restart fires.
+            let _ = tokio::fs::remove_file(STAGED).await;
             tracing::info!(
                 "Self-update applied via helper ({} bytes), restarting...",
                 bytes.len()

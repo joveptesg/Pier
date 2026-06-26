@@ -44,8 +44,10 @@ RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
-AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE
+# CAP_DAC_OVERRIDE: write the pier-owned /opt/pier/bin during a core self-update
+# (Op::SelfUpdate) — even root is bound by DAC for a dir it doesn't own.
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
 
 [Install]
 WantedBy=multi-user.target
