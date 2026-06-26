@@ -184,6 +184,22 @@ fi
 info "Checksum OK (sha256: ${ACTUAL:0:16}...)"
 chmod +x "${WORK_DIR}/pier"
 
+# ── Step 4b: Agent binaries (staged next to the core) ────────────────────────
+# The core SERVES pier-agent + pier-net-helper to enrolling agents from its own
+# bin dir (GET /api/v1/servers/download/{name}), so they must sit next to the
+# core binary for install.sh to stage them into /opt/pier/bin. Soft-fail: a
+# single-node core works fine without them; only agent enrollment needs them.
+step "Downloading agent binaries (pier-agent, pier-net-helper)..."
+for _agbin in pier-agent pier-net-helper; do
+    _agurl="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${_agbin}-linux-amd64"
+    if curl -fsSL "$_agurl" -o "${WORK_DIR}/${_agbin}"; then
+        chmod +x "${WORK_DIR}/${_agbin}"
+        info "Fetched ${_agbin}"
+    else
+        warn "Could not fetch ${_agbin} — agent enrollment will be unavailable until it is staged on the core"
+    fi
+done
+
 # ── Step 5: Download install.sh ──────────────────────────────────────────────
 
 INSTALL_URL="https://raw.githubusercontent.com/${REPO}/${REF}/scripts/install.sh"

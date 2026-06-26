@@ -55,18 +55,7 @@ cargo build --release
 sudo bash scripts/install.sh --binary target/release/pier
 ```
 
-### Option C: Docker
-
-```bash
-docker run -d \
-  --name pier \
-  -p 8443:8443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v pier-data:/app/data \
-  ghcr.io/joveptesg/pier:latest
-```
-
-### Option D: Install from a pre-built release (no build)
+### Option C: Install from a pre-built release (no build)
 
 Already have Docker? Grab the latest pre-built binary directly — no Rust toolchain, no compilation:
 
