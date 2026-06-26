@@ -314,6 +314,8 @@ For projects that need overrides, drop a [`railpack.json`](https://railpack.com/
 
 We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request. All contributors must agree to our [CLA](CLA.md).
 
+Before submitting a pull request, run:
+
 ```bash
 cargo fmt          # Format code
 cargo clippy       # Lint
