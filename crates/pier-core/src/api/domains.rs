@@ -847,6 +847,11 @@ async fn ensure_agent_traefik(
     };
     let static_cfg = config::generate_static_config(&email, false);
     agent_file_op(conn, "traefik/traefik.yml", &static_cfg, false).await?;
+    // Traefik's file provider errors out (and won't watch) if its dynamic
+    // directory is missing at startup — on a FRESH agent the dir doesn't exist
+    // yet (it's created when the first router config is pushed, AFTER Traefik
+    // launches), leaving routing dead until a restart. Create it up front.
+    agent_file_op(conn, "traefik/dynamic/.keep", "", false).await?;
 
     let compose = format!(
         "services:\n  pier-traefik:\n    image: traefik:{ver}\n    container_name: pier-traefik\n    command: --configFile=/data/traefik/traefik.yml\n    ports:\n      - \"0.0.0.0:80:80\"\n      - \"0.0.0.0:443:443\"\n    volumes:\n      - {data}/traefik:/data/traefik\n    networks:\n      - pier-net\n    restart: unless-stopped\nnetworks:\n  pier-net:\n    external: true\n",

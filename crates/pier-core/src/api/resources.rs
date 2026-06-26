@@ -2339,61 +2339,96 @@ pub async fn remove(
     // Resolve the service's target server for server-aware teardown. A remote
     // service lives on an agent: its stack + Traefik config must be torn down
     // THERE, not on the core (where the local `down_stack` is a no-op).
-    let remote_conn: Option<crate::api::servers::AgentConn> = {
-        let sid: Option<String> = {
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-            db.query_row("SELECT server_id FROM services WHERE id = ?1", [&id], |r| {
-                r.get::<_, Option<String>>(0)
-            })
+    // The set of servers this service occupies. A distributed CLUSTER spans
+    // several servers (cluster_config_json.nodes[].server_id); a single service
+    // lives on services.server_id. The stack must be torn down on EACH of them —
+    // otherwise a cluster's nodes on the OTHER agents orphan (the old code only
+    // looked at services.server_id, which is "local" for a local-primary cluster).
+    let server_ids: Vec<String> = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let cluster_json: Option<String> = db
+            .query_row(
+                "SELECT cluster_config_json FROM services WHERE id = ?1",
+                [&id],
+                |r| r.get::<_, Option<String>>(0),
+            )
             .ok()
-            .flatten()
-        };
-        match sid {
-            Some(s) if !s.is_empty() && s != "local" => {
-                let is_remote = {
-                    let db = state
-                        .db
-                        .lock()
-                        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-                    db.query_row("SELECT is_local FROM servers WHERE id = ?1", [&s], |r| {
-                        r.get::<_, bool>(0)
-                    })
-                    .map(|local| !local)
-                    .unwrap_or(false)
-                };
-                if is_remote {
-                    crate::api::servers::get_server_info(&state, &s).ok()
-                } else {
-                    None
+            .flatten();
+        let mut set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        if let Some(cj) = cluster_json {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cj) {
+                if let Some(nodes) = v["nodes"].as_array() {
+                    for n in nodes {
+                        if let Some(sid) = n["server_id"].as_str() {
+                            set.insert(sid.to_string());
+                        }
+                    }
                 }
             }
-            _ => None,
         }
+        if set.is_empty() {
+            let sid: Option<String> = db
+                .query_row("SELECT server_id FROM services WHERE id = ?1", [&id], |r| {
+                    r.get::<_, Option<String>>(0)
+                })
+                .ok()
+                .flatten();
+            set.insert(
+                sid.filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "local".to_string()),
+            );
+        }
+        set.into_iter().collect()
     };
 
-    // Stop containers (with or without volumes).
-    if let Some(conn) = &remote_conn {
-        agent_teardown(conn, &stack_name, &id, delete_volumes).await;
-    } else if delete_volumes {
-        // docker compose down -v (removes named volumes)
-        let result = docker::compose::down_stack_with_volumes(&stack_name, &state.config).await;
-        match &result {
-            Ok(out) => tracing::info!("Stack {stack_name} down -v: {out}"),
-            Err(e) => tracing::warn!("Stack {stack_name} down -v failed: {e}"),
-        }
-    } else {
-        let result = docker::compose::down_stack(&stack_name, &state.config).await;
-        match &result {
-            Ok(out) => tracing::info!("Stack {stack_name} down: {out}"),
-            Err(e) => tracing::warn!("Stack {stack_name} down failed: {e}"),
+    // Tear down the stack on every server the service occupies. Remote agents
+    // get agent_teardown (compose down [-v] + stack dir + Traefik file); a local
+    // node gets the in-process docker teardown.
+    let mut had_local = false;
+    for sid in &server_ids {
+        let conn: Option<crate::api::servers::AgentConn> = if sid == "local" || sid.is_empty() {
+            None
+        } else {
+            let is_remote = {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+                db.query_row("SELECT is_local FROM servers WHERE id = ?1", [sid], |r| {
+                    r.get::<_, bool>(0)
+                })
+                .map(|local| !local)
+                .unwrap_or(false)
+            };
+            if is_remote {
+                crate::api::servers::get_server_info(&state, sid).ok()
+            } else {
+                None
+            }
+        };
+        match conn {
+            Some(c) => agent_teardown(&c, &stack_name, &id, delete_volumes).await,
+            None => {
+                had_local = true;
+                let result = if delete_volumes {
+                    docker::compose::down_stack_with_volumes(&stack_name, &state.config).await
+                } else {
+                    docker::compose::down_stack(&stack_name, &state.config).await
+                };
+                match &result {
+                    Ok(out) => tracing::info!("Stack {stack_name} down (local): {out}"),
+                    Err(e) => tracing::warn!("Stack {stack_name} local down failed: {e}"),
+                }
+            }
         }
     }
 
-    // Remove stack directory (local only; the agent owns its stack dir).
-    if remote_conn.is_none() {
+    // Remove the local stack directory if a local node existed (agents drop
+    // their own dirs inside agent_teardown).
+    if had_local {
         match docker::compose::remove_stack(&stack_name, &state.config).await {
             Ok(()) => tracing::info!("Stack {stack_name} directory removed"),
             Err(e) => tracing::warn!("Stack {stack_name} dir remove failed: {e}"),
@@ -2413,7 +2448,7 @@ pub async fn remove(
     // Remove this service's Traefik dynamic config. The file is named by
     // service_id (see proxy::config), NOT domain_id. Remote services' configs
     // live on the agent and were already dropped by agent_teardown above.
-    if remote_conn.is_none() {
+    if had_local {
         let config_path = state
             .config
             .data_dir
