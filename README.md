@@ -81,7 +81,7 @@ Updates pull a fresh **pre-built binary** — no rebuild from source needed. `in
 # Easiest — re-run the one-command installer (re-downloads the latest release):
 curl -fsSL https://pier.team/install | sudo bash
 
-# Or manually, same flow as Option D (download → verify → install.sh).
+# Or manually, same flow as Option C (download → verify → install.sh).
 ```
 
 Then open `http://YOUR_SERVER_IP:8443/setup` to create your admin account.
