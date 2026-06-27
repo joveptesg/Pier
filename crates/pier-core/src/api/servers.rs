@@ -1638,7 +1638,7 @@ if curl -fsSL {cacert_arg} -H "Authorization: Bearer $BOOTSTRAP_TOKEN" -o /usr/l
     cat > /etc/systemd/system/pier-net-helper.service <<HELPER_UNIT
 [Unit]
 Description=Pier Network Helper (privileged WireGuard mesh operations)
-Documentation=https://github.com/joveptesg/Pier
+Documentation=https://github.com/joveptesg/pier
 After=network-pre.target
 Before=pier-agent.service
 

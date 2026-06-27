@@ -712,7 +712,7 @@ async fn promote(
 
     // 2. Build and write the promotion shell script.
     let download_url = body.core_download_url.unwrap_or_else(|| {
-        "https://github.com/joveptesg/Pier/releases/download/latest/pier-linux-amd64".to_string()
+        "https://github.com/joveptesg/pier/releases/download/latest/pier-linux-amd64".to_string()
     });
     let core_port = body.core_port.unwrap_or(8443);
     let script_path = format!("{promote_dir}/promote.sh");

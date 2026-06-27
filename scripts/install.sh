@@ -270,7 +270,7 @@ if [[ -f "$HELPER_SRC" ]]; then
     install -m755 "$HELPER_SRC" "$HELPER_BIN"
     info "Installed pier-net-helper from $HELPER_SRC"
 elif curl -fsSL -o "$HELPER_BIN" \
-        "https://github.com/joveptesg/Pier/releases/download/latest/pier-net-helper-linux-amd64" 2>/dev/null; then
+        "https://github.com/joveptesg/pier/releases/download/latest/pier-net-helper-linux-amd64" 2>/dev/null; then
     chmod 0755 "$HELPER_BIN"
     info "Installed pier-net-helper from release"
 else

@@ -7,9 +7,9 @@
 <h3 align="center">Легковесная самостоятельно размещаемая PaaS.<br>Один бинарник. 20 МБ RAM. Разворачивайте что угодно.</h3>
 
 <p align="center">
-  <a href="https://github.com/joveptesg/Pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/Pier?color=blue" alt="Лицензия"></a>
-  <a href="https://github.com/joveptesg/Pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/Pier?style=flat" alt="Звёзды"></a>
-  <a href="https://github.com/joveptesg/Pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/Pier?include_prereleases" alt="Релиз"></a>
+  <a href="https://github.com/joveptesg/pier/blob/main/LICENSE"><img src="https://img.shields.io/github/license/joveptesg/pier?color=blue" alt="Лицензия"></a>
+  <a href="https://github.com/joveptesg/pier/stargazers"><img src="https://img.shields.io/github/stars/joveptesg/pier?style=flat" alt="Звёзды"></a>
+  <a href="https://github.com/joveptesg/pier/releases"><img src="https://img.shields.io/github/v/release/joveptesg/pier?include_prereleases" alt="Релиз"></a>
   <img src="https://img.shields.io/badge/rust-1.93%2B-orange" alt="Rust">
 </p>
 
@@ -349,11 +349,11 @@ Pier можно бесплатно размещать на своём серве
 ## История звёзд
 
 <p align="center">
-  <a href="https://star-history.com/#joveptesg/Pier&Date">
+  <a href="https://star-history.com/#joveptesg/pier&Date">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=joveptesg/Pier&type=Date" width="720" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=joveptesg/pier&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=joveptesg/pier&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=joveptesg/pier&type=Date" width="720" />
     </picture>
   </a>
 </p>

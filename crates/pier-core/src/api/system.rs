@@ -459,7 +459,7 @@ fn parse_docker_size(s: &str) -> u64 {
     num_str.trim().parse::<f64>().unwrap_or(0.0) as u64 * unit
 }
 
-const GITHUB_RELEASE_URL: &str = "https://api.github.com/repos/joveptesg/Pier/releases/tags/latest";
+const GITHUB_RELEASE_URL: &str = "https://api.github.com/repos/joveptesg/pier/releases/tags/latest";
 const BINARY_ASSET_NAME: &str = "pier-linux-amd64";
 
 /// GET /api/v1/system/update-settings

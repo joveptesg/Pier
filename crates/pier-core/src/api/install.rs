@@ -75,7 +75,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 PIER_CORE_URL="{scheme}://{server_authority}"
-HELPER_URL="https://github.com/joveptesg/Pier/releases/download/latest/pier-net-helper-linux-amd64"
+HELPER_URL="https://github.com/joveptesg/pier/releases/download/latest/pier-net-helper-linux-amd64"
 
 echo "=== Pier Network Helper Retrofit ==="
 echo "Core server:   $PIER_CORE_URL"
@@ -106,7 +106,7 @@ echo "Installing systemd unit..."
 cat > /etc/systemd/system/pier-net-helper.service <<'HELPER_UNIT'
 [Unit]
 Description=Pier Network Helper (privileged WireGuard mesh operations)
-Documentation=https://github.com/joveptesg/Pier
+Documentation=https://github.com/joveptesg/pier
 After=network-pre.target
 Before=pier-agent.service
 

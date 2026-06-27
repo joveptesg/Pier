@@ -1,6 +1,6 @@
 [Unit]
 Description=Pier Network Helper (privileged WireGuard mesh operations)
-Documentation=https://github.com/joveptesg/Pier
+Documentation=https://github.com/joveptesg/pier
 After=network-pre.target
 Before=pier-agent.service pier.service
 
