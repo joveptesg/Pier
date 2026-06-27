@@ -329,6 +329,8 @@ npm install left-pad         # 从 npmjs.org 代理 + 缓存
 
 欢迎贡献！请在提交 Pull Request 之前阅读 [CONTRIBUTING.md](../../CONTRIBUTING.md)。所有贡献者须同意我们的 [CLA](../../CLA.md)。
 
+在提交 Pull Request 之前,请运行:
+
 ```bash
 cargo fmt          # Format code
 cargo clippy       # Lint

@@ -329,6 +329,8 @@ Für Projekte, die Overrides brauchen, legen Sie eine [`railpack.json`](https://
 
 Wir freuen uns über Beiträge! Bitte lesen Sie [CONTRIBUTING.md](../../CONTRIBUTING.md), bevor Sie einen Pull Request einreichen. Alle Mitwirkenden müssen unserer [CLA](../../CLA.md) zustimmen.
 
+Führen Sie vor dem Einreichen eines Pull Requests Folgendes aus:
+
 ```bash
 cargo fmt          # Code formatieren
 cargo clippy       # Linting

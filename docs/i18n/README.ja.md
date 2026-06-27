@@ -329,6 +329,8 @@ npm install left-pad         # npmjs.org からプロキシ + キャッシュ
 
 コントリビューションを歓迎します！プルリクエストを送る前に [CONTRIBUTING.md](../../CONTRIBUTING.md) をお読みください。すべてのコントリビューターは [CLA](../../CLA.md) に同意していただく必要があります。
 
+プルリクエストを送る前に、以下を実行してください:
+
 ```bash
 cargo fmt          # Format code
 cargo clippy       # Lint

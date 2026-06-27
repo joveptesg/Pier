@@ -329,6 +329,8 @@ Si tu proyecto necesita anular el comportamiento por defecto, deja un [`railpack
 
 ¡Las contribuciones son bienvenidas! Por favor lee [CONTRIBUTING.md](../../CONTRIBUTING.md) antes de enviar un pull request. Todos los contribuyentes deben aceptar nuestro [CLA](../../CLA.md).
 
+Antes de enviar un pull request, ejecuta:
+
 ```bash
 cargo fmt          # Formatear código
 cargo clippy       # Linter

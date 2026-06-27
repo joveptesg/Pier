@@ -329,6 +329,8 @@ Pour les projets qui nécessitent des overrides, déposez un [`railpack.json`](h
 
 Les contributions sont les bienvenues ! Veuillez lire [CONTRIBUTING.md](../../CONTRIBUTING.md) avant de soumettre une pull request. Tous les contributeurs doivent accepter notre [CLA](../../CLA.md).
 
+Avant de soumettre une pull request, exécutez :
+
 ```bash
 cargo fmt          # Format code
 cargo clippy       # Lint
