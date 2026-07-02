@@ -349,11 +349,11 @@ Pier はセルフホストおよび改変が自由に行えます。改変版を
 ## スター履歴
 
 <p align="center">
-  <a href="https://star-history.com/#joveptesg/pier&Date">
+  <a href="https://www.star-history.com/#joveptesg/pier&Date">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=joveptesg/pier&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=joveptesg/pier&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=joveptesg/pier&type=Date" width="720" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=joveptesg/pier&type=Date&theme=dark&legend=top-left" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=joveptesg/pier&type=Date&legend=top-left" />
+      <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=joveptesg/pier&type=Date&legend=top-left" width="720" />
     </picture>
   </a>
 </p>

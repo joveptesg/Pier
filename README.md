@@ -338,11 +338,11 @@ The Pier **code** is open source, but the **"Pier" name and logo are trademarks*
 ## Star History
 
 <p align="center">
-  <a href="https://star-history.com/#joveptesg/pier&Date">
+  <a href="https://www.star-history.com/#joveptesg/pier&Date">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=joveptesg/pier&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=joveptesg/pier&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=joveptesg/pier&type=Date" width="720" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=joveptesg/pier&type=Date&theme=dark&legend=top-left" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=joveptesg/pier&type=Date&legend=top-left" />
+      <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=joveptesg/pier&type=Date&legend=top-left" width="720" />
     </picture>
   </a>
 </p>
