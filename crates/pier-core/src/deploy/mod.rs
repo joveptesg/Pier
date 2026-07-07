@@ -1438,7 +1438,10 @@ fn upsert_port_rows(
 
 /// Detect the actual container name after docker compose deploy.
 /// Uses `docker compose -p {project} ps --format {{.Name}}` to find running containers.
-async fn detect_container_name(stack_name: &str, config: &crate::config::PierConfig) -> String {
+pub(crate) async fn detect_container_name(
+    stack_name: &str,
+    config: &crate::config::PierConfig,
+) -> String {
     let stack_dir = config.data_dir.join("stacks").join(stack_name);
     let output = tokio::process::Command::new("docker")
         .args(["compose", "-p", stack_name, "ps", "--format", "{{.Name}}"])
@@ -1458,6 +1461,37 @@ async fn detect_container_name(stack_name: &str, config: &crate::config::PierCon
             }
         }
         Err(_) => stack_name.to_string(),
+    }
+}
+
+/// After a successful compose `up`, detect the primary container's real name
+/// and persist it into `services.container_id`, so the Logs tab and container
+/// discovery resolve the right container.
+///
+/// The raw docker-compose catalog path never sets `container_id` on create
+/// (unlike the git pipeline), and docker-compose names containers
+/// `pier-{project}-{service}-1`, not `pier-{project}`. Without this, the Logs
+/// tab inspects the project name and gets HTTP 500.
+///
+/// Best-effort: only writes when a real container name was detected (i.e. it
+/// differs from the stack name); never fails the caller's deploy.
+pub(crate) async fn persist_container_name(state: &AppState, service_id: &str, stack_name: &str) {
+    let name = detect_container_name(stack_name, &state.config).await;
+    if name == stack_name {
+        // `docker compose ps` returned nothing usable — leave container_id as
+        // is rather than storing the (wrong) project name.
+        return;
+    }
+    match state.db.lock() {
+        Ok(db) => {
+            if let Err(e) = db.execute(
+                "UPDATE services SET container_id = ?1, updated_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![name, service_id],
+            ) {
+                tracing::warn!("persist_container_name: DB update failed for {service_id}: {e}");
+            }
+        }
+        Err(e) => tracing::warn!("persist_container_name: DB lock failed for {service_id}: {e}"),
     }
 }
 
@@ -1999,6 +2033,172 @@ pub fn inject_mesh_extra_hosts_into_services(yaml: &str, hosts: &[(String, Strin
     lines.join("\n")
 }
 
+/// Ensure every `services:` block carries Pier's identity labels
+/// (`pier.service.id`, `pier.catalog.id`) so container discovery — the Logs
+/// tab, port-sync, and the port-toggle recreate path — can correlate a
+/// running container back to its `services` row by label, independent of the
+/// container's runtime name.
+///
+/// Only the raw docker-compose catalog path needs this: Pier's own catalog
+/// builder and the Dockerfile/railpack paths already emit these labels.
+///
+/// Idempotent: a service block that already contains `pier.service.id` is left
+/// untouched, so re-deploying never duplicates labels. Handles all three label
+/// shapes — absent, an existing `labels:` map, and an existing `labels:` list.
+/// A no-op when the YAML has no parseable top-level `services:` map. Services
+/// written as inline maps (`web: {...}`) are skipped, matching the other
+/// line-based injectors' subset of supported syntax.
+pub fn inject_pier_labels(yaml: &str, service_id: &str, catalog_id: &str) -> String {
+    let mut lines: Vec<String> = yaml.lines().map(|l| l.to_string()).collect();
+
+    let services_idx = match lines
+        .iter()
+        .position(|l| l.trim() == "services:" && !l.starts_with(' ') && !l.starts_with('\t'))
+    {
+        Some(i) => i,
+        None => return yaml.to_string(),
+    };
+
+    let service_indent = lines
+        .iter()
+        .skip(services_idx + 1)
+        .find_map(|line| {
+            if line.trim().is_empty() {
+                return None;
+            }
+            let indent = line.len() - line.trim_start().len();
+            if indent == 0 {
+                return Some(0);
+            }
+            Some(indent)
+        })
+        .unwrap_or(0);
+    if service_indent == 0 {
+        return yaml.to_string();
+    }
+
+    // Collect (start, end) ranges of each service block (end exclusive), using
+    // the same scan as inject_mesh_extra_hosts_into_services.
+    let mut service_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut current_start: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate().skip(services_idx + 1) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if indent == 0 {
+            if let Some(start) = current_start.take() {
+                service_ranges.push((start, i));
+            }
+            break;
+        }
+        if indent == service_indent && trimmed.ends_with(':') {
+            if let Some(start) = current_start.take() {
+                service_ranges.push((start, i));
+            }
+            current_start = Some(i);
+        }
+    }
+    if let Some(start) = current_start.take() {
+        service_ranges.push((start, lines.len()));
+    }
+
+    // Process blocks in reverse so earlier insert indices stay valid.
+    for (start, end) in service_ranges.into_iter().rev() {
+        // Idempotency: skip blocks a previous deploy already labeled.
+        if lines[start + 1..end]
+            .iter()
+            .any(|l| l.contains("pier.service.id"))
+        {
+            continue;
+        }
+
+        let prop_indent = lines[start + 1..end]
+            .iter()
+            .find_map(|line| {
+                if line.trim().is_empty() {
+                    return None;
+                }
+                let indent = line.len() - line.trim_start().len();
+                if indent > service_indent {
+                    Some(indent)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(service_indent + 2);
+
+        // Existing `labels:` key at the service-property level (not one nested
+        // under `deploy:`/`build:`, which sit at a deeper indent).
+        let labels_idx = lines[start + 1..end]
+            .iter()
+            .position(|l| {
+                let indent = l.len() - l.trim_start().len();
+                indent == prop_indent && l.trim() == "labels:"
+            })
+            .map(|rel| start + 1 + rel);
+
+        match labels_idx {
+            Some(labels_idx) => {
+                // Map vs list is decided by the first child under `labels:`.
+                let child = lines[labels_idx + 1..end].iter().find_map(|line| {
+                    if line.trim().is_empty() {
+                        return None;
+                    }
+                    let indent = line.len() - line.trim_start().len();
+                    if indent > prop_indent {
+                        Some((indent, line.trim_start().starts_with("- ")))
+                    } else {
+                        None
+                    }
+                });
+                let (child_indent, is_list) = child.unwrap_or((prop_indent + 2, false));
+                let pad = " ".repeat(child_indent);
+                if is_list {
+                    lines.insert(
+                        labels_idx + 1,
+                        format!("{pad}- \"pier.service.id={service_id}\""),
+                    );
+                    lines.insert(
+                        labels_idx + 2,
+                        format!("{pad}- \"pier.catalog.id={catalog_id}\""),
+                    );
+                } else {
+                    lines.insert(
+                        labels_idx + 1,
+                        format!("{pad}pier.service.id: \"{service_id}\""),
+                    );
+                    lines.insert(
+                        labels_idx + 2,
+                        format!("{pad}pier.catalog.id: \"{catalog_id}\""),
+                    );
+                }
+            }
+            None => {
+                // No labels key: append a fresh `labels:` map at the block end.
+                let mut insert_at = end;
+                while insert_at > start + 1 && lines[insert_at - 1].trim().is_empty() {
+                    insert_at -= 1;
+                }
+                let pad = " ".repeat(prop_indent);
+                let child_pad = " ".repeat(prop_indent + 2);
+                lines.insert(insert_at, format!("{pad}labels:"));
+                lines.insert(
+                    insert_at + 1,
+                    format!("{child_pad}pier.service.id: \"{service_id}\""),
+                );
+                lines.insert(
+                    insert_at + 2,
+                    format!("{child_pad}pier.catalog.id: \"{catalog_id}\""),
+                );
+            }
+        }
+    }
+
+    lines.join("\n")
+}
+
 /// Build the list of mesh peer hostnames Pier should inject into every
 /// deployed stack. Returns an empty vec when mesh is disabled or no
 /// peers have reached `status='active'` — the caller is expected to
@@ -2447,8 +2647,8 @@ struct ServiceInfo {
 mod tests {
     use super::{
         env_json_to_env_content, inject_env_file_into_services,
-        inject_mesh_extra_hosts_into_services, inject_ports_into_yaml, normalize_mesh_hostname,
-        upsert_port_rows, PortRow,
+        inject_mesh_extra_hosts_into_services, inject_pier_labels, inject_ports_into_yaml,
+        normalize_mesh_hostname, upsert_port_rows, PortRow,
     };
     use crate::crypto::encrypt_env_json;
 
@@ -3023,5 +3223,94 @@ services:
             "only api should have ports block, yaml = {out}"
         );
         assert!(out.contains("- \"0.0.0.0:3050:3050\""));
+    }
+
+    // ─── inject_pier_labels: map / list / absent + idempotency ──────────
+
+    const SID: &str = "svc-123";
+    const CID: &str = "docker-compose";
+
+    #[test]
+    fn labels_added_when_absent() {
+        let yaml = "services:\n  web:\n    image: nginx\n";
+        let out = inject_pier_labels(yaml, SID, CID);
+        assert_eq!(out.matches("labels:").count(), 1);
+        assert!(out.contains("      pier.service.id: \"svc-123\""));
+        assert!(out.contains("      pier.catalog.id: \"docker-compose\""));
+        assert!(out.contains("    image: nginx"));
+    }
+
+    #[test]
+    fn labels_appended_into_existing_map() {
+        let yaml = "services:\n  web:\n    image: nginx\n    labels:\n      foo: bar\n";
+        let out = inject_pier_labels(yaml, SID, CID);
+        // User's key survives, pier keys added, only one labels: block.
+        assert_eq!(out.matches("labels:").count(), 1);
+        assert!(out.contains("foo: bar"));
+        assert!(out.contains("pier.service.id: \"svc-123\""));
+        assert!(out.contains("pier.catalog.id: \"docker-compose\""));
+        // Map form, not list form.
+        assert!(!out.contains("- \"pier.service.id="));
+    }
+
+    #[test]
+    fn labels_appended_into_existing_list() {
+        let yaml = "services:\n  web:\n    image: nginx\n    labels:\n      - \"a=b\"\n";
+        let out = inject_pier_labels(yaml, SID, CID);
+        assert_eq!(out.matches("labels:").count(), 1);
+        assert!(out.contains("- \"a=b\""));
+        assert!(out.contains("- \"pier.service.id=svc-123\""));
+        assert!(out.contains("- \"pier.catalog.id=docker-compose\""));
+        // List form, not map form.
+        assert!(!out.contains("pier.service.id: "));
+    }
+
+    #[test]
+    fn labels_injected_into_every_service() {
+        let yaml = "services:\n  web:\n    image: nginx\n  api:\n    image: api:latest\n";
+        let out = inject_pier_labels(yaml, SID, CID);
+        assert_eq!(out.matches("pier.service.id").count(), 2);
+        assert_eq!(out.matches("labels:").count(), 2);
+    }
+
+    #[test]
+    fn labels_are_idempotent() {
+        let yaml = "services:\n  web:\n    image: nginx\n";
+        let once = inject_pier_labels(yaml, SID, CID);
+        let twice = inject_pier_labels(&once, SID, CID);
+        assert_eq!(once, twice);
+        assert_eq!(twice.matches("pier.service.id").count(), 1);
+    }
+
+    #[test]
+    fn labels_noop_without_services_block() {
+        let yaml = "version: '3'\nnetworks:\n  pier-net:\n    external: true\n";
+        let out = inject_pier_labels(yaml, SID, CID);
+        assert_eq!(out, yaml);
+    }
+
+    #[test]
+    fn labels_respect_2space_and_4space_indent() {
+        let two = inject_pier_labels("services:\n  web:\n    image: nginx\n", SID, CID);
+        assert!(two.contains("    labels:"));
+        assert!(two.contains("      pier.service.id: \"svc-123\""));
+
+        let four = inject_pier_labels("services:\n    web:\n        image: nginx\n", SID, CID);
+        assert!(four.contains("        labels:"));
+        assert!(four.contains("          pier.service.id: \"svc-123\""));
+    }
+
+    #[test]
+    fn labels_do_not_leak_into_top_level_networks() {
+        let yaml =
+            "services:\n  web:\n    image: nginx\nnetworks:\n  pier-net:\n    external: true\n";
+        let out = inject_pier_labels(yaml, SID, CID);
+        let labels_pos = out.find("labels:").expect("must inject");
+        let networks_pos = out
+            .find("\nnetworks:")
+            .expect("must preserve top-level networks");
+        assert!(labels_pos < networks_pos);
+        assert_eq!(out.matches("labels:").count(), 1);
+        assert!(out.contains("external: true"));
     }
 }

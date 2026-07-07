@@ -178,6 +178,9 @@ pub async fn update_env(
             // `build_compose_yaml`, which returns "" when the catalog item has
             // no `[docker]` section, wiping the user's compose. So keep the
             // stored YAML untouched for those.
+            let is_passthrough = catalog_item
+                .map(|item| item.compose.is_none() && item.docker.is_none())
+                .unwrap_or(true);
             let new_yaml = match catalog_item {
                 Some(item) if item.compose.is_some() => crate::catalog::build_from_template(
                     &item.compose.as_ref().unwrap().template,
@@ -193,6 +196,20 @@ pub async fn update_env(
                 ),
                 // Passthrough catalog / non-catalog: preserve the user's YAML.
                 _ => yaml.clone(),
+            };
+
+            // Passthrough compose stacks are deployed as-is and would otherwise
+            // carry no Pier identity labels, so container discovery (logs,
+            // port-sync, recreate) can't correlate them. Inject the labels into
+            // the persisted YAML. Idempotent: a no-op if they already exist.
+            let new_yaml = if is_passthrough {
+                crate::deploy::inject_pier_labels(
+                    &new_yaml,
+                    &id,
+                    catalog_id.as_deref().unwrap_or("docker-compose"),
+                )
+            } else {
+                new_yaml
             };
 
             // Belt-and-suspenders: never persist an empty compose. This can
@@ -222,6 +239,11 @@ pub async fn update_env(
             let result =
                 docker::deploy_service_stack(&state, &id, &stack_name, &new_yaml, None).await;
             let status = if result.is_ok() { "running" } else { "failed" };
+            if result.is_ok() {
+                // Record the real docker-compose container name so the Logs
+                // tab and container discovery resolve it after an env update.
+                crate::deploy::persist_container_name(&state, &id, &stack_name).await;
+            }
             {
                 let db = state
                     .db

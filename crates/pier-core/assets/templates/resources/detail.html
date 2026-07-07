@@ -3256,12 +3256,13 @@ function resourceDetail(id) {
         },
         async loadDomains() { try { this.domains=await fetch('/api/v1/resources/'+this.id+'/domains').then(r=>r.ok?r.json():[]); } catch{this.domains=[];} },
         resolveLogContainerName() {
+            const stackSlug = 'pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-');
             if (this.composeServices.length > 1 && this.selectedComposeService) {
                 const cs = this.composeServices.find(s => s.name === this.selectedComposeService);
-                if (cs) return cs.container_name || ('pier-' + cs.name);
+                // Fallback matches docker-compose's real naming: pier-{slug}-{service}-1
+                if (cs) return cs.container_name || (stackSlug + '-' + cs.name + '-1');
             }
-            return this.resource.container_name
-                || ('pier-' + (this.resource.name || '').toLowerCase().replace(/\s+/g, '-'));
+            return this.resource.container_name || stackSlug;
         },
         onComposeServiceChange(name) {
             if (this.selectedComposeService === name) return;

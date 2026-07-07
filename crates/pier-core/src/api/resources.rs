@@ -924,6 +924,13 @@ async fn create_compose(
     }
 
     let service_id = uuid::Uuid::new_v4().to_string();
+
+    // Inject Pier identity labels so container discovery (Logs tab, port-sync,
+    // recreate, proxy) can correlate this stack's containers by
+    // pier.service.id. Stored in compose_content so they survive redeploys.
+    // Idempotent — a no-op if the user already declared them.
+    let yaml = crate::deploy::inject_pier_labels(&yaml, &service_id, &body.catalog_id);
+
     with_db(state, |db| {
         db.execute(
             "INSERT INTO services (id, project_id, name, service_type, compose_content, status, catalog_id, category)
@@ -942,6 +949,12 @@ async fn create_compose(
 
     let deploy_result =
         docker::deploy_service_stack(state, &service_id, stack_name, &yaml, None).await;
+
+    if deploy_result.is_ok() {
+        // Record the real docker-compose container name (pier-{slug}-{svc}-1)
+        // so the Logs tab resolves it instead of the bare project name.
+        crate::deploy::persist_container_name(state, &service_id, stack_name).await;
+    }
 
     let status = if deploy_result.is_ok() {
         "running"
@@ -2643,13 +2656,13 @@ pub async fn redeploy(
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
     let no_cache = params.get("no_cache").map(|v| v == "true").unwrap_or(false);
-    let (name, yaml, git_repo_url, git_branch) = {
+    let (name, yaml, git_repo_url, git_branch, catalog_id) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT name, compose_content, git_repo_url, git_branch FROM services WHERE id = ?1",
+            "SELECT name, compose_content, git_repo_url, git_branch, catalog_id FROM services WHERE id = ?1",
             [&id],
             |row| {
                 Ok((
@@ -2657,6 +2670,7 @@ pub async fn redeploy(
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             },
         )
@@ -2702,6 +2716,15 @@ pub async fn redeploy(
     })?;
     let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
+    // Ensure Pier identity labels are present before deploy. Idempotent, so
+    // it's a no-op for already-labeled catalog stacks and heals raw
+    // docker-compose resources created before label injection existed.
+    let yaml = crate::deploy::inject_pier_labels(
+        &yaml,
+        &id,
+        catalog_id.as_deref().unwrap_or("docker-compose"),
+    );
+
     // Stop existing stack
     let _ = docker::compose::down_stack(&stack_name, &state.config).await;
 
@@ -2742,6 +2765,11 @@ pub async fn redeploy(
         Ok(o) => o.clone(),
         Err(e) => format!("{e}"),
     };
+    if result.is_ok() {
+        // Refresh the stored container name after redeploy so the Logs tab
+        // keeps resolving the real docker-compose container.
+        crate::deploy::persist_container_name(&state, &id, &stack_name).await;
+    }
     let db = state
         .db
         .lock()
@@ -4431,6 +4459,23 @@ pub async fn get_compose_services(
         }
     };
 
+    // Resource name → compose project slug. Used to synthesize the real
+    // docker-compose container name (`pier-{slug}-{service}-1`) for services
+    // that don't declare an explicit `container_name:`, so the Logs tab's
+    // per-service selector resolves a name Docker actually created.
+    let stack_slug: String = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row("SELECT name FROM services WHERE id = ?1", [&id], |row| {
+            row.get::<_, String>(0)
+        })
+        .ok()
+        .map(|n| format!("pier-{}", n.to_lowercase().replace(' ', "-")))
+        .unwrap_or_default()
+    };
+
     // Resolve `${VAR}` in compose ports using the service's stored env_json,
     // matching deploy-time substitution. Otherwise the UI shows ports as
     // missing for services declared as `${PORT}:3401` etc.
@@ -4439,9 +4484,16 @@ pub async fn get_compose_services(
     let items: Vec<serde_json::Value> = services
         .into_iter()
         .map(|s| {
+            let container_name = if !s.container_name.is_empty() {
+                serde_json::Value::String(s.container_name)
+            } else if !stack_slug.is_empty() {
+                serde_json::Value::String(format!("{stack_slug}-{}-1", s.name))
+            } else {
+                serde_json::Value::Null
+            };
             serde_json::json!({
                 "name": s.name,
-                "container_name": if s.container_name.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(s.container_name) },
+                "container_name": container_name,
                 "ports": s.ports.iter().map(|(h, c)| serde_json::json!({ "host": h, "container": c })).collect::<Vec<_>>(),
             })
         })
