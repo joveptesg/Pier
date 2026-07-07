@@ -172,23 +172,37 @@ pub async fn update_env(
                 .ok()
             };
 
-            // Build new compose YAML
-            let new_yaml = if let Some(item) = catalog_item {
-                if let Some(compose) = &item.compose {
-                    crate::catalog::build_from_template(&compose.template, &body.env)
-                } else {
-                    crate::catalog::build_compose_yaml(
-                        item,
-                        &id,
-                        &name,
-                        &body.env,
-                        &ports,
-                        network_name.as_deref(),
-                    )
-                }
-            } else {
-                yaml.clone()
+            // Build new compose YAML. Passthrough catalog types (e.g.
+            // "docker-compose") have no generator — the stored YAML *is* the
+            // source of truth. Regenerating them would call
+            // `build_compose_yaml`, which returns "" when the catalog item has
+            // no `[docker]` section, wiping the user's compose. So keep the
+            // stored YAML untouched for those.
+            let new_yaml = match catalog_item {
+                Some(item) if item.compose.is_some() => crate::catalog::build_from_template(
+                    &item.compose.as_ref().unwrap().template,
+                    &body.env,
+                ),
+                Some(item) if item.docker.is_some() => crate::catalog::build_compose_yaml(
+                    item,
+                    &id,
+                    &name,
+                    &body.env,
+                    &ports,
+                    network_name.as_deref(),
+                ),
+                // Passthrough catalog / non-catalog: preserve the user's YAML.
+                _ => yaml.clone(),
             };
+
+            // Belt-and-suspenders: never persist an empty compose. This can
+            // only happen via a future generator regression, but the cost of
+            // guarding is trivial next to the cost of destroying user YAML.
+            if new_yaml.trim().is_empty() {
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "refusing to persist empty compose YAML for service {id}"
+                )));
+            }
 
             let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
