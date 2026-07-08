@@ -91,13 +91,42 @@ async fn tls_fingerprint(
 // GET /metrics
 // ---------------------------------------------------------------------------
 
+/// Latest global CPU usage percentage, stored as the bit pattern of an `f32`.
+static CPU_USAGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Spawn the background CPU sampler. Call exactly once at startup.
+///
+/// `sysinfo` computes CPU usage as a delta between two samples; a fresh
+/// `System` read once always returns 0.0%. Keeping one `System` alive and
+/// refreshing it on a cadence yields real readings, cached in [`CPU_USAGE`].
+fn spawn_cpu_sampler() {
+    use std::sync::atomic::Ordering;
+    tokio::spawn(async move {
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_cpu_usage();
+        tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
+        loop {
+            sys.refresh_cpu_usage();
+            CPU_USAGE.store(sys.global_cpu_usage().to_bits(), Ordering::Relaxed);
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
+}
+
+/// Current host CPU usage percentage from the background sampler.
+fn current_cpu_usage() -> f32 {
+    f32::from_bits(CPU_USAGE.load(std::sync::atomic::Ordering::Relaxed))
+}
+
 async fn metrics(State(state): State<SharedState>, headers: HeaderMap) -> impl IntoResponse {
     require_auth!(headers, state);
 
     let mut sys = sysinfo::System::new_all();
     sys.refresh_all();
 
-    let cpu_usage = sys.global_cpu_usage();
+    // From the persistent background sampler — a single sample from this fresh
+    // `System` would always read 0.0%.
+    let cpu_usage = current_cpu_usage();
     let mem_total = sys.total_memory();
     let mem_used = sys.used_memory();
     let mem_pct = if mem_total > 0 {
@@ -881,6 +910,12 @@ async fn main() -> Result<()> {
     // window covers a transient core restart that hasn't pulled the final
     // snapshot yet.
     shell::start_gc_loop(state.clone());
+
+    // Persistent CPU sampler. `sysinfo` needs two samples ≥200ms apart to
+    // compute a non-zero CPU delta, so the fresh `System` in `metrics()` would
+    // otherwise always report 0.0%. This keeps one `System` alive and caches
+    // the latest reading for the `/metrics` handler.
+    spawn_cpu_sampler();
 
     let app = Router::new()
         // Public health endpoint

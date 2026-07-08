@@ -954,6 +954,9 @@ async fn create_compose(
         // Record the real docker-compose container name (pier-{slug}-{svc}-1)
         // so the Logs tab resolves it instead of the bare project name.
         crate::deploy::persist_container_name(state, &service_id, stack_name).await;
+        // Populate port_allocations / services.port from the compose `ports:`.
+        // Without this the API/UI report null ports for docker-compose resources.
+        crate::deploy::update_ports_from_compose(state, &service_id, &yaml);
     }
 
     let status = if deploy_result.is_ok() {
@@ -2769,6 +2772,9 @@ pub async fn redeploy(
         // Refresh the stored container name after redeploy so the Logs tab
         // keeps resolving the real docker-compose container.
         crate::deploy::persist_container_name(&state, &id, &stack_name).await;
+        // Re-sync port_allocations / services.port from the (possibly changed)
+        // compose `ports:` so the API/UI reflect the live bindings.
+        crate::deploy::update_ports_from_compose(&state, &id, &yaml);
     }
     let db = state
         .db

@@ -34,9 +34,9 @@ fn fetch_local_host_metric(metric: &str) -> Option<f64> {
 
     match metric {
         "cpu" => {
-            let count = sys.cpus().len().max(1) as f32;
-            let usage = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / count;
-            Some(usage as f64)
+            // From the persistent background sampler — a single sample from
+            // this fresh `System` would always read 0.0%.
+            Some(crate::sysmetrics::current() as f64)
         }
         "ram" => {
             let total = sys.total_memory() as f64;

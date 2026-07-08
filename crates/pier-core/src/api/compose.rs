@@ -164,6 +164,10 @@ pub async fn deploy(
 
     let output = docker::deploy_service_stack(&state, &id, &name, &yaml, auth).await?;
 
+    // Populate port_allocations / services.port from the compose `ports:` so
+    // this standalone stack reports its ports like every other deploy path.
+    crate::deploy::update_ports_from_compose(&state, &id, &yaml);
+
     // Update status
     let db = state
         .db

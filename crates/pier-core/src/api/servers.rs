@@ -442,14 +442,11 @@ pub async fn download_agent_binary(
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| std::path::PathBuf::from("/opt/pier/bin"));
-    let bytes = tokio::fs::read(bin_dir.join(&name)).await.map_err(|e| {
-        AppError::NotFound(format!("binary {name} not staged on core: {e}"))
-    })?;
+    let bytes = tokio::fs::read(bin_dir.join(&name))
+        .await
+        .map_err(|e| AppError::NotFound(format!("binary {name} not staged on core: {e}")))?;
     Ok((
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "application/octet-stream",
-        )],
+        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
         bytes,
     ))
 }

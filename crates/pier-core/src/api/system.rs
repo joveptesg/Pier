@@ -13,8 +13,9 @@ pub async fn metrics() -> AppResult<impl IntoResponse> {
 
     let total_memory = sys.total_memory();
     let used_memory = sys.used_memory();
-    let cpu_usage: f32 =
-        sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len().max(1) as f32;
+    // CPU comes from the persistent background sampler; a single sample from
+    // this fresh `System` would always read 0.0% (sysinfo needs two samples).
+    let cpu_usage: f32 = crate::sysmetrics::current();
 
     let disks: Vec<serde_json::Value> = sysinfo::Disks::new_with_refreshed_list()
         .iter()
@@ -656,7 +657,8 @@ pub async fn update_now() -> AppResult<impl IntoResponse> {
         .await
         .map_err(|e| anyhow::anyhow!("Stage update binary: {e}"))?;
 
-    match crate::network::mesh_call::call_local_socket("self_update", &serde_json::json!({})).await {
+    match crate::network::mesh_call::call_local_socket("self_update", &serde_json::json!({})).await
+    {
         Ok(r) if r.ok => {
             // Helper copied (not moved) the staged binary; clean it from our
             // own writable data dir before the helper's delayed restart fires.

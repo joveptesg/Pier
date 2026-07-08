@@ -1276,7 +1276,7 @@ pub fn parse_compose_services(
     services
 }
 
-fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
+pub(crate) fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
     // Resolve `${VAR}` / `${VAR:-default}` like docker-compose does, using
     // the service's env_json as the source for VAR values. Without this,
     // entries like `${PORT:-6031}:6031` would never parse and the service

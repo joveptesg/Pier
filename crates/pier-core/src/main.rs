@@ -19,6 +19,7 @@ mod registry;
 mod s3;
 mod scheduler;
 mod state;
+mod sysmetrics;
 mod tasks;
 mod timezone;
 mod tls;
@@ -312,6 +313,12 @@ async fn main() -> Result<()> {
     // the manual UI button. Etap 0.4 wrap-up.
     auth::rotation::start_scheduler(state.clone());
     tracing::info!("Token rotation scheduler started");
+
+    // Persistent CPU sampler. `sysinfo` needs two samples to compute a
+    // non-zero CPU delta, so a fresh `System` per request always reads 0.0%.
+    // This keeps one `System` alive and caches the value for all metric readers.
+    sysmetrics::spawn_sampler();
+    tracing::info!("CPU sampler started");
 
     // Daily BuildKit cache prune (Railpack auto-build only). The buildkit
     // container ships its own `buildctl`, so we exec into it — no extra

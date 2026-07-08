@@ -243,6 +243,9 @@ pub async fn update_env(
                 // Record the real docker-compose container name so the Logs
                 // tab and container discovery resolve it after an env update.
                 crate::deploy::persist_container_name(&state, &id, &stack_name).await;
+                // Re-sync port_allocations / services.port in case the env
+                // change altered `${VAR}`-templated ports in the compose file.
+                crate::deploy::update_ports_from_compose(&state, &id, &new_yaml);
             }
             {
                 let db = state

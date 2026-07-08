@@ -295,9 +295,10 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
         })
         .collect();
 
-    // System metrics
+    // System metrics. CPU comes from the persistent background sampler — a
+    // single sample from this fresh `System` would always read 0.0%.
     let sys = sysinfo::System::new_all();
-    let cpu_percent = sys.global_cpu_usage();
+    let cpu_percent = crate::sysmetrics::current();
     let mem_total = sys.total_memory();
     let mem_used = sys.used_memory();
     let mem_percent = if mem_total > 0 {
