@@ -902,6 +902,11 @@ resources_detail:
   deploy_now: Deploy Now
   back_to_deployments: Back to deployments
   cicd_deployments: CI/CD Deployments
+  action_history: Action History
+  no_deployments_yet: No deployments yet
+  no_deployments_hint: Deploy, stop, and restart actions will appear here.
+  view_log: View log
+  hide_log: Hide log
   rollback: Rollback
   manual_deployment: Manual deployment
   cancelling: Cancelling…

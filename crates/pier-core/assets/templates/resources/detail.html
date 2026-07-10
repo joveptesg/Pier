@@ -1678,6 +1678,45 @@ NODE_ENV=production"></textarea>
                         class="px-3 py-1 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 disabled:opacity-30">{{ t('resources_detail.next') }}</button>
             </div>
         </div>
+        <!-- Action history (deployment_logs) — deploy / stop / redeploy / restart, populated for ALL services -->
+        <div x-show="deploymentLogs.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('resources_detail.action_history') }}</h3>
+                    <span class="text-xs text-gray-400" x-text="'(' + deploymentLogs.length + ')'"></span>
+                </div>
+                <button @click="loadDeploymentLogs()" class="px-3 py-1 text-xs font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    {{ t('resources_detail.refresh') }}
+                </button>
+            </div>
+            <div class="space-y-3">
+                <template x-for="log in deploymentLogs" :key="log.id">
+                    <div x-data="{ open: false }" class="border-l-2 pl-4 py-3 rounded-r-lg transition-colors"
+                         :class="log.status === 'success' ? 'border-green-500' : log.status === 'failed' ? 'border-red-500' : 'border-gray-400'">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-xs font-medium px-2 py-0.5 rounded-full"
+                                  :class="log.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : log.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400'"
+                                  x-text="(log.status || '').charAt(0).toUpperCase() + (log.status || '').slice(1)"></span>
+                            <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500" x-text="log.action"></span>
+                            <button x-show="log.output" @click="open = !open"
+                                    class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-auto transition-colors"
+                                    x-text="open ? '{{ t('resources_detail.hide_log') }}' : '{{ t('resources_detail.view_log') }}'"></button>
+                        </div>
+                        <div class="text-xs text-gray-500 flex items-center gap-3">
+                            <span x-text="log.started_at"></span>
+                            <span x-show="log.finished_at" x-text="'→ ' + log.finished_at"></span>
+                        </div>
+                        <pre x-show="open" x-cloak class="text-xs font-mono bg-gray-50 dark:bg-gray-800 p-3 rounded-lg overflow-auto max-h-96 whitespace-pre mt-2" x-text="log.output"></pre>
+                    </div>
+                </template>
+            </div>
+        </div>
+        <!-- Empty state — no CI deployments and no action history -->
+        <div x-show="ciDeployments.length === 0 && deploymentLogs.length === 0"
+             class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6 text-center">
+            <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('resources_detail.no_deployments_yet') }}</p>
+            <p class="text-xs text-gray-400 mt-1">{{ t('resources_detail.no_deployments_hint') }}</p>
+        </div>
     </div>
 
     <!-- Logs Tab -->
