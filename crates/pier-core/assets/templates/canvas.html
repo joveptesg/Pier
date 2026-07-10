@@ -2,9 +2,19 @@
 {% block title %}{{ t('canvas.title') }}{% endblock %}
 
 {% block content %}
-<div x-data="canvasApp()" x-init="init()" class="absolute inset-0 overflow-hidden select-none bg-gray-100 dark:bg-[#0a0e17]"
-     style="background-image: radial-gradient(circle, rgb(209 213 219 / 0.5) 1px, transparent 1px); background-size: 30px 30px;"
-     :style="document.documentElement.classList.contains('dark') ? 'background-image: radial-gradient(circle, #1a2030 1px, transparent 1px); background-size: 30px 30px;' : ''">
+<style>
+/* Dot grid backdrop. A plain CSS class instead of an Alpine :style binding —
+   the binding silently wiped the inline style in light mode, and a class
+   also follows live theme switches via html.dark. */
+.canvas-grid {
+    background-image: radial-gradient(circle, rgb(209 213 219 / 0.6) 1px, transparent 1px);
+    background-size: 15px 15px;
+}
+html.dark .canvas-grid {
+    background-image: radial-gradient(circle, #222b3e 1px, transparent 1px);
+}
+</style>
+<div x-data="canvasApp()" x-init="init()" class="canvas-grid absolute inset-0 overflow-hidden select-none bg-gray-100 dark:bg-[#0a0e17]">
 
     <!-- Top bar -->
     <div class="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-2 bg-white/90 dark:bg-[#0a0e17]/90 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800/50">
@@ -32,6 +42,14 @@
                 </div>
                 <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ t('canvas.deps') }}</span>
             </label>
+            <label class="flex items-center gap-1.5 cursor-pointer select-none" title="{{ t('canvas.show_network_links') }}">
+                <div class="relative">
+                    <input type="checkbox" x-model="showNetwork" @change="renderSvgEdges()" class="sr-only peer">
+                    <div class="w-8 h-4 bg-gray-300 dark:bg-gray-700 rounded-full peer-checked:bg-blue-500 transition-colors"></div>
+                    <div class="absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
+                </div>
+                <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ t('canvas.network') }}</span>
+            </label>
             <span class="text-gray-300 dark:text-gray-700">|</span>
             <span class="text-xs text-gray-400 dark:text-gray-500" x-text="Math.round(zoom * 100) + '%'"></span>
             <button @click="zoomIn()" class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" title="{{ t('canvas.zoom_in') }}">
@@ -40,12 +58,13 @@
             <button @click="zoomOut()" class="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" title="{{ t('canvas.zoom_out') }}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"/></svg>
             </button>
-            <button @click="resetView()" class="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-gray-700 rounded" title="{{ t('canvas.fit_to_view') }}">{{ t('canvas.fit') }}</button>
+            <button @click="fitView()" class="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-gray-700 rounded" title="{{ t('canvas.fit_to_view') }}">{{ t('canvas.fit') }}</button>
+            <button @click="resetLayout()" class="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-gray-700 rounded" title="{{ t('canvas.reset_layout_confirm') }}">{{ t('canvas.reset_layout') }}</button>
         </div>
     </div>
 
     <!-- Canvas area (pan/zoom container) -->
-    <div class="absolute inset-0 pt-11 overflow-hidden"
+    <div class="absolute inset-0 pt-11 overflow-hidden" x-ref="viewport"
          @mousedown="onCanvasMouseDown($event)"
          @mousemove="onMouseMove($event)"
          @mouseup="onMouseUp($event)"
@@ -54,7 +73,7 @@
          @contextmenu.prevent>
 
         <!-- Transform container -->
-        <div :style="'transform: scale(' + zoom + ') translate(' + (-panX) + 'px,' + (-panY) + 'px); transform-origin: 0 0; position: absolute; top: 0; left: 0; width: 6000px; height: 4000px;'">
+        <div :style="'transform: scale(' + zoom + ') translate(' + (-panX) + 'px,' + (-panY) + 'px); transform-origin: 0 0; position: absolute; top: 0; left: 0; width: ' + canvasW + 'px; height: ' + canvasH + 'px;'">
 
             <!-- SVG layer for connection lines (rendered via JS — Alpine x-for doesn't work inside SVG) -->
             <svg x-ref="svgLayer" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index:1">
@@ -87,18 +106,47 @@
                 </div>
             </template>
 
-            <!-- Project zones (draggable) -->
+            <!-- Project zones (draggable; dbl-click collapses to a chip) -->
             <template x-for="pz in projectZones" :key="pz.id">
-                <div class="absolute rounded-xl border border-dashed border-blue-300/50 dark:border-blue-600/30 bg-blue-100/40 dark:bg-blue-900/20 cursor-grab active:cursor-grabbing"
-                     :style="'left:' + pz.x + 'px; top:' + pz.y + 'px; width:' + pz.w + 'px; height:' + pz.h + 'px; z-index:3'"
-                     @mousedown.stop="onZoneMouseDown($event, pz)">
-                    <span class="absolute -top-2.5 left-3 px-2 text-[10px] font-medium text-blue-500 dark:text-blue-400 bg-white dark:bg-gray-950 rounded" x-text="pz.name"></span>
+                <div>
+                    <template x-if="!pz.collapsed">
+                        <div class="absolute rounded-xl border border-dashed cursor-grab active:cursor-grabbing"
+                             :class="pz.pseudo ? 'border-gray-300/70 dark:border-gray-600/40 bg-gray-200/30 dark:bg-gray-800/20' : 'border-blue-300/50 dark:border-blue-600/30 bg-blue-100/40 dark:bg-blue-900/20'"
+                             :style="'left:' + pz.x + 'px; top:' + pz.y + 'px; width:' + pz.w + 'px; height:' + pz.h + 'px; z-index:3'"
+                             @mousedown.stop="onZoneMouseDown($event, pz)"
+                             @dblclick.stop="toggleCollapse(pz)"
+                             :title="pz.pseudo ? '' : '{{ t('canvas.collapse_hint') }}'">
+                            <span class="absolute -top-2.5 left-3 px-2 text-[10px] font-medium rounded bg-white dark:bg-gray-950"
+                                  :class="pz.pseudo ? 'text-gray-500 dark:text-gray-400' : 'text-blue-500 dark:text-blue-400'"
+                                  x-text="pz.pseudo ? '{{ t('canvas.standalone') }}' : pz.name"></span>
+                        </div>
+                    </template>
+                    <template x-if="pz.collapsed">
+                        <div class="absolute rounded-xl border border-blue-300/60 dark:border-blue-600/40 bg-white dark:bg-gray-900/95 shadow-lg flex items-center gap-2 px-3 cursor-pointer"
+                             :style="'left:' + pz.x + 'px; top:' + pz.y + 'px; width:' + pz.w + 'px; height:' + pz.h + 'px; z-index:10'"
+                             @mousedown.stop
+                             @dblclick.stop="toggleCollapse(pz)"
+                             @mouseenter="hoveredId = 'pz:' + pz.id"
+                             @mouseleave="hoveredId = null"
+                             title="{{ t('canvas.collapse_hint') }}">
+                            <svg class="w-3 h-3 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            <span class="text-xs font-semibold text-gray-900 dark:text-white truncate" x-text="pz.name"></span>
+                            <span class="text-[10px] text-gray-500 shrink-0" x-text="pz.count + ' {{ t('canvas.services_suffix') }}'"></span>
+                            <span class="w-2 h-2 rounded-full shrink-0 ml-auto"
+                                  :class="{
+                                      'bg-green-500': projectAggStatus(pz.id) === 'running',
+                                      'bg-red-500': projectAggStatus(pz.id) === 'failed',
+                                      'bg-blue-500 animate-pulse': projectAggStatus(pz.id) === 'deploying',
+                                      'bg-gray-500': projectAggStatus(pz.id) === 'stopped'
+                                  }"></span>
+                        </div>
+                    </template>
                 </div>
             </template>
 
             <!-- Service cards -->
             <template x-for="card in cards" :key="card.id">
-                <div class="absolute cursor-grab active:cursor-grabbing"
+                <div class="absolute cursor-grab active:cursor-grabbing" x-show="!card.hidden"
                      :style="'left:' + card.x + 'px; top:' + card.y + 'px; z-index:10'"
                      @mousedown.stop="onCardMouseDown($event, card)"
                      @mouseenter="hoveredId = card.id"
@@ -381,9 +429,14 @@
 <script>
 function canvasApp() {
     const CARD_W = 210, CARD_H = 100, GAP = 28, ZONE_PAD = 50;
+    // Layout v2: project zones shelf-pack into rows capped at MAX_SHELF_W,
+    // shared infra sits in a left column, servers stack vertically.
+    const MAX_SHELF_W = 1760, SHELF_GAP_X = 30, SHELF_GAP_Y = 40, INFRA_GAP = 40;
+    const CHIP_W = 260, CHIP_H = 44, SERVER_GAP_Y = 60;
     return {
         resources: [], servers: [], networks: [], positions: {},
         cards: [], edges: [], depEdges: [], serverZones: [], projectZones: [],
+        collapsed: {}, canvasW: 6000, canvasH: 4000,
         zoom: 1, panX: -100, panY: -30,
         // Country code → flag emoji
         countryFlag(code) {
@@ -391,7 +444,7 @@ function canvasApp() {
             const base = 0x1F1E6 - 65;
             return String.fromCodePoint(code.charCodeAt(0) + base, code.charCodeAt(1) + base);
         },
-        showDeps: true, _cardDragged: false, _clickTimer: null, _clickCount: 0,
+        showDeps: true, showNetwork: false, _cardDragged: false, _clickTimer: null, _clickCount: 0,
         statsPopup: { show: false, card: null, data: null, loading: false, history: { cpu: [], mem: [] }, pollId: null },
         dragging: null, draggingZone: null, dragOffsetX: 0, dragOffsetY: 0,
         panning: false, panStartX: 0, panStartY: 0, panStartPanX: 0, panStartPanY: 0,
@@ -403,7 +456,9 @@ function canvasApp() {
         async init() {
             await this.loadData();
             this.buildCanvas();
-            this.$nextTick(() => this.renderSvgEdges());
+            this.$nextTick(() => { this.renderSvgEdges(); this.fitView(); });
+            // Hover only tweaks edge opacity — no SVG rebuild.
+            this.$watch('hoveredId', () => this.updateEdgeHighlight());
             setInterval(() => this.refreshStatus(), 5000);
         },
 
@@ -415,6 +470,8 @@ function canvasApp() {
                 this.networks = data.networks || [];
                 this.positions = data.positions || {};
                 this._serverDepEdges = data.dep_edges || [];
+                this.collapsed = {};
+                for (const pid of (data.collapsed || [])) this.collapsed[pid] = true;
             } catch (e) { console.error('Canvas load:', e); }
         },
 
@@ -428,9 +485,39 @@ function canvasApp() {
             } catch {}
         },
 
-        getCardCenter(id) {
+        // Where an edge endpoint attaches: the card itself, or — when the card
+        // is hidden inside a collapsed group — that group's chip. `aid` is the
+        // anchor identity used for dedup and hover matching ('pz:<id>' for chips).
+        getAnchorRect(id) {
             const c = this.cards.find(c => c.id === id);
-            return c ? { x: c.x + CARD_W / 2, y: c.y + CARD_H / 2 } : { x: 0, y: 0 };
+            if (!c) return null;
+            if (c.hidden) {
+                const pz = this.projectZones.find(z => z.id === c.group_id);
+                return pz ? { aid: 'pz:' + pz.id, x: pz.x, y: pz.y, w: pz.w, h: pz.h } : null;
+            }
+            return { aid: c.id, x: c.x, y: c.y, w: CARD_W, h: CARD_H };
+        },
+
+        // Cubic bezier between the facing sides of two rects (not center-to-center,
+        // so lines don't cut through neighbouring cards). Returns the path and its
+        // t=0.5 midpoint for the label pill.
+        _bezierPath(a, b) {
+            const ac = { x: a.x + a.w / 2, y: a.y + a.h / 2 };
+            const bc = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+            const dx = bc.x - ac.x, dy = bc.y - ac.y;
+            const horiz = Math.abs(dx) >= Math.abs(dy);
+            const p1 = horiz ? { x: dx >= 0 ? a.x + a.w : a.x, y: ac.y }
+                             : { x: ac.x, y: dy >= 0 ? a.y + a.h : a.y };
+            const p2 = horiz ? { x: dx >= 0 ? b.x : b.x + b.w, y: bc.y }
+                             : { x: bc.x, y: dy >= 0 ? b.y : b.y + b.h };
+            const o = Math.max(40, Math.hypot(p2.x - p1.x, p2.y - p1.y) * 0.35);
+            const c1 = horiz ? { x: p1.x + (dx >= 0 ? o : -o), y: p1.y } : { x: p1.x, y: p1.y + (dy >= 0 ? o : -o) };
+            const c2 = horiz ? { x: p2.x - (dx >= 0 ? o : -o), y: p2.y } : { x: p2.x, y: p2.y - (dy >= 0 ? o : -o) };
+            return {
+                d: 'M ' + p1.x + ' ' + p1.y + ' C ' + c1.x + ' ' + c1.y + ', ' + c2.x + ' ' + c2.y + ', ' + p2.x + ' ' + p2.y,
+                mx: (p1.x + 3 * c1.x + 3 * c2.x + p2.x) / 8,
+                my: (p1.y + 3 * c1.y + 3 * c2.y + p2.y) / 8,
+            };
         },
 
         renderSvgEdges() {
@@ -441,52 +528,69 @@ function canvasApp() {
             svg.innerHTML = '';
             if (defs) svg.appendChild(defs);
             const NS = 'http://www.w3.org/2000/svg';
+            this._edgeEls = [];
 
-            // Network edges (dashed gray)
-            for (const edge of this.edges) {
-                const from = this.getCardCenter(edge.from);
-                const to = this.getCardCenter(edge.to);
-                const isHovered = this.hoveredId && (this.hoveredId === edge.from || this.hoveredId === edge.to);
-                const line = document.createElementNS(NS, 'line');
-                line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
-                line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
-                line.setAttribute('stroke', '#374151');
-                line.setAttribute('stroke-width', '1');
-                line.setAttribute('stroke-dasharray', '6,4');
-                line.setAttribute('opacity', isHovered ? '0.5' : '0.12');
-                svg.appendChild(line);
+            // Same-network links (dashed gray). Off by default: they form a full
+            // mesh (N² lines) and carry little information compared to dep arrows.
+            if (this.showNetwork) {
+                const seen = new Set();
+                for (const edge of this.edges) {
+                    const a = this.getAnchorRect(edge.from);
+                    const b = this.getAnchorRect(edge.to);
+                    if (!a || !b || a.aid === b.aid) continue;
+                    const key = a.aid < b.aid ? a.aid + '|' + b.aid : b.aid + '|' + a.aid;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    const bz = this._bezierPath(a, b);
+                    const path = document.createElementNS(NS, 'path');
+                    path.setAttribute('d', bz.d);
+                    path.setAttribute('fill', 'none');
+                    path.setAttribute('stroke', '#374151');
+                    path.setAttribute('stroke-width', '1');
+                    path.setAttribute('stroke-dasharray', '6,4');
+                    path.setAttribute('opacity', '0.25');
+                    svg.appendChild(path);
+                    this._edgeEls.push({ a: a.aid, b: b.aid, parts: [{ el: path, base: 0.25, hi: 0.6 }] });
+                }
             }
 
             // Dependency arrows (solid colored with arrowheads + labels)
             if (this.showDeps) {
+                const seen = new Set();
                 for (const dep of this.depEdges) {
-                    const from = this.getCardCenter(dep.from);
-                    const to = this.getCardCenter(dep.to);
+                    const a = this.getAnchorRect(dep.from);
+                    const b = this.getAnchorRect(dep.to);
+                    // Anchors collapsing to the same chip = internal edge, skip.
+                    if (!a || !b || a.aid === b.aid) continue;
+                    // A collapsed group keeps one arrow per counterpart+label.
+                    const key = a.aid + '->' + b.aid + ':' + dep.label;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
                     const lbl = dep.label.toLowerCase();
                     const isAmqp = lbl.includes('amqp') || lbl.includes('rabbit') || lbl.includes('queue');
                     const isRedis = lbl.includes('redis');
                     const color = isAmqp ? '#8b5cf6' : isRedis ? '#ef4444' : '#3b82f6';
                     const marker = isAmqp ? 'url(#arrowhead-purple)' : isRedis ? 'url(#arrowhead-red)' : 'url(#arrowhead-blue)';
-                    const isHovered = this.hoveredId && (this.hoveredId === dep.from || this.hoveredId === dep.to);
 
-                    const line = document.createElementNS(NS, 'line');
-                    line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
-                    line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
-                    line.setAttribute('stroke', color);
-                    line.setAttribute('stroke-width', '2');
-                    line.setAttribute('marker-end', marker);
-                    line.setAttribute('opacity', isHovered ? '1' : '0.6');
-                    svg.appendChild(line);
+                    const bz = this._bezierPath(a, b);
+                    const path = document.createElementNS(NS, 'path');
+                    path.setAttribute('d', bz.d);
+                    path.setAttribute('fill', 'none');
+                    path.setAttribute('stroke', color);
+                    path.setAttribute('stroke-width', '2');
+                    path.setAttribute('marker-end', marker);
+                    path.setAttribute('opacity', '0.6');
+                    svg.appendChild(path);
 
-                    // Label pill at midpoint
-                    const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2 - 8;
+                    // Label pill at curve midpoint
+                    const mx = bz.mx, my = bz.my - 8;
                     const rect = document.createElementNS(NS, 'rect');
                     const labelText = dep.label;
                     const tw = labelText.length * 5 + 12;
                     rect.setAttribute('x', mx - tw / 2); rect.setAttribute('y', my - 8);
                     rect.setAttribute('width', tw); rect.setAttribute('height', 14);
                     rect.setAttribute('rx', '7'); rect.setAttribute('fill', color);
-                    rect.setAttribute('opacity', isHovered ? '0.9' : '0.7');
+                    rect.setAttribute('opacity', '0.7');
                     svg.appendChild(rect);
 
                     const text = document.createElementNS(NS, 'text');
@@ -495,11 +599,48 @@ function canvasApp() {
                     text.setAttribute('fill', '#ffffff');
                     text.setAttribute('font-size', '8');
                     text.setAttribute('font-weight', '500');
-                    text.setAttribute('opacity', isHovered ? '1' : '0.85');
+                    text.setAttribute('opacity', '0.85');
                     text.textContent = labelText;
                     svg.appendChild(text);
+
+                    this._edgeEls.push({ a: a.aid, b: b.aid, parts: [
+                        { el: path, base: 0.6, hi: 1 },
+                        { el: rect, base: 0.7, hi: 0.9 },
+                        { el: text, base: 0.85, hi: 1 },
+                    ]});
                 }
             }
+            this.updateEdgeHighlight();
+        },
+
+        // Opacity-only pass: hovering a card (or a collapsed chip) lights up its
+        // edges and fades everything else. Runs on every hover change, so it
+        // must not rebuild the SVG.
+        updateEdgeHighlight() {
+            if (!this._edgeEls) return;
+            const hid = this.hoveredId;
+            for (const e of this._edgeEls) {
+                const active = hid && (e.a === hid || e.b === hid);
+                for (const p of e.parts) {
+                    p.el.setAttribute('opacity', active ? p.hi : hid ? 0.06 : p.base);
+                }
+            }
+        },
+
+        // A service is "infra" when it has no project and is either a known
+        // data service by category or something at least one dep arrow points
+        // at. These go into the left column so arrows flow one way instead of
+        // criss-crossing the whole canvas.
+        _incomingDepTargets() {
+            const t = new Set();
+            for (const d of (this._serverDepEdges || [])) t.add(d.to);
+            return t;
+        },
+        isInfraResource(r, incoming) {
+            if (r.project_id) return false;
+            const cat = (r.category || '').toLowerCase();
+            if (cat === 'database' || cat === 'cache' || cat === 'queue' || cat === 'broker') return true;
+            return incoming.has(r.id);
         },
 
         buildCanvas() {
@@ -523,8 +664,9 @@ function canvasApp() {
                 if (!s.is_local) serverOrder.push(s);
             }
 
-            let zoneX = 60;
-            const ZY = 60;
+            const incoming = this._incomingDepTargets();
+            const ZX = 60;
+            let zoneY = 60;
 
             for (const server of serverOrder) {
                 const sid = server.id || 'local';
@@ -533,70 +675,101 @@ function canvasApp() {
                 // Skip remote servers with no resources and offline status
                 if (!server.is_local && sResources.length === 0 && server.status !== 'online') continue;
 
-                const zoneStartX = zoneX;
-                let curY = ZY + 50;
+                const zoneStartY = zoneY;
+                const contentTop = zoneStartY + 50;
 
-                // Split: standalone (no project) vs project groups
-                const standalone = sResources.filter(r => !r.project_id);
+                // Split: infra column / standalone pseudo-group / compose projects
+                const infra = [], standalone = [];
                 const byProject = {};
                 for (const r of sResources) {
                     if (r.project_id) {
                         if (!byProject[r.project_id]) byProject[r.project_id] = [];
                         byProject[r.project_id].push(r);
+                    } else if (this.isInfraResource(r, incoming)) {
+                        infra.push(r);
+                    } else {
+                        standalone.push(r);
                     }
                 }
 
-                // Standalone row
-                const stCols = Math.max(3, Math.min(5, standalone.length || 1));
-                for (let i = 0; i < standalone.length; i++) {
-                    const r = standalone[i];
-                    const col = i % stCols, row = Math.floor(i / stCols);
-                    const saved = this.positions[r.id];
-                    this.cards.push({
-                        id: r.id, name: r.name, status: r.status,
-                        catalog_id: r.catalog_id, category: r.category,
-                        port: r.port, network_id: r.network_id, server_id: sid,
-                        env_json: r.env_json, project_id: r.project_id,
-                        x: saved ? saved.x : zoneStartX + ZONE_PAD + col * (CARD_W + GAP),
-                        y: saved ? saved.y : curY + row * (CARD_H + GAP),
-                    });
-                }
-                curY += (Math.ceil(standalone.length / stCols) || 0) * (CARD_H + GAP) + 40;
+                const mkCard = (r, gid, x, y, hidden) => ({
+                    id: r.id, name: r.name, status: r.status,
+                    catalog_id: r.catalog_id, category: r.category,
+                    port: r.port, network_id: r.network_id, server_id: sid,
+                    project_id: r.project_id, group_id: gid,
+                    x, y, hidden: !!hidden,
+                });
 
-                // Project groups
-                let projX = zoneStartX + ZONE_PAD;
-                for (const pid of Object.keys(byProject)) {
-                    const items = byProject[pid];
-                    const pCols = Math.max(1, Math.min(3, items.length));
-                    const pRows = Math.ceil(items.length / pCols);
-                    const pW = pCols * (CARD_W + GAP) + 40;
-                    const pH = pRows * (CARD_H + GAP) + 45;
+                // Infra column (vertical, left). The only cards that honor
+                // manually saved drag positions — group layout is always computed.
+                for (let i = 0; i < infra.length; i++) {
+                    const r = infra[i];
+                    const saved = this.positions[r.id];
+                    this.cards.push(mkCard(
+                        r, null,
+                        saved ? saved.x : ZX + ZONE_PAD,
+                        saved ? saved.y : contentTop + i * (CARD_H + GAP),
+                    ));
+                }
+
+                const contentStartX = ZX + ZONE_PAD + (infra.length ? CARD_W + INFRA_GAP : 0);
+
+                // Groups: standalone pseudo-group first, then projects (stable name order)
+                const groups = [];
+                if (standalone.length) {
+                    groups.push({ id: 'standalone:' + sid, name: null, items: standalone, pseudo: true });
+                }
+                const pids = Object.keys(byProject).sort((a, b) => {
+                    const an = byProject[a][0]?.project_name || a, bn = byProject[b][0]?.project_name || b;
+                    return an.localeCompare(bn);
+                });
+                for (const pid of pids) {
+                    groups.push({ id: pid, name: byProject[pid][0]?.project_name || pid.substring(0, 8), items: byProject[pid], pseudo: false });
+                }
+
+                // Shelf packing: groups flow left-to-right and wrap to a new row
+                // once the shelf would exceed MAX_SHELF_W. Shelf height = tallest
+                // group in it, so the server zone stays roughly screen-shaped.
+                let shelfX = contentStartX;
+                let shelfY = contentTop;
+                let shelfH = 0;
+                for (const g of groups) {
+                    const isCollapsed = !g.pseudo && !!this.collapsed[g.id];
+                    const pCols = Math.max(1, Math.min(3, g.items.length));
+                    const pRows = Math.ceil(g.items.length / pCols);
+                    const gW = isCollapsed ? CHIP_W : pCols * (CARD_W + GAP) + 40;
+                    const gH = isCollapsed ? CHIP_H : pRows * (CARD_H + GAP) + 45;
+
+                    if (shelfX > contentStartX && shelfX + gW > contentStartX + MAX_SHELF_W) {
+                        shelfX = contentStartX;
+                        shelfY += shelfH + SHELF_GAP_Y;
+                        shelfH = 0;
+                    }
 
                     this.projectZones.push({
-                        id: pid, name: items[0]?.project_name || pid.substring(0, 8),
-                        x: projX, y: curY, w: pW, h: pH,
+                        id: g.id, name: g.name, server_id: sid,
+                        pseudo: g.pseudo, collapsed: isCollapsed, count: g.items.length,
+                        x: shelfX, y: shelfY, w: gW, h: gH,
                     });
 
-                    for (let i = 0; i < items.length; i++) {
-                        const r = items[i];
+                    for (let i = 0; i < g.items.length; i++) {
+                        const r = g.items[i];
                         const col = i % pCols, row = Math.floor(i / pCols);
-                        this.cards.push({
-                            id: r.id, name: r.name, status: r.status,
-                            catalog_id: r.catalog_id, category: r.category,
-                            port: r.port, network_id: r.network_id, server_id: sid,
-                            env_json: r.env_json, project_id: r.project_id,
-                            x: projX + 20 + col * (CARD_W + GAP),
-                            y: curY + 35 + row * (CARD_H + GAP),
-                        });
+                        this.cards.push(mkCard(
+                            r, g.id,
+                            shelfX + 20 + col * (CARD_W + GAP),
+                            shelfY + 35 + row * (CARD_H + GAP),
+                            isCollapsed,
+                        ));
                     }
-                    projX += pW + 30;
+
+                    shelfH = Math.max(shelfH, gH);
+                    shelfX += gW + SHELF_GAP_X;
                 }
 
-                // Compute zone bounds from cards belonging to this server
-                const zoneCards = this.cards.filter(c => c.server_id === sid);
-                const zoneProjZones = this.projectZones.filter(pz => {
-                    return sResources.some(r => r.project_id === pz.id);
-                });
+                // Zone bounds from this server's visible cards and group zones
+                const zoneCards = this.cards.filter(c => c.server_id === sid && !c.hidden);
+                const zoneProjZones = this.projectZones.filter(pz => pz.server_id === sid);
                 const allRight = [
                     ...zoneCards.map(c => c.x + CARD_W),
                     ...zoneProjZones.map(pz => pz.x + pz.w),
@@ -605,21 +778,31 @@ function canvasApp() {
                     ...zoneCards.map(c => c.y + CARD_H),
                     ...zoneProjZones.map(pz => pz.y + pz.h),
                 ];
-                const maxX = Math.max(...allRight, zoneStartX + 400);
-                const maxY = Math.max(...allBottom, curY + 100);
-                const zoneW = maxX - zoneStartX + ZONE_PAD + 40;
+                const maxX = Math.max(...allRight, ZX + 400);
+                const maxY = Math.max(...allBottom, contentTop + 100);
+                const zoneW = maxX - ZX + ZONE_PAD + 40;
+                const zoneH = maxY - zoneStartY + ZONE_PAD + 40;
 
                 this.serverZones.push({
                     id: sid, name: server.name || 'localhost',
                     host: server.host || 'localhost', status: server.status || 'online',
                     is_local: !!server.is_local, country_code: server.country_code || null,
-                    x: zoneStartX, y: ZY, w: zoneW, h: maxY - ZY + ZONE_PAD + 40,
+                    x: ZX, y: zoneStartY, w: zoneW, h: zoneH,
                     location: [server.city, server.country].filter(Boolean).join(', ') || '',
                 });
 
-                // Next server zone starts to the right
-                zoneX = zoneStartX + zoneW + 60;
+                // Next server zone stacks below
+                zoneY = zoneStartY + zoneH + SERVER_GAP_Y;
             }
+
+            // Grow the transform container to hold everything
+            let maxRight = 2000, maxBottom = 1500;
+            for (const z of this.serverZones) {
+                maxRight = Math.max(maxRight, z.x + z.w);
+                maxBottom = Math.max(maxBottom, z.y + z.h);
+            }
+            this.canvasW = Math.ceil(maxRight + 400);
+            this.canvasH = Math.ceil(maxBottom + 400);
 
             // Network edges (mesh within same network)
             this.edges = [];
@@ -664,17 +847,17 @@ function canvasApp() {
                 const dy = (e.clientY - this.dragStartClientY) / this.zoom;
                 let newX = dz._startX + dx;
                 let newY = dz._startY + dy;
-                // Constrain within server zone
-                const sz = this.serverZones[0];
+                // Constrain within the zone's own server (not the first one)
+                const sz = this.serverZones.find(z => z.id === dz.server_id);
                 if (sz) {
                     newX = Math.max(sz.x + ZONE_PAD, Math.min(sz.x + sz.w - dz.w - 10, newX));
                     newY = Math.max(sz.y + ZONE_PAD + 30, Math.min(sz.y + sz.h - dz.h - 10, newY));
                 }
                 const moveX = newX - dz.x, moveY = newY - dz.y;
                 dz.x = newX; dz.y = newY;
-                // Move all cards inside this zone
+                // Move all cards inside this group (pseudo-groups included)
                 for (const card of this.cards) {
-                    if (card.project_id === dz.id) {
+                    if (card.group_id === dz.id) {
                         card.x += moveX; card.y += moveY;
                     }
                 }
@@ -684,15 +867,15 @@ function canvasApp() {
                 const dy = (e.clientY - this.dragStartClientY) / this.zoom;
                 let newX = this.dragStartCardX + dx;
                 let newY = this.dragStartCardY + dy;
-                // Constrain: project cards within their project zone, standalone within server zone
-                if (this.dragging.project_id) {
-                    const pz = this.projectZones.find(z => z.id === this.dragging.project_id);
+                // Constrain: grouped cards within their group zone, infra within their server zone
+                if (this.dragging.group_id) {
+                    const pz = this.projectZones.find(z => z.id === this.dragging.group_id);
                     if (pz) {
                         newX = Math.max(pz.x + 10, Math.min(pz.x + pz.w - CARD_W - 10, newX));
                         newY = Math.max(pz.y + 25, Math.min(pz.y + pz.h - CARD_H - 10, newY));
                     }
                 } else {
-                    const sz = this.serverZones[0];
+                    const sz = this.serverZones.find(z => z.id === this.dragging.server_id);
                     if (sz) {
                         newX = Math.max(sz.x + ZONE_PAD, Math.min(sz.x + sz.w - CARD_W - 10, newX));
                         newY = Math.max(sz.y + ZONE_PAD + 30, Math.min(sz.y + sz.h - CARD_H - 10, newY));
@@ -711,13 +894,13 @@ function canvasApp() {
         },
         onMouseUp() {
             if (this.draggingZone) {
-                // Save positions of all cards in the zone
-                const zoneCards = this.cards.filter(c => c.project_id === this.draggingZone.id);
-                for (const c of zoneCards) this.savePosition(c);
+                // Group layout is recomputed on every rebuild — persisting the
+                // cards' coordinates would just write junk rows, so don't.
                 this.draggingZone = null;
             }
             if (this.dragging) {
-                this.savePosition(this.dragging);
+                // Only infra/ungrouped cards honor saved positions on rebuild.
+                if (!this.dragging.group_id) this.savePosition(this.dragging);
                 this.dragging = null;
             }
             this.panning = false;
@@ -728,7 +911,61 @@ function canvasApp() {
         },
         zoomIn() { this.zoom = Math.min(3, this.zoom * 1.2); },
         zoomOut() { this.zoom = Math.max(0.25, this.zoom * 0.8); },
-        resetView() { this.zoom = 1; this.panX = -100; this.panY = -30; },
+
+        // Fit the whole diagram into the viewport: real bounding box + centering,
+        // zoom capped at 100% so a small diagram isn't blown up.
+        fitView() {
+            const vp = this.$refs.viewport;
+            if (!vp || !this.serverZones.length) { this.zoom = 1; this.panX = -100; this.panY = -30; return; }
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const z of this.serverZones) {
+                minX = Math.min(minX, z.x); minY = Math.min(minY, z.y);
+                maxX = Math.max(maxX, z.x + z.w); maxY = Math.max(maxY, z.y + z.h);
+            }
+            const vw = vp.clientWidth, vh = vp.clientHeight;
+            const bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY);
+            this.zoom = Math.max(0.25, Math.min(1, Math.min((vw - 80) / bw, (vh - 80) / bh)));
+            // transform is scale(zoom) translate(-pan): screen = zoom * (world - pan)
+            this.panX = minX - (vw / this.zoom - bw) / 2;
+            this.panY = minY - (vh / this.zoom - bh) / 2;
+        },
+
+        async resetLayout() {
+            if (!confirm('{{ t('canvas.reset_layout_confirm') }}')) return;
+            try {
+                await fetch('/api/v1/canvas/positions', { method: 'DELETE' });
+                this.positions = {};
+                this.buildCanvas();
+                this.$nextTick(() => { this.renderSvgEdges(); this.fitView(); });
+                toast('{{ t('canvas.layout_reset_done') }}');
+            } catch (e) { toast(e.message, 'error'); }
+        },
+
+        // Collapse/expand a project group. Shelves re-pack around the chip;
+        // collapsed ids persist globally (same semantics as card positions).
+        toggleCollapse(pz) {
+            if (pz.pseudo) return;
+            if (this.collapsed[pz.id]) delete this.collapsed[pz.id];
+            else this.collapsed[pz.id] = true;
+            this.hoveredId = null;
+            this.buildCanvas();
+            this.$nextTick(() => this.renderSvgEdges());
+            fetch('/api/v1/canvas/collapsed', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(Object.keys(this.collapsed)),
+            }).catch(() => {});
+        },
+
+        // Aggregate status for a collapsed chip's dot. Reads this.cards, so the
+        // 5s status poll keeps it reactive without a rebuild.
+        projectAggStatus(pid) {
+            const items = this.cards.filter(c => c.group_id === pid);
+            if (items.some(c => c.status === 'failed')) return 'failed';
+            if (items.some(c => c.status === 'deploying')) return 'deploying';
+            if (items.some(c => c.status === 'running')) return 'running';
+            return 'stopped';
+        },
 
         // Card Drag
         onCardMouseDown(e, card) {
@@ -983,6 +1220,7 @@ function canvasApp() {
                 toast('{{ t('canvas.toast_deployed') }}'.replace('%{name}', name));
                 await this.loadData();
                 this.buildCanvas();
+                this.$nextTick(() => this.renderSvgEdges());
             } catch (e) {
                 m.deployLog += '\n✗ ' + '{{ t('canvas.log_deploy_failed') }}'.replace('%{error}', e.message) + '\n';
                 m.deployStatus = 'failed';

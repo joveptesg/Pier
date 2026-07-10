@@ -9,7 +9,7 @@ use crate::state::SharedState;
 /// GET /api/v1/canvas — all data needed for canvas architect view.
 pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     // Collect all DB data, then drop lock for async Docker calls
-    let (resources, servers, networks, positions) = {
+    let (resources, servers, networks, positions, collapsed) = {
         let db = state
             .db
             .lock()
@@ -99,7 +99,19 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
             .filter_map(|r| r.ok())
             .collect();
 
-        (resources, servers, networks, positions)
+        // Collapsed project groups — a JSON array of project ids under one
+        // settings key. Missing key / unparsable value == nothing collapsed.
+        let collapsed: Vec<String> = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'canvas.collapsed_projects'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|v| serde_json::from_str(&v).ok())
+            .unwrap_or_default();
+
+        (resources, servers, networks, positions, collapsed)
     }; // DB lock dropped here
 
     // SEC-002: detect dependencies server-side via Docker inspect (don't expose env vars to frontend)
@@ -313,6 +325,7 @@ pub async fn get_canvas(State(state): State<SharedState>) -> AppResult<impl Into
         "servers": servers,
         "networks": networks,
         "positions": positions,
+        "collapsed": collapsed,
         "system": {
             "cpu_percent": cpu_percent,
             "memory_percent": mem_percent,
@@ -341,6 +354,43 @@ pub async fn save_positions(
         )?;
     }
 
+    Ok(Json(serde_json::json!({"ok": true, "saved": body.len()})))
+}
+
+/// DELETE /api/v1/canvas/positions — drop all manually dragged positions so
+/// the canvas falls back to automatic layout ("Reset layout" button).
+pub async fn clear_positions(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let cleared = db.execute("DELETE FROM canvas_positions", [])?;
+    Ok(Json(serde_json::json!({"ok": true, "cleared": cleared})))
+}
+
+/// PUT /api/v1/canvas/collapsed — persist which project groups are collapsed
+/// on the canvas. Stored as a JSON array in the settings KV (global, same
+/// visibility semantics as card positions).
+pub async fn save_collapsed(
+    State(state): State<SharedState>,
+    Json(body): Json<Vec<String>>,
+) -> AppResult<impl IntoResponse> {
+    if body.len() > 1000 {
+        return Err(crate::error::AppError::BadRequest(
+            "too many collapsed entries".into(),
+        ));
+    }
+    let value = serde_json::to_string(&body).map_err(|e| anyhow::anyhow!("serialize: {e}"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    db.execute(
+        "INSERT INTO settings (key, value, updated_at)
+         VALUES ('canvas.collapsed_projects', ?1, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = ?1, updated_at = datetime('now')",
+        rusqlite::params![value],
+    )?;
     Ok(Json(serde_json::json!({"ok": true, "saved": body.len()})))
 }
 

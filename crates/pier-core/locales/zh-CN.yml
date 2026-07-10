@@ -2184,6 +2184,12 @@ canvas:
   log_deployed_successfully: "%{name} 部署成功！"
   toast_deployed: "%{name} 已部署"
   log_deploy_failed: "部署失败：%{error}"
+  show_network_links: 显示同网络连线
+  reset_layout: 重置布局
+  reset_layout_confirm: 重置所有手动拖动的卡片位置并恢复自动布局？
+  layout_reset_done: 布局已重置
+  standalone: 独立服务
+  collapse_hint: 双击折叠/展开
 
 # Support modal partial (partials/support_modal.html).
 support_modal:

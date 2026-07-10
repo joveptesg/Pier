@@ -2183,6 +2183,12 @@ canvas:
   log_deployed_successfully: "¡%{name} desplegado correctamente!"
   toast_deployed: "%{name} desplegado"
   log_deploy_failed: "El despliegue falló: %{error}"
+  show_network_links: Mostrar enlaces de la misma red
+  reset_layout: Restablecer diseño
+  reset_layout_confirm: ¿Restablecer todas las posiciones arrastradas manualmente y volver al diseño automático?
+  layout_reset_done: Diseño restablecido
+  standalone: Independientes
+  collapse_hint: Doble clic para plegar/desplegar
 
 # Support modal partial (partials/support_modal.html).
 support_modal:

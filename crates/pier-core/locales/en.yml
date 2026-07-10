@@ -2203,6 +2203,12 @@ canvas:
   log_deployed_successfully: "%{name} deployed successfully!"
   toast_deployed: "%{name} deployed"
   log_deploy_failed: "Deploy failed: %{error}"
+  show_network_links: Show same-network links
+  reset_layout: Reset layout
+  reset_layout_confirm: Reset all manually dragged card positions and return to automatic layout?
+  layout_reset_done: Layout reset
+  standalone: Standalone
+  collapse_hint: Double-click to collapse/expand
 
 # Support modal partial (partials/support_modal.html).
 support_modal:

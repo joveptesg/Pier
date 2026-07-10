@@ -1576,6 +1576,16 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_wg_external_peers_server
         ON wireguard_external_peers(peer_server_id);
     "#,
+    // Migration 68: one-time canvas layout-v2 position discard.
+    //
+    // The Architecture view switched from a single endless horizontal row of
+    // project zones to shelf-packed rows with a left infra column. Positions
+    // saved under the old coordinate space (x routinely reached 4000+) would
+    // pin cards far outside the new ~1760px-wide server zones, so drop them
+    // once. The table itself stays — new drags keep persisting as before.
+    r#"
+    DELETE FROM canvas_positions;
+    "#,
 ];
 
 /// Run all pending database migrations.

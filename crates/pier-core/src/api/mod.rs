@@ -368,7 +368,11 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/federation/status", get(federation::status))
         // Canvas (architect view) — User+ since it's a project-bound visual.
         .route("/canvas", get(canvas::get_canvas))
-        .route("/canvas/positions", put(canvas::save_positions))
+        .route(
+            "/canvas/positions",
+            put(canvas::save_positions).delete(canvas::clear_positions),
+        )
+        .route("/canvas/collapsed", put(canvas::save_collapsed))
         // Domains — list/create/delete gated in-handler via the service's
         // project membership.
         .route("/domains", get(domains::list).post(domains::create))
