@@ -2583,9 +2583,12 @@ pub async fn start(
         if result.is_ok() { "success" } else { "failed" },
         &log_output,
     );
+    // Starting redeploys the stack with the current env, so clear env_dirty on
+    // success — otherwise the "environment changes not applied" warning lingers.
+    let dirty_reset = if status == "running" { 0 } else { 1 };
     let _ = db.execute(
-        "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-        rusqlite::params![status, id],
+        "UPDATE services SET status = ?1, env_dirty = ?2, updated_at = datetime('now') WHERE id = ?3",
+        rusqlite::params![status, dirty_reset, id],
     );
 
     result?;
@@ -2641,9 +2644,12 @@ pub async fn restart(
         if result.is_ok() { "success" } else { "failed" },
         &log_output,
     );
+    // Restart tears down and redeploys with the current env, so clear env_dirty
+    // on success — otherwise the "environment changes not applied" warning lingers.
+    let dirty_reset = if status == "running" { 0 } else { 1 };
     let _ = db.execute(
-        "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-        rusqlite::params![status, id],
+        "UPDATE services SET status = ?1, env_dirty = ?2, updated_at = datetime('now') WHERE id = ?3",
+        rusqlite::params![status, dirty_reset, id],
     );
 
     result?;
@@ -2787,9 +2793,13 @@ pub async fn redeploy(
         if result.is_ok() { "success" } else { "failed" },
         &log_output,
     );
+    // Clear env_dirty on a successful redeploy so the "environment changes not
+    // applied" warning disappears; keep it set if the redeploy failed. Mirrors
+    // the env-redeploy path in api::env (see `dirty_reset`).
+    let dirty_reset = if status == "running" { 0 } else { 1 };
     let _ = db.execute(
-        "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-        rusqlite::params![status, id],
+        "UPDATE services SET status = ?1, env_dirty = ?2, updated_at = datetime('now') WHERE id = ?3",
+        rusqlite::params![status, dirty_reset, id],
     );
 
     result?;
