@@ -91,6 +91,15 @@ pub async fn update_env(
         })?
     };
 
+    // Keep the on-disk .env in lockstep with env_json even when the caller opts
+    // out of a redeploy. Otherwise the DB and disk silently diverge: a later
+    // container recreate (docker restart, daemon crash, image pull, Pier
+    // restart) makes `docker compose up` read the stale .env, so the container
+    // starts with old env vars. `write_env_file` writes atomically to the same
+    // `stacks/{stack_name}/.env` that the deploy path materializes (issue #8).
+    let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+    crate::deploy::write_env_file(&state, &id, &stack_name).await;
+
     // Redeploy if requested
     if body.redeploy {
         // Git-based services: run full pipeline
@@ -220,8 +229,6 @@ pub async fn update_env(
                     "refusing to persist empty compose YAML for service {id}"
                 )));
             }
-
-            let stack_name = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
 
             // Update compose_content in DB
             {
