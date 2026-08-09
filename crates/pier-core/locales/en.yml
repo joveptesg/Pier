@@ -670,6 +670,17 @@ resources_detail:
   public_port: Public Port
   make_public: Make it publicly available
   make_public_desc: "Raw TCP exposure (e.g. DB clients) via direct Docker port binding. Toggling recreates this service's container (~3 s downtime); the platform stays online. For HTTP access, use the Domains tab."
+  public_toggle_db_confirm: "This will stop and recreate the database container. Make sure a recent backup exists before continuing. Continue?"
+  pgdata_at_risk_title: Database files are stored in an anonymous volume
+  pgdata_at_risk_desc: "This cluster lives outside the service's named volume, so it is skipped by volume backups and is destroyed whenever the container is recreated. Repairing moves the data into the named volume and pins PGDATA there."
+  pgdata_not_repairable: "Automatic repair is unavailable — this service has no named volume to move the data into. Back up the database and recreate the service."
+  pgdata_repair_btn: Repair storage
+  pgdata_repairing: Repairing…
+  pgdata_repair_confirm: "The database will be stopped while its files are copied into the named volume, then redeployed. The original volume is kept untouched. Make sure a recent backup exists. Continue?"
+  pgdata_repair_done: Database storage repaired
+  pgdata_repair_noop: Storage is already correct — nothing to do
+  pgdata_unpinned_title: Database location is not recorded in this service
+  pgdata_unpinned_desc: "The data is safely on the named volume, but the path is set only on the running container. The next redeploy would rebuild the configuration without it and PostgreSQL would start on an empty directory. Repairing records the path in the service environment."
   recreating_container: Recreating service container with new port binding...
   reachable_via: Reachable via
   domain_label: domain

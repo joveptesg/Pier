@@ -75,7 +75,11 @@ pub async fn remove(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    docker::containers::remove_container(&state.docker, &id, true).await?;
+    // force=true (kill if running), remove_volumes=false — mirrors `docker rm`
+    // without `-v`. Deleting a container must never take its anonymous volumes
+    // with it; for images that declare `VOLUME <datadir>` that is the service's
+    // actual data.
+    docker::containers::remove_container(&state.docker, &id, true, false).await?;
     Ok(Json(serde_json::json!({"ok": true, "action": "removed"})))
 }
 

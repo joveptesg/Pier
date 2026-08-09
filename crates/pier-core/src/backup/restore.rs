@@ -286,6 +286,17 @@ fn escape_pg_str_lit(s: &str) -> String {
 /// included — they are ordinary user schemas created via `CREATE EXTENSION`
 /// and should belong to the DB owner for the same reason as `public`.
 ///
+/// Sequences owned by a table column (`serial` / `GENERATED ... AS IDENTITY`)
+/// are deliberately skipped: Postgres refuses `ALTER SEQUENCE ... OWNER TO` on
+/// them with `cannot change owner of sequence "<x>" / Sequence is linked to
+/// table "<y>"`. Their ownership follows the owning table automatically, so
+/// the `ALTER TABLE` loop above already covers them. Because the whole DO
+/// block runs as a single statement, one such error aborted the entire
+/// reassignment — restore then reported "internal error" while leaving every
+/// object owned by the superuser and the application role locked out of its
+/// own database. Standalone sequences (`CREATE SEQUENCE` with no owning
+/// column) have no such dependency and are still reassigned.
+///
 /// The role name is interpolated once as a SQL string literal into the DO
 /// block's local variable, and each inner `EXECUTE format(... %I ...)` uses
 /// Postgres' own identifier quoting — so identifiers with quotes/spaces are
@@ -329,6 +340,16 @@ fn build_owner_reassignment_sql(owner: &str) -> Result<String> {
                    AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast')\n\
                    AND n.nspname NOT LIKE 'pg_temp_%'\n\
                    AND n.nspname NOT LIKE 'pg_toast_temp_%'\n\
+                   AND NOT (\n\
+                       c.relkind = 'S'\n\
+                       AND EXISTS (\n\
+                           SELECT 1 FROM pg_depend d\n\
+                           WHERE d.classid = 'pg_class'::regclass\n\
+                             AND d.objid = c.oid\n\
+                             AND d.refclassid = 'pg_class'::regclass\n\
+                             AND d.deptype IN ('a','i')\n\
+                       )\n\
+                   )\n\
              LOOP\n\
                  EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', rec.nspname, rec.relname, target_role);\n\
              END LOOP;\n\
@@ -727,6 +748,32 @@ mod tests {
         // types whose ownership flows from their table.
         assert!(sql.contains("t.typtype IN ('c','e','d')"));
         assert!(sql.contains("NOT EXISTS (SELECT 1 FROM pg_class c WHERE c.reltype = t.oid)"));
+    }
+
+    #[test]
+    fn owner_reassignment_sql_skips_sequences_linked_to_a_table_column() {
+        // Regression for the 2026-08-09 restore failure: `masterbyclick` has
+        // serial columns, so `banner_slots_id_seq` is auto-dependent on
+        // `banner_slots`. Postgres rejects ALTER OWNER on such a sequence
+        // ("cannot change owner of sequence"), and because the DO block is a
+        // single statement the error rolled back EVERY reassignment — restore
+        // surfaced "internal error" and left the app role locked out.
+        let sql = build_owner_reassignment_sql("masterbyadm").unwrap();
+        assert!(
+            sql.contains("c.relkind = 'S'"),
+            "must special-case sequences: {sql}"
+        );
+        assert!(
+            sql.contains("FROM pg_depend d"),
+            "must consult pg_depend to detect the link: {sql}"
+        );
+        assert!(
+            sql.contains("d.deptype IN ('a','i')"),
+            "auto ('a') and internal ('i') dependencies are the linked cases: {sql}"
+        );
+        // Sequences must still be listed in relkind — standalone ones (no
+        // owning column) do need reassigning.
+        assert!(sql.contains("c.relkind IN ('r','v','m','S','f','p')"));
     }
 
     #[test]

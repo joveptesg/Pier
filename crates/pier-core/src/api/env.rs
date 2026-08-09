@@ -56,6 +56,31 @@ pub async fn update_env(
     Json(body): Json<UpdateEnvRequest>,
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
+    apply_env_update(&state, &id, body.env, body.redeploy).await?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Persist a service's env vars (encrypted), keep the on-disk `.env` in step,
+/// and optionally redeploy — the whole body of the `PUT .../env` handler minus
+/// the authorization check.
+///
+/// Split out so platform-side repairs can reuse the exact same path instead of
+/// re-implementing compose regeneration. [`crate::api::pgdata_repair`] calls it
+/// to pin `PGDATA` after relocating a cluster; going through here means the
+/// repaired service is redeployed by the same code an operator's "Save &
+/// Redeploy" click would run, with no second implementation to drift.
+///
+/// Callers are responsible for authorization.
+pub(crate) async fn apply_env_update(
+    state: &SharedState,
+    id: &str,
+    env: HashMap<String, String>,
+    redeploy: bool,
+) -> AppResult<()> {
+    let state = state.clone();
+    let id = id.to_string();
+    let body = UpdateEnvRequest { env, redeploy };
+
     let env_json_plain = serde_json::to_string(&body.env)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON serialize: {e}")))?;
     let env_json = crate::crypto::encrypt_env_json(&env_json_plain);
@@ -123,7 +148,7 @@ pub async fn update_env(
                 tokio::spawn(async move {
                     crate::deploy::run_pipeline(state_clone, sid, commit, "redeploy").await;
                 });
-                return Ok(Json(serde_json::json!({"ok": true, "redeploying": true})));
+                return Ok(());
             }
         }
 
@@ -270,5 +295,5 @@ pub async fn update_env(
         }
     }
 
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(())
 }

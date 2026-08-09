@@ -660,6 +660,17 @@ resources_detail:
   public_port: 公开端口
   make_public: 公开访问
   make_public_desc: "通过直接绑定 Docker 端口暴露原始 TCP（例如供数据库客户端使用）。切换会重建该服务的容器（约 3 秒停机）；平台保持在线。如需 HTTP 访问，请使用「域名」标签页。"
+  public_toggle_db_confirm: "此操作将停止并重建数据库容器。请先确认已有最新备份。是否继续？"
+  pgdata_at_risk_title: 数据库文件存放在匿名卷中
+  pgdata_at_risk_desc: "该集群位于服务的命名卷之外，因此卷备份会跳过它，并且每次重建容器时都会被销毁。修复会将数据移入命名卷并将 PGDATA 固定到那里。"
+  pgdata_not_repairable: "无法自动修复 —— 该服务没有可迁入数据的命名卷。请备份数据库并重新创建该服务。"
+  pgdata_repair_btn: 修复存储
+  pgdata_repairing: 正在修复…
+  pgdata_repair_confirm: "复制文件到命名卷期间数据库将停止运行，随后会重新部署。原卷保持不变。请先确认已有最新备份。是否继续？"
+  pgdata_repair_done: 数据库存储已修复
+  pgdata_repair_noop: 存储已正确，无需操作
+  pgdata_unpinned_title: 该服务未记录数据库所在位置
+  pgdata_unpinned_desc: "数据已安全存放在命名卷中，但该路径仅设置在正在运行的容器上。下次重新部署时会在不含该路径的情况下重建配置，PostgreSQL 将在空目录中启动。修复会将该路径记录到服务的环境变量中。"
   recreating_container: 正在使用新的端口绑定重建服务容器……
   reachable_via: 可通过以下方式访问
   domain_label: 域名

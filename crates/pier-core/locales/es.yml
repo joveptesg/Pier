@@ -660,6 +660,17 @@ resources_detail:
   public_port: Puerto público
   make_public: Hacerlo disponible públicamente
   make_public_desc: "Exposición TCP en bruto (p. ej. clientes de BD) mediante enlace directo de puertos de Docker. Al activarlo se recrea el contenedor de este servicio (~3 s de inactividad); la plataforma permanece en línea. Para acceso HTTP, usa la pestaña Dominios."
+  public_toggle_db_confirm: "Esto detendrá y recreará el contenedor de la base de datos. Asegúrate de tener una copia de seguridad reciente antes de continuar. ¿Continuar?"
+  pgdata_at_risk_title: Los archivos de la base de datos están en un volumen anónimo
+  pgdata_at_risk_desc: "Este clúster está fuera del volumen con nombre del servicio, por lo que las copias de seguridad de volúmenes lo omiten y se destruye cada vez que se recrea el contenedor. La reparación mueve los datos al volumen con nombre y fija PGDATA allí."
+  pgdata_not_repairable: "La reparación automática no está disponible: este servicio no tiene un volumen con nombre al que mover los datos. Haz una copia de seguridad y vuelve a crear el servicio."
+  pgdata_repair_btn: Reparar almacenamiento
+  pgdata_repairing: Reparando…
+  pgdata_repair_confirm: "La base de datos se detendrá mientras se copian sus archivos al volumen con nombre y luego se volverá a desplegar. El volumen original se conserva intacto. Asegúrate de tener una copia de seguridad reciente. ¿Continuar?"
+  pgdata_repair_done: Almacenamiento de la base de datos reparado
+  pgdata_repair_noop: "El almacenamiento ya es correcto, no hay nada que hacer"
+  pgdata_unpinned_title: La ubicación de la base de datos no está registrada en este servicio
+  pgdata_unpinned_desc: "Los datos están a salvo en el volumen con nombre, pero la ruta solo está definida en el contenedor en ejecución. El siguiente despliegue reconstruiría la configuración sin ella y PostgreSQL arrancaría en un directorio vacío. La reparación registra la ruta en el entorno del servicio."
   recreating_container: Recreando el contenedor del servicio con el nuevo enlace de puerto...
   reachable_via: Accesible a través de
   domain_label: dominio

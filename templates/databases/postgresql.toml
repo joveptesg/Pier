@@ -23,6 +23,10 @@ internal = 5432
 protocol = "tcp"
 description = "PostgreSQL wire protocol"
 
+# Keep this at the parent directory and pin PGDATA below — see the PGDATA env
+# entry for why. Do NOT "fix" this to the image's VOLUME path: `volumes:` is
+# regenerated from this template for services that already exist, so changing
+# the mount point would strand a live cluster in its old volume.
 [volumes.data]
 mount = "/var/lib/postgresql"
 
@@ -30,6 +34,18 @@ mount = "/var/lib/postgresql"
 POSTGRES_DB = { default = "{{name}}", description = "Default database" }
 POSTGRES_USER = { default = "postgres", description = "Superuser name" }
 POSTGRES_PASSWORD = { default = "{{password}}", description = "Password", secret = true }
+# Pins the cluster inside the named volume mounted at /var/lib/postgresql.
+#
+# Without this the cluster lands in an ANONYMOUS volume on some versions,
+# because the image's own VOLUME path moved between major releases:
+#   postgres:17/16 → VOLUME + PGDATA = /var/lib/postgresql/data
+#   postgres:18    → VOLUME = /var/lib/postgresql, PGDATA = /var/lib/postgresql/18/docker
+# Anonymous volumes are invisible to volume-level backups and are thrown away
+# whenever the container is removed with `v: true` — that is how the
+# masterbyclick database was lost on 2026-08-09. Pointing PGDATA at a
+# subdirectory of the named volume is the arrangement the upstream image
+# documents, and it behaves identically on every major version.
+PGDATA = { default = "/var/lib/postgresql/pgdata", description = "Cluster directory — keep it inside the mounted volume" }
 
 [healthcheck]
 test = ["CMD-SHELL", "pg_isready -U postgres"]

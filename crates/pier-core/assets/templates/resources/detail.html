@@ -98,6 +98,29 @@
         </button>
     </div>
 
+    <!-- Data-at-risk banner: the Postgres cluster is stored in an anonymous
+         Docker volume, which any container recreate can discard. Repairing
+         moves it into the service's named volume. -->
+    <div x-show="pgdata.needs_attention" x-cloak
+         class="rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-4">
+        <div class="flex items-start gap-3">
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-amber-800 dark:text-amber-300"
+                   x-text="pgdata.at_risk ? '{{ t('resources_detail.pgdata_at_risk_title') }}' : '{{ t('resources_detail.pgdata_unpinned_title') }}'"></p>
+                <p class="text-xs text-amber-700 dark:text-amber-400 mt-1"
+                   x-text="pgdata.at_risk ? '{{ t('resources_detail.pgdata_at_risk_desc') }}' : '{{ t('resources_detail.pgdata_unpinned_desc') }}'"></p>
+                <p class="text-xs text-amber-700 dark:text-amber-400 mt-1 font-mono break-all"
+                   x-text="pgdata.pgdata + ' → ' + (pgdata.backing_volume || '')"></p>
+                <p x-show="!pgdata.repairable" class="text-xs text-amber-800 dark:text-amber-300 mt-1">{{ t('resources_detail.pgdata_not_repairable') }}</p>
+            </div>
+            <button x-show="pgdata.repairable" @click="repairPgdata()" :disabled="pgdataRepairing"
+                    class="px-3 py-1.5 text-xs font-medium bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white rounded-lg transition-colors shrink-0">
+                <span x-show="!pgdataRepairing">{{ t('resources_detail.pgdata_repair_btn') }}</span>
+                <span x-show="pgdataRepairing" x-cloak>{{ t('resources_detail.pgdata_repairing') }}</span>
+            </button>
+        </div>
+    </div>
+
     <!-- Tabs -->
     <div class="flex gap-1 border-b border-gray-200 dark:border-gray-800">
         <button @click="tab = 'overview'" :class="tab === 'overview' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'"
@@ -2439,8 +2462,19 @@ function resourceDetail(id) {
             const p = this._primaryPort(); if (!p || !this.resource.public_ip) return '';
             return this._buildConnStr(this.resource.public_ip, p.public_port || p.host, null, false);
         },
+        // Catalog ids whose container holds the service's data. The toggle
+        // below stops and recreates the container, so for these an accidental
+        // click is a data-loss risk rather than a few seconds of downtime.
+        get isStatefulCatalog() {
+            const c = (this.resource.catalog_id || '').toLowerCase();
+            return ['postgresql', 'postgis', 'timescaledb', 'mysql', 'mariadb',
+                    'mongodb', 'redis', 'valkey', 'clickhouse', 'elasticsearch'].includes(c);
+        },
         async togglePublic() {
             const newState = !this.portIsPublic;
+            // Make the destructive half explicit for databases: the toggle
+            // tears the container down and builds a new one.
+            if (this.isStatefulCatalog && !confirm('{{ t('resources_detail.public_toggle_db_confirm') }}')) return;
             // Default to the allocated host_port (from the project's port
             // range) so toggling public keeps the connection URL stable
             // and two same-catalog services across projects don't fight
@@ -2977,8 +3011,37 @@ function resourceDetail(id) {
         },
         _bgInterval: null,
         activeDeployCount: 0,
+        // Whether this service's Postgres cluster sits in an anonymous Docker
+        // volume (see /api/v1/resources/{id}/pgdata-status). Non-Postgres
+        // services always report at_risk: false.
+        pgdata: { at_risk: false, repairable: false },
+        pgdataRepairing: false,
+        async loadPgdataStatus() {
+            try {
+                this.pgdata = await fetch('/api/v1/resources/'+this.id+'/pgdata-status').then(r => r.ok ? r.json() : { at_risk: false, repairable: false });
+            } catch (e) {
+                this.pgdata = { at_risk: false, repairable: false };
+            }
+        },
+        async repairPgdata() {
+            if (!confirm('{{ t('resources_detail.pgdata_repair_confirm') }}')) return;
+            this.pgdataRepairing = true;
+            try {
+                const res = await fetch('/api/v1/resources/'+this.id+'/pgdata-repair', { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+                toast(data.changed ? '{{ t('resources_detail.pgdata_repair_done') }}' : '{{ t('resources_detail.pgdata_repair_noop') }}');
+                await this.refresh();
+                await this.loadPgdataStatus();
+                this.loadEnv();
+            } catch (e) {
+                toast(e.message, 'error');
+            } finally {
+                this.pgdataRepairing = false;
+            }
+        },
         async init() {
-            await this.refresh(); this.loadEnv(); if(this.supportsBackup){this.loadSchedules();this.loadBackups();this.loadDatabases();} this.loadCluster(); this.loadScaleInfo(); this.loadDomains(); this.loadComposeServices(); this.loadGitConfig(); this.loadSecuritySettings();
+            await this.refresh(); this.loadEnv(); if(this.supportsBackup){this.loadSchedules();this.loadBackups();this.loadDatabases();} this.loadCluster(); this.loadScaleInfo(); this.loadDomains(); this.loadComposeServices(); this.loadGitConfig(); this.loadSecuritySettings(); this.loadPgdataStatus();
             this.$watch('tab', (val) => { if (val !== 'logs') { this.stopLogStream(); this.logFullscreen = false; } if (val !== 'monitor') { this.stopMonitor(); } if (val !== 'data') { this.dbb.maxed = false; } });
             this.s3Storages = await fetch('/api/v1/s3').then(r=>r.ok?r.json():[]).catch(()=>[]);
             this.availableNetworks = await fetch('/api/v1/networks').then(r=>r.ok?r.json():[]).catch(()=>[]);

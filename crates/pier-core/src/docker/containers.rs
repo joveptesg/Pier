@@ -122,13 +122,29 @@ pub async fn restart_container(docker: &Docker, id: &str) -> Result<()> {
 }
 
 /// Remove a container.
-pub async fn remove_container(docker: &Docker, id: &str, force: bool) -> Result<()> {
+///
+/// `remove_volumes` maps to Docker's `v` flag, which deletes the container's
+/// **anonymous** volumes along with it (named volumes are never touched).
+/// Pass `false` unless the caller genuinely means "destroy this service's
+/// data" — an anonymous volume is where a database's real files live whenever
+/// the image declares `VOLUME <pgdata>` and the compose file mounts a named
+/// volume at some *other* path. Recreating a container with `v: true` in that
+/// situation silently wipes the cluster: this is exactly how the postgis
+/// service lost `masterbyclick` on 2026-08-09 (the public-port toggle called
+/// remove+create, the anonymous PGDATA volume went with it, and the fresh
+/// container ran `initdb` on an empty directory).
+pub async fn remove_container(
+    docker: &Docker,
+    id: &str,
+    force: bool,
+    remove_volumes: bool,
+) -> Result<()> {
     docker
         .remove_container(
             id,
             Some(RemoveContainerOptions {
                 force,
-                v: true,
+                v: remove_volumes,
                 ..Default::default()
             }),
         )

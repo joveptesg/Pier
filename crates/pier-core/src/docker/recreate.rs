@@ -22,7 +22,8 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use bollard::models::{
-    ContainerCreateBody, EndpointSettings, HostConfig, NetworkConnectRequest, PortBinding,
+    ContainerCreateBody, EndpointSettings, HostConfig, Mount, MountPoint, MountPointTypeEnum,
+    MountTypeEnum, NetworkConnectRequest, PortBinding,
 };
 use bollard::query_parameters::{CreateContainerOptions, ListContainersOptions};
 
@@ -285,7 +286,14 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
             cap_drop: hc.cap_drop.clone(),
             security_opt: hc.security_opt.clone(),
             ulimits: hc.ulimits.clone(),
-            mounts: hc.mounts.clone(),
+            // NOT `hc.mounts.clone()` — see `preserve_volume_mounts`. Anonymous
+            // volumes live only in `info.mounts`, and dropping them here is
+            // what silently reset a Postgres cluster to an empty `initdb`.
+            mounts: preserve_volume_mounts(
+                hc.binds.as_ref(),
+                hc.mounts.as_ref(),
+                info.mounts.as_ref(),
+            ),
             log_config: hc.log_config.clone(),
             sysctls: hc.sysctls.clone(),
             tmpfs: hc.tmpfs.clone(),
@@ -340,7 +348,11 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         );
 
         containers::stop_container(&state.docker, cid).await?;
-        containers::remove_container(&state.docker, cid, true).await?;
+        // remove_volumes=false: the container we're about to delete may own
+        // anonymous volumes holding the service's data (see
+        // `preserve_volume_mounts`). We re-attach them to the replacement
+        // container below, so they must survive the removal.
+        containers::remove_container(&state.docker, cid, true, false).await?;
 
         let created = state
             .docker
@@ -410,6 +422,78 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
     }
 
     Ok(())
+}
+
+/// Carry every Docker volume the old container had over to its replacement.
+///
+/// `HostConfig.Mounts` / `HostConfig.Binds` only describe mounts whoever
+/// created the container explicitly asked for. A volume that came from the
+/// image's own `VOLUME` instruction — an **anonymous** volume — appears in
+/// neither; it shows up only in `ContainerInspect.Mounts`. Rebuilding a
+/// container from `HostConfig` alone therefore hands the replacement a
+/// brand-new empty anonymous volume and orphans (or, with `v: true` on
+/// removal, destroys) whatever lived in the old one.
+///
+/// That is exactly how the `postgis` service lost `masterbyclick` on
+/// 2026-08-09: the catalog template mounts its named volume at
+/// `/var/lib/postgresql`, while the image declares `VOLUME
+/// /var/lib/postgresql/data` and points `PGDATA` there — so the whole cluster
+/// lived in an anonymous volume that the public-port toggle threw away, and
+/// the new container ran `initdb` on an empty directory.
+///
+/// Re-declaring those volumes as explicit `Mount { typ: Volume, source: <name> }`
+/// entries makes the new container reuse the very same volumes. This holds for
+/// any image, regardless of where a template happens to mount its named volume.
+///
+/// Destinations already covered by `Binds` or `Mounts` are skipped: Docker
+/// rejects two mounts on one target, and the existing declaration is the
+/// authoritative one.
+fn preserve_volume_mounts(
+    binds: Option<&Vec<String>>,
+    mounts: Option<&Vec<Mount>>,
+    inspect_mounts: Option<&Vec<MountPoint>>,
+) -> Option<Vec<Mount>> {
+    let mut out: Vec<Mount> = mounts.cloned().unwrap_or_default();
+    let mut occupied: HashSet<String> = out.iter().filter_map(|m| m.target.clone()).collect();
+
+    // A bind entry is "source:destination[:options]" — the destination is the
+    // container-side path we must not double-mount.
+    for b in binds.into_iter().flatten() {
+        if let Some(dest) = b.split(':').nth(1) {
+            occupied.insert(dest.to_string());
+        }
+    }
+
+    for mp in inspect_mounts.into_iter().flatten() {
+        if mp.typ != Some(MountPointTypeEnum::VOLUME) {
+            continue;
+        }
+        // Anonymous volumes carry a generated 64-hex name; named ones carry
+        // theirs. Either way the name is what re-attaches the same storage.
+        let (Some(name), Some(dest)) = (mp.name.as_ref(), mp.destination.as_ref()) else {
+            continue;
+        };
+        if name.is_empty() || dest.is_empty() {
+            continue;
+        }
+        // `insert` returns false when the destination was already claimed.
+        if !occupied.insert(dest.clone()) {
+            continue;
+        }
+        out.push(Mount {
+            target: Some(dest.clone()),
+            source: Some(name.clone()),
+            typ: Some(MountTypeEnum::VOLUME),
+            read_only: Some(mp.rw == Some(false)),
+            ..Default::default()
+        });
+    }
+
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// Extract every host port number this container is currently publishing.
@@ -934,6 +1018,126 @@ mod tests {
         );
         assert!(b.contains_key("3050/tcp"));
         assert!(!b.contains_key("3054/tcp"), "max-bot's port leaked: {b:?}");
+    }
+
+    fn mount_point(typ: MountPointTypeEnum, name: &str, dest: &str, rw: bool) -> MountPoint {
+        MountPoint {
+            typ: Some(typ),
+            name: Some(name.to_string()),
+            destination: Some(dest.to_string()),
+            rw: Some(rw),
+            ..Default::default()
+        }
+    }
+
+    fn named_mount(source: &str, target: &str) -> Mount {
+        Mount {
+            source: Some(source.to_string()),
+            target: Some(target.to_string()),
+            typ: Some(MountTypeEnum::VOLUME),
+            ..Default::default()
+        }
+    }
+
+    /// The core regression: the anonymous volume holding PGDATA must be
+    /// re-attached to the replacement container. Without this the new
+    /// container gets a fresh empty volume and Postgres runs `initdb`.
+    #[test]
+    fn preserve_volume_mounts_carries_anonymous_volume() {
+        const ANON: &str = "5b80769d153726ed25e232bfb46166a013b9339c406888c0d84836c8d46274ba";
+        let inspect = vec![
+            mount_point(
+                MountPointTypeEnum::VOLUME,
+                "pier-postgis_data",
+                "/var/lib/postgresql",
+                true,
+            ),
+            mount_point(
+                MountPointTypeEnum::VOLUME,
+                ANON,
+                "/var/lib/postgresql/data",
+                true,
+            ),
+        ];
+        // HostConfig knows only about the named volume — this asymmetry is the bug.
+        let hc_mounts = vec![named_mount("pier-postgis_data", "/var/lib/postgresql")];
+
+        let out = preserve_volume_mounts(None, Some(&hc_mounts), Some(&inspect))
+            .expect("mounts must be produced");
+
+        let anon = out
+            .iter()
+            .find(|m| m.target.as_deref() == Some("/var/lib/postgresql/data"))
+            .expect("anonymous PGDATA volume must be carried over");
+        assert_eq!(anon.source.as_deref(), Some(ANON));
+        assert_eq!(anon.typ, Some(MountTypeEnum::VOLUME));
+        assert_eq!(out.len(), 2, "named volume must be kept too: {out:?}");
+    }
+
+    #[test]
+    fn preserve_volume_mounts_does_not_duplicate_existing_target() {
+        // Same volume seen from both sides — must appear exactly once, or
+        // Docker rejects the create with "duplicate mount point".
+        let inspect = vec![mount_point(
+            MountPointTypeEnum::VOLUME,
+            "redis-data",
+            "/data",
+            true,
+        )];
+        let hc_mounts = vec![named_mount("redis-data", "/data")];
+
+        let out = preserve_volume_mounts(None, Some(&hc_mounts), Some(&inspect)).unwrap();
+        assert_eq!(out.len(), 1, "target /data duplicated: {out:?}");
+    }
+
+    #[test]
+    fn preserve_volume_mounts_respects_targets_claimed_by_binds() {
+        // Bind mounts live in HostConfig.Binds, not Mounts. A volume inspect
+        // entry on the same destination must not be added on top.
+        let binds = vec!["/opt/pier/data/certs:/certs:ro".to_string()];
+        let inspect = vec![mount_point(
+            MountPointTypeEnum::VOLUME,
+            "some-vol",
+            "/certs",
+            true,
+        )];
+
+        let out = preserve_volume_mounts(Some(&binds), None, Some(&inspect));
+        assert!(
+            out.is_none(),
+            "bind-claimed target must not be re-added: {out:?}"
+        );
+    }
+
+    #[test]
+    fn preserve_volume_mounts_ignores_non_volume_entries() {
+        // Bind and tmpfs entries in inspect.Mounts are already covered by
+        // Binds/Tmpfs on HostConfig; re-declaring them would double-mount.
+        let inspect = vec![
+            mount_point(MountPointTypeEnum::BIND, "", "/var/run/docker.sock", true),
+            mount_point(MountPointTypeEnum::TMPFS, "", "/tmp", true),
+        ];
+        assert!(preserve_volume_mounts(None, None, Some(&inspect)).is_none());
+    }
+
+    #[test]
+    fn preserve_volume_mounts_propagates_read_only_flag() {
+        let inspect = vec![mount_point(
+            MountPointTypeEnum::VOLUME,
+            "ro-vol",
+            "/ro",
+            false,
+        )];
+        let out = preserve_volume_mounts(None, None, Some(&inspect)).unwrap();
+        assert_eq!(out[0].read_only, Some(true));
+    }
+
+    #[test]
+    fn preserve_volume_mounts_returns_none_when_nothing_to_mount() {
+        // Preserves the previous behaviour of `mounts: hc.mounts.clone()` for
+        // containers that had no mounts at all — Some(vec![]) is not the same
+        // as None to Docker.
+        assert!(preserve_volume_mounts(None, None, None).is_none());
     }
 
     #[test]

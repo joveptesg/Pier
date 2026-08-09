@@ -25,6 +25,7 @@ pub mod images;
 pub mod install;
 pub mod invitations;
 pub mod migration;
+pub mod pgdata_repair;
 // Note: `networks` (plural) is the Docker-networks management API.
 // `network` (singular) below is the host-level WireGuard mesh.
 pub mod network;
@@ -318,6 +319,9 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/env",
             get(env::get_env).put(env::update_env),
         )
+        // PGDATA-in-anonymous-volume diagnosis and repair
+        .route("/resources/{id}/pgdata-status", get(pgdata_repair::status))
+        .route("/resources/{id}/pgdata-repair", post(pgdata_repair::repair))
         // Backups
         .route("/resources/{id}/backups", get(backups::list_backups))
         .route(

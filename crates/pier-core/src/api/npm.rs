@@ -1481,7 +1481,7 @@ fn build_tarball_url(base: &str, package: &str, filename: &str) -> String {
 
 fn rewrite_tarball_urls(packument: &mut regdb::Packument, base: &str) {
     let pkg_name = packument.name.clone();
-    for (_, manifest) in packument.versions.iter_mut() {
+    for manifest in packument.versions.values_mut() {
         rewrite_single_manifest(manifest, &pkg_name, base);
     }
 }
