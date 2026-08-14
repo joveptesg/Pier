@@ -681,11 +681,36 @@ pub async fn update_now() -> AppResult<impl IntoResponse> {
             )))
         }
         Err(e) => {
-            // No helper socket (mesh helper not installed). Fall back to a
-            // direct swap — succeeds only on a non-hardened / root-run install;
-            // a hardened one hits EROFS and surfaces a manual-update hint.
-            tracing::warn!("helper self-update unavailable ({e}); attempting direct swap");
-            apply_update_direct(STAGED, &bytes).await
+            use crate::network::mesh_call::{helper_unreachable_reason, HelperUnreachable};
+
+            match helper_unreachable_reason(&e) {
+                // The helper is up, we just can't talk to it — a misconfigured
+                // socket group (issue #9). Falling back here is what made that
+                // bug invisible: the direct path cannot work under the hardened
+                // pier.service either, so it swaps nothing and warns quietly.
+                // Fail loudly instead, naming the fix.
+                HelperUnreachable::PermissionDenied => {
+                    let _ = tokio::fs::remove_file(STAGED).await;
+                    let hint = crate::network::mesh_call::permission_denied_hint();
+                    tracing::error!("self-update aborted: {hint} (underlying error: {e})");
+                    // Conflict, not Internal: `AppError::Internal` deliberately
+                    // replaces its message with a generic "Internal error" for
+                    // the client, which would put the operator right back where
+                    // issue #9 left them — a failure with no visible cause. This
+                    // is a server-state problem the operator can fix, and the
+                    // remedy has to reach the panel, not just the journal.
+                    Err(AppError::Conflict(format!(
+                        "Update aborted — the privileged helper is unreachable. {hint}"
+                    )))
+                }
+                // Genuinely no helper on this node. Fall back to a direct swap —
+                // succeeds only on a non-hardened / root-run install; a hardened
+                // one hits EROFS and surfaces a manual-update hint.
+                HelperUnreachable::NotInstalled | HelperUnreachable::Other => {
+                    tracing::warn!("helper self-update unavailable ({e}); attempting direct swap");
+                    apply_update_direct(STAGED, &bytes).await
+                }
+            }
         }
     }
 }
@@ -719,12 +744,31 @@ async fn apply_update_direct(staged: &str, bytes: &[u8]) -> AppResult<Json<serde
     std::fs::rename(&new_path, &current_path)
         .map_err(|e| anyhow::anyhow!("Replace binary: {e}"))?;
 
+    // The binary is already swapped at this point, so a failed restart leaves
+    // the node in the worst possible state: new binary on disk, old one still
+    // in memory, and "Check for update" keeps offering the update forever.
+    // Discarding the result (as this used to) makes that state invisible —
+    // report it, since `pier` running under NoNewPrivileges cannot in general
+    // restart its own unit.
     tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let _ = tokio::process::Command::new("systemctl")
+        match tokio::process::Command::new("systemctl")
             .args(["restart", "pier"])
             .output()
-            .await;
+            .await
+        {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => tracing::error!(
+                "binary swapped but `systemctl restart pier` failed ({}): {}. The old binary is \
+                 still running — restart it manually: sudo systemctl restart pier",
+                out.status,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+            Err(e) => tracing::error!(
+                "binary swapped but `systemctl restart pier` could not be spawned: {e}. The old \
+                 binary is still running — restart it manually: sudo systemctl restart pier"
+            ),
+        }
     });
     Ok(Json(serde_json::json!({
         "ok": true,

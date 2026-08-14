@@ -24,10 +24,11 @@ use crate::state::SharedState;
 /// `GET /install-helper.sh`
 ///
 /// Renders a self-contained shell script that downloads the
-/// `pier-net-helper` binary, drops the same systemd unit
-/// [`servers::install_script`] emits for fresh installs, and enables
-/// the service. Idempotent — re-running on a node that already has
-/// the helper just restarts the unit.
+/// `pier-net-helper` binary, drops the canonical systemd unit
+/// ([`crate::network::helper_unit::HELPER_UNIT`] — literally the same
+/// bytes `install.sh` and the agent bootstrap write), and enables the
+/// service. Idempotent — re-running on a node that already has the
+/// helper just restarts the unit.
 pub async fn install_helper_script(State(state): State<SharedState>) -> Response {
     let server_ip = {
         let db = match state.db.lock() {
@@ -49,6 +50,10 @@ pub async fn install_helper_script(State(state): State<SharedState>) -> Response
     // IPv6 literals need brackets in URL authority — the helper
     // tolerates v4 / hostnames unchanged.
     let server_authority = crate::network::address::authority(&server_ip, pier_port.into());
+
+    // The unit body + `groupadd pier` guard, rendered from the one copy in
+    // scripts/pier-net-helper.service. Never inline a second copy here.
+    let helper_unit_sh = crate::network::helper_unit::install_unit_sh();
 
     // Note: we don't bundle pier-core's self-signed cert here. The
     // helper download URL points at the public GitHub release, not at
@@ -89,75 +94,67 @@ if ! curl -fsSL --insecure --max-time 5 "$PIER_CORE_URL/api/v1/health" >/dev/nul
 fi
 
 # 1. Binary
+#    Download beside the target and rename into place. Writing directly over
+#    /usr/local/bin/pier-net-helper fails with ETXTBSY whenever the helper is
+#    already running — and re-running this installer on a node that has the
+#    helper is precisely the documented remedy for a bad socket. rename(2)
+#    swaps the inode instead, which the kernel allows on a running binary.
 echo "Downloading pier-net-helper..."
-curl -fsSL -o /usr/local/bin/pier-net-helper "$HELPER_URL" || {{
+curl -fsSL -o /usr/local/bin/pier-net-helper.new "$HELPER_URL" || {{
     echo "Error: could not download pier-net-helper from $HELPER_URL" >&2
     echo "If your platform isn't linux-amd64, build from source:" >&2
     echo "  cargo build --release -p pier-net-helper" >&2
     echo "  install -m 0755 target/release/pier-net-helper /usr/local/bin/" >&2
+    rm -f /usr/local/bin/pier-net-helper.new
     exit 1
 }}
-chmod 0755 /usr/local/bin/pier-net-helper
+chmod 0755 /usr/local/bin/pier-net-helper.new
+mv -f /usr/local/bin/pier-net-helper.new /usr/local/bin/pier-net-helper
 
-# 2. systemd unit — mirrors the inline definition that fresh install.sh
-#    emits for new agents. Kept in sync intentionally; if you change one,
-#    change the other in crates/pier-core/src/api/servers.rs.
+# 2. systemd unit — emitted verbatim from scripts/pier-net-helper.service,
+#    the single source of truth shared with install.sh and the agent
+#    bootstrap (crates/pier-core/src/network/helper_unit.rs).
 echo "Installing systemd unit..."
-cat > /etc/systemd/system/pier-net-helper.service <<'HELPER_UNIT'
-[Unit]
-Description=Pier Network Helper (privileged WireGuard mesh operations)
-Documentation=https://github.com/joveptesg/pier
-After=network-pre.target
-Before=pier-agent.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/pier-net-helper
-Restart=on-failure
-RestartSec=2
-User=root
-Group=root
-RuntimeDirectory=pier
-RuntimeDirectoryMode=0750
-ProtectSystem=strict
-ReadWritePaths=/etc/wireguard /run/pier
-ProtectHome=true
-PrivateTmp=true
-NoNewPrivileges=true
-ProtectKernelLogs=true
-ProtectKernelTunables=true
-ProtectControlGroups=true
-RestrictNamespaces=true
-LockPersonality=true
-MemoryDenyWriteExecute=true
-SystemCallArchitectures=native
-AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE
-
-[Install]
-WantedBy=multi-user.target
-HELPER_UNIT
-chmod 644 /etc/systemd/system/pier-net-helper.service
-
+{helper_unit_sh}
 # 3. Enable + start (idempotent — re-running just restarts).
 systemctl daemon-reload
 systemctl enable --now pier-net-helper.service
 
-# 4. Smoke check — the socket should exist after start. Retry briefly to
-#    let the daemon settle; if it never shows, surface the unit's last
-#    few journal lines so the operator can debug.
+# 4. Smoke check. Socket EXISTENCE is not enough: issue #9 was a socket
+#    that existed but was root:root, which every "is it there?" check
+#    reported green while pier-core got EACCES on connect(). So assert the
+#    group, and — when a pier user exists — actually connect as it.
 for i in 1 2 3 4 5; do
-    if [ -S /run/pier/net.sock ]; then
-        echo "Helper online: /run/pier/net.sock present."
-        echo "Done. The Pier UI's mesh preflight should now report this node green."
-        exit 0
-    fi
+    [ -S /run/pier/net.sock ] && break
     sleep 1
 done
 
-echo "Warning: /run/pier/net.sock did not appear after 5s. Recent journal:" >&2
-journalctl -u pier-net-helper.service --no-pager --lines=20 || true
-exit 1
+if [ ! -S /run/pier/net.sock ]; then
+    echo "Error: /run/pier/net.sock did not appear after 5s. Recent journal:" >&2
+    journalctl -u pier-net-helper.service --no-pager --lines=20 >&2 || true
+    exit 1
+fi
+
+SOCK_OWNER=$(stat -c '%U:%G' /run/pier/net.sock)
+if [ "$SOCK_OWNER" != "root:pier" ]; then
+    echo "Error: /run/pier/net.sock is $SOCK_OWNER, expected root:pier." >&2
+    echo "pier-core runs as the unprivileged pier user and will get EACCES on connect()." >&2
+    echo "Check Group=pier in /etc/systemd/system/pier-net-helper.service." >&2
+    journalctl -u pier-net-helper.service --no-pager --lines=20 >&2 || true
+    exit 1
+fi
+
+if id pier >/dev/null 2>&1; then
+    if ! su -s /bin/sh -c 'test -r /run/pier/net.sock && test -w /run/pier/net.sock' pier; then
+        echo "Error: user 'pier' cannot read/write /run/pier/net.sock ($SOCK_OWNER)." >&2
+        echo "Is pier a member of the pier group? Run: id pier" >&2
+        exit 1
+    fi
+fi
+
+echo "Helper online: /run/pier/net.sock ($SOCK_OWNER, reachable by pier)."
+echo "Done. The Pier UI's mesh preflight should now report this node green."
+exit 0
 "#
     );
 

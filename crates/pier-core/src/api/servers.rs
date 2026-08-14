@@ -1564,6 +1564,10 @@ pub async fn install_script(
         ),
     };
 
+    // Helper unit + `groupadd pier` guard, rendered from the one copy in
+    // scripts/pier-net-helper.service. Never inline a second copy here.
+    let helper_unit_sh = crate::network::helper_unit::install_unit_sh();
+
     let script = format!(
         r#"#!/bin/bash
 set -euo pipefail
@@ -1630,43 +1634,17 @@ echo "Installing pier-net-helper (dormant)..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard wireguard-tools >/dev/null 2>&1 \
     || echo "Warning: apt install wireguard failed; mesh will be unavailable until installed."
 HELPER_URL="$PIER_CORE_URL/api/v1/servers/download/pier-net-helper"
-if curl -fsSL {cacert_arg} -H "Authorization: Bearer $BOOTSTRAP_TOKEN" -o /usr/local/bin/pier-net-helper "$HELPER_URL"; then
-    chmod 0755 /usr/local/bin/pier-net-helper
-    cat > /etc/systemd/system/pier-net-helper.service <<HELPER_UNIT
-[Unit]
-Description=Pier Network Helper (privileged WireGuard mesh operations)
-Documentation=https://github.com/joveptesg/pier
-After=network-pre.target
-Before=pier-agent.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/pier-net-helper
-Restart=on-failure
-RestartSec=2
-User=root
-Group=root
-RuntimeDirectory=pier
-RuntimeDirectoryMode=0750
-ProtectSystem=strict
-ReadWritePaths=-/etc/wireguard /run/pier
-ProtectHome=true
-PrivateTmp=true
-NoNewPrivileges=true
-ProtectKernelLogs=true
-ProtectKernelTunables=true
-ProtectControlGroups=true
-RestrictNamespaces=true
-LockPersonality=true
-MemoryDenyWriteExecute=true
-SystemCallArchitectures=native
-AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE
-
-[Install]
-WantedBy=multi-user.target
-HELPER_UNIT
-    chmod 644 /etc/systemd/system/pier-net-helper.service
+# Download beside the target and rename in: a direct write over a running
+# binary fails with ETXTBSY, which would break re-enrollment on a node that
+# already has the helper up.
+if curl -fsSL {cacert_arg} -H "Authorization: Bearer $BOOTSTRAP_TOKEN" -o /usr/local/bin/pier-net-helper.new "$HELPER_URL"; then
+    chmod 0755 /usr/local/bin/pier-net-helper.new
+    mv -f /usr/local/bin/pier-net-helper.new /usr/local/bin/pier-net-helper
+# Unit emitted verbatim from scripts/pier-net-helper.service (the single
+# source of truth — see crates/pier-core/src/network/helper_unit.rs). It
+# says Group=pier, so the group has to exist even on an agent-only node
+# that has no pier *user*; otherwise systemd fails the unit 216/GROUP.
+{helper_unit_sh}
     # The helper writes wg0.conf + wg0.privkey under /etc/wireguard. systemd's
     # ReadWritePaths can only make that path writable if it EXISTS when the unit
     # starts, so create it now (the helper's own sandbox can't mkdir in /etc).

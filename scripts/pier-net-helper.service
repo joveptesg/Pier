@@ -17,23 +17,37 @@ RestartSec=2
 #   * `RuntimeDirectory=pier` + `RuntimeDirectoryMode=0750` creates
 #     /run/pier owned by root:pier so pier-agent (user `pier`) can
 #     write/read the helper's unix socket but `nobody` cannot.
-#   * `ReadWritePaths` whitelists exactly the two filesystem locations
-#     the helper is supposed to touch. `ProtectSystem=strict` makes the
-#     rest of `/` read-only from this process's view.
-#   * Capabilities are pared to the two the helper actually needs: writing
-#     network config and loading the wireguard kernel module on first use.
+#   * `ReadWritePaths` whitelists exactly the filesystem locations the
+#     helper is supposed to touch. `ProtectSystem=strict` makes the rest
+#     of `/` read-only from this process's view.
+#   * Capabilities are pared to what the helper actually needs: writing
+#     network config, loading the wireguard kernel module on first use,
+#     and swapping the core binary during a self-update.
 #
 # What this unit explicitly does NOT grant: no /home, no /tmp host share,
 # no ability to ptrace, no new privileges via setuid. The helper cannot
 # escalate from these even if the binary itself is later compromised.
+#
+# THIS FILE IS THE SINGLE SOURCE OF TRUTH for the helper unit. It is
+# embedded verbatim into pier-core via `include_str!` (see
+# crates/pier-core/src/network/helper_unit.rs) and shipped by
+# scripts/install.sh. Do not fork it — three divergent copies are exactly
+# what caused issue #9.
 User=root
-Group=root
+# Group=pier is load-bearing, not cosmetic: a unix socket inherits the
+# creating process's egid, so this line alone decides whether
+# /run/pier/net.sock comes out root:pier (pier-core can connect) or
+# root:root (pier-core gets EACCES and every mesh op silently degrades).
+# The group is created by the installer before this unit is enabled.
+Group=pier
 RuntimeDirectory=pier
 RuntimeDirectoryMode=0750
 ProtectSystem=strict
 # /opt/pier/bin: the helper applies core self-updates here (Op::SelfUpdate) —
 # the pier service can't write its own bin dir under ProtectSystem=strict.
-ReadWritePaths=/etc/wireguard /run/pier /opt/pier/bin
+# The `-` prefixes mark paths that may legitimately be absent (agent-only
+# nodes have no /opt/pier/bin; /etc/wireguard appears on first mesh apply).
+ReadWritePaths=-/etc/wireguard /run/pier -/opt/pier/bin
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
@@ -46,8 +60,11 @@ MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
 # CAP_DAC_OVERRIDE: write the pier-owned /opt/pier/bin during a core self-update
 # (Op::SelfUpdate) — even root is bound by DAC for a dir it doesn't own.
-AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
+# CAP_CHOWN: let the helper repair the socket's group itself when it starts
+# under a stale unit that still says Group=root. Without it that chown()
+# returns EPERM even as root, because the bounding set caps effective privs.
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE CAP_CHOWN
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE CAP_CHOWN
 
 [Install]
 WantedBy=multi-user.target

@@ -2,9 +2,12 @@
 //! whether that server is local or remote.
 //!
 //! Local node (`servers.is_local = 1`): pier-core opens
-//! `/run/pier/net.sock` directly. It can do this because the helper's
-//! systemd unit creates the socket with mode `0660 root:pier`, and core
-//! runs as user `pier`.
+//! `/run/pier/net.sock` directly. That only works when the helper's
+//! systemd unit says `Group=pier` — the socket is mode `0660` and takes
+//! the helper's egid — because core runs as user `pier`. When it doesn't,
+//! `connect()` returns `EACCES`; [`helper_unreachable_reason`] separates
+//! that from "the helper isn't installed", which used to look identical
+//! to callers and cost six days of silent self-update failures (issue #9).
 //!
 //! Remote node (kind `agent`): pier-core POSTs to
 //! `https://{host}:{port}/api/v1/agent/mesh/{op}` with the long-term
@@ -141,6 +144,55 @@ fn lookup_server(
 // Local — direct unix-socket conversation with our own helper.
 // ---------------------------------------------------------------------------
 
+/// Why [`call_local_socket`] could not reach the local helper.
+///
+/// Callers need this distinction because the two cases want opposite
+/// handling: `NotInstalled` is a legitimate "this node has no mesh
+/// helper, degrade gracefully", whereas `PermissionDenied` means the
+/// helper IS running and we are misconfigured — degrading there hides a
+/// broken node behind a warning nobody reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelperUnreachable {
+    /// No socket at the path — the helper isn't installed or isn't up.
+    NotInstalled,
+    /// The socket exists but this process can't `connect()` to it.
+    /// Almost always `Group=` in `pier-net-helper.service` not being
+    /// `pier`, so the socket is `root:root` instead of `root:pier`.
+    PermissionDenied,
+    /// Anything else: timeout, protocol error, unexpected I/O failure.
+    Other,
+}
+
+/// Classify a [`call_local_socket`] error by walking the `anyhow` chain
+/// for the underlying [`std::io::Error`].
+pub fn helper_unreachable_reason(err: &anyhow::Error) -> HelperUnreachable {
+    match err
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<std::io::Error>())
+        .map(|io| io.kind())
+    {
+        Some(std::io::ErrorKind::PermissionDenied) => HelperUnreachable::PermissionDenied,
+        Some(std::io::ErrorKind::NotFound) | Some(std::io::ErrorKind::ConnectionRefused) => {
+            HelperUnreachable::NotInstalled
+        }
+        _ => HelperUnreachable::Other,
+    }
+}
+
+/// Operator-facing explanation for a `PermissionDenied` on the helper
+/// socket. Shared by the API layer so the UI, the logs, and the update
+/// endpoint all name the same remedy.
+pub fn permission_denied_hint() -> String {
+    format!(
+        "The pier-net-helper socket ({HELPER_SOCKET_DEFAULT}) exists but pier-core cannot \
+         connect to it (permission denied). Expected `root:pier` mode 0660 — check with \
+         `ls -l {HELPER_SOCKET_DEFAULT}`. Fix: ensure the `pier` group exists \
+         (`groupadd --system pier`), set `Group=pier` in \
+         /etc/systemd/system/pier-net-helper.service, then \
+         `systemctl daemon-reload && systemctl restart pier-net-helper`."
+    )
+}
+
 #[cfg(unix)]
 pub async fn call_local_socket<P: Serialize>(op: &str, params: &P) -> Result<MeshOpResult> {
     use std::path::PathBuf;
@@ -157,7 +209,7 @@ pub async fn call_local_socket<P: Serialize>(op: &str, params: &P) -> Result<Mes
 
     let stream = tokio::time::timeout(Duration::from_secs(2), UnixStream::connect(&socket_path))
         .await
-        .with_context(|| format!("connecting to {}", socket_path.display()))?
+        .with_context(|| format!("timed out connecting to {}", socket_path.display()))?
         .with_context(|| format!("connecting to {}", socket_path.display()))?;
 
     let (read_half, mut write_half) = stream.into_split();

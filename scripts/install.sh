@@ -10,6 +10,7 @@ set -euo pipefail
 # ============================================================================
 
 PIER_USER="pier"
+PIER_GROUP="pier"
 PIER_DIR="/opt/pier"
 PIER_BIN="${PIER_DIR}/bin/pier"
 PIER_DATA="${PIER_DIR}/data"
@@ -168,11 +169,30 @@ if systemctl is-active --quiet pier 2>/dev/null; then
     systemctl stop pier
 fi
 
-# ── Create user ──────────────────────────────────────────────────────────────
+# ── Create group + user ──────────────────────────────────────────────────────
+
+# The `pier` GROUP is created unconditionally, outside the user guard below.
+# pier-net-helper.service says Group=pier — systemd refuses to start a unit
+# whose group does not exist (status=216/GROUP) — and the group is what makes
+# /run/pier/net.sock reachable by pier-core. Relying on useradd's implicit
+# group creation was not enough: the whole block is skipped on upgrades where
+# the user already exists, and distros with USERGROUPS_ENAB=no never create it.
+if ! getent group "$PIER_GROUP" >/dev/null 2>&1; then
+    info "Creating group: $PIER_GROUP"
+    groupadd --system "$PIER_GROUP"
+fi
 
 if ! id "$PIER_USER" &>/dev/null; then
     info "Creating user: $PIER_USER"
-    useradd --system --no-create-home --shell /usr/sbin/nologin "$PIER_USER"
+    useradd --system --no-create-home --shell /usr/sbin/nologin \
+        --gid "$PIER_GROUP" "$PIER_USER"
+fi
+
+# An upgraded install may predate the group — make sure the user is in it,
+# otherwise pier-core still can't open the 0660 root:pier socket.
+if ! id -nG "$PIER_USER" | tr ' ' '\n' | grep -qx "$PIER_GROUP"; then
+    info "Adding $PIER_USER to $PIER_GROUP group"
+    usermod -aG "$PIER_GROUP" "$PIER_USER"
 fi
 
 # Add pier user to docker group
@@ -277,30 +297,70 @@ else
     warn "pier-net-helper unavailable — WireGuard mesh features will be disabled"
 fi
 if [[ -x "$HELPER_BIN" ]]; then
-    cat > /etc/systemd/system/pier-net-helper.service <<HELPER_UNIT
+    # The unit is versioned at scripts/pier-net-helper.service and is the ONE
+    # copy — pier-core embeds the same file via include_str! for its generated
+    # installers. Copy it when it shipped next to us; the heredoc below is only
+    # for the `curl | bash` path, where bootstrap.sh may not have fetched it.
+    # Keep the two byte-identical: a pier-core unit test asserts it.
+    if [[ -f "${SCRIPT_DIR}/pier-net-helper.service" ]]; then
+        info "Installing helper unit from ${SCRIPT_DIR}/pier-net-helper.service"
+        cp "${SCRIPT_DIR}/pier-net-helper.service" /etc/systemd/system/pier-net-helper.service
+    else
+    cat > /etc/systemd/system/pier-net-helper.service <<'PIER_HELPER_UNIT_EOF'
 [Unit]
 Description=Pier Network Helper (privileged WireGuard mesh operations)
+Documentation=https://github.com/joveptesg/pier
 After=network-pre.target
-Before=pier.service
+Before=pier-agent.service pier.service
 
 [Service]
 Type=simple
-ExecStart=${HELPER_BIN}
+ExecStart=/usr/local/bin/pier-net-helper
 Restart=on-failure
 RestartSec=2
+
+# The helper is privileged on purpose — it has to run `wg-quick up`, write
+# /etc/wireguard/wg0.conf, and `apt install wireguard`. The systemd unit
+# tightens the blast radius:
+#
+#   * `RuntimeDirectory=pier` + `RuntimeDirectoryMode=0750` creates
+#     /run/pier owned by root:pier so pier-agent (user `pier`) can
+#     write/read the helper's unix socket but `nobody` cannot.
+#   * `ReadWritePaths` whitelists exactly the filesystem locations the
+#     helper is supposed to touch. `ProtectSystem=strict` makes the rest
+#     of `/` read-only from this process's view.
+#   * Capabilities are pared to what the helper actually needs: writing
+#     network config, loading the wireguard kernel module on first use,
+#     and swapping the core binary during a self-update.
+#
+# What this unit explicitly does NOT grant: no /home, no /tmp host share,
+# no ability to ptrace, no new privileges via setuid. The helper cannot
+# escalate from these even if the binary itself is later compromised.
+#
+# THIS FILE IS THE SINGLE SOURCE OF TRUTH for the helper unit. It is
+# embedded verbatim into pier-core via `include_str!` (see
+# crates/pier-core/src/network/helper_unit.rs) and shipped by
+# scripts/install.sh. Do not fork it — three divergent copies are exactly
+# what caused issue #9.
 User=root
-# Group=pier so /run/pier/net.sock is created root:pier and pier-core (running
-# as the pier user) can reach it.
+# Group=pier is load-bearing, not cosmetic: a unix socket inherits the
+# creating process's egid, so this line alone decides whether
+# /run/pier/net.sock comes out root:pier (pier-core can connect) or
+# root:root (pier-core gets EACCES and every mesh op silently degrades).
+# The group is created by the installer before this unit is enabled.
 Group=pier
 RuntimeDirectory=pier
 RuntimeDirectoryMode=0750
 ProtectSystem=strict
-# /opt/pier/bin: the helper swaps in self-update binaries here (the pier service
-# can't — its own sandbox makes /opt/pier/bin read-only). See Op::SelfUpdate.
-ReadWritePaths=-/etc/wireguard /run/pier /opt/pier/bin
+# /opt/pier/bin: the helper applies core self-updates here (Op::SelfUpdate) —
+# the pier service can't write its own bin dir under ProtectSystem=strict.
+# The `-` prefixes mark paths that may legitimately be absent (agent-only
+# nodes have no /opt/pier/bin; /etc/wireguard appears on first mesh apply).
+ReadWritePaths=-/etc/wireguard /run/pier -/opt/pier/bin
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
+ProtectKernelLogs=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictNamespaces=true
@@ -308,11 +368,17 @@ LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
 # CAP_DAC_OVERRIDE: write the pier-owned /opt/pier/bin during a core self-update
-# (Op::SelfUpdate). Without it, even root (this helper) is bound by DAC and can't
-# replace a file in a directory it doesn't own.
-AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE
-HELPER_UNIT
+# (Op::SelfUpdate) — even root is bound by DAC for a dir it doesn't own.
+# CAP_CHOWN: let the helper repair the socket's group itself when it starts
+# under a stale unit that still says Group=root. Without it that chown()
+# returns EPERM even as root, because the bounding set caps effective privs.
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE CAP_CHOWN
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_MODULE CAP_DAC_OVERRIDE CAP_CHOWN
+
+[Install]
+WantedBy=multi-user.target
+PIER_HELPER_UNIT_EOF
+    fi
     chmod 644 /etc/systemd/system/pier-net-helper.service
     systemctl daemon-reload
     systemctl enable pier-net-helper.service >/dev/null 2>&1 || true
@@ -421,7 +487,6 @@ fi
 
 # ── Install systemd unit ─────────────────────────────────────────────────────
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [[ -f "${SCRIPT_DIR}/pier.service" ]]; then
     info "Installing systemd unit from ${SCRIPT_DIR}/pier.service"
     cp "${SCRIPT_DIR}/pier.service" "$PIER_SERVICE"

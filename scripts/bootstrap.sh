@@ -200,7 +200,7 @@ for _agbin in pier-agent pier-net-helper; do
     fi
 done
 
-# ── Step 5: Download install.sh ──────────────────────────────────────────────
+# ── Step 5: Download install.sh + the systemd units ──────────────────────────
 
 INSTALL_URL="https://raw.githubusercontent.com/${REPO}/${REF}/scripts/install.sh"
 
@@ -211,6 +211,19 @@ if ! curl -fsSL "$INSTALL_URL" -o "${WORK_DIR}/install.sh"; then
 fi
 
 chmod +x "${WORK_DIR}/install.sh"
+
+# install.sh installs these verbatim when they sit next to it, and otherwise
+# falls back to an inline copy. Fetching them keeps the units single-sourced
+# from the repo for `curl | bash` installs too, so a unit fix (e.g. the
+# Group=pier one from issue #9) reaches this path without an install.sh bump.
+# Soft-fail: the inline fallback still covers a missing file.
+for _unit in pier.service pier-net-helper.service; do
+    _unit_url="https://raw.githubusercontent.com/${REPO}/${REF}/scripts/${_unit}"
+    if ! curl -fsSL "$_unit_url" -o "${WORK_DIR}/${_unit}"; then
+        rm -f "${WORK_DIR}/${_unit}"
+        warn "Could not fetch ${_unit}; install.sh will use its inline copy."
+    fi
+done
 
 # ── Step 6: Run install.sh ───────────────────────────────────────────────────
 

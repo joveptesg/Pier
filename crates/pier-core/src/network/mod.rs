@@ -8,9 +8,12 @@
 //!   (this host) or an HTTPS round-trip to `pier-agent` (remote host).
 //! * [`agent_client`] — fingerprint-pinned HTTPS client for the
 //!   core→agent channel.
+//! * [`helper_unit`] — the one copy of the `pier-net-helper` systemd
+//!   unit, embedded from `scripts/` and emitted by every installer.
 
 pub mod address;
 pub mod agent_client;
 pub mod core_mesh;
+pub mod helper_unit;
 pub mod mesh_call;
 pub mod wireguard;

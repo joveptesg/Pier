@@ -1,12 +1,18 @@
 //! pier-net-helper — privileged WireGuard helper for Pier.
 //!
 //! Runs as root on every node in the Pier mesh. Listens on a unix socket
-//! (`/run/pier/net.sock`, mode `0660 root:pier`) and accepts a tightly
-//! whitelisted set of operations from `pier-agent` / `pier-core` running
-//! under the unprivileged `pier` user. The whitelist intentionally has no
-//! `exec`, no `shell`, no arbitrary path — every op compiles down to a
-//! fixed `Command::new("…")` invocation with caller-supplied arguments
-//! limited to validated shapes.
+//! (`/run/pier/net.sock`) and accepts a tightly whitelisted set of
+//! operations from `pier-agent` / `pier-core` running under the
+//! unprivileged `pier` user. The whitelist intentionally has no `exec`, no
+//! `shell`, no arbitrary path — every op compiles down to a fixed
+//! `Command::new("…")` invocation with caller-supplied arguments limited
+//! to validated shapes.
+//!
+//! Socket ownership is `root:pier`, mode `0660`. The group half is not
+//! decided here: a unix socket inherits its creator's egid, so it comes
+//! from `Group=pier` in the systemd unit. [`imp::ensure_socket_group`]
+//! verifies that at startup and repairs it when possible — getting this
+//! wrong makes every call from pier-core fail with `EACCES` (issue #9).
 //!
 //! Wire protocol: line-delimited JSON over the unix socket. One connection
 //! carries one request and gets one response, then closes. Schema:
@@ -80,6 +86,103 @@ mod imp {
         }
     }
 
+    /// Group the socket must belong to for pier-core — which runs as the
+    /// unprivileged `pier` user — to be able to `connect()` to it.
+    const SOCKET_GROUP: &str = "pier";
+
+    /// Resolve a group name to its gid by reading `/etc/group`.
+    ///
+    /// Deliberately not an NSS lookup: `getgrnam` means FFI, and this
+    /// workspace has no `unsafe` anywhere. Pier's installers always create
+    /// `pier` as a *local* system group (`groupadd --system pier`), so
+    /// `/etc/group` is the authoritative source for this one name.
+    fn group_gid(name: &str) -> Option<u32> {
+        let contents = std::fs::read_to_string("/etc/group").ok()?;
+        for line in contents.lines() {
+            let mut fields = line.split(':');
+            if fields.next() != Some(name) {
+                continue;
+            }
+            // Format is `group:passwd:gid:members` — skip the password field.
+            if let Some(gid) = fields.nth(1).and_then(|g| g.parse().ok()) {
+                return Some(gid);
+            }
+        }
+        None
+    }
+
+    /// Make sure `/run/pier/net.sock` (and its parent) are group-owned by
+    /// `pier`, and say so loudly in the journal either way.
+    ///
+    /// This is the fix for the failure mode in issue #9: the socket existed,
+    /// every "is the helper up?" check reported green, and pier-core silently
+    /// got `EACCES` for six days because the unit said `Group=root`. A wrong
+    /// group is now a startup-time `ERROR` line naming the exact remedy.
+    fn ensure_socket_group(socket_path: &std::path::Path) {
+        use std::os::unix::fs::MetadataExt;
+
+        let Some(gid) = group_gid(SOCKET_GROUP) else {
+            error!(
+                "group '{SOCKET_GROUP}' does not exist on this host, so {} cannot be made \
+                 reachable by pier-core. Create it (`groupadd --system {SOCKET_GROUP}`) and \
+                 restart pier-net-helper.",
+                socket_path.display()
+            );
+            return;
+        };
+
+        // The parent has to be traversable by the group too — a root:root
+        // 0750 /run/pier blocks `pier` even when the socket itself is fine.
+        if let Some(parent) = socket_path.parent() {
+            if std::fs::metadata(parent).map(|m| m.gid()).ok() != Some(gid) {
+                if let Err(e) = std::os::unix::fs::chown(parent, None, Some(gid)) {
+                    warn!(
+                        "could not chgrp {} to '{SOCKET_GROUP}': {e}",
+                        parent.display()
+                    );
+                }
+            }
+        }
+
+        let current = std::fs::metadata(socket_path).map(|m| m.gid()).ok();
+        if current != Some(gid) {
+            match std::os::unix::fs::chown(socket_path, None, Some(gid)) {
+                Ok(()) => warn!(
+                    "repaired group ownership of {} → '{SOCKET_GROUP}' ({gid}). This unit is \
+                     running with the wrong `Group=`; set `Group={SOCKET_GROUP}` in \
+                     /etc/systemd/system/pier-net-helper.service so the socket is correct at \
+                     creation time.",
+                    socket_path.display()
+                ),
+                Err(e) => {
+                    error!(
+                        "{} is group gid={} but must be '{SOCKET_GROUP}' ({gid}), and chgrp \
+                         failed: {e}. pier-core runs as the unprivileged `pier` user and will \
+                         get EACCES on connect(), so every mesh op — including self-update — \
+                         will fail. Fix: set `Group={SOCKET_GROUP}` in \
+                         /etc/systemd/system/pier-net-helper.service, then \
+                         `systemctl daemon-reload && systemctl restart pier-net-helper`.",
+                        socket_path.display(),
+                        current
+                            .map(|g| g.to_string())
+                            .unwrap_or_else(|| "unknown".into()),
+                    );
+                    return;
+                }
+            }
+        }
+
+        match std::fs::metadata(socket_path) {
+            Ok(m) => info!(
+                "socket ready: {} gid={} ('{SOCKET_GROUP}') mode={:04o}",
+                socket_path.display(),
+                m.gid(),
+                m.mode() & 0o777,
+            ),
+            Err(e) => warn!("could not stat {}: {e}", socket_path.display()),
+        }
+    }
+
     pub async fn run() -> Result<()> {
         tracing_subscriber::fmt()
             .with_env_filter(
@@ -110,6 +213,15 @@ mod imp {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o660))
             .with_context(|| format!("chmod 0660 {}", socket_path.display()))?;
+
+        // 0660 alone is not enough: a unix socket takes the *creating
+        // process's* egid, so the mode above only helps if that egid is
+        // already `pier`. `Group=pier` in the unit is what normally arranges
+        // that; this chown is the belt to its braces, repairing a node whose
+        // unit is still the pre-#9 `Group=root` version. Best effort — it
+        // needs CAP_CHOWN when the egid isn't already pier, so log and keep
+        // going rather than refusing to start.
+        ensure_socket_group(&socket_path);
 
         info!("pier-net-helper listening on {}", socket_path.display());
 
