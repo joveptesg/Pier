@@ -312,6 +312,7 @@ servers_list:
   preflight_desc: 'Every node needs <span class="font-mono">pier-net-helper</span> running before mesh can come up. Run the command below on each missing node, then click <em>Re-check</em>.'
   helper_online: helper online
   helper_missing: helper missing
+  helper_permission_denied: helper unreachable — socket permissions
   preflight_run_command: "Run this command as root on every red node above:"
   recheck: Re-check
   checking: Checking…
@@ -1927,6 +1928,7 @@ settings_updates:
   update_complete_desc: Pier has been updated successfully.
   update_failed: Update failed
   check_failed_title: Check failed
+  helper_unreachable_title: Privileged helper unreachable — updates will fail
   update_settings: Update Settings
   update_mode_label: Update Mode
   update_mode_desc: Choose how Pier handles available updates

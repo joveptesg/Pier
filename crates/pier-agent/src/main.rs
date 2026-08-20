@@ -510,14 +510,45 @@ async fn mesh_proxy(
         .into_response()
 }
 
+#[cfg(unix)]
 async fn mesh_preflight(State(state): State<SharedState>, headers: HeaderMap) -> impl IntoResponse {
     require_auth!(headers, state);
     let socket = std::env::var("PIER_NET_HELPER_SOCKET")
         .unwrap_or_else(|_| "/run/pier/net.sock".to_string());
-    let helper_available = std::path::Path::new(&socket).exists();
+
+    // Connect, don't stat. A socket can exist and still refuse every
+    // caller — that is issue #9, and `Path::exists()` called it healthy.
+    use helper_client::Reachability;
+    let (helper_available, reason, detail) = match helper_client::probe().await {
+        Reachability::Ok => (true, "ok", None),
+        Reachability::NotInstalled => (false, "not_installed", None),
+        Reachability::PermissionDenied => (
+            false,
+            "permission_denied",
+            Some(format!(
+                "{socket} exists but is not accessible — expected root:pier mode 0660. \
+                 Check `Group=pier` in /etc/systemd/system/pier-net-helper.service."
+            )),
+        ),
+        Reachability::Other(e) => (false, "other", Some(e)),
+    };
+
     Json(serde_json::json!({
         "helper_available": helper_available,
         "socket_path": socket,
+        "reason": reason,
+        "detail": detail,
+    }))
+    .into_response()
+}
+
+#[cfg(not(unix))]
+async fn mesh_preflight(State(state): State<SharedState>, headers: HeaderMap) -> impl IntoResponse {
+    require_auth!(headers, state);
+    Json(serde_json::json!({
+        "helper_available": false,
+        "reason": "other",
+        "detail": "mesh is Linux-only; this agent is built for a non-unix target",
     }))
     .into_response()
 }

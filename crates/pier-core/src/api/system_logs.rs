@@ -23,7 +23,14 @@ use crate::state::SharedState;
 
 /// Systemd units the Logs UI is allowed to query. Anything outside this list
 /// is rejected at the API layer.
-pub const ALLOWED_UNITS: &[&str] = &["pier", "pier-agent"];
+///
+/// `pier-net-helper` belongs here even though it is not a Pier service in the
+/// usual sense: it is where the socket-ownership self-check writes, so when
+/// mesh ops or self-update fail on permissions the explanation is in *this*
+/// journal. Without it the operator is told to check logs they cannot open.
+/// `units_list` filters by which units actually exist, so nodes without the
+/// helper simply won't see it offered.
+pub const ALLOWED_UNITS: &[&str] = &["pier", "pier-agent", "pier-net-helper"];
 
 fn since_flag(preset: &str) -> Option<&'static str> {
     match preset {

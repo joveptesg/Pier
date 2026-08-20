@@ -521,8 +521,46 @@ pub async fn save_update_settings(
 }
 
 /// GET /api/v1/system/update-check
+/// Reachability of the local privileged helper, reported alongside the
+/// update check.
+///
+/// Self-update is applied *by* pier-net-helper, so a node whose socket is
+/// unreachable cannot update at all. Surfacing that here means the operator
+/// finds out by pressing "Check now" rather than by watching an update fail
+/// — the six-day blind spot in issue #9 was exactly this information having
+/// nowhere to appear.
+async fn helper_status() -> serde_json::Value {
+    use crate::network::mesh_call::{
+        call_local_socket, helper_unreachable_reason, permission_denied_hint, HelperUnreachable,
+    };
+
+    match call_local_socket("status", &serde_json::json!({})).await {
+        Ok(_) => serde_json::json!({ "reachable": true, "reason": "ok" }),
+        Err(e) => match helper_unreachable_reason(&e) {
+            HelperUnreachable::PermissionDenied => serde_json::json!({
+                "reachable": false,
+                "reason": "permission_denied",
+                "hint": permission_denied_hint(),
+            }),
+            // A node with no helper at all is a legitimate configuration —
+            // `apply_update_direct` still covers it — so report it without a
+            // remedy rather than crying wolf.
+            HelperUnreachable::NotInstalled => serde_json::json!({
+                "reachable": false,
+                "reason": "not_installed",
+            }),
+            HelperUnreachable::Other => serde_json::json!({
+                "reachable": false,
+                "reason": "other",
+                "hint": format!("{e:#}"),
+            }),
+        },
+    }
+}
+
 pub async fn update_check() -> AppResult<impl IntoResponse> {
     let current_version = env!("CARGO_PKG_VERSION");
+    let helper = helper_status().await;
 
     // Get current binary modification time
     let bin_path = std::env::current_exe().unwrap_or_default();
@@ -551,6 +589,7 @@ pub async fn update_check() -> AppResult<impl IntoResponse> {
             "available": false,
             "current_version": current_version,
             "error": format!("GitHub API returned {}", resp.status()),
+            "helper": helper,
         })));
     }
 
@@ -577,6 +616,7 @@ pub async fn update_check() -> AppResult<impl IntoResponse> {
                 "available": false,
                 "current_version": current_version,
                 "error": "Binary asset not found in release",
+                "helper": helper,
             })));
         }
     };
@@ -595,6 +635,7 @@ pub async fn update_check() -> AppResult<impl IntoResponse> {
         "binary_date": bin_mtime,
         "download_url": download_url,
         "size": asset_size,
+        "helper": helper,
     })))
 }
 

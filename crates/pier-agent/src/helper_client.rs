@@ -45,6 +45,41 @@ fn socket_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(DEFAULT_SOCKET_PATH))
 }
 
+/// Why the helper could not be reached, as far as `connect()` can tell.
+pub enum Reachability {
+    /// A connection was accepted — the helper is up and talking to us.
+    Ok,
+    /// No socket at the path: the helper isn't installed or isn't running.
+    NotInstalled,
+    /// The socket is there but we're refused. Effectively always a
+    /// `Group=` mismatch on `pier-net-helper.service` leaving the socket
+    /// `root:root` instead of `root:pier`.
+    PermissionDenied,
+    /// Timeout or an I/O error we can't attribute.
+    Other(String),
+}
+
+/// Actually open the socket to decide whether the helper is usable.
+///
+/// Deliberately not `Path::exists()`: a socket that exists but refuses
+/// `connect()` is exactly the failure mode of issue #9, and an existence
+/// check reports it as healthy. Six days of "the helper is fine" came
+/// from precisely that check.
+pub async fn probe() -> Reachability {
+    let path = socket_path();
+    match tokio::time::timeout(Duration::from_secs(2), UnixStream::connect(&path)).await {
+        Ok(Ok(_stream)) => Reachability::Ok,
+        Ok(Err(e)) => match e.kind() {
+            std::io::ErrorKind::PermissionDenied => Reachability::PermissionDenied,
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
+                Reachability::NotInstalled
+            }
+            _ => Reachability::Other(e.to_string()),
+        },
+        Err(_) => Reachability::Other(format!("timed out connecting to {}", path.display())),
+    }
+}
+
 /// Send a JSON value to the helper and read its single-line JSON reply.
 ///
 /// `body` is the full request envelope including `id` and `op`. Callers

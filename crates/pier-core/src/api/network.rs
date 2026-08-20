@@ -29,7 +29,9 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::error::{AppError, AppResult};
-use crate::network::mesh_call::{dispatch, MeshOpResult};
+use crate::network::mesh_call::{
+    dispatch, helper_unreachable_reason, permission_denied_hint, HelperUnreachable, MeshOpResult,
+};
 use crate::network::wireguard::{allocate_ip, render_wg_conf, MeshConfig, Peer, Subnet};
 use crate::state::SharedState;
 
@@ -550,18 +552,40 @@ pub async fn peer_preflight(State(state): State<SharedState>) -> AppResult<impl 
                 "is_local": is_local,
                 "helper_available": false,
                 "checked": false,
+                "reason": "not_installed",
                 "error": "peer-kind retrofit required — run /install-helper.sh on this node",
             }));
             continue;
         }
 
         let outcome = dispatch(&state, &id, "status", &serde_json::json!({})).await;
-        let (available, error) = match outcome {
-            Ok(MeshOpResult { ok: true, .. }) => (true, None),
+        let (available, reason, error) = match outcome {
+            Ok(MeshOpResult { ok: true, .. }) => (true, "ok", None),
             Ok(MeshOpResult {
                 ok: false, error, ..
-            }) => (false, error.or(Some("helper rejected status".into()))),
-            Err(e) => (false, Some(format!("transport: {e:#}"))),
+            }) => (
+                false,
+                "other",
+                error.or(Some("helper rejected status".into())),
+            ),
+            // Separate "the helper isn't there" from "it's there and won't let
+            // us in". Both used to render as `helper missing`, which sent the
+            // operator chasing an install that was already done — the socket
+            // was simply root:root (issue #9).
+            //
+            // Only meaningful for the local node: a remote agent's failure
+            // arrives as a plain `anyhow!(msg)` rebuilt from its JSON body
+            // (see mesh_call::call_remote_agent), so there is no io::Error in
+            // the chain and the classifier always answers `Other`.
+            Err(e) => match helper_unreachable_reason(&e) {
+                HelperUnreachable::PermissionDenied => {
+                    (false, "permission_denied", Some(permission_denied_hint()))
+                }
+                HelperUnreachable::NotInstalled => {
+                    (false, "not_installed", Some(format!("transport: {e:#}")))
+                }
+                HelperUnreachable::Other => (false, "other", Some(format!("transport: {e:#}"))),
+            },
         };
         results.push(serde_json::json!({
             "server_id": id,
@@ -570,6 +594,7 @@ pub async fn peer_preflight(State(state): State<SharedState>) -> AppResult<impl 
             "is_local": is_local,
             "helper_available": available,
             "checked": true,
+            "reason": reason,
             "error": error,
         }));
     }

@@ -134,11 +134,22 @@
                             <span x-show="p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300">{{ t('servers_list.local') }}</span>
                             <span x-show="p.kind === 'peer' && !p.is_local" class="text-[9px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300">{{ t('servers_list.peer') }}</span>
                         </div>
+                        <!-- Short label from `reason`; the full remedy (which is
+                             multi-line for a permissions failure) goes in the
+                             amber block below rather than into this one line. -->
                         <span class="text-right shrink-0"
                               :class="p.helper_available ? 'text-green-600 dark:text-green-400' : 'text-red-500'"
-                              x-text="p.helper_available ? '{{ t('servers_list.helper_online') }}' : (p.error || '{{ t('servers_list.helper_missing') }}')"></span>
+                              x-text="peerStatusLabel(p)"></span>
                     </div>
                 </template>
+            </div>
+
+            <!-- A refused socket is not a missing helper: the retrofit one-liner
+                 below is still the right remedy, but showing only it would send
+                 the operator to re-install something already installed. Lead
+                 with the actual diagnosis when we have one. -->
+            <div x-show="permissionHint()" x-cloak class="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg px-3 py-3">
+                <p class="text-xs text-red-700 dark:text-red-300 whitespace-pre-line break-words" x-text="permissionHint()"></p>
             </div>
 
             <div x-show="!preflightResult.ok" class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-3 space-y-2">
@@ -904,6 +915,24 @@ function serversData() {
                 this.preflightLoading = false;
             }
         },
+        peerStatusLabel(p) {
+            if (p.helper_available) return '{{ t('servers_list.helper_online') }}';
+            // `reason` is set by peer_preflight. `permission_denied` means the
+            // socket is there and refusing us — reporting that as "helper
+            // missing" is what made issue #9 look like a failed install.
+            if (p.reason === 'permission_denied') return '{{ t('servers_list.helper_permission_denied') }}';
+            if (p.reason === 'not_installed') return '{{ t('servers_list.helper_missing') }}';
+            return p.error || '{{ t('servers_list.helper_missing') }}';
+        },
+
+        permissionHint() {
+            // The server-side hint is multi-line and carries the fix command,
+            // so it gets its own block rather than the one-line status column.
+            const peers = this.preflightResult.peers || [];
+            const hit = peers.find(p => p.reason === 'permission_denied' && p.error);
+            return hit ? hit.error : '';
+        },
+
         preflightCommand() {
             // Build the curl-pipe-bash one-liner pointing at this core.
             // window.location.origin includes scheme + host + port — the

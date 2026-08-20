@@ -182,13 +182,28 @@ pub fn helper_unreachable_reason(err: &anyhow::Error) -> HelperUnreachable {
 /// Operator-facing explanation for a `PermissionDenied` on the helper
 /// socket. Shared by the API layer so the UI, the logs, and the update
 /// endpoint all name the same remedy.
+///
+/// Leads with re-running the installer rather than hand-editing the unit:
+/// a node in this state usually predates the socket-ownership fix, so its
+/// helper binary and systemd unit are both stale, and the installer
+/// replaces all three in one go. The manual edit is kept as a fallback for
+/// operators who don't want to reinstall.
+///
+/// Multi-line on purpose — the panel renders it with `whitespace-pre-line`,
+/// so the command has to sit on its own line to stay copy-pasteable.
 pub fn permission_denied_hint() -> String {
     format!(
-        "The pier-net-helper socket ({HELPER_SOCKET_DEFAULT}) exists but pier-core cannot \
-         connect to it (permission denied). Expected `root:pier` mode 0660 — check with \
-         `ls -l {HELPER_SOCKET_DEFAULT}`. Fix: ensure the `pier` group exists \
-         (`groupadd --system pier`), set `Group=pier` in \
-         /etc/systemd/system/pier-net-helper.service, then \
+        "The pier-net-helper socket ({HELPER_SOCKET_DEFAULT}) exists, but pier-core cannot \
+         connect to it (permission denied). It must be root:pier mode 0660 — verify with \
+         `ls -l {HELPER_SOCKET_DEFAULT}`.\n\
+         \n\
+         Fix — re-run the installer on this server (updates the helper binary and its \
+         systemd unit too):\n\
+         \n    curl -fsSL https://pier.team/install | sudo bash\n\
+         \n\
+         Or, to only repair the unit: set `Group=pier` in \
+         /etc/systemd/system/pier-net-helper.service (creating the group first with \
+         `groupadd --system pier` if needed), then run \
          `systemctl daemon-reload && systemctl restart pier-net-helper`."
     )
 }

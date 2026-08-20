@@ -138,6 +138,19 @@
                 </div>
             </template>
 
+            <!-- Helper unreachable — self-update runs THROUGH pier-net-helper, so a
+                 node in this state cannot update at all. Say so on "Check now"
+                 instead of letting the operator discover it from a failed update. -->
+            <div x-show="helperWarning" x-cloak class="border-t border-gray-100 dark:border-gray-800 pt-4">
+                <div class="flex items-start gap-3 bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20 rounded-lg p-4">
+                    <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z"/></svg>
+                    <div class="min-w-0">
+                        <p class="text-sm font-medium text-amber-900 dark:text-amber-300">{{ t('settings_updates.helper_unreachable_title') }}</p>
+                        <p class="text-xs text-amber-800 dark:text-amber-400 whitespace-pre-line break-words" x-text="helperWarning"></p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Check error -->
             <div x-show="checkError" x-cloak class="border-t border-gray-100 dark:border-gray-800 pt-4">
                 <div class="flex items-start gap-3 bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20 rounded-lg p-4">
@@ -245,6 +258,8 @@ function updatesPage() {
         updateSize: 0,
         checkStatus: '{{ t('settings_updates.check_status_initial') }}',
         checkError: '',
+        // Set from update-check's `helper` block; empty means nothing to warn about.
+        helperWarning: '',
 
         // Update install
         updating: false,
@@ -297,10 +312,16 @@ function updatesPage() {
             this.checking = true;
             this.checkError = '';
             this.updateError = '';
+            this.helperWarning = '';
             this.updateComplete = false;
             try {
                 const res = await fetch('/api/v1/system/update-check');
                 const r = await res.json().catch(() => ({}));
+                // Only warn when the helper is there but unusable. "Not installed"
+                // is a valid setup — the direct-swap path still covers it.
+                if (r.helper && r.helper.reachable === false && r.helper.hint) {
+                    this.helperWarning = r.helper.hint;
+                }
                 if (!res.ok || r.error) {
                     this.checkError = r.error || '{{ t('settings_updates.check_failed_status') }}';
                     this.checkStatus = '{{ t('settings_updates.check_failed_status') }}';
