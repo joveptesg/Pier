@@ -126,11 +126,13 @@
                     </div>
 
                     <!-- Update Error -->
-                    <div x-show="updateError" x-cloak class="flex items-center gap-3 bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20 rounded-lg p-4">
-                        <svg class="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <div>
+                    <div x-show="updateError" x-cloak class="flex items-start gap-3 bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20 rounded-lg p-4">
+                        <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <div class="min-w-0">
                             <p class="text-sm font-medium text-red-900 dark:text-red-300">{{ t('settings_updates.update_failed') }}</p>
-                            <p class="text-xs text-red-700 dark:text-red-400" x-text="updateError"></p>
+                            <!-- whitespace-pre-line + break-words: server hints are multi-line and
+                                 carry a shell command the operator has to be able to read. -->
+                            <p class="text-xs text-red-700 dark:text-red-400 whitespace-pre-line break-words" x-text="updateError"></p>
                         </div>
                     </div>
                 </div>
@@ -138,11 +140,11 @@
 
             <!-- Check error -->
             <div x-show="checkError" x-cloak class="border-t border-gray-100 dark:border-gray-800 pt-4">
-                <div class="flex items-center gap-3 bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20 rounded-lg p-4">
-                    <svg class="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    <div>
+                <div class="flex items-start gap-3 bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20 rounded-lg p-4">
+                    <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div class="min-w-0">
                         <p class="text-sm font-medium text-red-900 dark:text-red-300">{{ t('settings_updates.check_failed_title') }}</p>
-                        <p class="text-xs text-red-700 dark:text-red-400" x-text="checkError"></p>
+                        <p class="text-xs text-red-700 dark:text-red-400 whitespace-pre-line break-words" x-text="checkError"></p>
                     </div>
                 </div>
             </div>
@@ -297,9 +299,10 @@ function updatesPage() {
             this.updateError = '';
             this.updateComplete = false;
             try {
-                const r = await fetch('/api/v1/system/update-check').then(r => r.json());
-                if (r.error) {
-                    this.checkError = r.error;
+                const res = await fetch('/api/v1/system/update-check');
+                const r = await res.json().catch(() => ({}));
+                if (!res.ok || r.error) {
+                    this.checkError = r.error || '{{ t('settings_updates.check_failed_status') }}';
                     this.checkStatus = '{{ t('settings_updates.check_failed_status') }}';
                 } else {
                     this.updateAvailable = r.available || false;
@@ -327,8 +330,15 @@ function updatesPage() {
             this.progressPercent = 20;
 
             try {
-                const r = await fetch('/api/v1/system/update', { method: 'POST' }).then(r => r.json());
-                if (r.ok) {
+                // Read the status BEFORE the body: the API answers a refused
+                // update with a 4xx whose body is {"error": "..."} (see
+                // AppError::into_response). Going straight to .json() and
+                // looking for `ok`/`message` threw that text away and showed a
+                // bare "Update failed" — which is how a broken pier-net-helper
+                // socket stayed invisible in the panel (issue #9).
+                const res = await fetch('/api/v1/system/update', { method: 'POST' });
+                const r = await res.json().catch(() => ({}));
+                if (res.ok && r.ok) {
                     this.progressMessage = '{{ t('settings_updates.progress_installing') }}';
                     this.progressDetail = '{{ t('settings_updates.progress_installing_detail') }}';
                     this.progressPercent = 60;
@@ -344,7 +354,7 @@ function updatesPage() {
                     this.pollReconnect();
                 } else {
                     this.updating = false;
-                    this.updateError = r.message || '{{ t('settings_updates.update_failed_fallback') }}';
+                    this.updateError = r.error || '{{ t('settings_updates.update_failed_fallback') }}';
                 }
             } catch (e) {
                 this.updating = false;
@@ -387,16 +397,17 @@ function updatesPage() {
             this.settingsSaved = false;
             this.settingsError = '';
             try {
-                const r = await fetch('/api/v1/system/update-settings', {
+                const res = await fetch('/api/v1/system/update-settings', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(this.settings),
-                }).then(r => r.json());
-                if (r.ok !== false) {
+                });
+                const r = await res.json().catch(() => ({}));
+                if (res.ok && r.ok !== false) {
                     this.settingsSaved = true;
                     setTimeout(() => this.settingsSaved = false, 3000);
                 } else {
-                    this.settingsError = r.message || '{{ t('settings_updates.save_settings_failed') }}';
+                    this.settingsError = r.error || '{{ t('settings_updates.save_settings_failed') }}';
                 }
             } catch (e) {
                 this.settingsError = '{{ t('settings_updates.save_failed') }}'.replace('%{error}', e.message);
