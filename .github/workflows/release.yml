@@ -60,3 +60,56 @@ jobs:
             pier-net-helper-linux-amd64.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Versioned release ────────────────────────────────────────────────
+      # `latest` above is a ROLLING release: every push overwrites the same
+      # release object, so its publish date never moves and the Releases page
+      # looks frozen (it read "April" while main was being pushed daily —
+      # issue #10). It is also load-bearing infrastructure — self-update reads
+      # releases/tags/latest and the installers download the helper from it —
+      # so it stays exactly as it is, prerelease flag included.
+      #
+      # Alongside it we cut a real release whenever the workspace version
+      # changes. That gives a visible history and something to pin to, and
+      # leaves `latest` free to keep tracking main.
+      - name: Read workspace version
+        id: version
+        run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ -z "$VERSION" ]; then
+            echo "could not parse version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Only a version bump publishes; ordinary commits just refresh
+          # `latest`. Existing tag => this version already shipped.
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION already tagged — skipping versioned release"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "v$VERSION is new — publishing versioned release"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish versioned release
+        if: steps.version.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          # The action creates the tag at GITHUB_SHA itself — no separate
+          # `git tag` step needed.
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          # Not a prerelease, so this is what GitHub shows as "Latest release"
+          # in the repo header — `latest` deliberately stays a prerelease and
+          # never claims that badge.
+          prerelease: false
+          files: |
+            pier-linux-amd64
+            pier-linux-amd64.sha256
+            pier-agent-linux-amd64
+            pier-agent-linux-amd64.sha256
+            pier-net-helper-linux-amd64
+            pier-net-helper-linux-amd64.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
