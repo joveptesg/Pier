@@ -4261,16 +4261,36 @@ pub async fn set_port_public(
                         .iter()
                         .find_map(|(_, is_pub, pp)| if *is_pub { *pp } else { None })
                 });
+            // Name the ports instead of counting rows. `updates` is built by
+            // mapping over `targets` in order, so the zip lines each new state
+            // up with the snapshot taken before the flip — which gives the
+            // "was:" half for free and makes an operator-chosen public port
+            // visible the moment it lands.
+            let rows_desc: String = updates
+                .iter()
+                .zip(targets.iter())
+                .map(|((_, is_pub, pp), row)| {
+                    let now = match (*is_pub, pp) {
+                        (true, Some(p)) => p.to_string(),
+                        (true, None) => "?".to_string(),
+                        (false, _) => "off".to_string(),
+                    };
+                    let was = match (row.prev_is_public, row.prev_public_port) {
+                        (true, Some(p)) => p.to_string(),
+                        (true, None) => "?".to_string(),
+                        (false, _) => "off".to_string(),
+                    };
+                    format!(
+                        "{} {now} (host_port {}, was: {was})",
+                        row.port_name, row.host_port
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
             if body.is_public {
-                tracing::info!(
-                    "Public port(s) enabled for {id} ({service_name}): {} row(s) flipped on",
-                    updates.iter().filter(|(_, p, _)| *p).count()
-                );
+                tracing::info!("Public port(s) enabled for {id} ({service_name}): {rows_desc}");
             } else {
-                tracing::info!(
-                    "Public port(s) disabled for {id} ({service_name}): {} row(s) flipped off",
-                    updates.len()
-                );
+                tracing::info!("Public port(s) disabled for {id} ({service_name}): {rows_desc}");
             }
             Ok(Json(serde_json::json!({
                 "ok": true,
@@ -4397,7 +4417,28 @@ async fn sync_compose_after_port_toggle(
         }
     }
 
-    tracing::info!("post-toggle compose sync: rewrote ports: block for {service_id} ({svc_name})");
+    // `rows` is exactly what `inject_ports_into_yaml` just wrote, so logging
+    // it tells the operator what the compose file now claims — the place
+    // where a stale ports: block used to silently disagree with Docker.
+    let ports_desc: String = rows
+        .iter()
+        .map(
+            |(compose_svc, container_port, is_public, _host_port, public_port)| {
+                let prefix = compose_svc
+                    .as_deref()
+                    .map(|s| format!("{s}/"))
+                    .unwrap_or_default();
+                match (*is_public, public_port) {
+                    (true, Some(pp)) => format!("{prefix}0.0.0.0:{pp}->{container_port}/tcp"),
+                    _ => format!("{prefix}private->{container_port}/tcp"),
+                }
+            },
+        )
+        .collect::<Vec<_>>()
+        .join(", ");
+    tracing::info!(
+        "post-toggle compose sync: rewrote ports: block for {service_id} ({svc_name}): {ports_desc}"
+    );
     Ok(())
 }
 

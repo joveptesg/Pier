@@ -1324,11 +1324,17 @@ pub(crate) fn update_ports_from_compose(state: &AppState, service_id: &str, yaml
             );
         }
 
-        let summary: Vec<(Option<&str>, u16, u16)> = flat
+        // Debug-printed tuples (`[(None, 4724, 4724)]`) made the reader guess
+        // which number was which. Name the port and show the mapping instead.
+        let summary: String = flat
             .iter()
-            .map(|(svc, _, h, c)| (svc.as_deref(), *h, *c))
-            .collect();
-        tracing::info!("Updated ports from compose for {service_id}: {summary:?}");
+            .map(|(svc, port_name, host_port, container_port)| {
+                let prefix = svc.as_deref().map(|s| format!("{s}/")).unwrap_or_default();
+                format!("{prefix}{port_name} {host_port}->{container_port}/tcp")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        tracing::info!("Updated ports from compose for {service_id}: {summary}");
     }
 }
 

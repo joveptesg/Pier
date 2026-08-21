@@ -337,8 +337,20 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
             ..Default::default()
         };
 
+        // Spell out the bindings, not just how many there are. "with 1 port
+        // bindings" forced an operator to go read `docker ps` to answer the
+        // only question this line is ever consulted for: which port did we
+        // just publish. The short container id matches what docker itself
+        // prints, so the two outputs can be eyeballed side by side.
+        let bindings_desc = new_body
+            .host_config
+            .as_ref()
+            .and_then(|h| h.port_bindings.as_ref())
+            .map(describe_bindings)
+            .unwrap_or_else(|| "none".to_string());
+        let short_cid = cid.get(..12).unwrap_or(cid);
         tracing::info!(
-            "recreate_with_port_bindings: recreating {name} ({cid}) with {} port bindings",
+            "recreate_with_port_bindings: recreating {name} ({short_cid}) with {} binding(s): {bindings_desc}",
             new_body
                 .host_config
                 .as_ref()
@@ -617,6 +629,49 @@ fn find_port_owner_id(
 ///
 /// `container_port:0` or missing `public_port` on a public row → skip
 /// (corrupt state; let the recreate continue rather than blowing up).
+/// Render `HostConfig.PortBindings` for the log: `0.0.0.0:7732->5432/tcp`,
+/// comma-separated, `"none"` when there is nothing published.
+///
+/// Sorted by container port on purpose — `HashMap` iteration order would
+/// otherwise reshuffle the line between restarts, which makes two journal
+/// entries impossible to compare by eye.
+pub(crate) fn describe_bindings(pb: &HashMap<String, Option<Vec<PortBinding>>>) -> String {
+    let mut parts: Vec<(u16, String)> = Vec::new();
+    for (key, entries) in pb {
+        let cport: u16 = key
+            .split('/')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        match entries.as_deref() {
+            Some(list) if !list.is_empty() => {
+                for e in list {
+                    // Docker treats an absent/empty HostIp as "all interfaces";
+                    // print it that way so the log matches `docker ps`.
+                    let ip = match e.host_ip.as_deref() {
+                        Some(ip) if !ip.is_empty() => ip,
+                        _ => "0.0.0.0",
+                    };
+                    let hp = e.host_port.as_deref().unwrap_or("?");
+                    parts.push((cport, format!("{ip}:{hp}->{key}")));
+                }
+            }
+            // Exposed but not published — the container port is reachable
+            // only from inside the Docker network.
+            _ => parts.push((cport, format!("private->{key}"))),
+        }
+    }
+    if parts.is_empty() {
+        return "none".to_string();
+    }
+    parts.sort();
+    parts
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub(crate) fn build_port_bindings_for_container(
     allocations: &[&PortAllocation],
 ) -> HashMap<String, Option<Vec<PortBinding>>> {
@@ -768,6 +823,80 @@ mod tests {
             !m.contains_key("1883/tcp"),
             "private port leaked into bindings: {m:?}"
         );
+    }
+
+    fn binding(ip: Option<&str>, host_port: &str) -> PortBinding {
+        PortBinding {
+            host_ip: ip.map(|s| s.to_string()),
+            host_port: Some(host_port.to_string()),
+        }
+    }
+
+    #[test]
+    fn describe_bindings_empty_map_is_none() {
+        let m: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        assert_eq!(describe_bindings(&m), "none");
+    }
+
+    #[test]
+    fn describe_bindings_single_public() {
+        let mut m: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        m.insert(
+            "5432/tcp".into(),
+            Some(vec![binding(Some("0.0.0.0"), "7732")]),
+        );
+        assert_eq!(describe_bindings(&m), "0.0.0.0:7732->5432/tcp");
+    }
+
+    #[test]
+    fn describe_bindings_orders_by_container_port() {
+        // HashMap iteration order is arbitrary; the rendered line must not be.
+        let mut m: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        m.insert(
+            "15672/tcp".into(),
+            Some(vec![binding(Some("0.0.0.0"), "10004")]),
+        );
+        m.insert(
+            "5672/tcp".into(),
+            Some(vec![binding(Some("0.0.0.0"), "10003")]),
+        );
+        assert_eq!(
+            describe_bindings(&m),
+            "0.0.0.0:10003->5672/tcp, 0.0.0.0:10004->15672/tcp"
+        );
+    }
+
+    #[test]
+    fn describe_bindings_missing_host_ip_reads_as_all_interfaces() {
+        // Docker reports an empty HostIp for `-p 7732:5432`; `docker ps`
+        // renders that as 0.0.0.0, so the log should agree.
+        let mut m: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        m.insert("5432/tcp".into(), Some(vec![binding(None, "7732")]));
+        assert_eq!(describe_bindings(&m), "0.0.0.0:7732->5432/tcp");
+        let mut m2: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        m2.insert("5432/tcp".into(), Some(vec![binding(Some(""), "7732")]));
+        assert_eq!(describe_bindings(&m2), "0.0.0.0:7732->5432/tcp");
+    }
+
+    #[test]
+    fn describe_bindings_exposed_without_host_binding_is_private() {
+        let mut m: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        m.insert("5432/tcp".into(), None);
+        assert_eq!(describe_bindings(&m), "private->5432/tcp");
+        let mut m2: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        m2.insert("5432/tcp".into(), Some(vec![]));
+        assert_eq!(describe_bindings(&m2), "private->5432/tcp");
+    }
+
+    #[test]
+    fn describe_bindings_loopback_keeps_its_ip() {
+        // Private-by-127.0.0.1 rows must not masquerade as world-reachable.
+        let mut m: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        m.insert(
+            "27017/tcp".into(),
+            Some(vec![binding(Some("127.0.0.1"), "10000")]),
+        );
+        assert_eq!(describe_bindings(&m), "127.0.0.1:10000->27017/tcp");
     }
 
     #[test]

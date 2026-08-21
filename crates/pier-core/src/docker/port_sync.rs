@@ -335,8 +335,37 @@ pub async fn sync_ports_from_docker(state: &AppState, service_id: &str) -> Resul
         }
     }
 
+    // Say WHICH rows moved and where. `PortUpdate` carries only the row id on
+    // purpose (it is compared field-by-field in this file's tests), so the
+    // human-readable half is joined back from `allocations`, which still holds
+    // the pre-sync state.
+    let synced_desc: String = updates
+        .iter()
+        .map(|u| {
+            let alloc = allocations.iter().find(|a| a.id == u.row_id);
+            let name = alloc.map(|a| a.port_name.as_str()).unwrap_or("?");
+            let before = match alloc {
+                Some(a) if a.is_public => a
+                    .public_port
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "?".to_string()),
+                Some(_) => "off".to_string(),
+                None => "?".to_string(),
+            };
+            let after = if u.new_is_public {
+                u.new_public_port
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "?".to_string())
+            } else {
+                "off".to_string()
+            };
+            let cport = alloc.map(|a| a.container_port).unwrap_or(0);
+            format!("{name} {before} -> {after} (container {cport}/tcp)")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     tracing::info!(
-        "sync_ports_from_docker: service={service_id} synced {n} port row(s) to match Docker reality"
+        "sync_ports_from_docker: service={service_id} synced {n} port row(s) to match Docker reality: {synced_desc}"
     );
     Ok(n)
 }
