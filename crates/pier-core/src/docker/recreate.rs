@@ -18,7 +18,7 @@
 //!   6. reattach      → user-defined networks the old container was on
 //!   7. start         → bring it up; update `services.container_id`
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use anyhow::Result;
 use bollard::models::{
@@ -118,6 +118,17 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         tracing::info!(
             "recreate_with_port_bindings: no container found for service_id={service_id} (no label, no DB container_id); skipping"
         );
+        // "No container" is not proof the service is unreachable. An orphan
+        // container we failed to match, or a leaked docker-proxy, can still be
+        // publishing a port our rows now call private — and returning Ok() here
+        // is what lets the toggle report "public access off" over a database
+        // that is still answering the internet. Verify before claiming it.
+        let should_be_free: BTreeSet<u16> = allocations
+            .iter()
+            .filter(|a| !a.is_public)
+            .filter_map(|a| a.public_port.map(|p| p as u16))
+            .collect();
+        verify_ports_released(state, &should_be_free).await?;
         return Ok(());
     }
 
@@ -173,6 +184,12 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
     // ID only when the container was created nameless (rare).
     let mut last_name_or_id: Option<String> = None;
 
+    // Host ports this service published BEFORE the recreate, and the ones it
+    // publishes after. The difference is what this operation promised to
+    // close — and what gets verified once every container is back up.
+    let mut previously_published: HashSet<u16> = HashSet::new();
+    let mut now_published: HashSet<u16> = HashSet::new();
+
     for cid in &target_ids {
         let cid = cid.as_str();
         let info = state.docker.inspect_container(cid, None).await?;
@@ -196,6 +213,7 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
             .unwrap_or_default();
 
         let current_host_ports = collect_host_ports(&hc);
+        previously_published.extend(current_host_ports.iter().copied());
         let replica_idx_label = cfg
             .labels
             .as_ref()
@@ -260,6 +278,13 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         }
 
         let new_bindings = build_port_bindings_for_container(&my_allocs);
+        for entries in new_bindings.values().flatten() {
+            for e in entries {
+                if let Some(hp) = e.host_port.as_deref().and_then(|s| s.parse::<u16>().ok()) {
+                    now_published.insert(hp);
+                }
+            }
+        }
         let new_exposed = build_exposed_ports(&cfg.exposed_ports, &my_allocs);
 
         // Inject `pier.service.id` (and the optional `pier.managed` marker)
@@ -433,7 +458,85 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
         );
     }
 
+    // Everything this recreate promised to close, actually closed?
+    let closed_ports: BTreeSet<u16> = previously_published
+        .difference(&now_published)
+        .copied()
+        .collect();
+    verify_ports_released(state, &closed_ports).await?;
+
     Ok(())
+}
+
+/// Fail unless `ports` are genuinely unreachable after a recreate that was
+/// supposed to release them.
+///
+/// A toggle that reports "public access off" while the port still answers from
+/// the internet is worse than one that fails outright: the operator walks away
+/// believing the database is closed. Docker's own bookkeeping is not enough to
+/// decide this. Two ways a port survives a recreate that "removed" it:
+///
+///   * another container still publishes it (an orphan we failed to match, or
+///     a sibling recreated from a stale compose file), and
+///   * nothing in the Docker API owns it, but an orphaned `docker-proxy` is
+///     still forwarding `0.0.0.0:<port>` to the container IP — invisible to
+///     `HostConfig.PortBindings` entirely.
+///
+/// So we ask both questions: who does Docker think owns the port, and will the
+/// host actually hand us the socket.
+async fn verify_ports_released(state: &AppState, ports: &BTreeSet<u16>) -> Result<()> {
+    if ports.is_empty() {
+        return Ok(());
+    }
+
+    let containers_list = state
+        .docker
+        .list_containers(Some(ListContainersOptions {
+            all: true,
+            ..Default::default()
+        }))
+        .await?;
+
+    let mut offenders: Vec<String> = Vec::new();
+    let mut to_probe: Vec<u16> = Vec::new();
+    for &p in ports {
+        match find_port_owner_id(&containers_list, p) {
+            // A container holding the port will not let go on its own — no
+            // point re-probing this one.
+            Some(owner) => {
+                offenders.push(format!("{p}: still published by container {owner}"));
+            }
+            None => to_probe.push(p),
+        }
+    }
+
+    // docker-proxy teardown is asynchronous: a probe fired straight after
+    // `remove_container` regularly still finds the socket bound for a few
+    // hundred ms. Retry before calling it a leak.
+    for attempt in 0..3u32 {
+        if to_probe.is_empty() {
+            break;
+        }
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        to_probe.retain(|&p| std::net::TcpListener::bind(("0.0.0.0", p)).is_err());
+    }
+    for p in &to_probe {
+        offenders.push(format!(
+            "{p}: still bound on the host though no container owns it (orphaned docker-proxy?)"
+        ));
+    }
+
+    if offenders.is_empty() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "ports were not released — the service is still reachable on them, so the change was NOT applied: {}. \
+         Inspect with `sudo ss -tlnp '( sport = :{} )'` and `docker ps --format '{{{{.Names}}}}\\t{{{{.Ports}}}}'`.",
+        offenders.join("; "),
+        ports.iter().next().copied().unwrap_or(0)
+    )
 }
 
 /// Carry every Docker volume the old container had over to its replacement.

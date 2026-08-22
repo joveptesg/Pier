@@ -124,10 +124,46 @@ pub(crate) fn compute_sync_updates(
             continue;
         };
 
-        let binding = container
-            .bindings
-            .iter()
-            .find(|b| b.container_port as i64 == alloc.container_port);
+        // One container port can carry MORE THAN ONE host binding: the catalog
+        // compose emits an always-on `127.0.0.1:{host_port}:{container_port}`
+        // mapping and, when the operator toggles exposure on, an additional
+        // `0.0.0.0:{public_port}:{container_port}` one. Both land under the same
+        // `5432/tcp` key, so a plain `.find()` returned whichever the HashMap
+        // yielded first — and when that was the loopback one, a database
+        // published to the whole internet was recorded, and shown in the UI,
+        // as private (vps1, 2026-08-22).
+        //
+        // Assignment rule, in order:
+        //   1. this row's OWN binding — the one whose host port it already
+        //      claims — so sibling rows don't steal each other's mapping;
+        //   2. but never settle for a private binding while a PUBLIC one on
+        //      the same container port belongs to no row at all: that binding
+        //      is live exposure nothing else accounts for, and reporting
+        //      private over it is the exact failure this rule exists to stop;
+        //   3. otherwise any public binding, and only then whatever is left.
+        let for_this_port = || {
+            container
+                .bindings
+                .iter()
+                .filter(|b| b.container_port as i64 == alloc.container_port)
+        };
+        let claimed_by_another_row = |b: &ContainerBinding| {
+            allocations
+                .iter()
+                .any(|other| other.id != alloc.id && other.host_port == b.host_port as i64)
+        };
+        let exact = for_this_port().find(|b| {
+            Some(b.host_port as i64) == alloc.public_port || b.host_port as i64 == alloc.host_port
+        });
+        let orphan_public = for_this_port().find(|b| b.is_public && !claimed_by_another_row(b));
+        let binding = match (exact, orphan_public) {
+            (Some(e), Some(p)) if !e.is_public => Some(p),
+            (Some(e), _) => Some(e),
+            (None, Some(p)) => Some(p),
+            (None, None) => for_this_port()
+                .find(|b| b.is_public)
+                .or_else(|| for_this_port().next()),
+        };
 
         // For private rows (no host binding, or binding on 127.0.0.1) we
         // **preserve** the operator's saved `public_port` choice. They picked
@@ -412,6 +448,64 @@ mod tests {
             compose_service: compose_service.map(String::from),
             bindings,
         }
+    }
+
+    /// Regression: vps1, 2026-08-22. `pier-postgresql` published BOTH
+    /// `127.0.0.1:10001->5432` and `0.0.0.0:7732->5432`. Both bindings sit
+    /// under the same `5432/tcp` key, the old `.find()` returned the loopback
+    /// one, and a database reachable from the whole internet was recorded — and
+    /// displayed — as private. A private verdict must never win over a public
+    /// binding on the same container port.
+    /// Two rows, two bindings on the same container port: each must take the
+    /// binding whose host port it already claims, so the loopback row stays
+    /// private and the 7732 row is reported public.
+    #[test]
+    fn sync_two_bindings_each_row_takes_its_own() {
+        let mut loopback_row = alloc("r-priv", 5432, false, None, None);
+        loopback_row.host_port = 10001;
+        let mut public_row = alloc("r-pub", 5432, false, None, None);
+        public_row.host_port = 7732;
+        let c = container(
+            None,
+            vec![
+                // Loopback listed FIRST — the HashMap order that used to win.
+                binding(5432, 10001, false),
+                binding(5432, 7732, true),
+            ],
+        );
+        let updates = compute_sync_updates(&[loopback_row, public_row], &[c]);
+        let by_id: HashMap<&str, &PortUpdate> =
+            updates.iter().map(|u| (u.row_id.as_str(), u)).collect();
+        assert!(
+            !by_id.contains_key("r-priv"),
+            "loopback row is already private — must not be touched, got {updates:?}"
+        );
+        let pub_u = by_id.get("r-pub").expect("public row must be flipped on");
+        assert!(pub_u.new_is_public);
+        assert_eq!(pub_u.new_public_port, Some(7732));
+    }
+
+    /// Regression: vps1, 2026-08-22. The catalog compose emits an always-on
+    /// `127.0.0.1:{host_port}` mapping, so a service with ONE port row can end
+    /// up with a second, public binding no row accounts for — and the row's own
+    /// host port matches the loopback one. Matching "its own" binding would
+    /// then report private over a database open to the internet. An unclaimed
+    /// public binding has to win.
+    #[test]
+    fn sync_public_binding_no_row_claims_wins_over_the_rows_own_loopback() {
+        let row = alloc("r1", 5432, false, None, None); // host_port == 5432
+        let c = container(
+            None,
+            vec![binding(5432, 5432, false), binding(5432, 7732, true)],
+        );
+        let updates = compute_sync_updates(&[row], &[c]);
+        assert_eq!(
+            updates.len(),
+            1,
+            "row must be flipped to public, {updates:?}"
+        );
+        assert!(updates[0].new_is_public);
+        assert_eq!(updates[0].new_public_port, Some(7732));
     }
 
     #[test]
