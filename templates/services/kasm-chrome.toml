@@ -1,0 +1,59 @@
+[meta]
+id = "kasm-chrome"
+name = "Kasm Chrome"
+description = "Isolated Google Chrome streamed to your browser"
+category = "service"
+icon = "kasm"
+tags = ["kasm", "kasmvnc", "browser", "chrome", "remote-desktop", "vdi"]
+long_description = """
+Google Chrome running inside a container on your server, streamed to any browser over KasmVNC — no client, no plugin, no X11 or RDP forwarding. You open a URL, log in, and drive a real Chrome that lives on the server.
+
+Useful for reaching admin panels that are only bound to the server's private network, for browsing from the server's IP instead of your own, and for opening untrusted links in something disposable — the container is wiped on restart, so a compromised session leaves nothing behind.
+
+How it works on Pier — the container serves KasmVNC on 6901 over **HTTPS with a self-signed certificate**, so Pier marks this port as an HTTPS backend and Traefik proxies it with upstream certificate checking disabled. From the outside you still get a normal Let's Encrypt certificate on the attached domain. Log in as user **kasm_user** with the password Pier generated for you (it is on the service page, under Environment).
+
+Resources — plan on roughly **1–1.5 GB of RAM** per running session, and note that `/dev/shm` is raised to 512 MB because Chrome's renderer crashes on Docker's 64 MB default. Pier does not check free memory before deploying, so verify the server has headroom yourself.
+
+Persistence — `/home/kasm-user` is reset every time the container restarts. That is Kasm's design for disposable sessions, not a Pier limitation: bookmarks, logins and downloads do not survive a restart.
+"""
+
+[docker]
+image = "kasmweb/chrome:{{version}}"
+shm_size = "512m"
+
+[ports.primary]
+internal = 6901
+protocol = "tcp"
+scheme = "https"
+description = "KasmVNC web session (HTTPS, self-signed)"
+
+[env]
+VNC_PW = { default = "{{password}}", description = "Password for user kasm_user", secret = true }
+LAUNCH_URL = { default = "", description = "URL Chrome opens on start (blank = new tab)" }
+
+[versions]
+available = ["1.19.0", "1.18.0", "1.17.0", "1.16.1"]
+default = "1.19.0"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-browser"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.password]
+type = "password"
+label = "Session Password"
+auto_generate = true
+maps_to = "VNC_PW"
+
+[ui.fields.launch_url]
+type = "text"
+label = "Start URL"
+placeholder = "https://example.com"
+maps_to = "LAUNCH_URL"

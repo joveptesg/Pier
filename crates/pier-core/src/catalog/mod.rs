@@ -57,6 +57,11 @@ pub struct DockerConfig {
     /// Host devices to expose (e.g. `/dev/net/tun:/dev/net/tun`).
     #[serde(default)]
     pub devices: Vec<String>,
+    /// Size of `/dev/shm` in compose syntax (e.g. `512m`, `1g`).
+    ///
+    /// Browser- and desktop-in-container images (KasmVNC) crash on the
+    /// 64 MB Docker default; Chrome in particular needs at least `512m`.
+    pub shm_size: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,11 +74,21 @@ pub struct PortConfig {
     pub internal: u16,
     #[serde(default = "default_tcp")]
     pub protocol: String,
+    /// Application-level scheme Traefik must use to reach this port —
+    /// `http` (default) or `https`. Only a few images serve HTTPS with a
+    /// self-signed cert on their own port (KasmVNC on 6901); those get an
+    /// `insecureSkipVerify` serversTransport in the generated proxy config.
+    #[serde(default = "default_http")]
+    pub scheme: String,
     pub description: Option<String>,
 }
 
 fn default_tcp() -> String {
     "tcp".to_string()
+}
+
+fn default_http() -> String {
+    "http".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,6 +255,8 @@ pub fn load_catalog() -> Vec<CatalogItem> {
                         "amneziawg" => 18,
                         "minecraft" => 19,
                         "terraria" => 20,
+                        "kasm-chrome" => 21,
+                        "kasm-desktop" => 22,
                         _ => 99,
                     };
                     svc(&a.meta.id).cmp(&svc(&b.meta.id))
@@ -406,6 +423,9 @@ pub fn build_compose_yaml_scaled(
                 yaml.push_str(&format!("      - {}\n", substitute(sysctl, env_vars)));
             }
         }
+        if let Some(shm) = &docker.shm_size {
+            yaml.push_str(&format!("    shm_size: {shm}\n"));
+        }
 
         if !ports.is_empty() {
             yaml.push_str("    ports:\n");
@@ -495,4 +515,57 @@ pub fn build_compose_yaml_scaled(
 /// Build docker-compose.yml from a compose template (multi-container).
 pub fn build_from_template(template: &str, vars: &HashMap<String, String>) -> String {
     substitute(template, vars)
+}
+
+#[cfg(test)]
+mod compose_builder_tests {
+    use super::*;
+
+    fn item(id: &str) -> CatalogItem {
+        load_catalog()
+            .into_iter()
+            .find(|i| i.meta.id == id)
+            .unwrap_or_else(|| panic!("catalog template `{id}` missing or failed to parse"))
+    }
+
+    fn yaml_for(it: &CatalogItem, container_port: u16) -> String {
+        build_compose_yaml(
+            it,
+            "svc-1",
+            "workspace",
+            &HashMap::new(),
+            &[("primary".to_string(), 10001, container_port, None)],
+            Some("pier-net"),
+        )
+    }
+
+    /// KasmVNC images crash on Docker's 64 MB `/dev/shm` default, so the
+    /// template must carry `shm_size` all the way into the compose file.
+    #[test]
+    fn kasm_templates_emit_shm_size_and_https_scheme() {
+        for (id, shm) in [("kasm-chrome", "512m"), ("kasm-desktop", "1g")] {
+            let it = item(id);
+            assert_eq!(
+                it.ports["primary"].scheme, "https",
+                "{id}: KasmVNC serves HTTPS on 6901"
+            );
+            assert_eq!(it.ports["primary"].internal, 6901, "{id}");
+            let yaml = yaml_for(&it, 6901);
+            assert!(
+                yaml.contains(&format!("    shm_size: {shm}\n")),
+                "{id}: yaml = {yaml}"
+            );
+            assert!(yaml.contains("127.0.0.1:10001:6901"), "{id}: yaml = {yaml}");
+        }
+    }
+
+    /// Templates that don't set `shm_size` must render byte-identically to
+    /// before the field existed, and default to the `http` scheme.
+    #[test]
+    fn templates_without_shm_size_are_unchanged() {
+        let it = item("portainer");
+        assert_eq!(it.ports["primary"].scheme, "http");
+        let yaml = yaml_for(&it, 9443);
+        assert!(!yaml.contains("shm_size"), "yaml = {yaml}");
+    }
 }

@@ -1,0 +1,52 @@
+[meta]
+id = "kasm-desktop"
+name = "Kasm Desktop"
+description = "Full Ubuntu XFCE desktop streamed to your browser"
+category = "service"
+icon = "kasm"
+tags = ["kasm", "kasmvnc", "desktop", "xfce", "remote-desktop", "vdi"]
+long_description = """
+A complete Ubuntu XFCE desktop running in a container on your server and streamed to any browser over KasmVNC. Same idea as Kasm Chrome, but instead of a single application you get a real desktop — file manager, terminal, text editor, and whatever else you install inside the session.
+
+Useful when you need a graphical foothold on a server without setting up X11 forwarding, VNC or RDP: a workbench next to your services, a place to run a GUI database client against a database that is only reachable on the private network, or a throwaway Linux desktop for testing.
+
+How it works on Pier — the container serves KasmVNC on 6901 over **HTTPS with a self-signed certificate**, so Pier marks this port as an HTTPS backend and Traefik proxies it with upstream certificate checking disabled. Externally the attached domain still gets a normal Let's Encrypt certificate. Log in as user **kasm_user** with the password Pier generated for you (service page → Environment).
+
+Resources — a desktop session is heavier than the single-app image: budget around **2 GB of RAM**, more if you run a browser inside it. `/dev/shm` is raised to 1 GB, which desktop apps and any in-session browser need. Pier performs no memory preflight before deploying — check the server has room first.
+
+Persistence — `/home/kasm-user` is wiped on every container restart by design. Anything you install or save inside the session is gone after a restart; treat it as a disposable workbench, not a workstation.
+"""
+
+[docker]
+image = "kasmweb/desktop:{{version}}"
+shm_size = "1g"
+
+[ports.primary]
+internal = 6901
+protocol = "tcp"
+scheme = "https"
+description = "KasmVNC web session (HTTPS, self-signed)"
+
+[env]
+VNC_PW = { default = "{{password}}", description = "Password for user kasm_user", secret = true }
+
+[versions]
+available = ["1.19.0", "1.18.0", "1.17.0", "1.16.1"]
+default = "1.19.0"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-desktop"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
+
+[ui.fields.password]
+type = "password"
+label = "Session Password"
+auto_generate = true
+maps_to = "VNC_PW"

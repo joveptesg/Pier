@@ -551,15 +551,21 @@ pub(crate) fn build_target_url(
     service_id: &str,
     compose_service: Option<&str>,
 ) -> AppResult<String> {
-    let (svc_name, container_id, compose_yaml): (String, Option<String>, Option<String>) = {
+    #[allow(clippy::type_complexity)]
+    let (svc_name, container_id, compose_yaml, catalog_id): (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT name, container_id, compose_content FROM services WHERE id = ?1",
+            "SELECT name, container_id, compose_content, catalog_id FROM services WHERE id = ?1",
             [service_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .map_err(|_| {
             AppError::NotFound(crate::i18n::te_args(
@@ -618,7 +624,7 @@ pub(crate) fn build_target_url(
     //   3. Otherwise (compose_service = None): all rows.
     // Within candidates, prefer non-management/metrics/prometheus ports.
     let http_keywords = ["management", "metrics", "prometheus"];
-    let port: Option<u16> = {
+    let port_pick: Option<(String, u16)> = {
         let db = state
             .db
             .lock()
@@ -660,10 +666,10 @@ pub(crate) fn build_target_url(
                     .any(|k| name.to_lowercase().contains(k))
             })
             .or(candidates.first())
-            .map(|(_, p, _)| *p)
+            .map(|(n, p, _)| (n.clone(), *p))
     };
 
-    let port = port.ok_or_else(|| {
+    let (port_name, port) = port_pick.ok_or_else(|| {
         let label = compose_service.unwrap_or("(default)");
         AppError::BadRequest(crate::i18n::te_args(
             "errors.domains.no_port_for_compose_service",
@@ -671,7 +677,19 @@ pub(crate) fn build_target_url(
         ))
     })?;
 
-    Ok(format!("http://{container_name}:{port}"))
+    // A handful of images terminate TLS themselves on their own port with a
+    // self-signed cert (KasmVNC on 6901). Their catalog template marks the
+    // port `scheme = "https"`; the proxy config then pairs this upstream with
+    // an `insecureSkipVerify` serversTransport. Anything else stays `http`.
+    let scheme = catalog_id
+        .as_deref()
+        .and_then(|cid| state.catalog.iter().find(|i| i.meta.id == cid))
+        .and_then(|item| item.ports.get(port_name.as_str()))
+        .map(|pc| pc.scheme.as_str())
+        .filter(|s| *s == "https")
+        .unwrap_or("http");
+
+    Ok(format!("{scheme}://{container_name}:{port}"))
 }
 
 /// Rebuild the Traefik dynamic config for a service from the current set of
