@@ -16,6 +16,12 @@ ExecStart=/opt/pier/bin/pier
 Restart=on-failure
 RestartSec=5
 
+# Give the shutdown checkpoint room to finish. pier folds the SQLite
+# write-ahead log back into pier.db on SIGTERM; on a busy database that is a
+# few seconds of fsync, and being SIGKILLed mid-checkpoint would put us back
+# to relying on WAL replay.
+TimeoutStopSec=30
+
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict

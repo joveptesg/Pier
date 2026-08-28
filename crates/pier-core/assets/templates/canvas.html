@@ -1204,20 +1204,40 @@ function canvasApp() {
                 m.deployedId = result.id;
                 m.deployLog += '{{ t('canvas.log_container_created') }}' + '\n';
 
-                // Fetch deployment logs
-                if (result.id) {
+                // The POST only means the deploy was accepted — the stack is
+                // still pulling. Follow the service until it settles, streaming
+                // the log as it fills, instead of declaring success on the
+                // response and printing an empty log.
+                let settled = null;
+                let shownLen = 0;
+                for (let i = 0; i < 900; i++) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    let svc = null;
+                    try {
+                        svc = await fetch('/api/v1/resources/' + result.id).then(r => r.json());
+                    } catch { continue; }
                     try {
                         const logs = await fetch('/api/v1/resources/' + result.id + '/deployment-logs').then(r => r.json());
-                        if (logs && logs.length > 0) {
-                            const lastLog = logs[logs.length - 1];
-                            m.deployLog += '\n--- {{ t('canvas.log_deployment_log_header') }} ---\n' + (lastLog.output || '{{ t('canvas.log_no_output') }}') + '\n';
+                        const out = (logs && logs.length > 0 && logs[0].output) || '';
+                        if (out.length > shownLen) {
+                            m.deployLog += out.slice(shownLen);
+                            shownLen = out.length;
+                            this.$nextTick(() => { const b = this.$refs.deployLogBox; if (b) b.scrollTop = b.scrollHeight; });
                         }
                     } catch {}
+                    if (svc && svc.status !== 'deploying') { settled = svc.status; break; }
                 }
 
-                m.deployLog += '\n✓ ' + '{{ t('canvas.log_deployed_successfully') }}'.replace('%{name}', name) + '\n';
-                m.deployStatus = 'success';
-                toast('{{ t('canvas.toast_deployed') }}'.replace('%{name}', name));
+                if (settled === 'running') {
+                    m.deployLog += '\n' + '{{ t('canvas.log_deployed_successfully') }}'.replace('%{name}', name) + '\n';
+                    m.deployStatus = 'success';
+                    toast('{{ t('canvas.toast_deployed') }}'.replace('%{name}', name));
+                } else {
+                    const why = settled || 'timeout';
+                    m.deployLog += '\n' + '{{ t('canvas.log_deploy_failed') }}'.replace('%{error}', why) + '\n';
+                    m.deployStatus = 'failed';
+                    toast('{{ t('canvas.log_deploy_failed') }}'.replace('%{error}', why), 'error');
+                }
                 await this.loadData();
                 this.buildCanvas();
                 this.$nextTick(() => this.renderSvgEdges());

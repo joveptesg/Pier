@@ -715,7 +715,9 @@ function createResource(catalogId, hostRamGb) {
                     method: 'POST',
                     body: JSON.stringify(payload),
                 });
-                toast(name + ' {{ t('resources_create.toast_deployed_success') }}');
+                // The deploy runs in the background now — the response only
+                // means it was accepted, not that the stack is up.
+                toast(name + ' {{ t('resources_create.toast_deploy_started') }}');
                 window.location.href = '/resources/' + result.id;
             } catch (e) {
                 if (e.code === 'name_conflict' && e.existing_id) {

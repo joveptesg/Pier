@@ -58,6 +58,142 @@ pub async fn deploy_stack(
     Ok(combined)
 }
 
+/// No output at all for this long means the pull is wedged, not merely slow.
+///
+/// `docker compose --progress plain` emits a progress line per layer several
+/// times a second while bytes are moving, so a genuinely slow-but-alive pull
+/// never goes quiet for minutes. Total silence means the connection died
+/// without the process noticing — the case where Pier used to wait forever.
+const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// Backstop for a process that keeps talking but never finishes.
+const ABSOLUTE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Same as [`deploy_stack`], but streams output to `progress` as it arrives and
+/// refuses to hang.
+///
+/// [`deploy_stack`] collects stdout/stderr with `.output()`, so nothing is
+/// observable until the process exits — a multi-gigabyte pull looks identical
+/// to a hang, and a pull that genuinely wedges never ends at all. Here the
+/// pipes are read line by line, and a gap longer than [`STALL_TIMEOUT`] kills
+/// the child and fails with a reason instead of waiting.
+///
+/// `--progress plain` keeps the output line-oriented; the default renderer
+/// emits terminal redraw sequences that are noise in a log pane.
+pub async fn deploy_stack_with_progress(
+    name: &str,
+    yaml_content: &str,
+    config: &PierConfig,
+    auth: ComposeAuth,
+    progress: tokio::sync::mpsc::UnboundedSender<String>,
+) -> Result<String> {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let stack_dir = stacks_dir(config).join(name);
+    tokio::fs::create_dir_all(&stack_dir).await?;
+
+    let compose_file = stack_dir.join("docker-compose.yml");
+    tokio::fs::write(&compose_file, yaml_content).await?;
+
+    let auth_dir = auth
+        .as_ref()
+        .and_then(|a| write_docker_config(a).ok().flatten());
+
+    // `--progress` is a global `docker compose` flag, not an `up` flag —
+    // passing it after `up` fails with "unknown flag" on current Compose.
+    let mut cmd = Command::new("docker");
+    cmd.args(["compose", "--progress", "plain", "-f"])
+        .arg(&compose_file)
+        .args(["up", "-d"])
+        .current_dir(&stack_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    apply_auth_env(&mut cmd, &auth_dir);
+
+    let mut child = cmd.spawn()?;
+
+    // Both pipe readers feed one channel so ordering stays roughly
+    // chronological; the loop below ends when both readers have dropped it.
+    let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    for pipe in [
+        child.stdout.take().map(PipeKind::Out),
+        child.stderr.take().map(PipeKind::Err),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let tx = line_tx.clone();
+        tokio::spawn(async move {
+            match pipe {
+                PipeKind::Out(p) => {
+                    let mut lines = BufReader::new(p).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        if tx.send(line).is_err() {
+                            break;
+                        }
+                    }
+                }
+                PipeKind::Err(p) => {
+                    let mut lines = BufReader::new(p).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        if tx.send(line).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+    }
+    drop(line_tx);
+
+    let started = std::time::Instant::now();
+    let mut combined = String::new();
+
+    loop {
+        let elapsed = started.elapsed();
+        let Some(left) = ABSOLUTE_TIMEOUT.checked_sub(elapsed) else {
+            let _ = child.kill().await;
+            anyhow::bail!(
+                "docker compose up exceeded the {}-minute ceiling and was stopped.\n{combined}",
+                ABSOLUTE_TIMEOUT.as_secs() / 60
+            );
+        };
+
+        match tokio::time::timeout(STALL_TIMEOUT.min(left), line_rx.recv()).await {
+            Ok(Some(line)) => {
+                combined.push_str(&line);
+                combined.push('\n');
+                let _ = progress.send(line);
+            }
+            // Both readers dropped the sender: the process closed its pipes.
+            Ok(None) => break,
+            Err(_) => {
+                let _ = child.kill().await;
+                anyhow::bail!(
+                    "no output for {} minutes — the image pull looks stalled, so it was stopped. \
+                     Check the registry is reachable from this server.\n{combined}",
+                    STALL_TIMEOUT.as_secs() / 60
+                );
+            }
+        }
+    }
+
+    let status = child.wait().await?;
+    if !status.success() {
+        anyhow::bail!("docker compose up failed: {combined}");
+    }
+
+    Ok(combined)
+}
+
+/// Which pipe a reader task is draining. Only exists because `ChildStdout` and
+/// `ChildStderr` are distinct types and the two readers are otherwise identical.
+enum PipeKind {
+    Out(tokio::process::ChildStdout),
+    Err(tokio::process::ChildStderr),
+}
+
 /// Write compose YAML and run `docker compose up -d --force-recreate --pull always` (no cache).
 pub async fn deploy_stack_no_cache(
     name: &str,

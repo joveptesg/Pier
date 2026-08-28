@@ -620,6 +620,7 @@ resources_create:
   err_invalid_url: Enter a full HTTPS URL like
   toast_repo_url_invalid: Repository URL is invalid
   toast_deployed_success: deployed successfully
+  toast_deploy_started: — deploy started, watch progress on the service page
   toast_resource_exists: 'Resource "%{name}" already exists — opening it'
 
 # Catalog info modal partial (partials/catalog_info_modal.html).
@@ -634,6 +635,9 @@ resources_detail:
   rename_hint: Double-click to rename
   save: Save
   deploying: deploying
+  deploy_in_progress: Deploying
+  toast_deploy_failed: Deploy failed — see the log below
+  toast_deploy_succeeded: Deploy finished
   redeploy: Redeploy
   force_deploy: Force deploy (without cache)
   deploy: Deploy

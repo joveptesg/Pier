@@ -3,6 +3,7 @@ pub mod cleanup;
 pub mod compose;
 pub mod compose_service;
 pub mod containers;
+pub mod deploy_reconcile;
 pub mod events;
 pub mod images;
 pub mod logs;
@@ -10,4 +11,6 @@ pub mod pgdata_migration;
 pub mod port_sync;
 pub mod recreate;
 
-pub use compose_service::{deploy_service_stack, deploy_service_stack_no_cache};
+pub use compose_service::{
+    deploy_service_stack, deploy_service_stack_no_cache, deploy_service_stack_with_progress,
+};

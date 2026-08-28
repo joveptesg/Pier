@@ -70,6 +70,122 @@ async fn try_create_service_domain(state: &SharedState, service_id: &str, name: 
     }
 }
 
+/// What the background deploy still has to do once the stack is up.
+struct DeployFollowUp {
+    name: String,
+    is_database: bool,
+    http_port: Option<i64>,
+}
+
+/// Run a catalog deploy in the background and own every terminal write.
+///
+/// The caller has already inserted the `services` row with `status =
+/// 'deploying'` and persisted the compose YAML; from here nothing else will
+/// move that row, so this task has to settle it on all paths — success,
+/// failure and the stall timeout alike.
+#[allow(clippy::too_many_arguments)]
+fn spawn_catalog_deploy(
+    state: &SharedState,
+    conn: &crate::api::servers::AgentConn,
+    service_id: &str,
+    stack_name: &str,
+    yaml: &str,
+    auth: crate::docker::compose::ComposeAuth,
+    follow_up: DeployFollowUp,
+) {
+    let state = state.clone();
+    let conn = conn.clone();
+    let service_id = service_id.to_string();
+    let stack_name = stack_name.to_string();
+    let yaml = yaml.to_string();
+
+    tokio::spawn(async move {
+        // Open the log row before the deploy so the Action History panel has
+        // something to show for the whole pull instead of staying empty.
+        let log_id = match state.db.lock() {
+            Ok(db) => begin_deployment_log(&db, &service_id, "deploy"),
+            Err(e) => {
+                tracing::error!("Deploy for {}: DB lock failed: {e}", follow_up.name);
+                return;
+            }
+        };
+
+        // Mirror compose output into that row while it runs. Throttled: a pull
+        // emits many lines a second and none of them needs its own round trip.
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let pump_state = state.clone();
+        let pump_log_id = log_id.clone();
+        let pump = tokio::spawn(async move {
+            let mut buf = String::new();
+            let mut last_write = std::time::Instant::now();
+            while let Some(line) = rx.recv().await {
+                buf.push_str(&line);
+                buf.push('\n');
+                if last_write.elapsed() >= std::time::Duration::from_millis(1500) {
+                    if let Ok(db) = pump_state.db.lock() {
+                        append_deployment_log(&db, &pump_log_id, &buf);
+                    }
+                    last_write = std::time::Instant::now();
+                }
+            }
+            buf
+        });
+
+        let deploy_result = deploy_to_target(
+            &state,
+            &conn,
+            &service_id,
+            &stack_name,
+            &yaml,
+            auth,
+            Some(tx),
+        )
+        .await;
+
+        // The sender is dropped inside deploy_to_target, so this settles
+        // promptly and hands back everything that was streamed.
+        let streamed = pump.await.unwrap_or_default();
+
+        let status = if deploy_result.is_ok() {
+            "running"
+        } else {
+            "failed"
+        };
+        let log_output = match &deploy_result {
+            Ok(out) if !out.is_empty() => out.clone(),
+            Ok(_) => streamed,
+            Err(e) => format!("{e}"),
+        };
+
+        if let Ok(db) = state.db.lock() {
+            // Guarded on the old value: an operator who pressed Stop or
+            // Redeploy while this was running has already moved the row on,
+            // and a late-arriving task must not stomp their action.
+            let _ = db.execute(
+                "UPDATE services SET status = ?1, updated_at = datetime('now')
+                 WHERE id = ?2 AND status = 'deploying'",
+                rusqlite::params![status, service_id],
+            );
+            finish_deployment_log(&db, &log_id, status, &log_output);
+        }
+
+        match deploy_result {
+            Ok(_) => {
+                // Auto-generate service domain (skip databases — no HTTP to
+                // proxy). Remote services route to their OWN agent Traefik,
+                // handled inside create_service_domain.
+                if !follow_up.is_database {
+                    if let Some(http_port) = follow_up.http_port {
+                        try_create_service_domain(&state, &service_id, &follow_up.name, http_port)
+                            .await;
+                    }
+                }
+            }
+            Err(e) => tracing::error!("Deploy failed for service {}: {e}", follow_up.name),
+        }
+    });
+}
+
 /// Deploy a stack to the server identified by `conn`: locally on the core, or to
 /// a remote agent over the pinned-TLS channel. For remote, mesh `extra_hosts`
 /// are injected on the core first (the agent's deploy endpoint only runs
@@ -81,11 +197,19 @@ async fn deploy_to_target(
     stack_name: &str,
     yaml: &str,
     auth: crate::docker::compose::ComposeAuth,
+    progress: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 ) -> Result<String, AppError> {
     if conn.is_local {
-        return crate::docker::deploy_service_stack(state, service_id, stack_name, yaml, auth)
+        return match progress {
+            Some(tx) => crate::docker::deploy_service_stack_with_progress(
+                state, service_id, stack_name, yaml, auth, tx,
+            )
             .await
-            .map_err(AppError::Internal);
+            .map_err(AppError::Internal),
+            None => crate::docker::deploy_service_stack(state, service_id, stack_name, yaml, auth)
+                .await
+                .map_err(AppError::Internal),
+        };
     }
     // Remote agent: the agent doesn't inject mesh hosts, so do it here, then
     // POST the compose to the agent's deploy endpoint with the pinned client.
@@ -731,7 +855,7 @@ pub async fn create(
         let mut deploy_errors: Vec<String> = Vec::new();
         for (conn, yaml) in &deployments {
             if let Err(e) =
-                deploy_to_target(&state, conn, &service_id, &stack_name, yaml, None).await
+                deploy_to_target(&state, conn, &service_id, &stack_name, yaml, None, None).await
             {
                 deploy_errors.push(format!("{}: {e}", conn.host));
             }
@@ -842,50 +966,46 @@ pub async fn create(
         Some(auth_map)
     };
 
-    // Deploy: local on the core, or to the chosen remote agent.
-    let deploy_result = deploy_to_target(
+    // Persist the compose YAML now, not once the deploy succeeds.
+    //
+    // `restart` and `redeploy` both read `compose_content` and answer
+    // `no_compose_content` when it is NULL, and the green Deploy button routes
+    // to the git pipeline. Writing it only on success therefore left a service
+    // whose first deploy did not land with no working action at all — the only
+    // way out was to delete it. The YAML is fully known here.
+    {
+        let yaml_row = yaml.clone();
+        let sid_row = service_id.clone();
+        let _ = with_db(&state, |db| {
+            db.execute(
+                "UPDATE services SET compose_content = ?1 WHERE id = ?2",
+                rusqlite::params![yaml_row, sid_row],
+            )?;
+            Ok(())
+        });
+    }
+
+    // Hand the deploy to a background task instead of awaiting it here.
+    //
+    // Awaiting tied the whole deploy — image pull included — to the lifetime of
+    // this HTTP request. axum drops the handler future the moment the client
+    // goes away, so closing the tab or a proxy timeout skipped every terminal
+    // write and pinned the row at 'deploying' forever. The task now owns the
+    // log row, the final status and the auto-domain, and the operator can walk
+    // away mid-pull. Same shape as `create_railpack_app`.
+    spawn_catalog_deploy(
         &state,
         &target_conn,
         &service_id,
         &stack_name,
         &yaml,
         deploy_auth,
-    )
-    .await;
-
-    // Update status based on result
-    let status = if deploy_result.is_ok() {
-        "running"
-    } else {
-        "failed"
-    };
-    let log_output = match &deploy_result {
-        Ok(out) => out.clone(),
-        Err(e) => format!("{e}"),
-    };
-    let yaml_clone = yaml.clone();
-    let sid = service_id.clone();
-    with_db(&state, |db| {
-        let _ = db.execute(
-            "UPDATE services SET status = ?1, compose_content = ?2, updated_at = datetime('now') WHERE id = ?3",
-            rusqlite::params![status, yaml_clone, sid],
-        );
-        record_deployment_log(db, &sid, "deploy", status, &log_output);
-        Ok(())
-    })?;
-
-    // Propagate deploy error (preserves the AppError status — e.g. a remote
-    // agent being unreachable surfaces as 400, not 500).
-    deploy_result?;
-
-    // Auto-generate service domain (skip for databases — no HTTP to proxy).
-    // Remote services route the domain to their OWN agent Traefik (Feature C),
-    // handled server-aware inside create_service_domain.
-    if item.meta.category != "database" {
-        if let Some(http_port) = pick_http_port(&allocated_ports) {
-            try_create_service_domain(&state, &service_id, &name, http_port).await;
-        }
-    }
+        DeployFollowUp {
+            name: name.clone(),
+            is_database: item.meta.category == "database",
+            http_port: pick_http_port(&allocated_ports),
+        },
+    );
 
     // Build response
     let ports_json: Vec<serde_json::Value> = allocated_ports
@@ -903,7 +1023,7 @@ pub async fn create(
         "ok": true,
         "id": service_id,
         "name": name,
-        "status": "running",
+        "status": "deploying",
         "ports": ports_json,
     })))
 }
@@ -3697,7 +3817,59 @@ fn slug(name: &str) -> String {
 
 // ── Deployment Logs ─────────────────────────────────────────────────
 
-/// Record a deployment log entry.
+/// Open a `deployment_logs` row for work that is about to start.
+///
+/// The table has always supported an in-progress row — `status` defaults to
+/// `'pending'` and `finished_at` is nullable — but every writer went through
+/// [`record_deployment_log`], which inserts a row that is *already finished*.
+/// The consequence was an Action History panel that stayed empty for the whole
+/// duration of a deploy: the only row appeared once there was nothing left to
+/// watch. On a 15-second Redis pull nobody notices; on a 1.35 GB image it is
+/// minutes of a UI that looks broken, and if the deploy never finishes the
+/// operator is left with no record of it at all.
+fn begin_deployment_log(db: &rusqlite::Connection, service_id: &str, action: &str) -> String {
+    let id = uuid::Uuid::new_v4().to_string();
+    let _ = db.execute(
+        "INSERT INTO deployment_logs (id, service_id, action, status, output, started_at, finished_at)
+         VALUES (?1, ?2, ?3, 'running', '', datetime('now'), NULL)",
+        rusqlite::params![id, service_id, action],
+    );
+    id
+}
+
+/// Replace the output of an open log row, leaving it open.
+///
+/// Called repeatedly while a deploy streams, so the panel can render progress
+/// as it happens. Cheap enough to do on a timer — the row is tiny and SQLite
+/// is local — but callers should still throttle: `docker compose` emits many
+/// lines per second during a pull.
+fn append_deployment_log(db: &rusqlite::Connection, log_id: &str, output: &str) {
+    let _ = db.execute(
+        "UPDATE deployment_logs SET output = ?1 WHERE id = ?2",
+        rusqlite::params![output, log_id],
+    );
+}
+
+/// Close an open log row with its terminal status.
+fn finish_deployment_log(db: &rusqlite::Connection, log_id: &str, status: &str, output: &str) {
+    // Same mapping as record_deployment_log: a service that ended up 'running'
+    // means the deploy succeeded.
+    let deploy_status = match status {
+        "running" => "success",
+        other => other,
+    };
+    let _ = db.execute(
+        "UPDATE deployment_logs SET status = ?1, output = ?2, finished_at = datetime('now')
+         WHERE id = ?3",
+        rusqlite::params![deploy_status, output, log_id],
+    );
+}
+
+/// Record a completed deployment log entry in one shot.
+///
+/// Still used by every action that finishes fast enough to have nothing worth
+/// watching (stop / start / restart / redeploy / load-balance). Deploys go
+/// through [`begin_deployment_log`] + [`finish_deployment_log`] instead.
 fn record_deployment_log(
     db: &rusqlite::Connection,
     service_id: &str,

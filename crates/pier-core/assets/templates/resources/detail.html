@@ -45,13 +45,18 @@
         <div class="flex items-center gap-2">
             <!-- Redeploy dropdown -->
             <div x-show="resource.status !== 'created'" class="relative" x-data="{ redeployOpen: false }" @click.away="redeployOpen = false">
+                <!-- Disabled while a deploy is in flight: firing a second one
+                     on top of the first is never what the operator meant, and
+                     the buttons used to stay fully live with no hint that
+                     anything was happening. -->
                 <div class="flex">
-                    <button @click="redeployResource()"
-                            class="px-3 py-1.5 text-xs font-medium rounded-l-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors">
-                        {{ t('resources_detail.redeploy') }}
+                    <button @click="redeployResource()" :disabled="resource.status === 'deploying'"
+                            class="px-3 py-1.5 text-xs font-medium rounded-l-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span x-show="resource.status !== 'deploying'">{{ t('resources_detail.redeploy') }}</span>
+                        <span x-show="resource.status === 'deploying'">{{ t('resources_detail.deploy_in_progress') }}</span>
                     </button>
-                    <button @click="redeployOpen = !redeployOpen"
-                            class="px-1.5 py-1.5 text-xs font-medium rounded-r-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors border-l border-blue-200 dark:border-blue-500/30">
+                    <button @click="redeployOpen = !redeployOpen" :disabled="resource.status === 'deploying'"
+                            class="px-1.5 py-1.5 text-xs font-medium rounded-r-lg bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-600/30 transition-colors border-l border-blue-200 dark:border-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                     </button>
                 </div>
@@ -63,7 +68,11 @@
                     </button>
                 </div>
             </div>
-            <button @click="deployAndWatch()" x-show="resource.status === 'created' || resource.status === 'failed' || (resource.status === 'deploying' && !resource.compose_content)"
+            <!-- This button drives the GIT pipeline (POST /resources/{id}/deploy),
+                 which answers "Git is not configured for this service" for
+                 anything deployed from a catalog image. Only offer it where it
+                 can actually work. -->
+            <button @click="deployAndWatch()" x-show="resource.git_repo_url && (resource.status === 'created' || resource.status === 'failed' || (resource.status === 'deploying' && !resource.compose_content))"
                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-100 dark:bg-green-600/20 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-600/30 transition-colors">
                 {{ t('resources_detail.deploy') }}
             </button>
@@ -1714,12 +1723,16 @@ NODE_ENV=production"></textarea>
             </div>
             <div class="space-y-3">
                 <template x-for="log in deploymentLogs" :key="log.id">
-                    <div x-data="{ open: false }" class="border-l-2 pl-4 py-3 rounded-r-lg transition-colors"
-                         :class="log.status === 'success' ? 'border-green-500' : log.status === 'failed' ? 'border-red-500' : 'border-gray-400'">
+                    <!-- An unfinished row opens expanded: it is the one thing the
+                         operator is actually waiting on. -->
+                    <div x-data="{ open: log.status === 'running' || log.status === 'pending' }" class="border-l-2 pl-4 py-3 rounded-r-lg transition-colors"
+                         :class="log.status === 'success' ? 'border-green-500' : log.status === 'failed' ? 'border-red-500' : (log.status === 'running' || log.status === 'pending') ? 'border-blue-500' : 'border-gray-400'">
                         <div class="flex items-center gap-2 mb-1">
-                            <span class="text-xs font-medium px-2 py-0.5 rounded-full"
-                                  :class="log.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : log.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400'"
-                                  x-text="(log.status || '').charAt(0).toUpperCase() + (log.status || '').slice(1)"></span>
+                            <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1.5"
+                                  :class="log.status === 'success' ? 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400' : log.status === 'failed' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' : (log.status === 'running' || log.status === 'pending') ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-gray-100 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400'">
+                                <span x-show="log.status === 'running' || log.status === 'pending'" class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                                <span x-text="(log.status || '').charAt(0).toUpperCase() + (log.status || '').slice(1)"></span>
+                            </span>
                             <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500" x-text="log.action"></span>
                             <button x-show="log.output" @click="open = !open"
                                     class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-auto transition-colors"
@@ -3058,14 +3071,35 @@ function resourceDetail(id) {
                 || this.resource.ports?.[0]?.container
                 || this.resource.ports?.[0]?.host || 0;
             // Background polling: check for status changes + new deployments every 5s
+            // A resource created through the wizard lands here already
+            // deploying. Nothing used to watch it closely: only the 5s
+            // interval below ran, and the outcome was never announced.
+            if (this.resource.status === 'deploying') { this.pollDeployStatus(); }
+
             this._bgInterval = setInterval(async () => {
                 const oldStatus = this.resource.status;
                 const oldCount = this.ciDeployments.length;
                 await this.refresh();
                 await this.loadDeployments();
+                // Action History has to refresh too, otherwise a deploy that is
+                // streaming its log right now only updates when the operator
+                // clicks Refresh. Only while the Deployments tab is open — no
+                // point polling a panel nobody is looking at.
+                if (this.tab === 'deployments') { await this.loadDeploymentLogs(); }
                 this.loadDomains();
                 // Count active (building) deployments
                 this.activeDeployCount = this.ciDeployments.filter(d => d.status === 'building' || d.status === 'pending').length;
+                // Announce the transition out of 'deploying'. `oldStatus` was
+                // captured and then never used, so a failed deploy just went
+                // quietly red.
+                if (oldStatus === 'deploying' && this.resource.status !== 'deploying') {
+                    if (this.resource.status === 'failed') {
+                        toast('{{ t('resources_detail.toast_deploy_failed') }}', 'error');
+                        this.tab = 'deployments'; this.loadDeploymentLogs();
+                    } else if (this.resource.status === 'running') {
+                        toast('{{ t('resources_detail.toast_deploy_succeeded') }}');
+                    }
+                }
                 // Auto-open new deployment if one appeared
                 if (this.ciDeployments.length > oldCount && this.tab === 'deployments' && !this.selectedDeploy) {
                     await this.openDeployDetail(this.ciDeployments[0].id);

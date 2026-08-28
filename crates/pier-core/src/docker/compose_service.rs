@@ -42,6 +42,22 @@ pub async fn deploy_service_stack(
     compose::deploy_stack(stack_name, &yaml, &state.config, auth).await
 }
 
+/// Same as [`deploy_service_stack`], but streams compose output to `progress`
+/// while it runs so the caller can surface image-pull progress, and fails
+/// instead of hanging when the pull stalls.
+pub async fn deploy_service_stack_with_progress(
+    state: &AppState,
+    service_id: &str,
+    stack_name: &str,
+    yaml: &str,
+    auth: ComposeAuth,
+    progress: tokio::sync::mpsc::UnboundedSender<String>,
+) -> Result<String> {
+    crate::deploy::write_env_file(state, service_id, stack_name).await;
+    let yaml = with_mesh_hosts(state, yaml);
+    compose::deploy_stack_with_progress(stack_name, &yaml, &state.config, auth, progress).await
+}
+
 /// Materialize `.env` from the service's encrypted `env_json` and run
 /// `docker compose up -d --force-recreate --pull always` (no build cache).
 pub async fn deploy_service_stack_no_cache(

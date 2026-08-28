@@ -610,6 +610,7 @@ resources_create:
   err_invalid_url: 请输入完整的 HTTPS URL，例如
   toast_repo_url_invalid: 仓库 URL 无效
   toast_deployed_success: 部署成功
+  toast_deploy_started: — 已开始部署，请在服务页面查看进度
   toast_resource_exists: '资源 "%{name}" 已存在 — 正在打开它'
 
 # Catalog info modal partial (partials/catalog_info_modal.html).
@@ -623,6 +624,9 @@ resources_detail:
   rename_hint: 双击以重命名
   save: 保存
   deploying: 部署中
+  deploy_in_progress: 部署中
+  toast_deploy_failed: 部署失败 —— 请查看下方日志
+  toast_deploy_succeeded: 部署完成
   redeploy: 重新部署
   force_deploy: 强制部署（不使用缓存）
   deploy: 部署

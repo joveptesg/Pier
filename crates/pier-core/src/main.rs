@@ -285,6 +285,11 @@ async fn main() -> Result<()> {
     // previous core process exited.
     tasks::recover::run_on_boot(state.clone());
 
+    // Settle services left at 'deploying' by a previous process. Nothing else
+    // in the codebase moves such a row, so without this a crash or upgrade
+    // mid-deploy pins the service until someone deletes it.
+    docker::deploy_reconcile::run_on_boot(state.clone());
+
     // Unified cron scheduler. Owns the `task`, `backup`, and `cleanup`
     // action types — the per-feature loops that used to live here and
     // in `backup::scheduler` are gone (see Stage 3.5 of the refactor).
@@ -703,7 +708,10 @@ async fn main() -> Result<()> {
         // bind it to a task-local for every downstream handler. Outermost layer
         // so the binding is live before auth middleware and page rendering run.
         .layer(axum::middleware::from_fn(i18n::locale_layer))
-        .with_state(state);
+        .with_state(state.clone());
+
+    // Kept past `with_state` so the shutdown path below can still reach the DB.
+    let shutdown_state = state;
 
     // Start server
     let addr_str = config.listen_addr();
@@ -715,7 +723,16 @@ async fn main() -> Result<()> {
         config::TlsMode::SelfSigned => {
             let tls = tls::load_or_generate_cert(&config).await?;
             tracing::info!("Listening on https://{addr_str} (self-signed TLS)");
+            // axum_server has no `with_graceful_shutdown`; shutdown is driven
+            // through a Handle instead.
+            let handle = axum_server::Handle::new();
+            let signal_handle = handle.clone();
+            tokio::spawn(async move {
+                shutdown_signal().await;
+                signal_handle.graceful_shutdown(Some(std::time::Duration::from_secs(15)));
+            });
             axum_server::bind_rustls(sock_addr, tls)
+                .handle(handle)
                 .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
                 .await?;
         }
@@ -728,11 +745,68 @@ async fn main() -> Result<()> {
                 listener,
                 app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
             )
+            .with_graceful_shutdown(shutdown_signal())
             .await?;
         }
     }
 
+    checkpoint_on_shutdown(&shutdown_state);
+
     Ok(())
+}
+
+/// Resolve once the process is asked to stop (SIGTERM from systemd, Ctrl-C
+/// interactively).
+///
+/// Without this the process had no signal handler at all, so SIGTERM took its
+/// default disposition and killed it outright — no destructors, no chance to
+/// flush anything.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                tracing::warn!("Could not install SIGTERM handler: {e}");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+
+    tracing::info!("Shutdown signal received — draining connections");
+}
+
+/// Fold the write-ahead log back into the database file before exiting.
+///
+/// SQLite only checkpoints when the WAL passes its page threshold, so on a
+/// quiet control plane the main file can lag hours behind. That is normally
+/// safe — the next open replays the WAL — but it means every restart depends
+/// on that replay working, and a WAL that fails validation is discarded whole
+/// and without complaint. Checkpointing here makes the on-disk database
+/// complete at the moment an upgrade or restart takes the process down, so
+/// there is nothing left to replay and nothing left to lose.
+fn checkpoint_on_shutdown(state: &state::SharedState) {
+    match state.db.lock() {
+        Ok(db) => match db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);") {
+            Ok(()) => tracing::info!("Database checkpointed — WAL folded into pier.db"),
+            Err(e) => tracing::warn!("Checkpoint on shutdown failed: {e}"),
+        },
+        Err(e) => tracing::warn!("Could not lock DB for shutdown checkpoint: {e}"),
+    }
 }
 
 /// Hydrate a fresh pier-core DB from a bundle file. Invoked via `--import-bundle`.
