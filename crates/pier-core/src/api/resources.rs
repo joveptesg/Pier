@@ -185,6 +185,252 @@ fn spawn_catalog_deploy(
         }
     });
 }
+/// Run a cluster deploy — one stack per node — in the background.
+///
+/// Same contract as `spawn_catalog_deploy`: the caller has already inserted the
+/// row at `status = 'deploying'` and persisted the combined compose, and this
+/// task owns every terminal write from here. The only difference is the loop
+/// over nodes, and that a single node failing marks the whole cluster failed —
+/// which is what the inline version did.
+fn spawn_cluster_deploy(
+    state: &SharedState,
+    deployments: Vec<(crate::api::servers::AgentConn, String)>,
+    service_id: &str,
+    stack_name: &str,
+    follow_up: DeployFollowUp,
+) {
+    let state = state.clone();
+    let service_id = service_id.to_string();
+    let stack_name = stack_name.to_string();
+
+    tokio::spawn(async move {
+        let log_id = match state.db.lock() {
+            Ok(db) => begin_deployment_log(&db, &service_id, "deploy"),
+            Err(e) => {
+                tracing::error!("Cluster deploy for {}: DB lock failed: {e}", follow_up.name);
+                return;
+            }
+        };
+
+        // One pump for the whole cluster; each line is tagged with the host it
+        // came from, since several nodes pull at once and an untagged transcript
+        // is unreadable.
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let pump_state = state.clone();
+        let pump_log_id = log_id.clone();
+        let pump = tokio::spawn(async move {
+            let mut buf = String::new();
+            let mut last_write = std::time::Instant::now();
+            while let Some(line) = rx.recv().await {
+                buf.push_str(&line);
+                buf.push('\n');
+                if last_write.elapsed() >= std::time::Duration::from_millis(1500) {
+                    if let Ok(db) = pump_state.db.lock() {
+                        append_deployment_log(&db, &pump_log_id, &buf);
+                    }
+                    last_write = std::time::Instant::now();
+                }
+            }
+            buf
+        });
+
+        let mut deploy_errors: Vec<String> = Vec::new();
+        for (conn, yaml) in &deployments {
+            let host = conn.host.clone();
+            let (node_tx, mut node_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+            let tagged = tx.clone();
+            let tag = tokio::spawn(async move {
+                while let Some(line) = node_rx.recv().await {
+                    let _ = tagged.send(format!("[{host}] {line}"));
+                }
+            });
+            let result = deploy_to_target(
+                &state,
+                conn,
+                &service_id,
+                &stack_name,
+                yaml,
+                None,
+                Some(node_tx),
+            )
+            .await;
+            let _ = tag.await;
+            if let Err(e) = result {
+                deploy_errors.push(format!("{}: {e}", conn.host));
+            }
+        }
+        drop(tx);
+        let streamed = pump.await.unwrap_or_default();
+
+        let status = if deploy_errors.is_empty() {
+            "running"
+        } else {
+            "failed"
+        };
+        let log_output = if deploy_errors.is_empty() {
+            if streamed.is_empty() {
+                "cluster deployed".to_string()
+            } else {
+                streamed
+            }
+        } else {
+            deploy_errors.join("; ")
+        };
+
+        if let Ok(db) = state.db.lock() {
+            let _ = db.execute(
+                "UPDATE services SET status = ?1, updated_at = datetime('now')
+                 WHERE id = ?2 AND status = 'deploying'",
+                rusqlite::params![status, service_id],
+            );
+            finish_deployment_log(&db, &log_id, status, &log_output);
+        }
+
+        if deploy_errors.is_empty() {
+            if !follow_up.is_database {
+                if let Some(http_port) = follow_up.http_port {
+                    try_create_service_domain(&state, &service_id, &follow_up.name, http_port)
+                        .await;
+                }
+            }
+        } else {
+            tracing::error!(
+                "Cluster deploy failed for service {}: {}",
+                follow_up.name,
+                deploy_errors.join("; ")
+            );
+        }
+    });
+}
+
+/// Run a raw docker-compose deploy in the background.
+///
+/// Same contract as `spawn_catalog_deploy` — row already at `'deploying'` with
+/// its YAML persisted, task owns every terminal write. This path skips the
+/// auto-domain (a raw stack declares its own ports) but adds the port-range
+/// audit, which needs `port_allocations` to be populated first.
+fn spawn_compose_deploy(
+    state: &SharedState,
+    service_id: &str,
+    stack_name: &str,
+    yaml: &str,
+    project_id: Option<String>,
+) {
+    let state = state.clone();
+    let service_id = service_id.to_string();
+    let stack_name = stack_name.to_string();
+    let yaml = yaml.to_string();
+
+    tokio::spawn(async move {
+        let log_id = match state.db.lock() {
+            Ok(db) => begin_deployment_log(&db, &service_id, "deploy"),
+            Err(e) => {
+                tracing::error!("Compose deploy for {service_id}: DB lock failed: {e}");
+                return;
+            }
+        };
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let pump_state = state.clone();
+        let pump_log_id = log_id.clone();
+        let pump = tokio::spawn(async move {
+            let mut buf = String::new();
+            let mut last_write = std::time::Instant::now();
+            while let Some(line) = rx.recv().await {
+                buf.push_str(&line);
+                buf.push('\n');
+                if last_write.elapsed() >= std::time::Duration::from_millis(1500) {
+                    if let Ok(db) = pump_state.db.lock() {
+                        append_deployment_log(&db, &pump_log_id, &buf);
+                    }
+                    last_write = std::time::Instant::now();
+                }
+            }
+            buf
+        });
+
+        let deploy_result = crate::docker::deploy_service_stack_with_progress(
+            &state,
+            &service_id,
+            &stack_name,
+            &yaml,
+            None,
+            tx,
+        )
+        .await;
+        let streamed = pump.await.unwrap_or_default();
+
+        if deploy_result.is_ok() {
+            // Record the real docker-compose container name (pier-{slug}-{svc}-1)
+            // so the Logs tab resolves it instead of the bare project name.
+            crate::deploy::persist_container_name(&state, &service_id, &stack_name).await;
+            // Populate port_allocations / services.port from the compose `ports:`.
+            // Without this the API/UI report null ports for docker-compose resources.
+            crate::deploy::update_ports_from_compose(&state, &service_id, &yaml);
+        }
+
+        let status = if deploy_result.is_ok() {
+            "running"
+        } else {
+            "failed"
+        };
+        let log_output = match &deploy_result {
+            Ok(out) if !out.is_empty() => out.clone(),
+            Ok(_) => streamed,
+            Err(e) => format!("{e}"),
+        };
+
+        let _ = with_db(&state, |db| {
+            let _ = db.execute(
+                "UPDATE services SET status = ?1, updated_at = datetime('now')
+                 WHERE id = ?2 AND status = 'deploying'",
+                rusqlite::params![status, service_id],
+            );
+            finish_deployment_log(db, &log_id, status, &log_output);
+
+            // After port_sync has materialized actual host bindings into
+            // port_allocations, surface a warning log entry for any host_port
+            // that falls outside the project's declared range. We do NOT block
+            // the deploy — explicit YAML is the user's intent. The warning gives
+            // them a paper trail in the deployment logs UI.
+            if status == "running" {
+                let (range_start, range_end) =
+                    resolve_port_range(&state, db, project_id.as_deref());
+                let mut stmt = db.prepare(
+                    "SELECT compose_service, host_port FROM port_allocations
+                     WHERE service_id = ?1 AND (host_port < ?2 OR host_port > ?3)
+                     ORDER BY host_port",
+                )?;
+                let offending: Vec<(Option<String>, i64)> = stmt
+                    .query_map(
+                        rusqlite::params![&service_id, range_start as i64, range_end as i64],
+                        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?)),
+                    )?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                if !offending.is_empty() {
+                    let summary = offending
+                        .iter()
+                        .map(|(svc, p)| match svc {
+                            Some(s) => format!("{s}:{p}"),
+                            None => p.to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let msg = format!(
+                        "Compose published host ports outside project range {range_start}-{range_end}: {summary}"
+                    );
+                    record_deployment_log(db, &service_id, "warning", "warning", &msg);
+                }
+            }
+            Ok(())
+        });
+
+        if let Err(e) = deploy_result {
+            tracing::error!("Compose deploy failed for service {service_id}: {e}");
+        }
+    });
+}
 
 /// Deploy a stack to the server identified by `conn`: locally on the core, or to
 /// a remote agent over the pinned-TLS channel. For remote, mesh `extra_hosts`
@@ -851,49 +1097,21 @@ pub async fn create(
             })?;
         }
 
-        // Deploy each server's nodes (local on the core, remote via the agent).
-        let mut deploy_errors: Vec<String> = Vec::new();
-        for (conn, yaml) in &deployments {
-            if let Err(e) =
-                deploy_to_target(&state, conn, &service_id, &stack_name, yaml, None, None).await
-            {
-                deploy_errors.push(format!("{}: {e}", conn.host));
-            }
-        }
-        let status = if deploy_errors.is_empty() {
-            "running"
-        } else {
-            "failed"
-        };
-        let log_output = if deploy_errors.is_empty() {
-            "cluster deployed".to_string()
-        } else {
-            deploy_errors.join("; ")
-        };
-        {
-            let sid = service_id.clone();
-            with_db(&state, |db| {
-                let _ = db.execute(
-                    "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-                    rusqlite::params![status, sid],
-                );
-                record_deployment_log(db, &sid, "deploy", status, &log_output);
-                Ok(())
-            })?;
-        }
-        if !deploy_errors.is_empty() {
-            return Err(AppError::Internal(anyhow::anyhow!(
-                "cluster deploy failed: {}",
-                deploy_errors.join("; ")
-            )));
-        }
-
-        // Auto-generate service domain (skip for databases — no HTTP to proxy)
-        if item.meta.category != "database" {
-            if let Some(http_port) = pick_http_port(&allocated_ports) {
-                try_create_service_domain(&state, &service_id, &name, http_port).await;
-            }
-        }
+        // Hand the per-node deploys to a background task, for the same reason
+        // the standalone path does: awaiting them here tied the pulls to the
+        // HTTP request, and a client that walked away left the row at
+        // 'deploying' with no terminal write ever reaching it.
+        spawn_cluster_deploy(
+            &state,
+            deployments,
+            &service_id,
+            &stack_name,
+            DeployFollowUp {
+                name: name.clone(),
+                is_database: item.meta.category == "database",
+                http_port: pick_http_port(&allocated_ports),
+            },
+        );
 
         let ports_json: Vec<serde_json::Value> = allocated_ports
             .iter()
@@ -910,7 +1128,7 @@ pub async fn create(
             "ok": true,
             "id": service_id,
             "name": name,
-            "status": "running",
+            "status": "deploying",
             "deployment_mode": "cluster",
             "node_count": node_count,
             "ports": ports_json,
@@ -1067,80 +1285,21 @@ async fn create_compose(
         Ok(())
     })?;
 
-    let deploy_result =
-        docker::deploy_service_stack(state, &service_id, stack_name, &yaml, None).await;
-
-    if deploy_result.is_ok() {
-        // Record the real docker-compose container name (pier-{slug}-{svc}-1)
-        // so the Logs tab resolves it instead of the bare project name.
-        crate::deploy::persist_container_name(state, &service_id, stack_name).await;
-        // Populate port_allocations / services.port from the compose `ports:`.
-        // Without this the API/UI report null ports for docker-compose resources.
-        crate::deploy::update_ports_from_compose(state, &service_id, &yaml);
-    }
-
-    let status = if deploy_result.is_ok() {
-        "running"
-    } else {
-        "failed"
-    };
-    let log_output = match &deploy_result {
-        Ok(out) => out.clone(),
-        Err(e) => format!("{e}"),
-    };
-    let sid = service_id.clone();
-    let project_id = body.project_id.clone();
-    with_db(state, |db| {
-        let _ = db.execute(
-            "UPDATE services SET status = ?1, updated_at = datetime('now') WHERE id = ?2",
-            rusqlite::params![status, sid],
-        );
-        record_deployment_log(db, &sid, "deploy", status, &log_output);
-
-        // After port_sync has materialized actual host bindings into
-        // port_allocations, surface a warning log entry for any host_port
-        // that falls outside the project's declared range. We do NOT block
-        // the deploy — explicit YAML is the user's intent. The warning gives
-        // them a paper trail in the deployment logs UI.
-        if status == "running" {
-            let (range_start, range_end) = resolve_port_range(state, db, project_id.as_deref());
-            let mut stmt = db.prepare(
-                "SELECT compose_service, host_port FROM port_allocations
-                 WHERE service_id = ?1 AND (host_port < ?2 OR host_port > ?3)
-                 ORDER BY host_port",
-            )?;
-            let offending: Vec<(Option<String>, i64)> = stmt
-                .query_map(
-                    rusqlite::params![&sid, range_start as i64, range_end as i64],
-                    |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?)),
-                )?
-                .filter_map(|r| r.ok())
-                .collect();
-            if !offending.is_empty() {
-                let summary = offending
-                    .iter()
-                    .map(|(svc, p)| match svc {
-                        Some(s) => format!("{s}:{p}"),
-                        None => p.to_string(),
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let msg = format!(
-                    "Compose published host ports outside project range {range_start}-{range_end}: {summary}"
-                );
-                record_deployment_log(db, &sid, "warning", "warning", &msg);
-            }
-        }
-        Ok(())
-    })?;
-
-    deploy_result.map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy failed: {e}")))?;
+    // Hand the deploy to a background task: the same client-disconnect problem
+    // the catalog path had applies verbatim here.
+    spawn_compose_deploy(
+        state,
+        &service_id,
+        stack_name,
+        &yaml,
+        body.project_id.clone(),
+    );
 
     Ok(Json(serde_json::json!({
         "ok": true,
         "id": service_id,
         "name": name,
-        "status": "running",
+        "status": "deploying",
     })))
 }
 
@@ -1233,34 +1392,39 @@ async fn create_dockerfile(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Write Dockerfile: {e}")))?;
 
-    // Deploy
-    let deploy_result =
-        docker::deploy_service_stack(state, &service_id, stack_name, &yaml, None).await;
+    // Persist the compose YAML before deploying, not with the terminal status.
+    //
+    // Writing it in the same UPDATE as the final status meant an interrupted
+    // deploy left `compose_content` NULL, and `restart`/`redeploy` answer
+    // `no_compose_content` on a NULL — the service had no working action left.
+    {
+        let yaml_row = yaml.clone();
+        let sid_row = service_id.clone();
+        let _ = with_db(state, |db| {
+            db.execute(
+                "UPDATE services SET compose_content = ?1 WHERE id = ?2",
+                rusqlite::params![yaml_row, sid_row],
+            )?;
+            Ok(())
+        });
+    }
 
-    let status = if deploy_result.is_ok() {
-        "running"
-    } else {
-        "failed"
-    };
-    let log_output = match &deploy_result {
-        Ok(out) => out.clone(),
-        Err(e) => format!("{e}"),
-    };
-    let yaml_clone = yaml.clone();
-    let sid = service_id.clone();
-    with_db(state, |db| {
-        let _ = db.execute(
-            "UPDATE services SET status = ?1, compose_content = ?2, updated_at = datetime('now') WHERE id = ?3",
-            rusqlite::params![status, yaml_clone, sid],
-        );
-        record_deployment_log(db, &sid, "deploy", status, &log_output);
-        Ok(())
-    })?;
-
-    deploy_result.map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy failed: {e}")))?;
-
-    // Auto-generate service domain
-    try_create_service_domain(state, &service_id, name, container_port as i64).await;
+    // Deploy in the background — a client that walks away mid-build must not
+    // strand the row at 'deploying'.
+    let local_conn = crate::api::servers::get_server_info(state, "local")?;
+    spawn_catalog_deploy(
+        state,
+        &local_conn,
+        &service_id,
+        stack_name,
+        &yaml,
+        None,
+        DeployFollowUp {
+            name: name.to_string(),
+            is_database: false,
+            http_port: Some(container_port as i64),
+        },
+    );
 
     let ports_json: Vec<serde_json::Value> = allocated_ports
         .iter()
@@ -1277,7 +1441,7 @@ async fn create_dockerfile(
         "ok": true,
         "id": service_id,
         "name": name,
-        "status": "running",
+        "status": "deploying",
         "ports": ports_json,
     })))
 }
@@ -1564,42 +1728,45 @@ async fn create_git_deploy(
         catalog_id = body.catalog_id,
     );
 
-    // Deploy
-    let deploy_result =
-        docker::deploy_service_stack(state, &service_id, stack_name, &yaml, None).await;
-
-    let status = if deploy_result.is_ok() {
-        "running"
-    } else {
-        "failed"
-    };
-    let log_output = match &deploy_result {
-        Ok(out) => out.clone(),
-        Err(e) => format!("{e}"),
-    };
-    let yaml_clone = yaml.clone();
-    let sid = service_id.clone();
-    let env_data = serde_json::json!({
-        "GIT_URL": git_url,
-        "GIT_BRANCH": branch,
-        "DOCKERFILE_PATH": build_path,
-    });
-    let env_json_stored = crate::crypto::encrypt_env_json(&env_data.to_string());
-    with_db(state, |db| {
-        let _ = db.execute(
-            "UPDATE services SET status = ?1, compose_content = ?2, env_json = ?3, updated_at = datetime('now') WHERE id = ?4",
-            rusqlite::params![status, yaml_clone, env_json_stored, sid],
-        );
-        record_deployment_log(db, &sid, "deploy", status, &log_output);
-        Ok(())
-    })?;
-
-    deploy_result.map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy failed: {e}")))?;
-
-    // Auto-generate service domain
-    if let Some(http_port) = pick_http_port(&allocated_ports) {
-        try_create_service_domain(state, &service_id, name, http_port).await;
+    // Persist the compose YAML and the git coordinates before deploying.
+    //
+    // These describe the service, not the outcome of this attempt; writing them
+    // alongside the terminal status left an interrupted deploy with NULL
+    // `compose_content`, which `restart`/`redeploy` reject outright.
+    {
+        let env_data = serde_json::json!({
+            "GIT_URL": git_url,
+            "GIT_BRANCH": branch,
+            "DOCKERFILE_PATH": build_path,
+        });
+        let env_json_stored = crate::crypto::encrypt_env_json(&env_data.to_string());
+        let yaml_row = yaml.clone();
+        let sid_row = service_id.clone();
+        let _ = with_db(state, |db| {
+            db.execute(
+                "UPDATE services SET compose_content = ?1, env_json = ?2 WHERE id = ?3",
+                rusqlite::params![yaml_row, env_json_stored, sid_row],
+            )?;
+            Ok(())
+        });
     }
+
+    // Deploy in the background — the image build can run for minutes and must
+    // not die with the HTTP request that started it.
+    let local_conn = crate::api::servers::get_server_info(state, "local")?;
+    spawn_catalog_deploy(
+        state,
+        &local_conn,
+        &service_id,
+        stack_name,
+        &yaml,
+        None,
+        DeployFollowUp {
+            name: name.to_string(),
+            is_database: false,
+            http_port: pick_http_port(&allocated_ports),
+        },
+    );
 
     let ports_json: Vec<serde_json::Value> = allocated_ports
         .iter()
@@ -1616,7 +1783,7 @@ async fn create_git_deploy(
         "ok": true,
         "id": service_id,
         "name": name,
-        "status": "running",
+        "status": "deploying",
         "ports": ports_json,
     })))
 }
