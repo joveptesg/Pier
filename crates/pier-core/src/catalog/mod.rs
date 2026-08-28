@@ -460,7 +460,13 @@ pub fn build_compose_yaml_scaled(
 
         if let Some(hc) = &item.healthcheck {
             yaml.push_str("    healthcheck:\n");
-            let test_str = serde_json::to_string(&hc.test).unwrap_or_default();
+            // Substitute like every other emitted field. Without this a
+            // `{{PASSWORD}}` in a healthcheck reached the compose file
+            // verbatim, and redis-cli exits 0 even when the server rejects the
+            // auth — so the container reported healthy while refusing every
+            // request.
+            let test: Vec<String> = hc.test.iter().map(|t| substitute(t, env_vars)).collect();
+            let test_str = serde_json::to_string(&test).unwrap_or_default();
             yaml.push_str(&format!("      test: {test_str}\n"));
             yaml.push_str(&format!("      interval: {}\n", hc.interval));
             yaml.push_str(&format!("      timeout: {}\n", hc.timeout));
@@ -520,6 +526,78 @@ pub fn build_from_template(template: &str, vars: &HashMap<String, String>) -> St
 #[cfg(test)]
 mod compose_builder_tests {
     use super::*;
+
+    /// No `{{placeholder}}` may survive into a generated compose file.
+    ///
+    /// The redis and valkey healthcheck shipped `{{REDIS_PASSWORD}}` verbatim
+    /// for as long as the emitter forgot to substitute that one field, and
+    /// nothing caught it: the container still reported healthy, because
+    /// redis-cli exits 0 even when the server rejects the credentials. This
+    /// renders every catalog template and fails on any leftover, so the next
+    /// field someone forgets is caught at build time rather than in production.
+    #[test]
+    fn no_template_leaks_placeholders_into_compose() {
+        let mut leaks: Vec<String> = Vec::new();
+
+        for it in load_catalog() {
+            if it.docker.is_none() {
+                continue; // [compose] templates are raw YAML, substituted wholesale
+            }
+            // Give every declared variable a value, the way a real deploy does.
+            let mut vars: HashMap<String, String> = HashMap::new();
+            vars.insert("name".into(), "svc".into());
+            vars.insert("password".into(), "s3cret".into());
+            vars.insert(
+                "version".into(),
+                it.versions
+                    .as_ref()
+                    .map(|v| v.default.clone())
+                    .unwrap_or_else(|| "latest".into()),
+            );
+            // Wizard field values land in the same map at deploy time — the
+            // generic docker-image template takes its image from one — so the
+            // test has to seed them too or it flags its own blind spot.
+            if let Some(ui) = &it.ui {
+                for (key, field) in &ui.fields {
+                    vars.insert(key.clone(), "value".into());
+                    if let Some(target) = &field.maps_to {
+                        vars.insert(target.clone(), "value".into());
+                    }
+                }
+            }
+            for (key, ev) in &it.env {
+                let val = ev
+                    .default
+                    .clone()
+                    .map(|d| substitute(&d, &vars))
+                    .unwrap_or_else(|| "value".into());
+                vars.insert(key.clone(), val);
+            }
+
+            let ports: Vec<ReplicaPortMapping> = it
+                .ports
+                .iter()
+                .map(|(n, p)| (n.clone(), 10000, p.internal, None))
+                .collect();
+            let yaml = build_compose_yaml(&it, "svc-1", "svc", &vars, &ports, Some("pier-net"));
+
+            for line in yaml.lines() {
+                if line.contains("{{") {
+                    leaks.push(format!("{}: {}", it.meta.id, line.trim()));
+                }
+            }
+        }
+
+        assert!(
+            leaks.is_empty(),
+            "unsubstituted placeholders reached the compose file:
+{}",
+            leaks.join(
+                "
+"
+            )
+        );
+    }
 
     fn item(id: &str) -> CatalogItem {
         load_catalog()

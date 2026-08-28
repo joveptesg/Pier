@@ -812,6 +812,7 @@ resources_detail:
   th_connection_url: 连接 URL
   restore_from_file: 从文件恢复
   change_password_title: 修改密码
+  delete_database: 删除数据库
   delete_database_title: 删除数据库
   no_databases: 未找到数据库
   create_database: 创建数据库

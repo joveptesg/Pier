@@ -170,43 +170,125 @@ pub async fn status(State(state): State<SharedState>) -> AppResult<impl IntoResp
     })))
 }
 
+/// Reject contacts Let's Encrypt will not accept.
+///
+/// The failure this guards against is specific: an address on a reserved
+/// suffix — `admin@pier.local` is Pier's own fallback — makes the ACME account
+/// registration fail outright with "Domain name does not end with a valid
+/// public suffix (TLD)", and Traefik then issues no certificates at all. The
+/// only trace is a line in the Traefik container log, so the operator is left
+/// with a panel that saved successfully and HTTPS that never works.
+///
+/// Deliberately not a full RFC 5322 validator: the goal is to catch the
+/// address that cannot possibly work, not to argue about exotic-but-legal ones.
+fn validate_acme_email(email: &str) -> Result<(), AppError> {
+    let email = email.trim();
+    if email.is_empty() {
+        return Ok(()); // clearing the setting is allowed
+    }
+    let reject = |reason: &str| {
+        Err(AppError::BadRequest(format!(
+            "'{email}' cannot be used for Let's Encrypt: {reason}"
+        )))
+    };
+    let Some((local, domain)) = email.split_once('@') else {
+        return reject("not an email address");
+    };
+    if local.is_empty() || domain.is_empty() {
+        return reject("not an email address");
+    }
+    if !domain.contains('.') {
+        return reject("the domain has no public suffix");
+    }
+    const RESERVED: &[&str] = &[
+        ".local",
+        ".localdomain",
+        ".internal",
+        ".lan",
+        ".home",
+        ".test",
+    ];
+    let lower = domain.to_ascii_lowercase();
+    if RESERVED.iter().any(|s| lower.ends_with(s)) {
+        return reject("that suffix is reserved and Let's Encrypt rejects it");
+    }
+    Ok(())
+}
+
 /// PUT /api/v1/proxy/settings
 pub async fn update_settings(
     State(state): State<SharedState>,
     Json(body): Json<ProxySettingsRequest>,
 ) -> AppResult<impl IntoResponse> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-
     if let Some(email) = &body.acme_email {
-        db.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.acme_email', ?1)",
-            [email],
-        )?;
-    }
-    if let Some(dashboard) = body.dashboard {
-        db.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.dashboard', ?1)",
-            [if dashboard { "true" } else { "false" }],
-        )?;
-    }
-    if let Some(wildcard) = &body.wildcard_domain {
-        db.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.wildcard_domain', ?1)",
-            [wildcard],
-        )?;
+        validate_acme_email(email)?;
     }
 
-    // Handle platform domain
-    if let Some(domain) = &body.platform_domain {
-        let domain = crate::proxy::config::normalize_domain(domain);
-        db.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.platform_domain', ?1)",
-            [&domain],
-        )?;
-        drop(db); // release lock before file I/O
+    // All DB writes happen in this scope so the guard is released before any
+    // file I/O or Docker work below. `std::sync::Mutex` is not reentrant, and
+    // deploying Traefik takes seconds — holding the lock across it would stall
+    // every other handler.
+    let platform_domain = body
+        .platform_domain
+        .as_deref()
+        .map(crate::proxy::config::normalize_domain);
+
+    let (acme_email, dashboard_enabled, acme_email_changed) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+        // Compare before writing: re-saving the same address must not bounce
+        // Traefik, and neither must saving an unrelated setting.
+        let previous = crate::proxy::read_acme_email(&db);
+        let changed = body
+            .acme_email
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|new| !new.is_empty() && new != previous);
+
+        if let Some(email) = &body.acme_email {
+            db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.acme_email', ?1)",
+                [email],
+            )?;
+        }
+        if let Some(dashboard) = body.dashboard {
+            db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.dashboard', ?1)",
+                [if dashboard { "true" } else { "false" }],
+            )?;
+        }
+        if let Some(wildcard) = &body.wildcard_domain {
+            db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.wildcard_domain', ?1)",
+                [wildcard],
+            )?;
+        }
+        if let Some(domain) = &platform_domain {
+            db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.platform_domain', ?1)",
+                [domain],
+            )?;
+        }
+
+        let email = crate::proxy::read_acme_email(&db);
+        let dash = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_else(|_| "false".to_string())
+            == "true";
+        (email, dash, changed)
+    };
+
+    // Handle platform domain (Traefik DYNAMIC config — a watched directory, so
+    // this one does take effect without a restart).
+    if let Some(domain) = &platform_domain {
+        let domain = domain.clone();
         if domain.is_empty() {
             let _ = crate::proxy::config::remove_platform_domain_config(&state.config.data_dir);
             tracing::info!("Platform domain cleared (Traefik dynamic config removed)");
@@ -227,6 +309,42 @@ pub async fn update_settings(
                 "Platform domain bound: {domain} -> {target} (Traefik dynamic config written)"
             );
         }
+    }
+
+    // The ACME contact lives in Traefik's STATIC config, which is only written
+    // when Traefik is deployed — and Traefik does not re-read it (only the
+    // dynamic directory is watched). Storing the address was therefore a no-op
+    // until something else happened to redeploy: `proxy::enable`, a version
+    // upgrade, or the next restart of Pier. The operator saw `{"ok": true}`,
+    // certificates kept failing against whatever contact was baked in at first
+    // deploy — on a fresh install the `admin@pier.local` fallback, which Let's
+    // Encrypt refuses outright — and nothing said a restart was needed.
+    // Only when the address actually changed, and never inline.
+    //
+    // Redeploying stops and restarts the Traefik container, and the operator is
+    // almost always talking to the panel *through* Traefik — so doing it inside
+    // the request kills the very connection carrying it. axum then drops the
+    // handler future mid-redeploy and Traefik stays down: saving an unrelated
+    // setting would take the whole panel offline. The task owns the work, so it
+    // finishes whether or not the client survives the blip.
+    if acme_email_changed {
+        let version = read_traefik_version(&state)?;
+        let state = state.clone();
+        let email = acme_email.clone();
+        tokio::spawn(async move {
+            match crate::proxy::deploy_traefik(
+                &state.docker,
+                &state.config.data_dir,
+                &email,
+                dashboard_enabled,
+                &version,
+            )
+            .await
+            {
+                Err(e) => tracing::warn!("ACME email saved but Traefik redeploy failed: {e}"),
+                Ok(()) => tracing::info!("ACME contact set to {email}; Traefik redeployed"),
+            }
+        });
     }
 
     Ok(Json(serde_json::json!({"ok": true})))

@@ -6,6 +6,32 @@ use anyhow::Result;
 use rusqlite::Connection;
 use std::path::Path;
 
+/// Write a consistent snapshot of the database at `src` to `dest`.
+///
+/// `VACUUM INTO` is the supported way to copy a live SQLite database: it reads
+/// through a transaction, so the snapshot includes everything committed to the
+/// write-ahead log and can never catch a half-written page.
+///
+/// Copying the file with `fs::copy` does neither. Under WAL only checkpointed
+/// pages live in the main file, and with `wal_autocheckpoint` at 256 pages a
+/// quiet control plane can leave the last few minutes — or on a very quiet one,
+/// hours — of state exclusively in `pier.db-wal`, which the copy does not
+/// touch. Such a "backup" silently restores to an older database, and taking it
+/// while writers are active can tear a page on top of that.
+///
+/// Uses its own short-lived connection rather than the shared one: a VACUUM
+/// holds a read transaction for its duration, and blocking every request
+/// handler behind the state mutex for the length of a backup is not worth it.
+pub fn snapshot_to(src: &Path, dest: &Path) -> Result<()> {
+    // VACUUM INTO refuses to overwrite, so clear a previous snapshot first.
+    if dest.exists() {
+        std::fs::remove_file(dest)?;
+    }
+    let conn = Connection::open(src)?;
+    conn.execute("VACUUM INTO ?1", [dest.to_string_lossy().as_ref()])?;
+    Ok(())
+}
+
 /// Open SQLite database, configure pragmas, run migrations.
 pub fn init_db(path: &Path) -> Result<Connection> {
     // Ensure parent directory exists

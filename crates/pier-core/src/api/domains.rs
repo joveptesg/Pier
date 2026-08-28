@@ -995,9 +995,17 @@ async fn get_server_ip(state: &SharedState) -> Result<String, AppError> {
         )
         .ok()
     };
+    // Only trust a cached value that is really an IPv4 address. The detector
+    // used to be able to store a v6 one here, and the cache is sticky: once
+    // written it was returned forever, and every sslip.io hostname built from
+    // it — `<name>.<ip>.sslip.io` — came out with colons in it and could never
+    // resolve. Re-detecting is cheap next to leaving that in place.
     if let Some(ip) = cached {
-        if !ip.is_empty() {
+        if ip.parse::<std::net::Ipv4Addr>().is_ok() {
             return Ok(ip);
+        }
+        if !ip.is_empty() {
+            tracing::warn!("Cached server.public_ip '{ip}' is not IPv4 — re-detecting");
         }
     }
     let ip = config::detect_public_ip()

@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
     {
         let backup_path = config.data_dir.join("pier.db.pre-encryption");
         if !backup_path.exists() {
-            if let Err(e) = std::fs::copy(&config.db_path, &backup_path) {
+            if let Err(e) = db::snapshot_to(&config.db_path, &backup_path) {
                 tracing::warn!("Could not create pre-encryption DB backup: {e}");
             } else {
                 tracing::info!("Created pre-encryption backup: {}", backup_path.display());
@@ -107,10 +107,14 @@ async fn main() -> Result<()> {
                 let backup_dir = data_dir.join("backups").join("system");
                 let _ = tokio::fs::create_dir_all(&backup_dir).await;
                 let ts = chrono::Local::now().format("%Y%m%d").to_string();
-                // Backup pier.db
+                // Backup pier.db. Runs against a live database, so it has to be
+                // a real snapshot rather than a file copy — see db::snapshot_to.
                 let db_backup = backup_dir.join(format!("pier-{ts}.db"));
-                if let Err(e) = tokio::fs::copy(&db_path, &db_backup).await {
-                    tracing::warn!("System backup pier.db failed: {e}");
+                let (src, dst) = (db_path.clone(), db_backup.clone());
+                match tokio::task::spawn_blocking(move || db::snapshot_to(&src, &dst)).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => tracing::warn!("System backup pier.db failed: {e}"),
+                    Err(e) => tracing::warn!("System backup pier.db panicked: {e}"),
                 }
                 // Backup .env
                 for env_path in &["/opt/pier/.env", ".env"] {

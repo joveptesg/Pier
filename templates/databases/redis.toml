@@ -31,7 +31,12 @@ mount = "/data"
 REDIS_PASSWORD = { default = "{{password}}", description = "Redis password", secret = true }
 
 [healthcheck]
-test = ["CMD", "redis-cli", "-a", "{{REDIS_PASSWORD}}", "ping"]
+# Checks the reply, not just the exit code: redis-cli exits 0 even when the
+# server refuses the auth, so a bare `ping` reports healthy for a Redis that
+# answers NOAUTH to everything. `$$` reaches the container as a literal `$`,
+# so the password is read from the container's environment at check time
+# rather than baked into the compose file.
+test = ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
 interval = "10s"
 timeout = "5s"
 retries = 5

@@ -823,6 +823,7 @@ resources_detail:
   th_connection_url: Connection URL
   restore_from_file: Restore from file
   change_password_title: Change password
+  delete_database: Delete database
   delete_database_title: Delete database
   no_databases: No databases found
   create_database: Create Database

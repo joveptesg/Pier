@@ -1008,17 +1008,21 @@ pub fn purge_legacy_tcp_route_files(data_dir: &Path) -> usize {
 /// Detect the public IPv4 of this server. Kept for backward compat
 /// with callers that haven't migrated to the v4+v6 detector below.
 pub async fn detect_public_ip() -> Result<String> {
+    // Actually bind the v4 stack. These echo services report whichever address
+    // the request arrived on, so on a dual-stack host getaddrinfo ordering
+    // decides the answer — and it commonly prefers v6. The comment here used to
+    // claim it forced v4 without doing anything of the sort, which is how a v6
+    // address ended up stored as `server.public_ipv4` and, from there, inside
+    // an `<ip>.sslip.io` hostname that cannot resolve.
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
-        // Force a v4 connection — `api.ipify.org` returns the address
-        // of whatever stack the request arrived on, so on a dual-stack
-        // host the bare hostname can return either v4 or v6 depending
-        // on getaddrinfo ordering. The v4-only endpoints below
-        // sidestep this; for the legacy detect_public_ip we just
-        // prefer v4 services first.
+        .local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
         .build()?;
 
+    // api4/api6 are the explicitly single-stack ipify hosts; detect_public_ipv6
+    // already uses its counterpart.
     for url in &[
+        "https://api4.ipify.org",
         "https://api.ipify.org",
         "https://ifconfig.me/ip",
         "https://icanhazip.com",
@@ -1026,9 +1030,11 @@ pub async fn detect_public_ip() -> Result<String> {
         match client.get(*url).send().await {
             Ok(resp) => {
                 if let Ok(ip) = resp.text().await {
-                    let ip = ip.trim().to_string();
-                    if !ip.is_empty() && ip.len() < 46 {
-                        return Ok(ip);
+                    // Belt and braces: only accept something that really parses
+                    // as IPv4, so a proxy, a captive portal or an HTML error
+                    // page cannot become a hostname.
+                    if let Ok(v4) = ip.trim().parse::<std::net::Ipv4Addr>() {
+                        return Ok(v4.to_string());
                     }
                 }
             }
@@ -1036,7 +1042,7 @@ pub async fn detect_public_ip() -> Result<String> {
         }
     }
 
-    Err(anyhow::anyhow!("Could not detect public IP"))
+    Err(anyhow::anyhow!("Could not detect a public IPv4 address"))
 }
 
 /// Detect the public IPv6 of this server. Returns `None` (not Err) on

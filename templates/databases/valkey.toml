@@ -31,7 +31,10 @@ mount = "/data"
 VALKEY_PASSWORD = { default = "{{password}}", description = "Valkey password", secret = true }
 
 [healthcheck]
-test = ["CMD", "valkey-cli", "-a", "{{VALKEY_PASSWORD}}", "ping"]
+# Checks the reply, not just the exit code — valkey-cli, like redis-cli, exits
+# 0 even when the server refuses the auth. `$$` reaches the container as a
+# literal `$` so the password comes from the container environment.
+test = ["CMD-SHELL", "valkey-cli --no-auth-warning -a \"$$VALKEY_PASSWORD\" ping | grep -q PONG"]
 interval = "10s"
 timeout = "5s"
 retries = 5

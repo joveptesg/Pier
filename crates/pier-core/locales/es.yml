@@ -812,6 +812,7 @@ resources_detail:
   th_connection_url: URL de conexión
   restore_from_file: Restaurar desde archivo
   change_password_title: Cambiar contraseña
+  delete_database: Eliminar base de datos
   delete_database_title: Eliminar base de datos
   no_databases: No se encontraron bases de datos
   create_database: Crear base de datos
