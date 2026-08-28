@@ -53,6 +53,14 @@ async fn resolve_container(docker: &Docker, id: &str) -> Option<String> {
         .map(|n| n.trim_start_matches('/').to_string())
         .or(found.id)
 }
+/// Whether a container matching this name/id exists right now.
+///
+/// Lets a handler tell "not created yet" apart from a real Docker failure. A
+/// service whose image is still downloading has no container, and reporting
+/// that as an internal error tells the operator nothing about what to do.
+pub async fn container_exists(docker: &Docker, id: &str) -> bool {
+    resolve_container(docker, id).await.is_some()
+}
 
 /// Stream container logs to a WebSocket connection.
 /// Resilient: retries on Docker stream errors (e.g., container restart).

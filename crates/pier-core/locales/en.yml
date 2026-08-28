@@ -2248,6 +2248,9 @@ errors:
   internal: Internal error
   name_conflict: "Resource '%{name}' already exists"
   domains_require_confirmation: Disabling public access will remove existing domains
+  # Container-scoped failures (api/containers.rs).
+  containers:
+    not_created_yet: "The container does not exist yet. If the service is still deploying, the image is most likely still downloading — follow the Deployments tab."
   # Authentication / login flow (auth/handlers.rs).
   auth:
     setup_not_found: Setup

@@ -2223,6 +2223,9 @@ errors:
   internal: Error interno
   name_conflict: "El recurso '%{name}' ya existe"
   domains_require_confirmation: Desactivar el acceso público eliminará los dominios existentes
+  # Container-scoped failures (api/containers.rs).
+  containers:
+    not_created_yet: "El contenedor aún no existe. Si el servicio sigue desplegándose, lo más probable es que la imagen se esté descargando; sigue la pestaña Deployments."
   # Authentication / login flow (auth/handlers.rs).
   auth:
     setup_not_found: Configuración

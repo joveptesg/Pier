@@ -2224,6 +2224,9 @@ errors:
   internal: 内部错误
   name_conflict: "资源 '%{name}' 已存在"
   domains_require_confirmation: 禁用公开访问将移除现有域名
+  # Container-scoped failures (api/containers.rs).
+  containers:
+    not_created_yet: "容器尚未创建。如果服务仍在部署中，镜像很可能还在下载，请查看 Deployments 标签页。"
   # Authentication / login flow (auth/handlers.rs).
   auth:
     setup_not_found: 安装设置

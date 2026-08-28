@@ -34,6 +34,16 @@ pub enum AppError {
     #[error("Database error: {0}")]
     Database(#[from] rusqlite::Error),
 
+    /// An operation the caller asked for failed, and the cause is safe to show.
+    ///
+    /// `Internal` hides its message on purpose: it is the catch-all for
+    /// arbitrary `anyhow` errors, whose text can carry filesystem paths,
+    /// connection strings or registry credentials. This variant is the opt-in
+    /// escape hatch for the handful of call sites that have looked at the text
+    /// and decided the operator needs to see it — same 500, different contract.
+    #[error("{0}")]
+    OperationFailed(String),
+
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
 }
@@ -83,6 +93,10 @@ impl IntoResponse for AppError {
             Self::Database(e) => {
                 tracing::error!("Database error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, te("errors.database"))
+            }
+            Self::OperationFailed(msg) => {
+                tracing::error!("Operation failed: {msg}");
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
             }
             Self::Internal(e) => {
                 tracing::error!("Internal error: {e}");

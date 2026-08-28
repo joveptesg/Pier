@@ -4,7 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::docker;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
 #[derive(Deserialize)]
@@ -89,6 +89,14 @@ pub async fn logs(
     Path(id): Path<String>,
     Query(params): Query<LogParams>,
 ) -> AppResult<impl IntoResponse> {
+    // A service that is still pulling its image has no container yet. Say so,
+    // instead of letting the "not found" bubble up as anyhow and reach the
+    // operator as a bare "Internal error" with nothing to act on.
+    if !docker::logs::container_exists(&state.docker, &id).await {
+        return Err(AppError::NotFound(crate::i18n::te(
+            "errors.containers.not_created_yet",
+        )));
+    }
     let lines = docker::logs::get_logs(&state.docker, &id, params.tail, params.timestamps).await?;
     Ok(Json(lines))
 }

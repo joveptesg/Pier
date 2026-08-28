@@ -2651,7 +2651,9 @@ pub async fn stop(
         [&id],
     );
 
-    result?;
+    if let Err(e) = result {
+        return Err(AppError::OperationFailed(action_failure_summary(&e)));
+    }
     Ok(Json(serde_json::json!({"ok": true, "status": "stopped"})))
 }
 
@@ -2711,7 +2713,9 @@ pub async fn start(
         rusqlite::params![status, dirty_reset, id],
     );
 
-    result?;
+    if let Err(e) = result {
+        return Err(AppError::OperationFailed(action_failure_summary(&e)));
+    }
     Ok(Json(serde_json::json!({"ok": true, "status": "running"})))
 }
 
@@ -2772,7 +2776,9 @@ pub async fn restart(
         rusqlite::params![status, dirty_reset, id],
     );
 
-    result?;
+    if let Err(e) = result {
+        return Err(AppError::OperationFailed(action_failure_summary(&e)));
+    }
     Ok(Json(serde_json::json!({"ok": true, "status": "running"})))
 }
 
@@ -2922,7 +2928,9 @@ pub async fn redeploy(
         rusqlite::params![status, dirty_reset, id],
     );
 
-    result?;
+    if let Err(e) = result {
+        return Err(AppError::OperationFailed(action_failure_summary(&e)));
+    }
     Ok(Json(serde_json::json!({"ok": true, "status": "running"})))
 }
 
@@ -3827,6 +3835,36 @@ fn slug(name: &str) -> String {
 /// watch. On a 15-second Redis pull nobody notices; on a 1.35 GB image it is
 /// minutes of a UI that looks broken, and if the deploy never finishes the
 /// operator is left with no record of it at all.
+/// Condense a failed Docker action into something an operator can act on.
+///
+/// `docker compose` failures arrive with the whole pull/build transcript
+/// attached. That belongs in `deployment_logs`, not in a toast — but the
+/// alternative in place until now was `AppError::Internal`, which showed the
+/// operator the words "Internal error" and nothing else. Keep the last few
+/// non-empty lines, where the reason almost always sits, and cap the length.
+fn action_failure_summary(err: &anyhow::Error) -> String {
+    const MAX_LINES: usize = 6;
+    const MAX_CHARS: usize = 600;
+
+    let text = err.to_string();
+    let mut lines: Vec<&str> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+    if lines.len() > MAX_LINES {
+        lines = lines.split_off(lines.len() - MAX_LINES);
+    }
+    let out = lines.join("\n");
+
+    let len = out.chars().count();
+    if len > MAX_CHARS {
+        format!("…{}", out.chars().skip(len - MAX_CHARS).collect::<String>())
+    } else {
+        out
+    }
+}
+
 fn begin_deployment_log(db: &rusqlite::Connection, service_id: &str, action: &str) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     let _ = db.execute(
