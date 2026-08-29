@@ -2033,6 +2033,15 @@ async fn create_git_deploy_deferred(
                 compose_path,
             ],
         )?;
+        // A compose stack states its own ports — in the file, or failing that
+        // through what its images expose. The wizard hides the Port field for
+        // this build pack precisely because there is nothing to ask; handing
+        // out its default anyway wrote a row for a port nothing listens on,
+        // and that row then blocked both sources from ever filling in the
+        // real one.
+        if build_strategy == "docker-compose" {
+            return Ok(Vec::new());
+        }
         let port_specs = vec![("primary".to_string(), container_port)];
         let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
         // Built and published on this host, so the port has to be free *here* —
@@ -2052,18 +2061,17 @@ async fn create_git_deploy_deferred(
         .map_err(|e| abort_create(db, &service_id, e))
     })?;
 
-    let host_port = allocated_ports
-        .first()
-        .map(|p| p.host_port as u16)
-        .unwrap_or(container_port);
-    let sid = service_id.clone();
-    with_db(state, |db| {
-        let _ = db.execute(
-            "UPDATE services SET port = ?1 WHERE id = ?2",
-            rusqlite::params![host_port as i64, sid],
-        );
-        Ok(())
-    })?;
+    if let Some(first) = allocated_ports.first() {
+        let host_port = first.host_port;
+        let sid = service_id.clone();
+        with_db(state, |db| {
+            let _ = db.execute(
+                "UPDATE services SET port = ?1 WHERE id = ?2",
+                rusqlite::params![host_port, sid],
+            );
+            Ok(())
+        })?;
+    }
 
     let ports_json: Vec<serde_json::Value> = allocated_ports
         .iter()
@@ -2211,6 +2219,14 @@ async fn create_git_deploy_github_app(
                 if build_strategy == "docker-compose" { Some(compose_path) } else { None::<String> }
             ],
         )?;
+        // A compose stack states its own ports — in the file, or failing that
+        // through what its images expose. The wizard hides the Port field for
+        // this build pack precisely because there is nothing to ask; handing
+        // out its default anyway wrote a row for a port nothing listens on,
+        // and that row then blocked both real sources from filling it in.
+        if build_strategy == "docker-compose" {
+            return Ok(Vec::new());
+        }
         let port_specs = vec![("primary".to_string(), container_port)];
         let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
         // Built and published on this host, so the port has to be free *here* —
@@ -2230,19 +2246,17 @@ async fn create_git_deploy_github_app(
         .map_err(|e| abort_create(db, &service_id, e))
     })?;
 
-    let host_port = allocated_ports
-        .first()
-        .map(|p| p.host_port as u16)
-        .unwrap_or(container_port);
-
-    let sid = service_id.clone();
-    with_db(state, |db| {
-        let _ = db.execute(
-            "UPDATE services SET port = ?1 WHERE id = ?2",
-            rusqlite::params![host_port as i64, sid],
-        );
-        Ok(())
-    })?;
+    if let Some(first) = allocated_ports.first() {
+        let host_port = first.host_port;
+        let sid = service_id.clone();
+        with_db(state, |db| {
+            let _ = db.execute(
+                "UPDATE services SET port = ?1 WHERE id = ?2",
+                rusqlite::params![host_port, sid],
+            );
+            Ok(())
+        })?;
+    }
 
     let ports_json: Vec<serde_json::Value> = allocated_ports
         .iter()
