@@ -404,7 +404,7 @@
             </div>
 
             <!-- Host port override (catalog single-port templates only) -->
-            <div x-show="(template.ports || []).length === 1 && catalogId !== 'docker-image' && catalogId !== 'git-github-app'">
+            <div x-show="catalogId === 'docker-compose' || ((template.ports || []).length === 1 && catalogId !== 'docker-image' && catalogId !== 'git-github-app')">
                 <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_create.host_port_label') }}</label>
                 <input x-model.number="hostPort" type="number" min="1024" max="65535"
                        :placeholder="(template.ports && template.ports[0] && template.ports[0][1] && template.ports[0][1].internal) || '{{ t('resources_create.host_port_auto_placeholder') }}'"
@@ -718,7 +718,12 @@ function createResource(catalogId, hostRamGb) {
                 // The deploy runs in the background now — the response only
                 // means it was accepted, not that the stack is up.
                 toast(name + ' {{ t('resources_create.toast_deploy_started') }}');
-                window.location.href = '/resources/' + result.id;
+                // A deploy that is still running has its log on the Deployments
+                // tab — land there instead of on Overview, so the operator does
+                // not have to go hunting for the transcript of what they just
+                // started. Anything already settled opens on Overview as before.
+                const landing = result.status === 'deploying' ? '?tab=deployments' : '';
+                window.location.href = '/resources/' + result.id + landing;
             } catch (e) {
                 if (e.code === 'name_conflict' && e.existing_id) {
                     toast('{{ t('resources_create.toast_resource_exists') }}'.replace('%{name}', e.name), 'error');

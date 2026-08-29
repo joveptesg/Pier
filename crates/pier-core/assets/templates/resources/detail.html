@@ -1490,6 +1490,12 @@ NODE_ENV=production"></textarea>
                         </select>
                     </div>
                 </div>
+                <div x-show="gitConfig.build_strategy === 'docker-compose'">
+                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('resources_detail.compose_location') }}</label>
+                    <input type="text" x-model="gitConfig.compose_path" placeholder="/docker-compose.yml"
+                           class="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white font-mono">
+                    <p class="text-xs text-gray-400 mt-0.5">{{ t('resources_detail.compose_location_hint') }}</p>
+                </div>
                 <div>
                     <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ t('resources_detail.git_source_optional') }}</label>
                     <select x-model="gitConfig.git_source_id"
@@ -2311,9 +2317,17 @@ NODE_ENV=production"></textarea>
 </div>
 
 <script>
+// `?tab=` lets a caller deep-link a tab — the wizard sends a fresh deploy
+// straight to its log. Unknown values fall back to Overview rather than
+// leaving every panel hidden.
+function initialTab() {
+    const allowed = ['overview', 'env', 'domains', 'scale', 'git', 'deployments', 'logs', 'monitor', 'data', 'databases', 'backups', 'danger'];
+    const want = new URLSearchParams(window.location.search).get('tab');
+    return allowed.includes(want) ? want : 'overview';
+}
 function resourceDetail(id) {
     return {
-        id, resource: {}, tab: 'overview', showEnv: false, showSecrets: false, editableEnv: [], envViewMode: 'normal', envRawText: '',
+        id, resource: {}, tab: initialTab(), showEnv: false, showSecrets: false, editableEnv: [], envViewMode: 'normal', envRawText: '',
         schedules: [], backupHistory: [], s3Storages: [], showScheduleModal: false, scheduleFormEditing: false,
         scheduleForm: { s3_storage_id: '', cron_expression: '0 2 * * *', retention_count: 7, database_name: null },
         showRestoreModal: false, restoreSource: null, restoreTarget: '', restoreConfirm: '', restoreRunning: false,
@@ -2329,7 +2343,7 @@ function resourceDetail(id) {
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, deleteBackups: false, deletePassword: '', deleting: false, requirePwOnDelete: true,
         showDeleteDbModal: false, deleteDbName: '', deleteDbConfirm: '', deleteDbPassword: '', deleteDbBackups: false, deletingDb: false,
         showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
-        gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '', root_path: '', watch_paths: '' },
+        gitConfig: { git_repo_url: '', git_branch: 'main', git_source_id: '', build_strategy: 'dockerfile', webhook_secret: '', root_path: '', watch_paths: '', compose_path: '' },
         gitComposePreview: '', gitComposeLoading: false, reloadingCompose: false,
         gitSources: [], showWebhookSecret: false,
         serviceDeps: [], depCandidates: [], newDepId: '',
@@ -3070,6 +3084,10 @@ function resourceDetail(id) {
             this.publicPort = this.resource.ports?.[0]?.public_port
                 || this.resource.ports?.[0]?.container
                 || this.resource.ports?.[0]?.host || 0;
+            // Deep-linked straight to the log (`?tab=deployments`): the tab
+            // button's loaders never ran, so fill the panel here instead of
+            // showing an empty one until the first poll comes back.
+            if (this.tab === 'deployments') { this.loadDeployments(); this.loadDeploymentLogs(); }
             // Background polling: check for status changes + new deployments every 5s
             // A resource created through the wizard lands here already
             // deploying. Nothing used to watch it closely: only the 5s
@@ -3633,7 +3651,7 @@ function resourceDetail(id) {
         async loadGitConfig() {
             try {
                 const cfg = await fetch('/api/v1/resources/'+this.id+'/git').then(r=>r.ok?r.json():null);
-                if(cfg) { this.gitConfig = { git_repo_url: cfg.git_repo_url||'', git_branch: cfg.git_branch||'main', git_source_id: cfg.git_source_id||'', build_strategy: cfg.build_strategy||'dockerfile', webhook_secret: cfg.webhook_secret||'', root_path: cfg.root_path||'', watch_paths: cfg.watch_paths||'' }; }
+                if(cfg) { this.gitConfig = { git_repo_url: cfg.git_repo_url||'', git_branch: cfg.git_branch||'main', git_source_id: cfg.git_source_id||'', build_strategy: cfg.build_strategy||'dockerfile', webhook_secret: cfg.webhook_secret||'', root_path: cfg.root_path||'', watch_paths: cfg.watch_paths||'', compose_path: cfg.compose_path||'' }; }
                 this.gitSources = await fetch('/api/v1/sources').then(r=>r.ok?r.json():[]).catch(()=>[]);
                 this.loadDeps();
             } catch{}
@@ -3774,6 +3792,10 @@ function resourceDetail(id) {
             const poll = async (attempts) => {
                 await this.loadDeployments();
                 await this.refresh();
+                // Services without a git pipeline (raw compose, catalog) write
+                // their transcript to Action History, not to `deployments` —
+                // poll it too or their log sits stale until a manual Refresh.
+                if (this.tab === 'deployments') { await this.loadDeploymentLogs(); }
                 const latest = this.ciDeployments[0];
 
                 // Auto-open the latest deploy detail

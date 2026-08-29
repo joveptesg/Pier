@@ -293,7 +293,25 @@ pub async fn run_pipeline_with_id(
             // services/web/docker-compose.yml.
             let compose_file = context_dir.join(compose_rel);
             if !compose_file.exists() {
-                log.push_str(&format!("{compose_rel} not found in repo\n"));
+                // Name the base the path resolved against and list what the repo
+                // actually holds, so the operator fixes the path from the log
+                // instead of guessing which of the two fields was wrong.
+                let base = svc
+                    .root_path
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|p| !p.is_empty())
+                    .map(|p| format!("root directory '{p}'"))
+                    .unwrap_or_else(|| "repo root".to_string());
+                log.push_str(&format!(
+                    "{compose_rel} not found in repo (resolved against {base})\n"
+                ));
+                let found = find_compose_candidates(&context_dir);
+                if found.is_empty() {
+                    log.push_str("No compose file found anywhere in the repo\n");
+                } else {
+                    log.push_str(&format!("Found in repo: {}\n", found.join(", ")));
+                }
                 finish_deployment(&state, &deploy_id, &service_id, "failed", &log, start);
                 let _ = tokio::fs::remove_dir_all(&repo_dir).await;
                 return;
@@ -374,7 +392,14 @@ pub async fn run_pipeline_with_id(
                     shell_cmd
                         .args([
                             "-c",
-                            &format!("docker compose -p {} up -d --build 2>&1", stack_name),
+                            &format!(
+                                // `-f` is not optional: the repo was just moved into this
+                                // same directory, so a repo whose file is named
+                                // `compose.yaml` outranks the cleaned one Pier wrote
+                                // and every injection below is silently discarded.
+                                "docker compose -p {} -f docker-compose.yml up -d --build 2>&1",
+                                stack_name
+                            ),
                         ])
                         .current_dir(&stack_dir)
                         .stdout(std::process::Stdio::piped())
@@ -574,6 +599,25 @@ pub async fn run_pipeline_with_id(
 
     // Update ports from compose (works for dockerfile strategy; docker-compose ports already extracted before strip)
     update_ports_from_compose(&state, &service_id, &compose_content);
+    // Nothing in the file to go on? Fall back to what the image exposes, so a
+    // compose that publishes nothing still gets a port like every other path.
+    // The ports only exist once the stack is up, so publishing them costs one
+    // more `up` — cheap, and only on the first deploy of a portless stack.
+    if allocate_ports_from_image(&state, &service_id, None).await {
+        if let Err(e) = crate::docker::deploy_service_stack(
+            &state,
+            &service_id,
+            &stack_name,
+            &compose_content,
+            None,
+        )
+        .await
+        {
+            tracing::warn!("Publishing image-derived ports for {service_id}: {e}");
+        } else {
+            persist_container_name(&state, &service_id, &stack_name).await;
+        }
+    }
 
     // Persist env vars from .env file to env_json (for canvas dependency detection)
     persist_env_from_disk(&state, &service_id, &stack_name);
@@ -626,6 +670,54 @@ fn service_context_dir(repo_dir: &Path, root_path: Option<&str>) -> Result<PathB
         anyhow::bail!("root_path must be a repo-relative subdirectory without '..' (got '{rel}')");
     }
     Ok(repo_dir.join(rel_path))
+}
+
+/// Compose files present under `dir`, as paths relative to it.
+///
+/// Only used to make a "not found" deploy failure actionable: the operator sees
+/// the paths that *do* exist instead of re-guessing the field. Depth-limited and
+/// capped — this walks a fresh clone of an arbitrary repo.
+fn find_compose_candidates(dir: &Path) -> Vec<String> {
+    const MAX_DEPTH: usize = 3;
+    const MAX_HITS: usize = 10;
+    const SKIP: [&str; 4] = [".git", "node_modules", "vendor", "target"];
+
+    fn is_compose(name: &str) -> bool {
+        let lower = name.to_ascii_lowercase();
+        (lower.ends_with(".yml") || lower.ends_with(".yaml")) && lower.contains("compose")
+    }
+
+    fn walk(base: &Path, current: &Path, depth: usize, out: &mut Vec<String>) {
+        if depth > MAX_DEPTH || out.len() >= MAX_HITS {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(current) else {
+            return;
+        };
+        let mut dirs = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let path = entry.path();
+            if path.is_dir() {
+                if !SKIP.contains(&name.as_str()) {
+                    dirs.push(path);
+                }
+            } else if is_compose(&name) && out.len() < MAX_HITS {
+                let rel = path.strip_prefix(base).unwrap_or(&path);
+                out.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+        // Files at this level are collected before descending, so the
+        // shallowest hits — the likely intended ones — win the cap.
+        dirs.sort();
+        for d in dirs {
+            walk(base, &d, depth + 1, out);
+        }
+    }
+
+    let mut out = Vec::new();
+    walk(dir, dir, 0, &mut out);
+    out
 }
 
 /// True for a full 40-char hex git SHA (not a synthetic `manual-…`/`api-…`/
@@ -945,11 +1037,13 @@ fn finish_deployment(
     }
 }
 
-/// Inject pier-net (and project network) into a docker-compose YAML from a repo.
-/// This ensures services can communicate with other Pier services via Docker DNS.
-fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> String {
-    // Get the service's assigned network name
-    let network_name: String = state
+/// The network Traefik and every shared service (databases, redis) sit on.
+pub(crate) const PIER_NET: &str = "pier-net";
+
+/// Name of the docker network the service's project maps to, `pier-net` when
+/// it has none.
+pub(crate) fn project_network_for(state: &AppState, service_id: &str) -> String {
+    state
         .db
         .lock()
         .ok()
@@ -961,138 +1055,476 @@ fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> Strin
             )
             .ok()
         })
-        .unwrap_or_else(|| "pier-net".to_string());
+        .unwrap_or_else(|| PIER_NET.to_string())
+}
 
-    let mut lines: Vec<String> = yaml.lines().map(|l| l.to_string()).collect();
+/// Put every service of a repo's compose file on the networks Pier assigned it.
+fn inject_pier_networks(state: &AppState, service_id: &str, yaml: &str) -> String {
+    apply_pier_networks(yaml, &project_network_for(state, service_id))
+}
 
-    // Find all service names (lines under "services:" with proper indentation)
-    let mut service_indices = Vec::new();
-    let mut in_services = false;
-    for (i, line) in lines.iter().enumerate() {
+/// Force every service in `yaml` onto `project_net` + `pier-net`.
+///
+/// The network picked at deploy time is authoritative, so every network the
+/// file declares `external:` is dropped and replaced by the two Pier manages.
+/// Without this a stack lands wherever its author wrote — or refuses to start
+/// because the file names a network that does not exist on this host.
+///
+/// Networks the file *creates* are left alone: a compose-managed segment
+/// between an app and its own database is internal to the stack and isolates
+/// nothing Pier cares about, so flattening it would only remove a boundary the
+/// author asked for.
+///
+/// Idempotent — what it adds is declared `external`, so the next pass strips
+/// and re-adds exactly the same lines. It has to be: the injection runs before
+/// every `docker compose up`, over YAML that may already carry it.
+///
+/// A service with `network_mode:` is left untouched; compose rejects a service
+/// that has both that and `networks:`.
+pub(crate) fn apply_pier_networks(yaml: &str, project_net: &str) -> String {
+    let project_net = match project_net.trim() {
+        "" => PIER_NET,
+        name => name,
+    };
+    let mut wanted: Vec<String> = vec![project_net.to_string()];
+    if project_net != PIER_NET {
+        wanted.push(PIER_NET.to_string());
+    }
+
+    // Removed from every `networks:` list: what the file calls external, plus
+    // the two we are about to write — so a file that already carries them, or
+    // declares one of them itself, does not end up with duplicates.
+    let mut drop_keys: Vec<String> = crate::docker::compose::parse_networks_block(yaml)
+        .into_iter()
+        .filter(|d| d.external)
+        .map(|d| d.key)
+        .collect();
+    drop_keys.extend(wanted.iter().cloned());
+
+    let lines: Vec<&str> = yaml.lines().collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 8);
+    let mut saw_networks_block = false;
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
         let trimmed = line.trim();
-        if trimmed == "services:" {
-            in_services = true;
+        if indent_width(line) == 0 && !trimmed.is_empty() && !trimmed.starts_with('#') {
+            if trimmed == "services:" {
+                out.push(line.to_string());
+                i = rewrite_services(&lines, i + 1, &drop_keys, &wanted, &mut out);
+                continue;
+            }
+            if trimmed == "networks:" {
+                saw_networks_block = true;
+                out.push(line.to_string());
+                i = copy_managed_networks(&lines, i + 1, &drop_keys, &mut out);
+                push_wanted_networks(&wanted, &mut out);
+                continue;
+            }
+        }
+        out.push(line.to_string());
+        i += 1;
+    }
+
+    if !saw_networks_block {
+        out.push("networks:".to_string());
+        push_wanted_networks(&wanted, &mut out);
+    }
+
+    let mut result = out.join("\n");
+    if yaml.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
+fn indent_width(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Index of the first line at an indent below `min_indent`, blanks ignored.
+fn block_end(lines: &[&str], start: usize, min_indent: usize) -> usize {
+    for (j, line) in lines.iter().enumerate().skip(start) {
+        if line.trim().is_empty() {
             continue;
         }
-        if in_services && !trimmed.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
-            in_services = false; // new top-level key
-        }
-        if in_services
-            && !trimmed.is_empty()
-            && trimmed.ends_with(':')
-            && (line.starts_with("  ") || line.starts_with('\t'))
-            && !line.starts_with("    ")
-        {
-            service_indices.push(i);
+        if indent_width(line) < min_indent {
+            return j;
         }
     }
+    lines.len()
+}
 
-    // For each service: remove existing networks section and add pier networks
-    let net_replacement = if network_name == "pier-net" {
-        "    networks:\n      - pier-net".to_string()
-    } else {
-        format!("    networks:\n      - {network_name}\n      - pier-net")
+fn push_wanted_networks(wanted: &[String], out: &mut Vec<String>) {
+    for net in wanted {
+        out.push(format!("  {net}:"));
+        out.push("    external: true".to_string());
+    }
+}
+
+/// Copy the top-level `networks:` entries the file manages itself, skipping the
+/// ones being replaced. Returns the index where the block ends.
+fn copy_managed_networks(
+    lines: &[&str],
+    start: usize,
+    drop_keys: &[String],
+    out: &mut Vec<String>,
+) -> usize {
+    let end = block_end(lines, start, 1);
+    let mut i = start;
+    while i < end {
+        let line = lines[i];
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            i += 1;
+            continue;
+        }
+        let ind = indent_width(line);
+        if ind <= 2 {
+            let entry_end = block_end(&lines[..end], i + 1, ind + 1);
+            match trimmed.strip_suffix(':') {
+                Some(key) if drop_keys.iter().any(|k| k == key.trim()) => {}
+                _ => out.extend(lines[i..entry_end].iter().map(|l| l.to_string())),
+            }
+            i = entry_end;
+            continue;
+        }
+        out.push(line.to_string());
+        i += 1;
+    }
+    end
+}
+
+/// Walk the `services:` block, rewriting each service. Returns its end index.
+fn rewrite_services(
+    lines: &[&str],
+    start: usize,
+    drop_keys: &[String],
+    wanted: &[String],
+    out: &mut Vec<String>,
+) -> usize {
+    let end = block_end(lines, start, 1);
+    let mut i = start;
+    while i < end {
+        let line = lines[i];
+        let trimmed = line.trim();
+        let ind = indent_width(line);
+        if !trimmed.is_empty() && ind <= 2 && trimmed.ends_with(':') {
+            let svc_end = block_end(&lines[..end], i + 1, ind + 1);
+            rewrite_one_service(&lines[i..svc_end], drop_keys, wanted, out);
+            i = svc_end;
+            continue;
+        }
+        out.push(line.to_string());
+        i += 1;
+    }
+    end
+}
+
+/// `block[0]` is the service key line; the rest is its body.
+fn rewrite_one_service(
+    block: &[&str],
+    drop_keys: &[String],
+    wanted: &[String],
+    out: &mut Vec<String>,
+) {
+    if block.iter().any(|l| l.trim().starts_with("network_mode:")) {
+        out.extend(block.iter().map(|l| l.to_string()));
+        return;
+    }
+
+    let prop_indent = indent_width(block[0]) + 2;
+    let pad = " ".repeat(prop_indent);
+    let entry_pad = " ".repeat(prop_indent + 2);
+
+    let net_at = block
+        .iter()
+        .position(|l| l.trim() == "networks:" && indent_width(l) == prop_indent);
+
+    let Some(net_at) = net_at else {
+        // No networks: of its own — declare ours at the end of the body, before
+        // any trailing blank lines so the file keeps its shape.
+        let trailing = block
+            .iter()
+            .rev()
+            .take_while(|l| l.trim().is_empty())
+            .count();
+        let body_end = block.len() - trailing;
+        out.extend(block[..body_end].iter().map(|l| l.to_string()));
+        out.push(format!("{pad}networks:"));
+        for net in wanted {
+            out.push(format!("{entry_pad}- {net}"));
+        }
+        out.extend(block[body_end..].iter().map(|l| l.to_string()));
+        return;
     };
 
-    for &idx in service_indices.iter().rev() {
-        let mut end = lines.len();
-        for (j, line) in lines.iter().enumerate().skip(idx + 1) {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if (line.starts_with("  ") || line.starts_with('\t'))
-                && !line.starts_with("    ")
-                && !line.starts_with("\t\t")
-                && trimmed.ends_with(':')
-            {
-                end = j;
-                break;
-            }
-            if !line.starts_with(' ') && !line.starts_with('\t') {
-                end = j;
-                break;
-            }
-        }
+    out.extend(block[..=net_at].iter().map(|l| l.to_string()));
 
-        // Remove existing service-level networks section
-        let mut net_start = None;
-        let mut net_end = None;
-        for (j, line) in lines.iter().enumerate().take(end).skip(idx) {
-            let trimmed = line.trim();
-            if trimmed == "networks:" && (line.starts_with("    ") || line.starts_with("\t\t")) {
-                net_start = Some(j);
-            } else if net_start.is_some()
-                && net_end.is_none()
-                && !trimmed.starts_with("- ")
-                && !trimmed.is_empty()
-            {
-                net_end = Some(j);
-            }
+    let entries_end = block_end(block, net_at + 1, prop_indent + 1);
+    let mut mapping_form = false;
+    let mut j = net_at + 1;
+    while j < entries_end {
+        let line = block[j];
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            j += 1;
+            continue;
         }
-        if let Some(start) = net_start {
-            let end_idx = net_end.unwrap_or(end);
-            for _ in start..end_idx {
-                if start < lines.len() {
-                    lines.remove(start);
-                }
+        if let Some(name) = trimmed.strip_prefix("- ") {
+            if !drop_keys.iter().any(|k| k == name.trim()) {
+                out.push(line.to_string());
             }
+            j += 1;
+            continue;
         }
-
-        // Find new end after removal
-        let mut new_end = lines.len();
-        for (j, line) in lines.iter().enumerate().skip(idx + 1) {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if (line.starts_with("  ") || line.starts_with('\t'))
-                && !line.starts_with("    ")
-                && !line.starts_with("\t\t")
-                && trimmed.ends_with(':')
-            {
-                new_end = j;
-                break;
-            }
-            if !line.starts_with(' ') && !line.starts_with('\t') {
-                new_end = j;
-                break;
-            }
+        // Mapping form: `netname:` with nested keys such as `aliases:`.
+        mapping_form = true;
+        let sub_end = block_end(&block[..entries_end], j + 1, indent_width(line) + 1);
+        match trimmed.strip_suffix(':') {
+            Some(name) if drop_keys.iter().any(|k| k == name.trim()) => {}
+            _ => out.extend(block[j..sub_end].iter().map(|l| l.to_string())),
         }
-
-        // Insert pier networks
-        lines.insert(new_end, net_replacement.clone());
+        j = sub_end;
     }
 
-    // Remove existing top-level networks section
-    let mut networks_start = None;
-    for (i, line) in lines.iter().enumerate() {
-        if line.trim() == "networks:" && !line.starts_with(' ') {
-            networks_start = Some(i);
-            break;
+    // Ours, in whichever form the service already used.
+    for net in wanted {
+        if mapping_form {
+            out.push(format!("{entry_pad}{net}:"));
+        } else {
+            out.push(format!("{entry_pad}- {net}"));
         }
     }
-    if let Some(start) = networks_start {
-        let mut end = lines.len();
-        for (j, line) in lines.iter().enumerate().skip(start + 1) {
-            if !line.starts_with(' ') && !line.starts_with('\t') && !line.trim().is_empty() {
-                end = j;
-                break;
+
+    out.extend(block[entries_end..].iter().map(|l| l.to_string()));
+}
+
+/// TCP ports the service's containers declare through the image's `EXPOSE`.
+///
+/// Read *after* the stack is up on purpose: `EXPOSE` lives in the image, which
+/// may not be on the host until the first deploy pulls it, and once the
+/// container exists the inspect is free and authoritative.
+pub(crate) async fn discover_exposed_ports(state: &AppState, service_id: &str) -> Vec<u16> {
+    use bollard::query_parameters::ListContainersOptions;
+
+    let Ok(list) = state
+        .docker
+        .list_containers(Some(ListContainersOptions {
+            all: true,
+            ..Default::default()
+        }))
+        .await
+    else {
+        return Vec::new();
+    };
+
+    let mut ids: Vec<String> = list
+        .iter()
+        .filter(|c| {
+            c.labels
+                .as_ref()
+                .and_then(|l| l.get("pier.service.id"))
+                .is_some_and(|s| s == service_id)
+        })
+        .filter_map(|c| c.id.clone())
+        .collect();
+
+    // Same fallback as the port toggle: a compose the operator wrote may carry
+    // no Pier label, but `persist_container_name` recorded what came up.
+    if ids.is_empty() {
+        let recorded: Option<String> = state.db.lock().ok().and_then(|db| {
+            db.query_row(
+                "SELECT container_id FROM services WHERE id = ?1",
+                [service_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten()
+        });
+        if let Some(name) = recorded.filter(|n| !n.is_empty()) {
+            ids.push(name);
+        }
+    }
+
+    let mut ports: Vec<u16> = Vec::new();
+    for id in ids {
+        let Ok(info) = state.docker.inspect_container(&id, None).await else {
+            continue;
+        };
+        let Some(exposed) = info.config.and_then(|c| c.exposed_ports) else {
+            continue;
+        };
+        ports.extend(tcp_ports_from_exposed(&exposed));
+    }
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+/// TCP port numbers out of docker's `ExposedPorts` list.
+///
+/// Entries read `"8010/tcp"`; a bare `"8010"` also appears in the wild and
+/// means tcp. UDP is skipped — nothing downstream (proxy, domains, the public
+/// toggle) can do anything with it.
+fn tcp_ports_from_exposed(entries: &[String]) -> Vec<u16> {
+    let mut out: Vec<u16> = entries
+        .iter()
+        .filter_map(|e| {
+            let (port, proto) = e.split_once('/').unwrap_or((e.as_str(), "tcp"));
+            (proto == "tcp")
+                .then(|| port.trim().parse::<u16>().ok())
+                .flatten()
+        })
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// Give a stack that publishes nothing a host port anyway.
+///
+/// A compose file often declares no `ports:` — the image's `EXPOSE` is the only
+/// statement of what the service listens on. Every other deploy path (catalog,
+/// git, Dockerfile) hands out a port from the project's range, and without one
+/// the service has no Ports card, no internal address in the UI, and nothing
+/// for the public toggle or a domain to bind to.
+///
+/// `host_port_override` is the port the operator typed in the wizard; it only
+/// applies when the image exposes exactly one port, since there is no way to
+/// say which of several it was meant for.
+///
+/// No-op when the service already has allocations — an explicit `ports:` in the
+/// file always wins — or when the image exposes nothing.
+/// Returns `true` when it handed out ports — the caller has to run the stack
+/// once more for compose to actually publish them.
+pub(crate) async fn allocate_ports_from_image(
+    state: &AppState,
+    service_id: &str,
+    host_port_override: Option<u16>,
+) -> bool {
+    let already_allocated = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| {
+            db.query_row(
+                "SELECT COUNT(*) FROM port_allocations WHERE service_id = ?1",
+                [service_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .ok()
+        })
+        .unwrap_or(0);
+    if already_allocated > 0 {
+        return false;
+    }
+
+    let exposed = discover_exposed_ports(state, service_id).await;
+    if exposed.is_empty() {
+        return false;
+    }
+
+    // Same naming the compose-derived path uses, so the UI and the domain
+    // wiring do not have to care where a row came from.
+    let specs: Vec<(String, u16)> = exposed
+        .iter()
+        .enumerate()
+        .map(|(i, port)| {
+            let name = if i == 0 {
+                "primary".to_string()
+            } else {
+                format!("port-{i}")
+            };
+            (name, *port)
+        })
+        .collect();
+
+    let allocated = {
+        let Ok(db) = state.db.lock() else {
+            return false;
+        };
+        let project_id: Option<String> = db
+            .query_row(
+                "SELECT project_id FROM services WHERE id = ?1",
+                [service_id],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+        // A range the operator declared on the project is a constraint, not a
+        // hint: a port handed out automatically has to land inside it. With no
+        // declared range, keep the standard-port shortcut the rest of Pier uses
+        // (`psql -h host -p 5432` ergonomics on first deploy).
+        let declared: Option<(u16, u16)> = project_id
+            .as_deref()
+            .and_then(|pid| {
+                db.query_row(
+                    "SELECT port_range_start, port_range_end FROM projects WHERE id = ?1",
+                    [pid],
+                    |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+                )
+                .ok()
+            })
+            .and_then(|(s, e)| match (s, e) {
+                (Some(s), Some(e)) => Some((s as u16, e as u16)),
+                _ => None,
+            });
+        let (start, end, pool_only) = match declared {
+            Some((s, e)) => (s, e, true),
+            None => {
+                let (s, e) =
+                    crate::api::resources::resolve_port_range(state, &db, project_id.as_deref());
+                (s, e, false)
+            }
+        };
+        let overrides: Vec<Option<u16>> = if specs.len() == 1 && host_port_override.is_some() {
+            vec![host_port_override]
+        } else {
+            Vec::new()
+        };
+        match crate::db::ports::allocate_ports(
+            &db,
+            service_id,
+            &specs,
+            start,
+            end,
+            &overrides,
+            pool_only,
+            Some(crate::db::ports::HostProbe { exempt: &[] }),
+        ) {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!("Port allocation from image for {service_id} failed: {e}");
+                return false;
             }
         }
-        lines.drain(start..end);
-    }
+    };
 
-    // Append networks section
-    lines.push("networks:".to_string());
-    lines.push(format!("  {network_name}:"));
-    lines.push("    external: true".to_string());
-    if network_name != "pier-net" {
-        lines.push("  pier-net:".to_string());
-        lines.push("    external: true".to_string());
+    let Some(first) = allocated.first() else {
+        return false;
+    };
+    if let Ok(db) = state.db.lock() {
+        let _ = db.execute(
+            "UPDATE services SET port = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![first.host_port, service_id],
+        );
     }
+    tracing::info!(
+        "Allocated {} port(s) from image EXPOSE for {service_id}: {}",
+        allocated.len(),
+        allocated
+            .iter()
+            .map(|a| format!("{}->{}", a.container_port, a.host_port))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 
-    lines.join("\n")
+    // A private binding is published by compose, not by the recreate path the
+    // public toggle uses — so the caller re-runs the stack, and this deploy
+    // ends with the port actually listening.
+    true
 }
 
 /// Parse ports from compose YAML and update `port_allocations` in DB.
@@ -1525,7 +1957,7 @@ async fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> anyhow::R
 
 /// Strip `ports:` sections from service blocks in docker-compose YAML.
 /// Ports are extracted separately and managed by Pier (no host port bindings needed).
-fn strip_compose_ports(yaml: &str) -> String {
+pub(crate) fn strip_compose_ports(yaml: &str) -> String {
     let lines: Vec<&str> = yaml.lines().collect();
     let mut result = Vec::new();
     let mut skip_ports = false;
@@ -1571,7 +2003,7 @@ fn strip_compose_ports(yaml: &str) -> String {
 /// `(compose_service, container_port, is_public, host_port, public_port)`
 pub(crate) type PortRow = (Option<String>, u16, bool, u16, Option<u16>);
 
-fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> String {
+pub(crate) fn inject_ports_from_db(state: &AppState, service_id: &str, yaml: &str) -> String {
     let rows: Vec<PortRow> = {
         let Ok(db) = state.db.lock() else {
             return yaml.to_string();
@@ -1779,26 +2211,31 @@ pub(crate) fn inject_ports_into_yaml(yaml: &str, rows: &[PortRow]) -> String {
         let key_pad = " ".repeat(prop_indent);
         let item_pad = " ".repeat(prop_indent + 2);
 
-        // Public ports only — emit one `0.0.0.0:public:container` binding
-        // per is_public=1 row. Private ports get NO host binding (the
-        // container is reachable from `pier-net` by its service name, and
-        // a redundant `127.0.0.1:host:container` would collide with the
-        // 0.0.0.0 binding when public_port == host_port).
-        let mut public_lines: Vec<String> = Vec::new();
-        for (_, container_port, is_public, _host_port, public_port) in &svc_rows {
-            if !*is_public {
-                continue;
+        // One binding per row: `0.0.0.0:public:container` when the operator
+        // turned the service public, `127.0.0.1:host:container` otherwise.
+        // The loopback line is what the Ports card already promises ("Local
+        // 127.0.0.1:…") and what the catalog emitter has always written, so a
+        // stack deployed from compose reaches the host the same way one from
+        // the catalog does. The two never collide: a public row emits only the
+        // `0.0.0.0` line, so the same container port is bound once.
+        let mut port_lines: Vec<String> = Vec::new();
+        for (_, container_port, is_public, host_port, public_port) in &svc_rows {
+            if *is_public {
+                let Some(pp) = public_port else { continue };
+                port_lines.push(format!("{item_pad}- \"0.0.0.0:{pp}:{container_port}\""));
+            } else {
+                port_lines.push(format!(
+                    "{item_pad}- \"127.0.0.1:{host_port}:{container_port}\""
+                ));
             }
-            let Some(pp) = public_port else { continue };
-            public_lines.push(format!("{item_pad}- \"0.0.0.0:{pp}:{container_port}\""));
         }
-        if public_lines.is_empty() {
-            // No public ports — leave the service without a `ports:` block.
+        if port_lines.is_empty() {
+            // Nothing to publish — leave the service without a `ports:` block.
             // The old block (if any) was already removed above.
             continue;
         }
         let mut block = vec![format!("{key_pad}ports:")];
-        block.extend(public_lines);
+        block.extend(port_lines);
 
         // Insert just before any trailing blank lines at the end of the
         // (possibly shortened) service block, mirroring
@@ -2658,11 +3095,219 @@ struct ServiceInfo {
 #[cfg(test)]
 mod tests {
     use super::{
-        env_json_to_env_content, inject_env_file_into_services,
-        inject_mesh_extra_hosts_into_services, inject_pier_labels, inject_ports_into_yaml,
-        normalize_mesh_hostname, upsert_port_rows, PortRow,
+        apply_pier_networks, env_json_to_env_content, find_compose_candidates,
+        inject_env_file_into_services, inject_mesh_extra_hosts_into_services, inject_pier_labels,
+        inject_ports_into_yaml, normalize_mesh_hostname, tcp_ports_from_exposed, upsert_port_rows,
+        PortRow,
     };
     use crate::crypto::encrypt_env_json;
+
+    /// EXPOSE is the only statement a portless compose makes about what the
+    /// service listens on, so the parse has to survive both spellings and drop
+    /// what Pier cannot route.
+    #[test]
+    fn exposed_ports_keeps_tcp_sorted_and_deduped() {
+        let entries: Vec<String> = ["8010/tcp", "53/udp", "8010/tcp", "443", "not-a-port/tcp"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        assert_eq!(tcp_ports_from_exposed(&entries), vec![443, 8010]);
+    }
+
+    /// The case that started this: the file names an external network that is
+    /// not the one picked at deploy time. The pick wins, the file reference is
+    /// gone, and the stack is reachable from `pier-net`.
+    #[test]
+    fn pier_networks_replace_external_with_the_chosen_pair() {
+        let yaml = "services:
+  languagetool:
+    image: erikvl87/languagetool:latest
+    networks:
+      - pier-voxly
+networks:
+  pier-voxly:
+    external: true
+";
+        let got = apply_pier_networks(yaml, "pier-voxly-net");
+
+        assert_eq!(
+            got,
+            "services:
+  languagetool:
+    image: erikvl87/languagetool:latest
+    networks:
+      - pier-voxly-net
+      - pier-net
+networks:
+  pier-voxly-net:
+    external: true
+  pier-net:
+    external: true
+"
+        );
+    }
+
+    /// A network the file creates itself stays: it segments the stack
+    /// internally, which is the author's business, not Pier's.
+    #[test]
+    fn pier_networks_keep_compose_managed_segments() {
+        let yaml = "services:
+  app:
+    image: app
+    networks:
+      - backend
+      - stale-external
+  db:
+    image: postgres
+    networks:
+      - backend
+networks:
+  backend:
+    driver: bridge
+  stale-external:
+    external: true
+";
+        let got = apply_pier_networks(yaml, "pier-shop");
+
+        assert!(
+            got.contains("      - backend"),
+            "managed net dropped: {got}"
+        );
+        assert!(!got.contains("stale-external"), "external net kept: {got}");
+        assert!(got.contains("  backend:\n    driver: bridge"), "{got}");
+        assert_eq!(got.matches("      - pier-shop").count(), 2, "{got}");
+        assert_eq!(got.matches("      - pier-net").count(), 2, "{got}");
+    }
+
+    /// Runs before every `docker compose up`, over YAML that may already carry
+    /// the injection — so a second pass has to be a no-op.
+    #[test]
+    fn pier_networks_are_idempotent() {
+        let yaml = "services:
+  app:
+    image: app
+    networks:
+      - own
+networks:
+  own:
+    driver: bridge
+";
+        let once = apply_pier_networks(yaml, "pier-shop");
+        let twice = apply_pier_networks(&once, "pier-shop");
+
+        assert_eq!(once, twice);
+    }
+
+    /// A service that declares nothing gets the pair anyway — that is the whole
+    /// point of the guarantee.
+    #[test]
+    fn pier_networks_added_to_a_service_without_any() {
+        let yaml = "services:
+  app:
+    image: app
+    restart: unless-stopped
+";
+        let got = apply_pier_networks(yaml, "pier-shop");
+
+        assert_eq!(
+            got,
+            "services:
+  app:
+    image: app
+    restart: unless-stopped
+    networks:
+      - pier-shop
+      - pier-net
+networks:
+  pier-shop:
+    external: true
+  pier-net:
+    external: true
+"
+        );
+    }
+
+    /// `network_mode:` and `networks:` cannot coexist — compose refuses the
+    /// file outright, so such a service is left exactly as written.
+    #[test]
+    fn pier_networks_skip_a_service_using_network_mode() {
+        let yaml = "services:
+  vpn:
+    image: vpn
+    network_mode: host
+  app:
+    image: app
+";
+        let got = apply_pier_networks(yaml, "pier-shop");
+
+        assert!(
+            got.contains("    network_mode: host\n  app:"),
+            "vpn service was rewritten: {got}"
+        );
+        assert_eq!(got.matches("      - pier-shop").count(), 1, "{got}");
+    }
+
+    /// A service with no project runs on `pier-net` alone — one entry, not the
+    /// same network twice.
+    #[test]
+    fn pier_networks_do_not_duplicate_pier_net() {
+        let yaml = "services:
+  app:
+    image: app
+";
+        let got = apply_pier_networks(yaml, "pier-net");
+
+        assert_eq!(got.matches("- pier-net").count(), 1, "{got}");
+        assert_eq!(got.matches("  pier-net:").count(), 1, "{got}");
+    }
+
+    /// The mapping form carries aliases; rewriting must not flatten it into a
+    /// list and lose them.
+    #[test]
+    fn pier_networks_preserve_the_mapping_form_and_aliases() {
+        let yaml = "services:
+  app:
+    image: app
+    networks:
+      backend:
+        aliases:
+          - db.internal
+networks:
+  backend:
+    driver: bridge
+";
+        let got = apply_pier_networks(yaml, "pier-shop");
+
+        assert!(got.contains("          - db.internal"), "{got}");
+        assert!(got.contains("      pier-shop:"), "{got}");
+        assert!(got.contains("      pier-net:"), "{got}");
+        assert!(!got.contains("      - pier-shop"), "form changed: {got}");
+    }
+
+    /// The listing a failed "compose not found" deploy shows the operator:
+    /// every compose file in the clone, shallowest first, with `.git` and
+    /// friends skipped so vendored copies don't drown the real ones.
+    #[test]
+    fn compose_candidates_list_repo_files_shallowest_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("languagetool")).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        std::fs::write(root.join("docker-compose.yml"), "").unwrap();
+        std::fs::write(root.join("languagetool/compose.yaml"), "").unwrap();
+        std::fs::write(root.join("README.md"), "").unwrap();
+        std::fs::write(root.join(".git/docker-compose.yml"), "").unwrap();
+        std::fs::write(root.join("node_modules/pkg/docker-compose.yml"), "").unwrap();
+
+        let found = find_compose_candidates(root);
+
+        assert_eq!(
+            found,
+            vec!["docker-compose.yml", "languagetool/compose.yaml"]
+        );
+    }
 
     /// Bare-bones `port_allocations` schema mirroring migrations 2/10/15/32.
     /// We keep it inline so the test doesn't depend on the full migration
@@ -3166,23 +3811,29 @@ services:
     }
 
     #[test]
-    fn inject_ports_removes_block_when_going_private() {
-        // is_public=false → no `ports:` block in output, even if one was
-        // present before. Container becomes pier-net-only.
+    fn inject_ports_binds_loopback_when_going_private() {
+        // is_public=false → the host binding drops to loopback rather than
+        // disappearing. The Ports card labels such a row "Local 127.0.0.1:…"
+        // and the catalog emitter has always written exactly this line, so an
+        // operator can reach the service from the host either way.
         let yaml = "\
 services:
   api:
     image: api:latest
     ports:
-      - \"3050:3050\"
+      - \"0.0.0.0:3050:3050\"
 ";
         let rows = vec![row(Some("api"), 3050, false, None)];
         let out = inject_ports_into_yaml(yaml, &rows);
         assert!(
-            !out.contains("ports:"),
-            "private mode must strip ports: block, yaml = {out}"
+            out.contains("- \"127.0.0.1:3050:3050\""),
+            "private mode must bind loopback, yaml = {out}"
         );
-        assert!(out.contains("image: api:latest"));
+        assert!(
+            !out.contains("0.0.0.0"),
+            "private mode must not stay published to the world, yaml = {out}"
+        );
+        assert_eq!(out.matches("ports:").count(), 1, "{out}");
     }
 
     #[test]
@@ -3214,9 +3865,10 @@ services:
 
     #[test]
     fn inject_ports_handles_multi_service_with_mixed_public_private() {
-        // flowfin-style: api public, max-bot private. Output:
-        // - api gets `ports: - "0.0.0.0:3050:3050"`
-        // - max-bot gets NO ports: block (was none before either)
+        // flowfin-style: api public, max-bot private. Each service gets the
+        // one binding its own row calls for:
+        // - api     -> 0.0.0.0:3050:3050    (published to the world)
+        // - max-bot -> 127.0.0.1:3054:3054  (host only)
         let yaml = "\
 services:
   api:
@@ -3231,10 +3883,15 @@ services:
         let out = inject_ports_into_yaml(yaml, &rows);
         assert_eq!(
             out.matches("ports:").count(),
-            1,
-            "only api should have ports block, yaml = {out}"
+            2,
+            "each service gets its own ports block, yaml = {out}"
         );
-        assert!(out.contains("- \"0.0.0.0:3050:3050\""));
+        assert!(out.contains("- \"0.0.0.0:3050:3050\""), "{out}");
+        assert!(out.contains("- \"127.0.0.1:3054:3054\""), "{out}");
+        assert!(
+            !out.contains("0.0.0.0:3054"),
+            "the private service must not be published, yaml = {out}"
+        );
     }
 
     // ─── inject_pier_labels: map / list / absent + idempotency ──────────

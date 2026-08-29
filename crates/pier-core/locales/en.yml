@@ -896,6 +896,8 @@ resources_detail:
   git_source_optional: Git Source (optional)
   none_public_repo: None (public repo)
   monorepo_optional: Monorepo (optional)
+  compose_location: Compose Location
+  compose_location_hint: Path to the compose file, resolved relative to the root directory. Empty = docker-compose.yml.
   root_directory: Root directory
   root_directory_hint: Subdirectory used as the build context. Empty = repo root.
   watch_paths: Watch paths

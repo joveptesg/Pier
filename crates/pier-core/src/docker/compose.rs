@@ -22,6 +22,179 @@ fn apply_auth_env(cmd: &mut Command, auth_dir: &Option<tempfile::TempDir>) {
     }
 }
 
+/// Docker network names a compose file declares as `external: true`.
+///
+/// Line-oriented on purpose — the rest of Pier manipulates compose YAML the
+/// same way, and this only needs the top-level `networks:` block. Anything it
+/// cannot read confidently is left out: a missed entry costs the operator the
+/// old Compose error, while a false positive would block a deploy that works.
+///
+/// Understands the two spellings of a name override, since the docker network
+/// is what must exist, not the key:
+///
+/// ```yaml
+/// networks:
+///   frontend:            # → "frontend"
+///     external: true
+///   backend:             # → "shared-net"
+///     external: true
+///     name: shared-net
+///   legacy:              # → "old-net"  (Compose v2 form)
+///     external:
+///       name: old-net
+/// ```
+pub(crate) fn external_networks(yaml: &str) -> Vec<String> {
+    let mut out: Vec<String> = parse_networks_block(yaml)
+        .into_iter()
+        .filter(|d| d.external)
+        .map(|d| d.name.unwrap_or(d.key))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// One entry of a compose top-level `networks:` block.
+pub(crate) struct NetworkDecl {
+    /// The YAML key — what `services.*.networks` entries refer to.
+    pub key: String,
+    /// Declared `external: true`, in either spelling.
+    pub external: bool,
+    /// Explicit `name:` override, when the file gives one.
+    pub name: Option<String>,
+}
+
+/// Read the top-level `networks:` block.
+///
+/// The single parser behind both [`external_networks`] (which needs the docker
+/// network names, to check they exist) and the deploy-time network injection
+/// (which needs the *keys*, to rewrite what each service references).
+pub(crate) fn parse_networks_block(yaml: &str) -> Vec<NetworkDecl> {
+    let mut out = Vec::new();
+    let mut in_networks = false;
+    let mut current: Option<NetworkDecl> = None;
+
+    fn flush(entry: Option<NetworkDecl>, out: &mut Vec<NetworkDecl>) {
+        if let Some(decl) = entry {
+            out.push(decl);
+        }
+    }
+
+    for line in yaml.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+
+        // A new top-level key ends the block we care about.
+        if indent == 0 {
+            flush(current.take(), &mut out);
+            in_networks = trimmed == "networks:";
+            continue;
+        }
+        if !in_networks {
+            continue;
+        }
+
+        // One level in: a network name. Two or more: its properties.
+        if indent <= 2 {
+            flush(current.take(), &mut out);
+            if let Some(key) = trimmed.strip_suffix(':') {
+                current = Some(NetworkDecl {
+                    key: key.trim().to_string(),
+                    external: false,
+                    name: None,
+                });
+            }
+            continue;
+        }
+
+        let Some(entry) = current.as_mut() else {
+            continue;
+        };
+        if trimmed == "external: true" {
+            entry.external = true;
+        } else if trimmed == "external:" {
+            // Compose v2 `external: { name: … }` — the nested `name:` below is
+            // picked up by the branch after this one.
+            entry.external = true;
+        } else if let Some(name) = trimmed.strip_prefix("name:") {
+            let name = name.trim().trim_matches('"').trim_matches('\'');
+            if !name.is_empty() {
+                entry.name = Some(name.to_string());
+            }
+        }
+    }
+    flush(current.take(), &mut out);
+
+    out
+}
+
+/// Refuse the deploy when a network the compose file calls `external` is not on
+/// the host.
+///
+/// `docker compose up` catches this too — but only after pulling every image,
+/// so a typo in a network name costs minutes and then reports a bare "declared
+/// as external, but could not be found" with no hint of what does exist. This
+/// runs first and names the alternatives.
+///
+/// Fails open: if `docker network ls` cannot be read, the deploy proceeds and
+/// Compose stays the authority.
+async fn ensure_external_networks(yaml: &str) -> Result<()> {
+    let required = external_networks(yaml);
+    if required.is_empty() {
+        return Ok(());
+    }
+
+    let Ok(output) = Command::new("docker")
+        .args(["network", "ls", "--format", "{{.Name}}"])
+        .output()
+        .await
+    else {
+        return Ok(());
+    };
+    if !output.status.success() {
+        return Ok(());
+    }
+
+    let existing: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    let missing: Vec<&String> = required
+        .iter()
+        .filter(|n| !existing.iter().any(|e| e == *n))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let missing_list = missing
+        .iter()
+        .map(|n| n.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    // Pier's own networks first — for a service in a project, the name it
+    // actually wanted is almost always one of these.
+    let mut candidates: Vec<&str> = existing
+        .iter()
+        .filter(|n| n.starts_with("pier-"))
+        .map(|n| n.as_str())
+        .collect();
+    candidates.truncate(15);
+    let hint = if candidates.is_empty() {
+        String::new()
+    } else {
+        format!(" Existing Pier networks: {}.", candidates.join(", "))
+    };
+    anyhow::bail!(
+        "compose declares network(s) as external that do not exist on this host: {missing_list}.{hint} \
+         Create them with `docker network create <name>` or point the compose file at a network that exists."
+    );
+}
+
 /// Write compose YAML to disk and run `docker compose up -d`.
 pub async fn deploy_stack(
     name: &str,
@@ -34,6 +207,8 @@ pub async fn deploy_stack(
 
     let compose_file = stack_dir.join("docker-compose.yml");
     tokio::fs::write(&compose_file, yaml_content).await?;
+
+    ensure_external_networks(yaml_content).await?;
 
     let auth_dir = auth
         .as_ref()
@@ -94,6 +269,8 @@ pub async fn deploy_stack_with_progress(
 
     let compose_file = stack_dir.join("docker-compose.yml");
     tokio::fs::write(&compose_file, yaml_content).await?;
+
+    ensure_external_networks(yaml_content).await?;
 
     let auth_dir = auth
         .as_ref()
@@ -206,6 +383,8 @@ pub async fn deploy_stack_no_cache(
 
     let compose_file = stack_dir.join("docker-compose.yml");
     tokio::fs::write(&compose_file, yaml_content).await?;
+
+    ensure_external_networks(yaml_content).await?;
 
     let auth_dir = auth
         .as_ref()
@@ -468,4 +647,70 @@ pub async fn stream_stack_logs_ws(
     // kill_on_drop handles the cleanup, but call wait explicitly so we
     // don't leave defunct processes if drop happens during shutdown.
     let _ = child.kill().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::external_networks;
+
+    /// Both spellings of an external network, plus the `name:` override that
+    /// decides which docker network actually has to exist.
+    #[test]
+    fn external_networks_reads_every_declaration_form() {
+        let yaml = "services:
+  app:
+    image: nginx
+    networks:
+      - frontend
+networks:
+  frontend:
+    external: true
+  backend:
+    external: true
+    name: shared-net
+  legacy:
+    external:
+      name: old-net
+";
+        assert_eq!(
+            external_networks(yaml),
+            vec!["frontend", "old-net", "shared-net"]
+        );
+    }
+
+    /// Nothing to check when the file declares no external network: a managed
+    /// network, `external: false`, and a service-level `networks:` list must
+    /// not be mistaken for one.
+    #[test]
+    fn external_networks_ignores_managed_and_service_level_networks() {
+        let yaml = "services:
+  app:
+    image: nginx
+    networks:
+      - pier-net
+networks:
+  pier-net:
+    driver: bridge
+    name: custom
+  other:
+    external: false
+";
+        assert!(external_networks(yaml).is_empty());
+    }
+
+    /// The real-world miss this guards: the operator writes the project name
+    /// where the network name goes.
+    #[test]
+    fn external_networks_returns_the_typo_verbatim() {
+        let yaml = "services:
+  languagetool:
+    image: erikvl87/languagetool:latest
+    networks:
+      - pier-voxly
+networks:
+  pier-voxly:
+    external: true
+";
+        assert_eq!(external_networks(yaml), vec!["pier-voxly"]);
+    }
 }

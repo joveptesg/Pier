@@ -780,10 +780,19 @@ pub(crate) fn build_port_bindings_for_container(
 ) -> HashMap<String, Option<Vec<PortBinding>>> {
     let mut out: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
     for a in allocations {
-        if a.container_port <= 0 || !a.is_public {
+        if a.container_port <= 0 {
             continue;
         }
-        let Some(pp) = a.public_port else { continue };
+        // One binding per row, matching what `inject_ports_from_db` writes into
+        // compose: the world for a public row, loopback otherwise. Without the
+        // loopback line, turning a service private took away the host access
+        // the Ports card still advertised, until the next deploy put it back.
+        let (host_ip, host_port) = if a.is_public {
+            let Some(pp) = a.public_port else { continue };
+            ("0.0.0.0", pp)
+        } else {
+            ("127.0.0.1", a.host_port)
+        };
         let proto = if a.protocol.is_empty() {
             "tcp"
         } else {
@@ -792,8 +801,8 @@ pub(crate) fn build_port_bindings_for_container(
         let key = format!("{}/{}", a.container_port, proto);
 
         let binding = PortBinding {
-            host_ip: Some("0.0.0.0".to_string()),
-            host_port: Some(pp.to_string()),
+            host_ip: Some(host_ip.to_string()),
+            host_port: Some(host_port.to_string()),
         };
         out.entry(key.clone()).or_insert_with(|| Some(Vec::new()));
         if let Some(list) = out.get_mut(&key) {
@@ -879,17 +888,21 @@ mod tests {
     }
 
     #[test]
-    fn single_replica_single_private_port_emits_no_binding() {
-        // Private ports get no host binding at all — they stay reachable
-        // through pier-net by service name, no `-p` published. This matches
-        // what inject_ports_from_db writes into compose.
+    fn single_replica_single_private_port_binds_loopback() {
+        // A private port is bound on loopback, not dropped: that is the host
+        // access the Ports card advertises, and the same line
+        // inject_ports_from_db writes into compose.
         let a = alloc("primary", 10042, 8080, false, None);
         let refs: Vec<&PortAllocation> = vec![&a];
         let b = build_port_bindings_for_container(&refs);
-        assert!(
-            b.is_empty(),
-            "private port should produce no bindings: {b:?}"
-        );
+        let entry = b
+            .get("8080/tcp")
+            .expect("8080/tcp present")
+            .as_ref()
+            .unwrap();
+        assert_eq!(entry.len(), 1);
+        assert_eq!(entry[0].host_ip.as_deref(), Some("127.0.0.1"));
+        assert_eq!(entry[0].host_port.as_deref(), Some("10042"));
     }
 
     #[test]
@@ -909,9 +922,9 @@ mod tests {
     }
 
     #[test]
-    fn one_public_one_private_emits_only_public() {
-        // Public row → 0.0.0.0 binding. Private row → no binding (the
-        // 1883/tcp key shouldn't appear in the map at all).
+    fn one_public_one_private_binds_world_and_loopback() {
+        // Public row → 0.0.0.0 binding, private row → loopback. Each container
+        // port is bound exactly once, so the two can never collide.
         let pub_p = alloc("primary", 4471, 4471, true, Some(4471));
         let priv_p = alloc("port-1", 1883, 1883, false, None);
         let refs: Vec<&PortAllocation> = vec![&pub_p, &priv_p];
@@ -922,10 +935,13 @@ mod tests {
                 .as_deref(),
             Some("0.0.0.0")
         );
-        assert!(
-            !m.contains_key("1883/tcp"),
-            "private port leaked into bindings: {m:?}"
-        );
+        let priv_entry = m
+            .get("1883/tcp")
+            .expect("1883/tcp present")
+            .as_ref()
+            .unwrap();
+        assert_eq!(priv_entry.len(), 1);
+        assert_eq!(priv_entry[0].host_ip.as_deref(), Some("127.0.0.1"));
     }
 
     fn binding(ip: Option<&str>, host_port: &str) -> PortBinding {

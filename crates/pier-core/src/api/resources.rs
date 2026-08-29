@@ -97,8 +97,8 @@ fn compose_networks_blocks(net: &str) -> (String, String) {
 /// Otherwise fall back to the global config range. All four deploy paths
 /// (catalog/dockerfile/git/deferred-git) must route through this so the
 /// project's declared range is honored consistently.
-fn resolve_port_range(
-    state: &SharedState,
+pub(crate) fn resolve_port_range(
+    state: &crate::state::AppState,
     db: &rusqlite::Connection,
     project_id: Option<&str>,
 ) -> (u16, u16) {
@@ -394,6 +394,7 @@ fn spawn_compose_deploy(
     stack_name: &str,
     yaml: &str,
     project_id: Option<String>,
+    host_port: Option<u16>,
 ) {
     let state = state.clone();
     let service_id = service_id.to_string();
@@ -446,6 +447,30 @@ fn spawn_compose_deploy(
             // Populate port_allocations / services.port from the compose `ports:`.
             // Without this the API/UI report null ports for docker-compose resources.
             crate::deploy::update_ports_from_compose(&state, &service_id, &yaml);
+            // A compose without `ports:` says nothing about what it listens on;
+            // the image does. Without this the service has no Ports card, no
+            // internal address, and nothing to expose or route a domain to.
+            // Publishing what we just handed out costs one more `up` — the
+            // ports could not be known before the stack existed.
+            if crate::deploy::allocate_ports_from_image(&state, &service_id, host_port).await {
+                match crate::docker::deploy_service_stack(
+                    &state,
+                    &service_id,
+                    &stack_name,
+                    &yaml,
+                    None,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        crate::deploy::persist_container_name(&state, &service_id, &stack_name)
+                            .await;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Publishing image-derived ports for {service_id}: {e}");
+                    }
+                }
+            }
             // The YAML here is the operator's, so Pier does not rewrite its
             // networks — it attaches afterwards instead, which is what puts a
             // raw compose stack within Traefik's reach on its first deploy
@@ -1382,14 +1407,22 @@ async fn create_compose(
     let yaml = crate::deploy::inject_pier_labels(&yaml, &service_id, &body.catalog_id);
 
     // The wizard offers a Network for raw compose too; record it so the
-    // reconciler knows which project network this service belongs on. Its YAML
-    // stays untouched — the topology in it is the operator's.
+    // reconciler knows which project network this service belongs on.
     let (network_id, _) = resolve_network(state, body.network_id.as_deref());
+
+    // First `image:` in the file, so the Details card names something instead
+    // of a dash. Multi-service stacks are summarised by their first image —
+    // the compose itself stays the source of truth.
+    let first_image: Option<String> = yaml
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("image:"))
+        .map(|v| v.trim().trim_matches('"').trim_matches('\'').to_string())
+        .find(|v| !v.is_empty());
 
     with_db(state, |db| {
         db.execute(
-            "INSERT INTO services (id, project_id, network_id, name, service_type, compose_content, status, catalog_id, category)
-             VALUES (?1, ?2, ?3, ?4, 'compose', ?5, 'deploying', ?6, ?7)",
+            "INSERT INTO services (id, project_id, network_id, name, service_type, compose_content, status, catalog_id, category, image)
+             VALUES (?1, ?2, ?3, ?4, 'compose', ?5, 'deploying', ?6, ?7, ?8)",
             rusqlite::params![
                 service_id,
                 body.project_id,
@@ -1398,6 +1431,7 @@ async fn create_compose(
                 yaml,
                 body.catalog_id,
                 item.meta.category,
+                first_image,
             ],
         )?;
         Ok(())
@@ -1411,6 +1445,7 @@ async fn create_compose(
         stack_name,
         &yaml,
         body.project_id.clone(),
+        body.host_port,
     );
 
     Ok(Json(serde_json::json!({
@@ -3245,6 +3280,19 @@ pub async fn redeploy(
         // Re-sync port_allocations / services.port from the (possibly changed)
         // compose `ports:` so the API/UI reflect the live bindings.
         crate::deploy::update_ports_from_compose(&state, &id, &yaml);
+        if crate::deploy::allocate_ports_from_image(&state, &id, None).await {
+            if let Err(e) =
+                docker::deploy_service_stack(&state, &id, &stack_name, &yaml, None).await
+            {
+                tracing::warn!("Publishing image-derived ports for {id}: {e}");
+            } else {
+                crate::deploy::persist_container_name(&state, &id, &stack_name).await;
+            }
+        }
+        // The create path attaches the project network after a deploy; this one
+        // never did, so a stack redeployed from before the compose-level
+        // injection stayed on whatever networks it came up with.
+        crate::proxy::reconcile_service_networks(&state, &id).await;
     }
     let db = state
         .db
@@ -4353,7 +4401,7 @@ pub async fn get_git_config(
 
     let config = db
         .query_row(
-            "SELECT git_repo_url, git_branch, git_source_id, build_strategy, git_webhook_secret, root_path, watch_paths
+            "SELECT git_repo_url, git_branch, git_source_id, build_strategy, git_webhook_secret, root_path, watch_paths, compose_path
              FROM services WHERE id = ?1",
             [&id],
             |row| {
@@ -4365,6 +4413,7 @@ pub async fn get_git_config(
                     "webhook_secret": row.get::<_, Option<String>>(4)?,
                     "root_path": row.get::<_, Option<String>>(5)?,
                     "watch_paths": row.get::<_, Option<String>>(6)?,
+                    "compose_path": row.get::<_, Option<String>>(7)?,
                 }))
             },
         )
@@ -4406,10 +4455,19 @@ pub async fn update_git_config(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    // Same normalization, and written whatever the strategy is: the pipeline
+    // only reads it for `docker-compose`, so keeping it lets an operator flip
+    // the strategy back and forth without losing the path they typed.
+    let compose_path = body
+        .compose_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
 
     let rows = db.execute(
-        "UPDATE services SET git_repo_url = ?1, git_branch = ?2, git_source_id = ?3, build_strategy = ?4, git_webhook_secret = ?5, root_path = ?6, watch_paths = ?7, updated_at = datetime('now')
-         WHERE id = ?8",
+        "UPDATE services SET git_repo_url = ?1, git_branch = ?2, git_source_id = ?3, build_strategy = ?4, git_webhook_secret = ?5, root_path = ?6, watch_paths = ?7, compose_path = ?8, updated_at = datetime('now')
+         WHERE id = ?9",
         rusqlite::params![
             body.git_repo_url,
             body.git_branch.unwrap_or_else(|| "main".to_string()),
@@ -4418,6 +4476,7 @@ pub async fn update_git_config(
             webhook_secret,
             root_path,
             watch_paths,
+            compose_path,
             id,
         ],
     )?;
@@ -4448,6 +4507,10 @@ pub struct UpdateGitConfigRequest {
     /// Monorepo: newline-separated globset patterns; a push redeploys this
     /// service only if a changed file matches. Blank/absent → watch everything.
     pub watch_paths: Option<String>,
+    /// Path to the compose file for the `docker-compose` strategy, resolved
+    /// relative to `root_path`. May carry a leading `/`. Blank/absent →
+    /// `docker-compose.yml` in the build context root.
+    pub compose_path: Option<String>,
 }
 
 /// PUT /api/v1/resources/{id}/port-public — toggle public exposure of one
