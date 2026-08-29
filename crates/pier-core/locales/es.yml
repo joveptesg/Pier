@@ -885,6 +885,8 @@ resources_detail:
   git_source_optional: Fuente de Git (opcional)
   none_public_repo: Ninguna (repositorio público)
   monorepo_optional: Monorepo (opcional)
+  never_deployed: Este servicio aún no se ha desplegado
+  never_deployed_hint: Se creó pero nunca se construyó. Inicia el primer despliegue para clonar el repositorio y levantarlo.
   compose_location: Ubicación del Compose
   compose_location_hint: Ruta al archivo compose, resuelta respecto al directorio raíz. Vacío = docker-compose.yml.
   root_directory: Directorio raíz

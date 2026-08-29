@@ -922,6 +922,8 @@ resources_detail:
   back_to_deployments: Back to deployments
   cicd_deployments: CI/CD Deployments
   action_history: Action History
+  never_deployed: This service has not been deployed yet
+  never_deployed_hint: It was created but never built. Start the first deploy to pull the repository and bring it up.
   no_deployments_yet: No deployments yet
   no_deployments_hint: Deploy, stop, and restart actions will appear here.
   view_log: View log

@@ -885,6 +885,8 @@ resources_detail:
   git_source_optional: Git 源（可选）
   none_public_repo: 无（公开仓库）
   monorepo_optional: Monorepo（可选）
+  never_deployed: 此服务尚未部署
+  never_deployed_hint: 服务已创建但从未构建。启动首次部署以拉取仓库并运行它。
   compose_location: Compose 位置
   compose_location_hint: Compose 文件路径，相对根目录解析。留空 = docker-compose.yml。
   root_directory: 根目录

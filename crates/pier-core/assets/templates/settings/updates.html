@@ -249,6 +249,10 @@ function updatesPage() {
         uptime: '{{ t('common.loading') }}',
         _uptimeSeconds: 0,
         _uptimeInterval: null,
+        _infoInterval: null,
+        // Bumped per loadSystemInfo call so a retry loop left over from an
+        // earlier one drops out instead of fighting the current one.
+        _infoGen: 0,
 
         // Update check
         checking: false,
@@ -279,22 +283,57 @@ function updatesPage() {
         async init() {
             this.loadSystemInfo();
             this.loadSettings();
+            // Re-read on a slow beat so a restart from anywhere — the button
+            // below, `install.sh` over ssh — shows up without a manual reload.
+            // It also keeps uptime honest: the ticker below counts on from the
+            // value it was handed, which is wrong the moment pier restarts.
+            this._infoInterval = setInterval(() => this.loadSystemInfo(), 60000);
         },
 
-        async loadSystemInfo() {
-            try {
-                const r = await fetch('/api/v1/system/info').then(r => r.json());
-                this.buildDate = r.build_date || '{{ t('settings_updates.unknown') }}';
-                this._uptimeSeconds = r.uptime_seconds || 0;
-                this.uptime = this.formatUptime(this._uptimeSeconds);
-                this._uptimeInterval = setInterval(() => {
-                    this._uptimeSeconds++;
+        // Reads version/build/uptime, retrying while pier is down.
+        //
+        // This page is the one an operator watches *through* a restart: the
+        // update button installs a new binary and restarts the service, and a
+        // single failed fetch used to latch the whole block on "Unavailable"
+        // until F5 — which is exactly when the numbers matter most.
+        loadSystemInfo() {
+            clearInterval(this._uptimeInterval);
+            this._uptimeInterval = null;
+            const gen = ++this._infoGen;
+
+            const attempt = async (left) => {
+                // A newer call took over (periodic re-read, or a restart poll);
+                // let it own the state.
+                if (gen !== this._infoGen) return;
+                try {
+                    // `fetch` only rejects on a dead connection, so a pier that
+                    // is up but answering 401/502 has to be treated as a miss
+                    // too — otherwise the retry stops on a body that has no
+                    // build_date in it and the block reads "unknown" forever.
+                    const res = await fetch('/api/v1/system/info');
+                    if (!res.ok) throw new Error(res.status);
+                    const r = await res.json();
+                    if (gen !== this._infoGen) return;
+                    this.buildDate = r.build_date || '{{ t('settings_updates.unknown') }}';
+                    this._uptimeSeconds = r.uptime_seconds || 0;
                     this.uptime = this.formatUptime(this._uptimeSeconds);
-                }, 1000);
-            } catch {
-                this.buildDate = '{{ t('settings_updates.unavailable') }}';
-                this.uptime = '{{ t('settings_updates.unavailable') }}';
-            }
+                    this._uptimeInterval = setInterval(() => {
+                        this._uptimeSeconds++;
+                        this.uptime = this.formatUptime(this._uptimeSeconds);
+                    }, 1000);
+                } catch {
+                    if (gen !== this._infoGen) return;
+                    if (left > 0) {
+                        this.buildDate = '{{ t('settings_updates.progress_reconnecting') }}';
+                        this.uptime = '{{ t('settings_updates.progress_reconnecting') }}';
+                        setTimeout(() => attempt(left - 1), 3000);
+                    } else {
+                        this.buildDate = '{{ t('settings_updates.unavailable') }}';
+                        this.uptime = '{{ t('settings_updates.unavailable') }}';
+                    }
+                }
+            };
+            attempt(40);
         },
 
         async loadSettings() {

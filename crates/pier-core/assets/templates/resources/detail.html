@@ -1753,11 +1753,28 @@ NODE_ENV=production"></textarea>
                 </template>
             </div>
         </div>
-        <!-- Empty state — no CI deployments and no action history -->
+        <!-- Empty state — no CI deployments and no action history. A git
+             service at `created` has never been deployed at all, so it gets the
+             action instead of a shrug: that is the one thing the operator came
+             here to do. -->
         <div x-show="ciDeployments.length === 0 && deploymentLogs.length === 0"
              class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-6 text-center">
-            <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('resources_detail.no_deployments_yet') }}</p>
-            <p class="text-xs text-gray-400 mt-1">{{ t('resources_detail.no_deployments_hint') }}</p>
+            <template x-if="resource.git_repo_url && resource.status === 'created'">
+                <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('resources_detail.never_deployed') }}</p>
+                    <p class="text-xs text-gray-400 mt-1">{{ t('resources_detail.never_deployed_hint') }}</p>
+                    <button @click="deployAndWatch()"
+                            class="mt-4 px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                        {{ t('resources_detail.deploy') }}
+                    </button>
+                </div>
+            </template>
+            <template x-if="!(resource.git_repo_url && resource.status === 'created')">
+                <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('resources_detail.no_deployments_yet') }}</p>
+                    <p class="text-xs text-gray-400 mt-1">{{ t('resources_detail.no_deployments_hint') }}</p>
+                </div>
+            </template>
         </div>
     </div>
 
