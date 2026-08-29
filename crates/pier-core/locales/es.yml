@@ -1653,9 +1653,9 @@ settings_index:
   build_cache_desc: Capas de compilación de Docker sin usar
   clean: Limpiar
   dangling_images: Imágenes huérfanas
-  dangling_images_desc: Imágenes sin etiqueta no usadas por contenedores
+  dangling_images_desc: Capas <none> sin etiqueta que quedan tras las reconstrucciones
   stopped_containers: Contenedores detenidos
-  stopped_containers_desc: Contenedores que no están en ejecución
+  stopped_containers_desc: Capas de escritura de contenedores que no están en ejecución
   railpack_buildkit_cache: Caché de Railpack BuildKit
   railpack_buildkit_cache_desc: Caché de capas usada por Auto-build (Railpack) — reside dentro del contenedor buildkit, separada de Docker
   cleaning: Limpiando...
@@ -1669,6 +1669,11 @@ settings_index:
   every_48_hours: Cada 48 horas
   every_7_days: Cada 7 días
   unused_images: Imágenes sin usar
+  unused_images_desc: Imágenes etiquetadas que ningún contenedor ni servicio referencia
+  images_to_remove: imágenes se eliminarán
+  freed: 'Liberado '
+  cleanup_failed: 'Fallo al limpiar '
+  nothing_to_clean: Nada que limpiar
   autobuild_title: Auto-build (Railpack)
   autobuild_desc: Controla cuántas compilaciones de Railpack pueden ejecutarse en paralelo. Cada compilación puede usar varios GB de RAM durante la compilación, por lo que el límite predeterminado de 1 es una opción segura para hosts VPS pequeños. Auméntalo solo si tu host tiene capacidad disponible.
   currently_running: En ejecución actualmente

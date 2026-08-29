@@ -3,6 +3,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use sysinfo::System;
 
+use crate::docker::cleanup::{parse_docker_size, parse_reclaimed};
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 
@@ -62,8 +63,8 @@ pub async fn docker_info(State(state): State<SharedState>) -> AppResult<impl Int
 }
 
 /// GET /api/v1/system/disk-usage — Docker disk usage breakdown via CLI
-pub async fn disk_usage(State(_state): State<SharedState>) -> AppResult<impl IntoResponse> {
-    let output = tokio::process::Command::new("docker")
+pub async fn disk_usage(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let output = crate::docker::docker_cmd(&state)
         .args(["system", "df", "-v", "--format", "{{json .}}"])
         .output()
         .await
@@ -204,46 +205,31 @@ pub async fn info(State(state): State<SharedState>) -> AppResult<impl IntoRespon
     })))
 }
 
-pub async fn cleanup_info() -> AppResult<impl IntoResponse> {
-    // docker system df (summary, not verbose)
-    let output = tokio::process::Command::new("docker")
-        .args(["system", "df", "--format", "{{json .}}"])
-        .output()
-        .await
-        .map_err(|e| anyhow::anyhow!("docker system df: {e}"))?;
-
-    let raw = String::from_utf8_lossy(&output.stdout);
-    let mut build_cache: u64 = 0;
-    let mut images_reclaimable: u64 = 0;
-    let mut containers_size: u64 = 0;
-
-    // Each line is a JSON object for a section (Images, Containers, Local Volumes, Build Cache)
-    for line in raw.lines() {
-        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(line) {
-            let typ = obj["Type"].as_str().unwrap_or("");
-            let reclaimable = obj["Reclaimable"].as_str().unwrap_or("0B");
-            // Parse reclaimable: "1.2GB (50%)" → extract size before "("
-            let size_part = reclaimable.split('(').next().unwrap_or("0B").trim();
-            match typ {
-                "Images" => images_reclaimable = parse_docker_size(size_part),
-                "Containers" => {
-                    containers_size = parse_docker_size(obj["Size"].as_str().unwrap_or("0B"))
-                }
-                "Build Cache" => build_cache = parse_docker_size(size_part),
-                _ => {}
-            }
-        }
-    }
-
-    // Railpack/BuildKit cache lives INSIDE the moby/buildkit container, so
-    // `docker system df` above doesn't see it. Ask buildctl directly. Returns
-    // 0 when the container is absent (PIER_SKIP_RAILPACK=1 install) or any
-    // step times out — UI just renders "0 B" in that case, no error surfaced.
-    let buildkit_cache = read_buildkit_cache_size().await;
+/// GET /api/v1/system/cleanup-info — sizes for the Settings → Cleanup panel.
+///
+/// Every number here is the size of exactly what that row's Clean button
+/// removes, which is the entire point of this handler. It used to report
+/// `Images.Reclaimable` — every unused image, tagged ones included — beside
+/// a button running `docker image prune -f`, which removes untagged images
+/// only. Since nothing Pier builds is ever untagged, that row sat at a
+/// constant several gigabytes no matter how often Clean was pressed.
+///
+/// Image and container figures come from the Engine API as exact byte counts,
+/// so they need no size-string parsing and cannot drift from what the
+/// corresponding button deletes.
+pub async fn cleanup_info(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let scan = crate::docker::image_gc::scan(&state).await?;
+    let build_cache = build_cache_reclaimable(&state).await;
+    let containers_size = stopped_containers_bytes(&state).await?;
+    let buildkit_cache = read_buildkit_cache_size(&state).await;
 
     Ok(Json(serde_json::json!({
         "build_cache": build_cache,
-        "images_reclaimable": images_reclaimable,
+        "dangling_images": scan.dangling_bytes(),
+        "orphan_images": scan.orphan_bytes(),
+        // Listed in the panel so the operator can see what a deletion no
+        // `docker image prune` would perform is about to take.
+        "orphan_image_list": scan.orphans,
         "containers_size": containers_size,
         "buildkit_cache": buildkit_cache,
     })))
@@ -261,8 +247,8 @@ pub async fn cleanup_info() -> AppResult<impl IntoResponse> {
 /// All failures are silent because Auto-build is optional — surfacing
 /// an error here would scare operators away from the otherwise-working
 /// Cleanup tab.
-async fn read_buildkit_cache_size() -> u64 {
-    let fut = tokio::process::Command::new("docker")
+async fn read_buildkit_cache_size(state: &SharedState) -> u64 {
+    let fut = crate::docker::docker_cmd(state)
         .args(["exec", "buildkit", "buildctl", "du"])
         .output();
     let output = match tokio::time::timeout(std::time::Duration::from_secs(5), fut).await {
@@ -270,7 +256,7 @@ async fn read_buildkit_cache_size() -> u64 {
         _ => return 0,
     };
     let raw = String::from_utf8_lossy(&output.stdout);
-    // Last line typically looks like: "Total:		8.45GB"
+    // Last line typically looks like: "Total:\t\t8.45GB"
     for line in raw.lines().rev() {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("Total:") {
@@ -280,8 +266,95 @@ async fn read_buildkit_cache_size() -> u64 {
     0
 }
 
-/// POST /api/v1/system/cleanup — run cleanup for specified targets
-pub async fn cleanup(Json(body): Json<serde_json::Value>) -> AppResult<impl IntoResponse> {
+/// Writable-layer bytes `docker container prune -f` would actually reclaim.
+///
+/// Counts only containers the daemon would agree to prune; running, paused
+/// and restarting ones are excluded, matching the daemon's own prune
+/// predicate. The panel previously showed `Containers.Size` from
+/// `docker system df`, which is the writable layer of *every* container, so
+/// on a host where nothing is stopped it displayed gigabytes next to a button
+/// that could free nothing.
+async fn stopped_containers_bytes(state: &SharedState) -> AppResult<u64> {
+    use bollard::models::ContainerSummaryStateEnum as ContainerState;
+    use bollard::query_parameters::ListContainersOptions;
+
+    let containers = state
+        .docker
+        .list_containers(Some(ListContainersOptions {
+            all: true,
+            // Makes the daemon stat each writable layer: the same work
+            // `docker system df` does, and the only way to get SizeRw.
+            size: true,
+            ..Default::default()
+        }))
+        .await?;
+
+    Ok(containers
+        .iter()
+        .filter(|c| {
+            matches!(
+                c.state,
+                Some(ContainerState::CREATED)
+                    | Some(ContainerState::EXITED)
+                    | Some(ContainerState::DEAD)
+            )
+        })
+        .filter_map(|c| c.size_rw)
+        .map(|b| b.max(0) as u64)
+        .sum())
+}
+
+/// Reclaimable build-cache bytes, from `docker system df`.
+///
+/// Stays on the CLI: `/system/df` changed response shape across Engine
+/// versions and bollard models only the newest, so a typed call would
+/// silently read zero against an older daemon. Returns 0 if docker is
+/// unreachable, so one broken row cannot fail the whole panel.
+async fn build_cache_reclaimable(state: &SharedState) -> u64 {
+    let output = match crate::docker::docker_cmd(state)
+        .args(["system", "df", "--format", "{{json .}}"])
+        .output()
+        .await
+    {
+        Ok(out) if out.status.success() => out,
+        Ok(out) => {
+            tracing::warn!(
+                "docker system df failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+            return 0;
+        }
+        Err(e) => {
+            tracing::warn!("docker system df: {e}");
+            return 0;
+        }
+    };
+
+    // One JSON object per section; only the Build Cache row is wanted here.
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Ok(obj) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if obj["Type"].as_str() == Some("Build Cache") {
+            // "35.76MB (100%)" — the percentage is noise.
+            let reclaimable = obj["Reclaimable"].as_str().unwrap_or("0B");
+            return parse_docker_size(reclaimable.split('(').next().unwrap_or("0B").trim());
+        }
+    }
+    0
+}
+
+/// POST /api/v1/system/cleanup — run cleanup for the requested targets.
+///
+/// Reports per-target `ok`, bytes reclaimed, and stderr on failure. An
+/// earlier version matched only on whether the process *spawned*, so a prune
+/// that exited non-zero — daemon unreachable, socket permissions, missing
+/// buildkit container — was recorded as a success with empty output and the
+/// panel said "Cleanup complete" either way.
+pub async fn cleanup(
+    State(state): State<SharedState>,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<impl IntoResponse> {
     let targets = body["targets"]
         .as_array()
         .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
@@ -290,48 +363,70 @@ pub async fn cleanup(Json(body): Json<serde_json::Value>) -> AppResult<impl Into
     let mut results = serde_json::Map::new();
 
     for target in &targets {
-        let (cmd, args): (&str, &[&str]) = match *target {
-            "build_cache" => ("docker", &["builder", "prune", "-f"]),
-            "images" => ("docker", &["image", "prune", "-f"]),
-            "containers" => ("docker", &["container", "prune", "-f"]),
+        // Orphaned images go through the Engine API one at a time rather than
+        // a prune: `docker image prune -a` would clear the reclaimable figure
+        // just as well, and take rollback targets and the images of stopped
+        // services with it.
+        if *target == "orphan_images" {
+            let entry = match crate::docker::image_gc::remove_orphan_images(&state).await {
+                Ok(summary) => serde_json::json!({
+                    "ok": summary.errors.is_empty(),
+                    "removed": summary.removed,
+                    "reclaimed": summary.reclaimed,
+                    "error": summary.errors.first().cloned(),
+                }),
+                Err(e) => {
+                    tracing::warn!("Cleanup orphan_images failed: {e}");
+                    serde_json::json!({ "ok": false, "error": e.to_string() })
+                }
+            };
+            results.insert((*target).to_string(), entry);
+            continue;
+        }
+
+        let args: &[&str] = match *target {
+            "build_cache" => &["builder", "prune", "-f"],
+            "images" => &["image", "prune", "-f"],
+            "containers" => &["container", "prune", "-f"],
             // Operator pressed Clean on the Railpack row -> wipe the BuildKit
             // cache inside the buildkit container completely (--keep-storage 0
             // + --keep-duration 0). The daily safety-net loop in main.rs uses
             // softer 10GB / 7-day parameters; the explicit click is "I want
             // disk back now".
-            "railpack_buildkit_cache" => (
-                "docker",
-                &[
-                    "exec",
-                    "buildkit",
-                    "buildctl",
-                    "prune",
-                    "--keep-storage",
-                    "0",
-                    "--keep-duration",
-                    "0",
-                ],
-            ),
+            "railpack_buildkit_cache" => &[
+                "exec",
+                "buildkit",
+                "buildctl",
+                "prune",
+                "--keep-storage",
+                "0",
+                "--keep-duration",
+                "0",
+            ],
             _ => continue,
         };
 
-        match tokio::process::Command::new(cmd).args(args).output().await {
-            Ok(out) => {
+        let entry = match crate::docker::docker_cmd(&state).args(args).output().await {
+            Ok(out) if out.status.success() => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 tracing::info!("Cleanup {target}: {}", stdout.trim());
-                results.insert(
-                    target.to_string(),
-                    serde_json::json!({ "ok": true, "output": stdout.trim() }),
-                );
+                serde_json::json!({
+                    "ok": true,
+                    "reclaimed": parse_reclaimed(&stdout),
+                    "output": stdout.trim(),
+                })
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                tracing::warn!("Cleanup {target} exited {}: {stderr}", out.status);
+                serde_json::json!({ "ok": false, "error": stderr })
             }
             Err(e) => {
                 tracing::warn!("Cleanup {target} failed: {e}");
-                results.insert(
-                    target.to_string(),
-                    serde_json::json!({ "ok": false, "error": e.to_string() }),
-                );
+                serde_json::json!({ "ok": false, "error": e.to_string() })
             }
-        }
+        };
+        results.insert((*target).to_string(), entry);
     }
 
     Ok(Json(serde_json::json!({ "results": results })))
@@ -353,6 +448,7 @@ pub async fn cleanup_settings_update(
         "cleanup.prune_build_cache",
         "cleanup.prune_images",
         "cleanup.prune_containers",
+        "cleanup.prune_orphan_images",
         "cleanup.prune_railpack_buildkit",
     ];
 
@@ -395,6 +491,7 @@ pub async fn cleanup_settings_update(
         "prune_images":             read("cleanup.prune_images",             "true")  != "false",
         "prune_build_cache":        read("cleanup.prune_build_cache",        "true")  != "false",
         "prune_containers":         read("cleanup.prune_containers",         "false") == "true",
+        "prune_orphan_images":      read("cleanup.prune_orphan_images",      "false") == "true",
         "prune_railpack_buildkit":  read("cleanup.prune_railpack_buildkit",  "false") == "true",
     });
     let next = crate::scheduler::cron_utils::next_fire_utc(cron, "UTC", chrono::Utc::now())
@@ -437,28 +534,13 @@ pub async fn cleanup_settings_get(
         "prune_build_cache": get("cleanup.prune_build_cache") != "false",
         "prune_images": get("cleanup.prune_images") != "false",
         "prune_containers": get("cleanup.prune_containers") == "true",
+        "prune_orphan_images": get("cleanup.prune_orphan_images") == "true",
         "prune_railpack_buildkit": get("cleanup.prune_railpack_buildkit") == "true",
     })))
 }
 
-fn parse_docker_size(s: &str) -> u64 {
-    let s = s.trim();
-    if s.is_empty() || s == "0B" || s == "0" {
-        return 0;
-    }
-    let (num_str, unit) = if let Some(rest) = s.strip_suffix("GB") {
-        (rest, 1_073_741_824u64)
-    } else if let Some(rest) = s.strip_suffix("MB") {
-        (rest, 1_048_576u64)
-    } else if let Some(rest) = s.strip_suffix("kB").or_else(|| s.strip_suffix("KB")) {
-        (rest, 1024u64)
-    } else if let Some(rest) = s.strip_suffix('B') {
-        (rest, 1u64)
-    } else {
-        (s, 1u64)
-    };
-    num_str.trim().parse::<f64>().unwrap_or(0.0) as u64 * unit
-}
+/// Docker size strings are parsed in `crate::docker::cleanup`, next to the
+/// prune passes whose output they describe.
 
 const GITHUB_RELEASE_URL: &str = "https://api.github.com/repos/joveptesg/pier/releases/tags/latest";
 const BINARY_ASSET_NAME: &str = "pier-linux-amd64";

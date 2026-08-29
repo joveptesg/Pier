@@ -1673,9 +1673,9 @@ settings_index:
   build_cache_desc: Unused Docker build layers
   clean: Clean
   dangling_images: Dangling Images
-  dangling_images_desc: Untagged images not used by containers
+  dangling_images_desc: Untagged <none> layers left over from rebuilds
   stopped_containers: Stopped Containers
-  stopped_containers_desc: Containers that are not running
+  stopped_containers_desc: Writable layers of containers that are not running
   railpack_buildkit_cache: Railpack BuildKit cache
   railpack_buildkit_cache_desc: Layer cache used by Auto-build (Railpack) — lives inside the buildkit container, separate from Docker
   cleaning: Cleaning...
@@ -1689,6 +1689,11 @@ settings_index:
   every_48_hours: Every 48 hours
   every_7_days: Every 7 days
   unused_images: Unused Images
+  unused_images_desc: Tagged images no container or service references
+  images_to_remove: images will be removed
+  freed: 'Freed '
+  cleanup_failed: 'Cleanup failed for '
+  nothing_to_clean: Nothing to clean
   autobuild_title: Auto-build (Railpack)
   autobuild_desc: Controls how many Railpack builds can run in parallel. Each build can use several GB of RAM during compilation, so the default cap of 1 is a safe choice for small VPS hosts. Raise it only if your host has spare capacity.
   currently_running: Currently running

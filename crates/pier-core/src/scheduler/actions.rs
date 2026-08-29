@@ -35,6 +35,9 @@ struct CleanupActionConfig {
     prune_images: Option<bool>,
     prune_build_cache: Option<bool>,
     prune_containers: Option<bool>,
+    /// Absent in the row seeded by migration 49, so it falls back to the
+    /// `CleanupOptions` default (off) until the operator saves settings.
+    prune_orphan_images: Option<bool>,
     prune_railpack_buildkit: Option<bool>,
 }
 
@@ -111,6 +114,9 @@ async fn fire_cleanup(state: &SharedState, action_config: &str) -> Result<Action
         prune_images: cfg.prune_images.unwrap_or(defaults.prune_images),
         prune_build_cache: cfg.prune_build_cache.unwrap_or(defaults.prune_build_cache),
         prune_containers: cfg.prune_containers.unwrap_or(defaults.prune_containers),
+        prune_orphan_images: cfg
+            .prune_orphan_images
+            .unwrap_or(defaults.prune_orphan_images),
         prune_railpack_buildkit: cfg
             .prune_railpack_buildkit
             .unwrap_or(defaults.prune_railpack_buildkit),

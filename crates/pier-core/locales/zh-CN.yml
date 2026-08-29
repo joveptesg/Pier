@@ -1654,9 +1654,9 @@ settings_index:
   build_cache_desc: 未使用的 Docker 构建层
   clean: 清理
   dangling_images: 悬空镜像
-  dangling_images_desc: 未被容器使用的无标签镜像
+  dangling_images_desc: 重新构建后遗留的无标签 <none> 层
   stopped_containers: 已停止的容器
-  stopped_containers_desc: 未在运行的容器
+  stopped_containers_desc: 未在运行的容器的可写层
   railpack_buildkit_cache: Railpack BuildKit 缓存
   railpack_buildkit_cache_desc: 自动构建（Railpack）使用的层缓存 —— 位于 buildkit 容器内部，与 Docker 分离
   cleaning: 清理中…
@@ -1670,6 +1670,11 @@ settings_index:
   every_48_hours: 每 48 小时
   every_7_days: 每 7 天
   unused_images: 未使用的镜像
+  unused_images_desc: 没有任何容器或服务引用的已标记镜像
+  images_to_remove: 个镜像将被删除
+  freed: '已释放 '
+  cleanup_failed: 清理失败：
+  nothing_to_clean: 无需清理
   autobuild_title: 自动构建（Railpack）
   autobuild_desc: 控制可并行运行的 Railpack 构建数量。每个构建在编译期间可能使用数 GB 内存，因此默认上限 1 对于小型 VPS 主机是安全的选择。仅当主机有空余容量时才提高此值。
   currently_running: 当前运行中

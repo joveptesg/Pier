@@ -87,10 +87,42 @@
                     <span x-show="infoLoading" x-cloak class="inline-flex items-center">
                         <svg class="w-3.5 h-3.5 spinner text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30" stroke-dashoffset="10"/></svg>
                     </span>
-                    <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-blue-400" x-text="fmtB(info.images_reclaimable)"></span>
+                    <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-blue-400" x-text="fmtB(info.dangling_images)"></span>
                     <button @click="runCleanup(['images'])" :disabled="cleaning || infoLoading"
                             class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900/20 hover:text-blue-600 rounded transition-colors disabled:opacity-50">{{ t('settings_index.clean') }}</button>
                 </div>
+            </div>
+            <div class="border-t border-gray-100 dark:border-gray-800"></div>
+            <div class="py-2">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-900 dark:text-white">{{ t('settings_index.unused_images') }}</p>
+                        <p class="text-xs text-gray-500">{{ t('settings_index.unused_images_desc') }}</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span x-show="infoLoading" x-cloak class="inline-flex items-center">
+                            <svg class="w-3.5 h-3.5 spinner text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="30" stroke-dashoffset="10"/></svg>
+                        </span>
+                        <span x-show="!infoLoading" x-cloak class="text-sm font-mono text-orange-400" x-text="fmtB(info.orphan_images)"></span>
+                        <button @click="runCleanup(['orphan_images'])" :disabled="cleaning || infoLoading || !info.orphan_images"
+                                class="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-orange-100 dark:hover:bg-orange-900/20 hover:text-orange-600 rounded transition-colors disabled:opacity-50">{{ t('settings_index.clean') }}</button>
+                    </div>
+                </div>
+                <!-- Removal here is not a prune and cannot be undone, so show
+                     exactly which images go before the operator commits. -->
+                <details x-show="!infoLoading && info.orphan_image_list.length" x-cloak class="mt-2">
+                    <summary class="text-xs text-gray-500 hover:text-gray-400 cursor-pointer">
+                        <span x-text="info.orphan_image_list.length"></span> {{ t('settings_index.images_to_remove') }}
+                    </summary>
+                    <ul class="mt-2 space-y-1 max-h-48 overflow-y-auto pr-1">
+                        <template x-for="img in info.orphan_image_list" :key="img.id">
+                            <li class="flex items-center justify-between gap-3 text-xs">
+                                <span class="font-mono text-gray-600 dark:text-gray-400 truncate" x-text="img.name"></span>
+                                <span class="font-mono text-gray-500 shrink-0" x-text="fmtB(img.size)"></span>
+                            </li>
+                        </template>
+                    </ul>
+                </details>
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between py-2">
@@ -124,7 +156,7 @@
             </div>
             <div class="border-t border-gray-100 dark:border-gray-800"></div>
             <div class="flex items-center justify-between pt-2">
-                <span class="text-xs text-gray-500" x-text="cleanMsg"></span>
+                <span class="text-xs" :class="cleanErr ? 'text-red-500' : 'text-gray-500'" x-text="cleanMsg"></span>
                 <button @click="runCleanup(['build_cache','images','containers','railpack_buildkit_cache'])" :disabled="cleaning || infoLoading"
                         class="px-3 py-1.5 text-xs font-medium bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors disabled:opacity-50">
                     <span x-text="cleaning ? '{{ t('settings_index.cleaning') }}' : '{{ t('settings_index.clean_all') }}'"></span>
@@ -165,6 +197,10 @@
                         </label>
                         <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                             <input type="checkbox" x-model="settings.prune_images" @change="saveSettings()" class="rounded border-gray-300 dark:border-gray-600 text-blue-500">
+                            {{ t('settings_index.dangling_images') }}
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                            <input type="checkbox" x-model="settings.prune_orphan_images" @change="saveSettings()" class="rounded border-gray-300 dark:border-gray-600 text-blue-500">
                             {{ t('settings_index.unused_images') }}
                         </label>
                         <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
@@ -650,14 +686,20 @@ function generalSettings() {
 
 function cleanupApp() {
     return {
-        info: { build_cache: 0, images_reclaimable: 0, containers_size: 0, buildkit_cache: 0 },
+        info: { build_cache: 0, dangling_images: 0, orphan_images: 0, orphan_image_list: [], containers_size: 0, buildkit_cache: 0 },
         infoLoading: true,
-        settings: { enabled: true, interval_hours: 24, prune_build_cache: true, prune_images: true, prune_containers: false, prune_railpack_buildkit: false },
-        cleaning: false, cleanMsg: '',
-        fmtB(b) { if (!b) return '0 B'; const k=1024,s=['B','KB','MB','GB']; const i=Math.floor(Math.log(b)/Math.log(k)); return (b/Math.pow(k,i)).toFixed(1)+' '+s[i]; },
+        settings: { enabled: true, interval_hours: 24, prune_build_cache: true, prune_images: true, prune_containers: false, prune_orphan_images: false, prune_railpack_buildkit: false },
+        cleaning: false, cleanMsg: '', cleanErr: false,
+        // Decimal units, matching what `docker system df` prints, so the panel
+        // and the CLI can be compared digit for digit.
+        fmtB(b) { if (!b) return '0 B'; const k=1000,s=['B','kB','MB','GB','TB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(k)),s.length-1); return (b/Math.pow(k,i)).toFixed(1)+' '+s[i]; },
         async loadInfo() {
             this.infoLoading = true;
-            try { this.info = await fetch('/api/v1/system/cleanup-info').then(r => r.json()); } catch {}
+            try {
+                const r = await fetch('/api/v1/system/cleanup-info');
+                if (r.ok) this.info = await r.json();
+            } catch {}
+            if (!Array.isArray(this.info.orphan_image_list)) this.info.orphan_image_list = [];
             this.infoLoading = false;
         },
         async loadSettings() {
@@ -671,19 +713,40 @@ function cleanupApp() {
                 });
             } catch {}
         },
+        // The server reports per-target ok/reclaimed/error. Reporting
+        // "Cleanup complete" regardless — as this used to — made a prune the
+        // daemon rejected look exactly like one that freed gigabytes.
         async runCleanup(targets) {
-            this.cleaning = true; this.cleanMsg = '{{ t('settings_index.cleaning') }}';
+            this.cleaning = true; this.cleanErr = false;
+            this.cleanMsg = '{{ t('settings_index.cleaning') }}';
             try {
-                await fetch('/api/v1/system/cleanup', {
+                const res = await fetch('/api/v1/system/cleanup', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ targets }),
-                }).then(r => r.json());
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const results = (await res.json()).results || {};
                 this.cleanMsg = '{{ t('settings_index.done_refreshing') }}';
                 await this.loadInfo();
-                this.cleanMsg = '{{ t('settings_index.cleanup_complete') }}';
-                setTimeout(() => this.cleanMsg = '', 3000);
-            } catch (e) { this.cleanMsg = '{{ t('settings_index.error_prefix') }}' + e.message; }
-            this.cleaning = false;
+
+                const failed = Object.entries(results).filter(([, r]) => !r.ok);
+                if (failed.length) {
+                    this.cleanErr = true;
+                    const [name, r] = failed[0];
+                    this.cleanMsg = '{{ t('settings_index.cleanup_failed') }}' + name + ': ' + (r.error || '');
+                    return;
+                }
+                const freed = Object.values(results).reduce((n, r) => n + (r.reclaimed || 0), 0);
+                this.cleanMsg = freed
+                    ? '{{ t('settings_index.freed') }}' + this.fmtB(freed)
+                    : '{{ t('settings_index.nothing_to_clean') }}';
+                setTimeout(() => this.cleanMsg = '', 5000);
+            } catch (e) {
+                this.cleanErr = true;
+                this.cleanMsg = '{{ t('settings_index.error_prefix') }}' + e.message;
+            } finally {
+                this.cleaning = false;
+            }
         },
     };
 }
