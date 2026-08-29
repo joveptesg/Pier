@@ -17,6 +17,19 @@ use crate::state::SharedState;
 use super::domains;
 use super::security::{self, DeleteRequest};
 
+/// Undo the freshly-inserted `services` row when port allocation fails.
+///
+/// Every create path inserts the row a few statements before it picks ports,
+/// with no transaction around the pair. So an allocation that bails — a port
+/// held by something outside Pier, an operator asking for one that is taken, an
+/// exhausted pool — used to leave an un-deployable row parked at `deploying`
+/// that the operator had to go and delete by hand. The request failed; nothing
+/// should survive it.
+fn abort_create(db: &rusqlite::Connection, service_id: &str, e: anyhow::Error) -> AppError {
+    let _ = db.execute("DELETE FROM services WHERE id = ?1", [service_id]);
+    AppError::BadRequest(e.to_string())
+}
+
 /// Resolve the host-port allocation range for a deploy.
 ///
 /// If `project_id` is set and that project has a configured port range, use it.
@@ -834,7 +847,29 @@ pub async fn create(
         } else {
             vec![None; port_specs.len()]
         };
-        Ok(ports::allocate_ports(
+        // Probe the host only when the stack lands here. A remote agent
+        // publishes on its own machine, where this one's bindings say nothing.
+        //
+        // `servers.is_local` is the authority — the core's own row can carry
+        // any id. An absent or unresolvable id means the default local core;
+        // erring towards probing only risks skipping a locally-taken port.
+        let target_is_local = body
+            .server_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_none_or(|sid| {
+                db.query_row("SELECT is_local FROM servers WHERE id = ?1", [sid], |r| {
+                    r.get::<_, bool>(0)
+                })
+                .unwrap_or(true)
+            });
+        let probe = if target_is_local {
+            Some(ports::HostProbe { exempt: &[] })
+        } else {
+            None
+        };
+        ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
@@ -842,7 +877,9 @@ pub async fn create(
             port_end,
             &host_port_overrides,
             false,
-        )?)
+            probe,
+        )
+        .map_err(|e| abort_create(db, &service_id, e))
     })?;
 
     // Add allocated ports to vars. New services start with is_public=0, so
@@ -1026,6 +1063,10 @@ pub async fn create(
                     LB_PORT_RANGE_END,
                     &[],
                     true, // cluster nodes must land in the mesh firewall band
+                    // No host probe: these ports are published on the *other*
+                    // servers in the cluster. Probing this one would reject
+                    // ports that are free on the target and accept taken ones.
+                    None,
                 )
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("allocate cluster ports: {e}")))?
             };
@@ -1341,7 +1382,11 @@ async fn create_dockerfile(
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
         let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
-        Ok(ports::allocate_ports(
+        // Built and published on this host, so the port has to be free *here* —
+        // not merely unclaimed in `port_allocations`. A BadRequest rather than
+        // the anyhow default: a taken port is something the operator can act
+        // on, and `Internal` would hide the reason behind "Internal error".
+        ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
@@ -1349,7 +1394,9 @@ async fn create_dockerfile(
             port_end,
             &[],
             false,
-        )?)
+            Some(ports::HostProbe { exempt: &[] }),
+        )
+        .map_err(|e| abort_create(db, &service_id, e))
     })?;
 
     let host_port = allocated_ports
@@ -1554,7 +1601,11 @@ async fn create_git_deploy(
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
         let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
-        Ok(ports::allocate_ports(
+        // Built and published on this host, so the port has to be free *here* —
+        // not merely unclaimed in `port_allocations`. A BadRequest rather than
+        // the anyhow default: a taken port is something the operator can act
+        // on, and `Internal` would hide the reason behind "Internal error".
+        ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
@@ -1562,7 +1613,9 @@ async fn create_git_deploy(
             port_end,
             &[],
             false,
-        )?)
+            Some(ports::HostProbe { exempt: &[] }),
+        )
+        .map_err(|e| abort_create(db, &service_id, e))
     })?;
 
     let host_port = allocated_ports
@@ -1847,7 +1900,11 @@ async fn create_git_deploy_deferred(
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
         let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
-        Ok(ports::allocate_ports(
+        // Built and published on this host, so the port has to be free *here* —
+        // not merely unclaimed in `port_allocations`. A BadRequest rather than
+        // the anyhow default: a taken port is something the operator can act
+        // on, and `Internal` would hide the reason behind "Internal error".
+        ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
@@ -1855,7 +1912,9 @@ async fn create_git_deploy_deferred(
             port_end,
             &[],
             false,
-        )?)
+            Some(ports::HostProbe { exempt: &[] }),
+        )
+        .map_err(|e| abort_create(db, &service_id, e))
     })?;
 
     let host_port = allocated_ports
@@ -2019,7 +2078,11 @@ async fn create_git_deploy_github_app(
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
         let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
-        Ok(ports::allocate_ports(
+        // Built and published on this host, so the port has to be free *here* —
+        // not merely unclaimed in `port_allocations`. A BadRequest rather than
+        // the anyhow default: a taken port is something the operator can act
+        // on, and `Internal` would hide the reason behind "Internal error".
+        ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
@@ -2027,7 +2090,9 @@ async fn create_git_deploy_github_app(
             port_end,
             &[],
             false,
-        )?)
+            Some(ports::HostProbe { exempt: &[] }),
+        )
+        .map_err(|e| abort_create(db, &service_id, e))
     })?;
 
     let host_port = allocated_ports
@@ -2141,7 +2206,11 @@ async fn create_railpack_app(
         )?;
         let port_specs = vec![("primary".to_string(), container_port)];
         let (port_start, port_end) = resolve_port_range(state, db, body.project_id.as_deref());
-        Ok(ports::allocate_ports(
+        // Built and published on this host, so the port has to be free *here* —
+        // not merely unclaimed in `port_allocations`. A BadRequest rather than
+        // the anyhow default: a taken port is something the operator can act
+        // on, and `Internal` would hide the reason behind "Internal error".
+        ports::allocate_ports(
             db,
             &service_id,
             &port_specs,
@@ -2149,7 +2218,9 @@ async fn create_railpack_app(
             port_end,
             &[],
             false,
-        )?)
+            Some(ports::HostProbe { exempt: &[] }),
+        )
+        .map_err(|e| abort_create(db, &service_id, e))
     })?;
 
     let host_port = allocated_ports
@@ -3704,6 +3775,37 @@ pub async fn load_balance(
         .ok()
     };
 
+    // Ports this service already publishes, and whether it lives on this host.
+    //
+    // `free_ports` below drops the rows, but the service's containers are
+    // still up and still holding those ports — so a host probe would read them
+    // as taken and quietly move the service onto different ports every time it
+    // is scaled. Exempting them is the same trick `docker::recreate` uses with
+    // `our_host_ports`.
+    let (own_host_ports, lb_target_is_local): (Vec<u16>, bool) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let mut stmt =
+            db.prepare("SELECT host_port FROM port_allocations WHERE service_id = ?1")?;
+        let held: Vec<u16> = stmt
+            .query_map([&id], |row| row.get::<_, i64>(0).map(|p| p as u16))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let local = current_server_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_none_or(|sid| {
+                db.query_row("SELECT is_local FROM servers WHERE id = ?1", [sid], |r| {
+                    r.get::<_, bool>(0)
+                })
+                .unwrap_or(true)
+            });
+        (held, local)
+    };
+
     let allocated_ports: Vec<i64> = {
         let db = state
             .db
@@ -3711,6 +3813,13 @@ pub async fn load_balance(
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         crate::db::ports::free_ports(&db, &id)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("free_ports: {e}")))?;
+        let lb_probe = if lb_target_is_local {
+            Some(crate::db::ports::HostProbe {
+                exempt: &own_host_ports,
+            })
+        } else {
+            None
+        };
         let allocs = crate::db::ports::allocate_ports(
             &db,
             &id,
@@ -3718,9 +3827,10 @@ pub async fn load_balance(
             LB_PORT_RANGE_START,
             LB_PORT_RANGE_END,
             &[],
-            true, // cluster nodes must land in the mesh firewall band
+            true, // replicas must land in the mesh firewall band
+            lb_probe,
         )
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("allocate_ports: {e}")))?;
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
         // Re-apply public flag so the user's toggle survives a scale.
         if let Some(pub_port) = public_snapshot {
             let _ = db.execute(

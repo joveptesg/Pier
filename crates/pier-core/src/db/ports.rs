@@ -3,6 +3,51 @@ use rusqlite::Connection;
 
 use super::models::PortAllocation;
 
+/// Ask the host whether a port can actually be bound right now.
+///
+/// `port_allocations` only knows what Pier itself handed out. Anything else
+/// holding a port — a container left over from a deleted service, a system
+/// daemon, a stack someone deployed outside Pier — is invisible to it, and the
+/// deploy finds out only when `docker compose up` fails to create the
+/// container. This is the same pre-flight the public-port toggle already does
+/// in [`crate::docker::recreate`].
+///
+/// Both addresses are probed on purpose. Pier publishes private ports on
+/// `127.0.0.1` and public ones on `0.0.0.0`, and `TcpListener::bind` sets
+/// `SO_REUSEADDR`, so a wildcard-only probe can bind successfully alongside a
+/// loopback-bound holder and report a taken port as free.
+///
+/// `PermissionDenied` counts as free: it means the port is privileged and
+/// *we* may not bind it, but docker-proxy runs as root and still can.
+fn host_port_free(port: u16) -> bool {
+    use std::net::{Ipv4Addr, TcpListener};
+
+    for addr in [Ipv4Addr::LOCALHOST, Ipv4Addr::UNSPECIFIED] {
+        match TcpListener::bind((addr, port)) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {}
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
+/// Check candidate ports against this host before handing them out.
+///
+/// Only meaningful when the port will be published on the machine running
+/// this code. Cross-server cluster nodes publish elsewhere, so they pass
+/// `None` to [`allocate_ports`] instead — probing locally would both reject
+/// ports that are free on the target and accept ones that are taken there.
+pub struct HostProbe<'a> {
+    /// Ports the caller already owns and is about to re-take.
+    ///
+    /// `load_balance` frees a service's allocations and immediately
+    /// reallocates; its own containers are still running and still holding
+    /// those ports, so without this the service would be handed different
+    /// ports on every call. Mirrors `our_host_ports` in `docker::recreate`.
+    pub exempt: &'a [u16],
+}
+
 /// Allocate N free host ports for a service, one per `port_specs` entry.
 ///
 /// Per-port resolution order:
@@ -25,6 +70,7 @@ use super::models::PortAllocation;
 /// from `[start, end)`. Cross-server CLUSTER nodes MUST use this: their published
 /// ports have to land in the mesh firewall band (the pool range), otherwise a
 /// node can't reach its own published port for replica-set/sentinel self-checks.
+#[allow(clippy::too_many_arguments)]
 pub fn allocate_ports(
     conn: &Connection,
     service_id: &str,
@@ -33,6 +79,7 @@ pub fn allocate_ports(
     end: u16,
     host_port_overrides: &[Option<u16>],
     pool_only: bool,
+    host_probe: Option<HostProbe<'_>>,
 ) -> Result<Vec<PortAllocation>> {
     let count = port_specs.len();
     if count == 0 {
@@ -53,7 +100,14 @@ pub fn allocate_ports(
         .filter_map(|r| r.ok())
         .collect();
 
-    let is_port_used = |p: u16| all_used.binary_search(&p).is_ok();
+    // DB first (cheap, in memory), host probe only for what the DB thinks is
+    // free — so scanning the pool does not syscall over ports we already know
+    // are taken.
+    let host_taken = |p: u16| match &host_probe {
+        Some(probe) => !probe.exempt.contains(&p) && !host_port_free(p),
+        None => false,
+    };
+    let is_port_used = |p: u16| all_used.binary_search(&p).is_ok() || host_taken(p);
 
     let mut free = Vec::with_capacity(count);
     let mut newly_allocated: Vec<u16> = Vec::with_capacity(count);
@@ -62,10 +116,21 @@ pub fn allocate_ports(
         let override_value = host_port_overrides.get(i).copied().flatten();
         let chosen = match override_value {
             Some(requested) => {
-                if is_port_used(requested) || newly_allocated.contains(&requested) {
+                // Split by who holds it: one is fixable inside Pier, the other
+                // needs the operator to go look at the host.
+                if all_used.binary_search(&requested).is_ok()
+                    || newly_allocated.contains(&requested)
+                {
                     bail!(
-                        "Requested host port {requested} is already in use by another \
+                        "Requested host port {requested} is already in use by another Pier \
                          allocation; pick a different one or leave empty for auto."
+                    );
+                }
+                if host_taken(requested) {
+                    bail!(
+                        "Requested host port {requested} is held by a process outside Pier. \
+                         Free it (e.g. `sudo ss -tlnp '( sport = :{requested} )'`) or pick a \
+                         different port."
                     );
                 }
                 requested
@@ -262,8 +327,8 @@ mod tests {
         // host_port=5432 (NOT a number from the 10000+ pool). Round 5 fix.
         let conn = test_conn();
         let specs = vec![("primary".to_string(), 5432u16)];
-        let allocs =
-            allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false).expect("allocate");
+        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false, None)
+            .expect("allocate");
         assert_eq!(allocs.len(), 1);
         assert_eq!(
             allocs[0].host_port, 5432,
@@ -279,10 +344,11 @@ mod tests {
         seed_alt_service(&conn, "svc-2");
 
         let specs = vec![("primary".to_string(), 5432u16)];
-        let first = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false).unwrap();
+        let first = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false, None).unwrap();
         assert_eq!(first[0].host_port, 5432);
 
-        let second = allocate_ports(&conn, "svc-2", &specs, 10000, 20000, &[], false).unwrap();
+        let second =
+            allocate_ports(&conn, "svc-2", &specs, 10000, 20000, &[], false, None).unwrap();
         assert_eq!(
             second[0].host_port, 10000,
             "second standard-port request must fall through to pool start"
@@ -294,8 +360,17 @@ mod tests {
         // Operator explicitly asked for host_port=15432 → it's free, give it.
         let conn = test_conn();
         let specs = vec![("primary".to_string(), 5432u16)];
-        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[Some(15432)], false)
-            .expect("allocate");
+        let allocs = allocate_ports(
+            &conn,
+            "svc-1",
+            &specs,
+            10000,
+            20000,
+            &[Some(15432)],
+            false,
+            None,
+        )
+        .expect("allocate");
         assert_eq!(allocs[0].host_port, 15432);
     }
 
@@ -307,10 +382,19 @@ mod tests {
         let conn = test_conn();
         seed_alt_service(&conn, "svc-2");
         let specs = vec![("primary".to_string(), 5432u16)];
-        allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false).unwrap();
+        allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false, None).unwrap();
 
-        let err = allocate_ports(&conn, "svc-2", &specs, 10000, 20000, &[Some(5432)], false)
-            .expect_err("must bail");
+        let err = allocate_ports(
+            &conn,
+            "svc-2",
+            &specs,
+            10000,
+            20000,
+            &[Some(5432)],
+            false,
+            None,
+        )
+        .expect_err("must bail");
         assert!(
             err.to_string().contains("already in use"),
             "error must mention the conflict, got: {err}"
@@ -325,11 +409,109 @@ mod tests {
         // pier-core.
         let conn = test_conn();
         let specs = vec![("primary".to_string(), 80u16)];
-        let allocs = allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false).unwrap();
+        let allocs =
+            allocate_ports(&conn, "svc-1", &specs, 10000, 20000, &[], false, None).unwrap();
         assert!(
             allocs[0].host_port >= 10000,
             "privileged container port must NOT be picked; got {}",
             allocs[0].host_port
+        );
+    }
+
+    // ─── allocate_ports: the host, not just the DB ───────────────────────
+
+    /// Bind a real port and hand back both the listener (keep it alive) and
+    /// the port number, so the assertions carry no magic numbers.
+    fn hold_a_port() -> (std::net::TcpListener, u16) {
+        let l = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral");
+        let port = l.local_addr().expect("local_addr").port();
+        (l, port)
+    }
+
+    #[test]
+    fn allocate_skips_port_held_outside_pier() {
+        // The port is free as far as `port_allocations` is concerned — nothing
+        // in the DB mentions it — but something on the host is listening. This
+        // is the shape of the failure it was written for: an orphaned
+        // container from a deleted service still holding 6379, so the deploy
+        // died at container start with "port is already allocated".
+        let conn = test_conn();
+        let (_listener, held) = hold_a_port();
+
+        let specs = vec![("primary".to_string(), held)];
+        let allocs = allocate_ports(
+            &conn,
+            "svc-1",
+            &specs,
+            held, // pool starts *at* the held port, so the scan must step over it
+            held + 50,
+            &[],
+            false,
+            Some(HostProbe { exempt: &[] }),
+        )
+        .expect("allocate");
+
+        assert_ne!(
+            allocs[0].host_port, held as i64,
+            "a port held on the host must not be handed out"
+        );
+        assert!(allocs[0].host_port > held as i64);
+    }
+
+    #[test]
+    fn allocate_errors_when_requested_port_held_outside_pier() {
+        // Explicit operator request for a port the host will not give us. The
+        // message has to say the holder is outside Pier — "in use by another
+        // allocation" would send them looking through the panel for a service
+        // that isn't there.
+        let conn = test_conn();
+        let (_listener, held) = hold_a_port();
+
+        let specs = vec![("primary".to_string(), 5432u16)];
+        let err = allocate_ports(
+            &conn,
+            "svc-1",
+            &specs,
+            10000,
+            20000,
+            &[Some(held)],
+            false,
+            Some(HostProbe { exempt: &[] }),
+        )
+        .expect_err("must bail");
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("outside Pier"),
+            "error must name the holder, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn allocate_reuses_exempt_port_the_caller_already_holds() {
+        // `load_balance` frees a service's rows and immediately reallocates
+        // while its own containers are still up and holding those ports.
+        // Without the exemption the probe reads them as taken and the service
+        // silently moves to different ports.
+        let conn = test_conn();
+        let (_listener, held) = hold_a_port();
+
+        let specs = vec![("primary".to_string(), held)];
+        let allocs = allocate_ports(
+            &conn,
+            "svc-1",
+            &specs,
+            10000,
+            20000,
+            &[],
+            false,
+            Some(HostProbe { exempt: &[held] }),
+        )
+        .expect("allocate");
+
+        assert_eq!(
+            allocs[0].host_port, held as i64,
+            "an exempt port must still be re-taken by its owner"
         );
     }
 }
