@@ -30,6 +30,67 @@ fn abort_create(db: &rusqlite::Connection, service_id: &str, e: anyhow::Error) -
     AppError::BadRequest(e.to_string())
 }
 
+/// Resolve which Docker network a new service should join.
+///
+/// Returns the `networks` row id — for `services.network_id`, which the
+/// boot-time reconciler reads to decide what a container is *supposed* to be
+/// attached to — and the Docker network name for the compose file. Falls back
+/// to `pier-net` for the name so a compose file is always emittable: Traefik
+/// lives there, and a service Traefik cannot resolve serves 502.
+///
+/// Mirrors what `create` does inline for catalog services. The generated
+/// Dockerfile and git compose files did neither, so the wizard's Network
+/// choice was read from the form and dropped.
+fn resolve_network(state: &SharedState, requested: Option<&str>) -> (Option<String>, String) {
+    let network_id = requested
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            state.db.lock().ok().and_then(|db| {
+                db.query_row(
+                    "SELECT id FROM networks WHERE is_default = 1 LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .ok()
+            })
+        });
+
+    let network_name = network_id
+        .as_ref()
+        .and_then(|nid| {
+            state.db.lock().ok().and_then(|db| {
+                db.query_row("SELECT name FROM networks WHERE id = ?1", [nid], |row| {
+                    row.get::<_, String>(0)
+                })
+                .ok()
+            })
+        })
+        .unwrap_or_else(|| "pier-net".to_string());
+
+    (network_id, network_name)
+}
+
+/// The `networks:` lines a generated compose file needs: the block that goes
+/// under the service, and the top-level block declaring them external.
+///
+/// A container joins a network only when that network is listed under **its
+/// own** `networks:` — declaring it at the top level attaches nothing. That is
+/// exactly how services built from a Dockerfile or a git repo ended up alone on
+/// their compose default network: Traefik, which lives on `pier-net`, could not
+/// resolve them, so the auto-generated domain answered 502 until the next Pier
+/// restart, when the boot reconciler attached the network after the fact.
+fn compose_networks_blocks(net: &str) -> (String, String) {
+    let mut service = format!("    networks:\n      - {net}\n");
+    let mut top = format!("networks:\n  {net}:\n    external: true\n");
+    if net != "pier-net" {
+        service.push_str("      - pier-net\n");
+        top.push_str("  pier-net:\n    external: true\n");
+    }
+    (service, top)
+}
+
 /// Resolve the host-port allocation range for a deploy.
 ///
 /// If `project_id` is set and that project has a configured port range, use it.
@@ -184,6 +245,10 @@ fn spawn_catalog_deploy(
 
         match deploy_result {
             Ok(_) => {
+                // Put the container on pier-net before anything routes to it.
+                // Traefik lives there; a domain pointed at a container it
+                // cannot resolve answers 502.
+                crate::proxy::reconcile_service_networks(&state, &service_id).await;
                 // Auto-generate service domain (skip databases — no HTTP to
                 // proxy). Remote services route to their OWN agent Traefik,
                 // handled inside create_service_domain.
@@ -300,6 +365,7 @@ fn spawn_cluster_deploy(
         }
 
         if deploy_errors.is_empty() {
+            crate::proxy::reconcile_service_networks(&state, &service_id).await;
             if !follow_up.is_database {
                 if let Some(http_port) = follow_up.http_port {
                     try_create_service_domain(&state, &service_id, &follow_up.name, http_port)
@@ -380,6 +446,11 @@ fn spawn_compose_deploy(
             // Populate port_allocations / services.port from the compose `ports:`.
             // Without this the API/UI report null ports for docker-compose resources.
             crate::deploy::update_ports_from_compose(&state, &service_id, &yaml);
+            // The YAML here is the operator's, so Pier does not rewrite its
+            // networks — it attaches afterwards instead, which is what puts a
+            // raw compose stack within Traefik's reach on its first deploy
+            // rather than after the next restart of Pier.
+            crate::proxy::reconcile_service_networks(&state, &service_id).await;
         }
 
         let status = if deploy_result.is_ok() {
@@ -1310,13 +1381,19 @@ async fn create_compose(
     // Idempotent — a no-op if the user already declared them.
     let yaml = crate::deploy::inject_pier_labels(&yaml, &service_id, &body.catalog_id);
 
+    // The wizard offers a Network for raw compose too; record it so the
+    // reconciler knows which project network this service belongs on. Its YAML
+    // stays untouched — the topology in it is the operator's.
+    let (network_id, _) = resolve_network(state, body.network_id.as_deref());
+
     with_db(state, |db| {
         db.execute(
-            "INSERT INTO services (id, project_id, name, service_type, compose_content, status, catalog_id, category)
-             VALUES (?1, ?2, ?3, 'compose', ?4, 'deploying', ?5, ?6)",
+            "INSERT INTO services (id, project_id, network_id, name, service_type, compose_content, status, catalog_id, category)
+             VALUES (?1, ?2, ?3, ?4, 'compose', ?5, 'deploying', ?6, ?7)",
             rusqlite::params![
                 service_id,
                 body.project_id,
+                network_id,
                 name,
                 yaml,
                 body.catalog_id,
@@ -1367,14 +1444,17 @@ async fn create_dockerfile(
 
     let service_id = uuid::Uuid::new_v4().to_string();
 
+    let (network_id, network_name) = resolve_network(state, body.network_id.as_deref());
+
     // Allocate a host port
     let allocated_ports = with_db(state, |db| {
         db.execute(
-            "INSERT INTO services (id, project_id, name, service_type, status, catalog_id, category)
-             VALUES (?1, ?2, ?3, 'compose', 'deploying', ?4, ?5)",
+            "INSERT INTO services (id, project_id, network_id, name, service_type, status, catalog_id, category)
+             VALUES (?1, ?2, ?3, ?4, 'compose', 'deploying', ?5, ?6)",
             rusqlite::params![
                 service_id,
                 body.project_id,
+                network_id,
                 name,
                 body.catalog_id,
                 item.meta.category,
@@ -1414,7 +1494,16 @@ async fn create_dockerfile(
         Ok(())
     })?;
 
-    // Build compose YAML that builds from Dockerfile
+    // Build compose YAML that builds from Dockerfile.
+    //
+    // The port binds to loopback, like the catalog emitter and
+    // `deploy::build::generate_compose_for_image`. Omitting the address
+    // published on every interface, so a service built from a pasted
+    // Dockerfile faced the internet whether or not the operator had switched
+    // "Make it publicly available" on. The public binding comes from
+    // `docker::recreate`, which rebuilds the container's bindings from
+    // `port_allocations` when that switch is flipped.
+    let (net_service, net_top) = compose_networks_blocks(&network_name);
     let yaml = format!(
         "services:\n\
          \x20 app:\n\
@@ -1423,11 +1512,13 @@ async fn create_dockerfile(
          \x20     dockerfile: Dockerfile\n\
          \x20   container_name: {stack_name}\n\
          \x20   ports:\n\
-         \x20     - \"{host_port}:{container_port}\"\n\
+         \x20     - \"127.0.0.1:{host_port}:{container_port}\"\n\
          \x20   restart: unless-stopped\n\
+         {net_service}\
          \x20   labels:\n\
          \x20     pier.service.id: \"{service_id}\"\n\
-         \x20     pier.catalog.id: \"dockerfile\"\n"
+         \x20     pier.catalog.id: \"dockerfile\"\n\
+         {net_top}"
     );
 
     // Write Dockerfile to stack dir
@@ -1585,14 +1676,17 @@ async fn create_git_deploy(
 
     let service_id = uuid::Uuid::new_v4().to_string();
 
+    let (network_id, network_name) = resolve_network(state, body.network_id.as_deref());
+
     // Allocate a host port
     let allocated_ports = with_db(state, |db| {
         db.execute(
-            "INSERT INTO services (id, project_id, name, service_type, status, catalog_id, category, image)
-             VALUES (?1, ?2, ?3, 'compose', 'deploying', ?4, ?5, ?6)",
+            "INSERT INTO services (id, project_id, network_id, name, service_type, status, catalog_id, category, image)
+             VALUES (?1, ?2, ?3, ?4, 'compose', 'deploying', ?5, ?6, ?7)",
             rusqlite::params![
                 service_id,
                 body.project_id,
+                network_id,
                 name,
                 body.catalog_id,
                 item.meta.category,
@@ -1764,7 +1858,11 @@ async fn create_git_deploy(
         ("./repo".to_string(), dockerfile_in_repo.clone())
     };
 
-    // Build compose YAML pointing to the cloned repo
+    // Build compose YAML pointing to the cloned repo. Loopback binding and the
+    // pier networks, for the same reasons as the Dockerfile path above; the
+    // first redeploy regenerates this through
+    // `deploy::build::generate_compose_for_image`, which already emits both.
+    let (net_service, net_top) = compose_networks_blocks(&network_name);
     let yaml = format!(
         "services:\n\
          \x20 app:\n\
@@ -1773,11 +1871,13 @@ async fn create_git_deploy(
          \x20     dockerfile: {dockerfile_name}\n\
          \x20   container_name: {stack_name}\n\
          \x20   ports:\n\
-         \x20     - \"{host_port}:{container_port}\"\n\
+         \x20     - \"127.0.0.1:{host_port}:{container_port}\"\n\
          \x20   restart: unless-stopped\n\
+         {net_service}\
          \x20   labels:\n\
          \x20     pier.service.id: \"{service_id}\"\n\
-         \x20     pier.catalog.id: \"{catalog_id}\"\n",
+         \x20     pier.catalog.id: \"{catalog_id}\"\n\
+         {net_top}",
         catalog_id = body.catalog_id,
     );
 
@@ -5399,6 +5499,36 @@ pub async fn rename(
 
 #[cfg(test)]
 mod tests {
+
+    // ─── compose_networks_blocks ─────────────────────────────────────────
+    //
+    // A container joins a network only when the network is listed under its
+    // OWN `networks:`. Declaring it at the top level attaches nothing — which
+    // is how services built from a Dockerfile or a git repo ended up alone on
+    // their compose default network, invisible to Traefik, serving 502 from
+    // their own domain until the next restart of Pier.
+
+    use super::compose_networks_blocks;
+
+    #[test]
+    fn networks_default_lists_pier_net_on_the_service() {
+        let (service, top) = compose_networks_blocks("pier-net");
+        assert_eq!(service, "    networks:\n      - pier-net\n");
+        assert_eq!(top, "networks:\n  pier-net:\n    external: true\n");
+        // No duplicate entry when the project network *is* pier-net.
+        assert_eq!(service.matches("pier-net").count(), 1);
+    }
+
+    #[test]
+    fn networks_project_net_still_attaches_pier_net() {
+        let (service, top) = compose_networks_blocks("proj-alpha");
+        assert!(
+            service.contains("      - proj-alpha\n") && service.contains("      - pier-net\n"),
+            "the service must join both, got: {service}"
+        );
+        assert!(top.contains("  proj-alpha:\n    external: true\n"));
+        assert!(top.contains("  pier-net:\n    external: true\n"));
+    }
     use super::compute_public_port;
 
     // Per-port toggle with no UI public port specified must default to the

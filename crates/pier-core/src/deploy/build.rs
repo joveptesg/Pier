@@ -218,6 +218,17 @@ pub fn generate_compose_for_image(
         })
         .unwrap_or_else(|| "pier-net".to_string());
 
+    // A container joins a network only when it is listed under the container's
+    // own `networks:`. The top-level block below declared `pier-net` but
+    // nothing attached it, so a service on a project network was invisible to
+    // Traefik — which lives on `pier-net` — and its domain answered 502 until
+    // the boot reconciler patched it up on the next restart.
+    let net_extra = if network_name == "pier-net" {
+        String::new()
+    } else {
+        "\x20     - pier-net\n".to_string()
+    };
+
     let public_line = match public_port {
         Some(p) if p != port => format!("\x20     - \"0.0.0.0:{p}:{container_port}\"\n"),
         _ => String::new(),
@@ -238,6 +249,7 @@ pub fn generate_compose_for_image(
          \x20     - 1.1.1.1\n\
          \x20   networks:\n\
          \x20     - {network_name}\n\
+{net_extra}\
          \x20   labels:\n\
          \x20     pier.service.id: \"{service_id}\"\n"
     );

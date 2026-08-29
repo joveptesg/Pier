@@ -662,3 +662,111 @@ pub async fn reconcile_pier_managed_networks(
 
     Ok((attached, scanned))
 }
+
+/// Attach one service's containers to the networks they are supposed to be on.
+///
+/// The scoped counterpart of [`reconcile_pier_managed_networks`], meant to run
+/// right after a deploy instead of waiting for the next start of Pier.
+///
+/// It exists because not every compose file Pier deploys is Pier's to write.
+/// A raw docker-compose stack pasted into the wizard carries the operator's own
+/// topology, and rewriting it to inject `pier-net` would tear out the internal
+/// networks their stack depends on. Attaching afterwards leaves the YAML alone
+/// and still gets the container where Traefik can resolve it — without which
+/// the auto-generated domain answers 502 until something restarts Pier.
+///
+/// Idempotent, and quiet: a container already on its networks produces no work,
+/// and "already exists in network" is swallowed the same way as in the
+/// whole-host pass.
+pub async fn reconcile_service_networks(state: &crate::state::AppState, service_id: &str) {
+    use bollard::models::{EndpointSettings, NetworkConnectRequest};
+    use bollard::query_parameters::ListContainersOptions;
+
+    let project_net: Option<String> = state.db.lock().ok().and_then(|db| {
+        db.query_row(
+            "SELECT n.name FROM networks n JOIN services s ON s.network_id = n.id WHERE s.id = ?1",
+            [service_id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    });
+
+    let mut expected: Vec<String> = vec![PIER_NETWORK.to_string()];
+    if let Some(proj) = project_net {
+        if proj != PIER_NETWORK && !proj.is_empty() {
+            expected.push(proj);
+        }
+    }
+
+    let containers = match state
+        .docker
+        .list_containers(Some(ListContainersOptions {
+            all: false,
+            ..Default::default()
+        }))
+        .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Network attach for {service_id}: list containers failed: {e}");
+            return;
+        }
+    };
+
+    for container in &containers {
+        let owned = container
+            .labels
+            .as_ref()
+            .and_then(|l| l.get("pier.service.id"))
+            .is_some_and(|s| s == service_id);
+        if !owned {
+            continue;
+        }
+        let Some(container_id) = container.id.as_ref() else {
+            continue;
+        };
+        let display_name = container
+            .names
+            .as_ref()
+            .and_then(|n| n.first())
+            .map(|s| s.trim_start_matches('/').to_string())
+            .unwrap_or_else(|| container_id.chars().take(12).collect());
+
+        let current: std::collections::HashSet<String> =
+            match state.docker.inspect_container(container_id, None).await {
+                Ok(info) => info
+                    .network_settings
+                    .as_ref()
+                    .and_then(|ns| ns.networks.as_ref())
+                    .map(|nets| nets.keys().cloned().collect())
+                    .unwrap_or_default(),
+                Err(e) => {
+                    tracing::warn!("Network attach: inspect {display_name} failed: {e}");
+                    continue;
+                }
+            };
+
+        for net in &expected {
+            if current.contains(net) {
+                continue;
+            }
+            let req = NetworkConnectRequest {
+                container: container_id.clone(),
+                endpoint_config: Some(EndpointSettings::default()),
+            };
+            match state.docker.connect_network(net, req).await {
+                Ok(()) => tracing::info!(
+                    "Network attach: {display_name} (service {service_id}) joined {net}"
+                ),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if !msg.contains("already exists in network")
+                        && !msg.contains("already attached to network")
+                    {
+                        tracing::warn!("Network attach: {display_name} → {net} failed: {msg}");
+                    }
+                }
+            }
+        }
+    }
+}

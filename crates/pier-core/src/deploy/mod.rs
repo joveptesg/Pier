@@ -551,6 +551,12 @@ pub async fn run_pipeline_with_id(
     // Detect actual container name(s) after deploy
     let actual_container_name = detect_container_name(&stack_name, &state.config).await;
 
+    // Put the container on pier-net now rather than at the next start of Pier.
+    // The Traefik configs regenerated further down point at it by container
+    // name, and a name Traefik cannot resolve serves 502. Idempotent for the
+    // strategies whose YAML already declares the networks.
+    crate::proxy::reconcile_service_networks(&state, &service_id).await;
+
     // Read compose content from stack dir
     let stack_dir = state.config.data_dir.join("stacks").join(&stack_name);
     let compose_path = stack_dir.join("docker-compose.yml");
