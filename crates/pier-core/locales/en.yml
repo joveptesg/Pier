@@ -733,6 +733,8 @@ resources_detail:
   auto_deploy_desc: Automatically deploy when a git push is received
   force_https: Force HTTPS
   force_https_desc: Redirect HTTP to HTTPS for all domains
+  inject_init: Init process (PID 1)
+  inject_init_desc: Run an init as PID 1 so the app reaps orphaned processes and stops cleanly on SIGTERM. Turn off for images that must be PID 1 themselves.
   docker_compose: Docker Compose
   raw: raw
   load_from_git: Load from Git
@@ -950,7 +952,7 @@ resources_detail:
   start_streaming: Start streaming
   download_logs: Download logs
   follow_autoscroll: Follow (auto-scroll)
-  no_logs: No logs available
+  no_logs: No output yet — this container has not logged anything
   matches: matches
   cluster_wide_backup: Cluster-wide backup
   backup_desc_mongo: Single archive of the whole instance.
@@ -1557,7 +1559,7 @@ containers_detail:
   live: Live
   paused: Paused
   clear: Clear
-  no_logs: No logs available
+  no_logs: No output yet — this container has not logged anything
   action_success: Container %{action}
 
 # Docker images list (images/list.html).

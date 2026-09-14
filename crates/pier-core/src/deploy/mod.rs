@@ -2633,6 +2633,111 @@ pub fn inject_mesh_extra_hosts_into_services(yaml: &str, hosts: &[(String, Strin
 /// A no-op when the YAML has no parseable top-level `services:` map. Services
 /// written as inline maps (`web: {...}`) are skipped, matching the other
 /// line-based injectors' subset of supported syntax.
+/// Add `init: true` to every service that does not already say otherwise.
+///
+/// A container's first process is PID 1, and the kernel does not apply default
+/// signal handlers to PID 1. Two consequences, both measured on a clean host:
+/// an app that orphans children never reaps them (a node workload accumulated
+/// 3495 zombies in the time `init: true` held it at 0, and a python one
+/// exhausted its process table to the point `docker exec` could no longer
+/// fork), and an app with no SIGTERM handler ignores `docker stop` until the
+/// 30s timeout turns it into SIGKILL — 31s and exit 137, against sub-second
+/// and a clean exit 143 with an init present.
+///
+/// A service that already declares `init:` is left alone, whatever it says:
+/// an explicit `init: false` is an operator decision, not an oversight.
+pub fn inject_init_into_services(yaml: &str) -> String {
+    let mut lines: Vec<String> = yaml.lines().map(|l| l.to_string()).collect();
+
+    let services_idx = match lines
+        .iter()
+        .position(|l| l.trim() == "services:" && !l.starts_with(' ') && !l.starts_with('\t'))
+    {
+        Some(i) => i,
+        None => return yaml.to_string(),
+    };
+
+    let service_indent = lines
+        .iter()
+        .skip(services_idx + 1)
+        .find_map(|line| {
+            if line.trim().is_empty() {
+                return None;
+            }
+            let indent = line.len() - line.trim_start().len();
+            if indent == 0 {
+                return Some(0);
+            }
+            Some(indent)
+        })
+        .unwrap_or(0);
+    if service_indent == 0 {
+        return yaml.to_string();
+    }
+
+    // (start, end) of each service block, end exclusive.
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    let mut current: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate().skip(services_idx + 1) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if indent == 0 {
+            if let Some(s) = current.take() {
+                ranges.push((s, i));
+            }
+            break;
+        }
+        if indent == service_indent && trimmed.ends_with(':') {
+            if let Some(s) = current.take() {
+                ranges.push((s, i));
+            }
+            current = Some(i);
+        }
+    }
+    if let Some(s) = current.take() {
+        ranges.push((s, lines.len()));
+    }
+
+    // Reverse so earlier indices stay valid as lines are spliced in.
+    for (start, end) in ranges.iter().rev() {
+        let prop_indent = (start + 1..*end)
+            .find_map(|i| {
+                let line = &lines[i];
+                if line.trim().is_empty() {
+                    return None;
+                }
+                let ind = line.len() - line.trim_start().len();
+                (ind > service_indent).then_some(ind)
+            })
+            .unwrap_or(service_indent + 2);
+
+        let declares_init = (start + 1..*end).any(|i| {
+            let line = &lines[i];
+            let ind = line.len() - line.trim_start().len();
+            ind == prop_indent && line.trim().starts_with("init:")
+        });
+        if declares_init {
+            continue;
+        }
+
+        // Insert before any trailing blank lines so the file keeps its shape.
+        let mut at = *end;
+        while at > start + 1 && lines[at - 1].trim().is_empty() {
+            at -= 1;
+        }
+        lines.insert(at, format!("{}init: true", " ".repeat(prop_indent)));
+    }
+
+    let mut out = lines.join("\n");
+    if yaml.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
 pub fn inject_pier_labels(yaml: &str, service_id: &str, catalog_id: &str) -> String {
     let mut lines: Vec<String> = yaml.lines().map(|l| l.to_string()).collect();
 
@@ -3232,7 +3337,7 @@ struct ServiceInfo {
 mod tests {
     use super::{
         apply_pier_networks, backfill_orphan_port_rows, env_json_to_env_content,
-        find_compose_candidates, inject_env_file_into_services,
+        find_compose_candidates, inject_env_file_into_services, inject_init_into_services,
         inject_mesh_extra_hosts_into_services, inject_pier_labels, inject_ports_into_yaml,
         normalize_mesh_hostname, tcp_ports_from_exposed, upsert_port_rows, ComposeService, PortRow,
     };
@@ -3514,6 +3619,86 @@ networks:
 {twice}"
         );
         assert!(!once.contains("pier-shop: {}"), "{once}");
+    }
+
+    // ─── inject_init_into_services ──────────────────────────────────────
+
+    #[test]
+    fn init_is_added_to_every_service_that_does_not_declare_it() {
+        let yaml = "services:
+  app:
+    image: node:22-alpine
+  db:
+    image: postgres:17
+";
+        let got = inject_init_into_services(yaml);
+        assert_eq!(got.matches("init: true").count(), 2, "{got}");
+    }
+
+    /// An explicit `init:` is an operator decision. `false` in particular has to
+    /// survive, or the escape hatch is not one.
+    #[test]
+    fn an_explicit_init_declaration_is_left_alone() {
+        let yaml = "services:
+  optout:
+    image: redis:7-alpine
+    init: false
+  already:
+    image: nginx:alpine
+    init: true
+";
+        let got = inject_init_into_services(yaml);
+        assert!(got.contains("init: false"), "operator opt-out lost: {got}");
+        assert_eq!(got.matches("init:").count(), 2, "duplicated a key: {got}");
+    }
+
+    /// Runs on every deploy over YAML that may already carry the injection.
+    #[test]
+    fn init_injection_is_idempotent() {
+        let yaml = "services:
+  app:
+    image: node:22-alpine
+";
+        let once = inject_init_into_services(yaml);
+        let twice = inject_init_into_services(&once);
+        assert_eq!(
+            once, twice,
+            "{once}
+---
+{twice}"
+        );
+        assert_eq!(twice.matches("init: true").count(), 1, "{twice}");
+    }
+
+    /// Nothing to walk — must hand the input back untouched rather than emit a
+    /// stray key at the top level.
+    #[test]
+    fn init_injection_is_a_noop_without_a_services_block() {
+        for yaml in [
+            "",
+            "networks:
+  pier-net:
+    external: true
+",
+            "not yaml at all",
+        ] {
+            assert_eq!(inject_init_into_services(yaml), yaml, "changed {yaml:?}");
+        }
+    }
+
+    /// The trailing newline is load-bearing: compose files are concatenated and
+    /// diffed, and dropping it churns every deploy.
+    #[test]
+    fn init_injection_preserves_the_trailing_newline() {
+        let yaml = "services:
+  app:
+    image: nginx:alpine
+";
+        assert!(inject_init_into_services(yaml).ends_with('\n'));
+        let no_nl = "services:
+  app:
+    image: nginx:alpine";
+        assert!(!inject_init_into_services(no_nl).ends_with('\n'));
     }
 
     /// The listing a failed "compose not found" deploy shows the operator:

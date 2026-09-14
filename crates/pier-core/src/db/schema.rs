@@ -1586,6 +1586,21 @@ const MIGRATIONS: &[&str] = &[
     r#"
     DELETE FROM canvas_positions;
     "#,
+    // Migration 69: per-service `init: true` injection toggle.
+    //
+    // Defaults ON. A container's first process is PID 1, and the kernel applies
+    // no default signal handlers to PID 1 — so an app without its own SIGTERM
+    // handler ignores `docker stop` until the timeout turns it into SIGKILL,
+    // and an app that orphans children never reaps them. Measured on a clean
+    // host: node and python went from a 31s SIGKILL to a sub-second clean exit,
+    // and a node workload from 3495 zombies to none. C daemons (postgres,
+    // redis, nginx, traefik) are unaffected either way.
+    //
+    // Operators who need a service to be PID 1 itself turn this off, or write
+    // `init: false` in their own compose, which always wins.
+    r#"
+    ALTER TABLE services ADD COLUMN inject_init INTEGER NOT NULL DEFAULT 1;
+    "#,
 ];
 
 /// Run all pending database migrations.

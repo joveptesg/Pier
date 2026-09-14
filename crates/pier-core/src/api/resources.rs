@@ -2553,7 +2553,7 @@ pub async fn get(
 
     let resource = db
         .query_row(
-            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image, s.catalog_id, s.category, s.env_json, s.compose_content, s.created_at, s.cluster_mode, s.cluster_config_json, s.network_id, n.name, s.auto_deploy, s.force_https, s.container_id, s.env_dirty, s.git_repo_url
+            "SELECT s.id, s.project_id, s.name, s.service_type, s.status, s.port, s.image, s.catalog_id, s.category, s.env_json, s.compose_content, s.created_at, s.cluster_mode, s.cluster_config_json, s.network_id, n.name, s.auto_deploy, s.force_https, s.inject_init, s.container_id, s.env_dirty, s.git_repo_url
              FROM services s LEFT JOIN networks n ON s.network_id = n.id WHERE s.id = ?1",
             [&id],
             |row| {
@@ -2576,13 +2576,14 @@ pub async fn get(
                     "network_name": row.get::<_, Option<String>>(15)?,
                     "auto_deploy": row.get::<_, Option<bool>>(16)?.unwrap_or(true),
                     "force_https": row.get::<_, Option<bool>>(17)?.unwrap_or(true),
-                    "stored_container_name": row.get::<_, Option<String>>(18)?,
-                    "env_dirty": row.get::<_, i64>(19)? == 1,
+                    "inject_init": row.get::<_, Option<bool>>(18)?.unwrap_or(true),
+                    "stored_container_name": row.get::<_, Option<String>>(19)?,
+                    "env_dirty": row.get::<_, i64>(20)? == 1,
                     // The page decides whether a service can be deployed at all
                     // from this — without it the Deploy button never renders,
                     // and a git service sitting at `created` has nothing in its
                     // header to start the first deploy with.
-                    "git_repo_url": row.get::<_, Option<String>>(20)?,
+                    "git_repo_url": row.get::<_, Option<String>>(21)?,
                 }))
             },
         )
@@ -5447,6 +5448,7 @@ pub struct SetNetworkRequest {
 pub struct UpdateSettingsRequest {
     pub auto_deploy: Option<bool>,
     pub force_https: Option<bool>,
+    pub inject_init: Option<bool>,
 }
 
 /// PUT /api/v1/resources/{id}/settings — update advanced settings.
@@ -5472,6 +5474,12 @@ pub async fn update_settings(
         db.execute(
             "UPDATE services SET force_https = ?1 WHERE id = ?2",
             rusqlite::params![force_https, id],
+        )?;
+    }
+    if let Some(inject_init) = body.inject_init {
+        db.execute(
+            "UPDATE services SET inject_init = ?1 WHERE id = ?2",
+            rusqlite::params![inject_init, id],
         )?;
     }
 

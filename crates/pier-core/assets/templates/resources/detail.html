@@ -458,6 +458,18 @@
                               :class="resource.force_https ? 'translate-x-5' : 'translate-x-0'"></span>
                     </button>
                 </div>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('resources_detail.inject_init') }}</span>
+                        <p class="text-xs text-gray-400 mt-0.5">{{ t('resources_detail.inject_init_desc') }}</p>
+                    </div>
+                    <button @click="toggleSetting('inject_init')"
+                            class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200"
+                            :class="resource.inject_init ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'">
+                        <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200"
+                              :class="resource.inject_init ? 'translate-x-5' : 'translate-x-0'"></span>
+                    </button>
+                </div>
             </div>
         </div>
 
