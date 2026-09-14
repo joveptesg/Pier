@@ -1118,7 +1118,7 @@ pub(crate) fn apply_pier_networks(yaml: &str, project_net: &str) -> String {
             if trimmed == "networks:" {
                 saw_networks_block = true;
                 out.push(line.to_string());
-                i = copy_managed_networks(&lines, i + 1, &drop_keys, &mut out);
+                i = copy_managed_networks(&lines, i + 1, &drop_keys, &wanted, &mut out);
                 push_wanted_networks(&wanted, &mut out);
                 continue;
             }
@@ -1163,12 +1163,36 @@ fn push_wanted_networks(wanted: &[String], out: &mut Vec<String>) {
     }
 }
 
+/// Key of an inline-map entry: `pier-net: {}` -> `pier-net`.
+///
+/// `None` for every other shape, including the plain `name:` form (callers
+/// match that with `strip_suffix(':')`) and scalar values like `image: nginx`.
+///
+/// This exists because `pier-net: {}` ends in `}`, not `:`. A suffix match
+/// alone leaves the entry in place, the canonical one is appended alongside
+/// it, and compose then refuses the file with "mapping key already defined".
+fn inline_map_key(trimmed: &str) -> Option<&str> {
+    let (key, rest) = trimmed.split_once(':')?;
+    rest.trim().starts_with('{').then(|| key.trim())
+}
+
+/// True when `trimmed` declares one of `wanted` in the inline-map form.
+///
+/// Deliberately narrower than `drop_keys`: that set also holds every network
+/// the file declares `external: true`, and those are NOT normalised here. A
+/// stack that writes `shared-net: {}` works today precisely because the
+/// inline form slips past the drop, and widening this would unhook it.
+fn is_inline_wanted(trimmed: &str, wanted: &[String]) -> bool {
+    inline_map_key(trimmed).is_some_and(|name| wanted.iter().any(|w| w == name))
+}
+
 /// Copy the top-level `networks:` entries the file manages itself, skipping the
 /// ones being replaced. Returns the index where the block ends.
 fn copy_managed_networks(
     lines: &[&str],
     start: usize,
     drop_keys: &[String],
+    wanted: &[String],
     out: &mut Vec<String>,
 ) -> usize {
     let end = block_end(lines, start, 1);
@@ -1183,9 +1207,12 @@ fn copy_managed_networks(
         let ind = indent_width(line);
         if ind <= 2 {
             let entry_end = block_end(&lines[..end], i + 1, ind + 1);
-            match trimmed.strip_suffix(':') {
-                Some(key) if drop_keys.iter().any(|k| k == key.trim()) => {}
-                _ => out.extend(lines[i..entry_end].iter().map(|l| l.to_string())),
+            let drop = match trimmed.strip_suffix(':') {
+                Some(key) => drop_keys.iter().any(|k| k == key.trim()),
+                None => is_inline_wanted(trimmed, wanted),
+            };
+            if !drop {
+                out.extend(lines[i..entry_end].iter().map(|l| l.to_string()));
             }
             i = entry_end;
             continue;
@@ -1282,9 +1309,12 @@ fn rewrite_one_service(
         // Mapping form: `netname:` with nested keys such as `aliases:`.
         mapping_form = true;
         let sub_end = block_end(&block[..entries_end], j + 1, indent_width(line) + 1);
-        match trimmed.strip_suffix(':') {
-            Some(name) if drop_keys.iter().any(|k| k == name.trim()) => {}
-            _ => out.extend(block[j..sub_end].iter().map(|l| l.to_string())),
+        let drop = match trimmed.strip_suffix(':') {
+            Some(name) => drop_keys.iter().any(|k| k == name.trim()),
+            None => is_inline_wanted(trimmed, wanted),
+        };
+        if !drop {
+            out.extend(block[j..sub_end].iter().map(|l| l.to_string()));
         }
         j = sub_end;
     }
@@ -3283,6 +3313,101 @@ networks:
         assert!(got.contains("      pier-shop:"), "{got}");
         assert!(got.contains("      pier-net:"), "{got}");
         assert!(!got.contains("      - pier-shop"), "form changed: {got}");
+    }
+
+    /// Issue #12: the inline empty-map form is still our network, so it must
+    /// not survive alongside the canonical entry we append.
+    #[test]
+    fn pier_networks_handle_the_inline_empty_map_form() {
+        let yaml = "services:
+  app:
+    image: app
+    networks:
+      pier-net: {}
+      other-net:
+        aliases:
+          - app.internal
+networks:
+  other-net:
+    driver: bridge
+";
+        let got = apply_pier_networks(yaml, "pier-net");
+
+        // One declaration, not two — the duplicate key is what compose choked on.
+        assert_eq!(got.matches("pier-net:").count(), 2, "{got}"); // service + top level
+        assert!(!got.contains("pier-net: {}"), "inline form survived: {got}");
+        // The operator's own network and its aliases are untouched.
+        assert!(got.contains("      other-net:"), "{got}");
+        assert!(got.contains("          - app.internal"), "{got}");
+    }
+
+    /// Same shape at the top level, where `push_wanted_networks` appends the
+    /// canonical `external: true` entry.
+    #[test]
+    fn pier_networks_handle_the_inline_form_at_top_level() {
+        let yaml = "services:
+  app:
+    image: app
+networks:
+  pier-net: {}
+";
+        let got = apply_pier_networks(yaml, "pier-net");
+
+        assert_eq!(got.matches("  pier-net:").count(), 1, "{got}");
+        assert!(
+            got.contains(
+                "  pier-net:
+    external: true"
+            ),
+            "{got}"
+        );
+        assert!(!got.contains("pier-net: {}"), "{got}");
+    }
+
+    /// Regression anchor. `drop_keys` also holds every network the file calls
+    /// external, but those are NOT normalised: a stack writing `shared-net: {}`
+    /// keeps that network today and must keep it after the fix.
+    #[test]
+    fn pier_networks_leave_foreign_inline_externals_alone() {
+        let yaml = "services:
+  app:
+    image: app
+    networks:
+      shared-net: {}
+networks:
+  shared-net:
+    external: true
+";
+        let got = apply_pier_networks(yaml, "pier-shop");
+
+        assert!(
+            got.contains("      shared-net: {}"),
+            "foreign inline external was dropped: {got}"
+        );
+    }
+
+    /// The inline form must not defeat idempotency either.
+    #[test]
+    fn pier_networks_inline_form_is_idempotent() {
+        let yaml = "services:
+  app:
+    image: app
+    networks:
+      pier-shop: {}
+networks:
+  pier-shop: {}
+";
+        let once = apply_pier_networks(yaml, "pier-shop");
+        let twice = apply_pier_networks(&once, "pier-shop");
+
+        assert_eq!(
+            once, twice,
+            "not idempotent:
+{once}
+---
+{twice}"
+        );
+        assert!(!once.contains("pier-shop: {}"), "{once}");
     }
 
     /// The listing a failed "compose not found" deploy shows the operator:
