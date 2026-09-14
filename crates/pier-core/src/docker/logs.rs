@@ -69,9 +69,30 @@ pub async fn stream_logs_ws(docker: &Docker, container_id: &str, mut socket: Web
     // nothing matches there's nothing to stream.
     let container_id = match resolve_container(docker, container_id).await {
         Some(target) => target,
-        None => return,
+        None => {
+            // Saying nothing makes the UI look broken: the button flips back
+            // with no explanation. Name what happened before hanging up.
+            let _ = socket
+                .send(Message::Text(
+                    format!(
+                        "[pier] no container matches `{container_id}` — it may not be deployed yet"
+                    )
+                    .into(),
+                ))
+                .await;
+            return;
+        }
     };
     let mut retry_count = 0u32;
+
+    // A quiet container emits nothing, so without this the socket carries zero
+    // bytes for as long as the app is idle — and anything with a timeout in the
+    // path (reverse proxy, load balancer, NAT) closes it. The old code only
+    // pinged in the retry branch, which runs after the Docker stream ENDS, so a
+    // healthy-but-silent stream was never kept alive. 20s is comfortably under
+    // the usual 60s proxy idle timeout.
+    let mut keepalive = tokio::time::interval(std::time::Duration::from_secs(20));
+    keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         let options = LogsOptions {
@@ -85,16 +106,34 @@ pub async fn stream_logs_ws(docker: &Docker, container_id: &str, mut socket: Web
 
         let mut stream = docker.logs(&container_id, Some(options));
 
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(output) => {
-                    retry_count = 0;
-                    let text = output.to_string().trim_end().to_string();
-                    if !text.is_empty() && socket.send(Message::Text(text.into())).await.is_err() {
-                        return; // client disconnected
+        // `select!` also polls the socket for reads. Nothing here needs the
+        // client's messages, but without a read the task never observes a Close
+        // frame and keeps a Docker follow-stream open for a browser that left.
+        loop {
+            tokio::select! {
+                item = stream.next() => match item {
+                    Some(Ok(output)) => {
+                        retry_count = 0;
+                        let text = output.to_string().trim_end().to_string();
+                        if !text.is_empty()
+                            && socket.send(Message::Text(text.into())).await.is_err()
+                        {
+                            return; // client disconnected
+                        }
+                    }
+                    Some(Err(_)) => break, // stream error, retry below
+                    None => break,         // stream ended, retry below
+                },
+                _ = keepalive.tick() => {
+                    if socket.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        return; // client gone
                     }
                 }
-                Err(_) => break, // stream ended, will retry
+                incoming = socket.recv() => match incoming {
+                    Some(Ok(Message::Close(_))) | None => return,
+                    Some(Err(_)) => return,
+                    Some(Ok(_)) => {} // Pong/Text/Binary — nothing to do
+                },
             }
         }
 
@@ -106,7 +145,7 @@ pub async fn stream_logs_ws(docker: &Docker, container_id: &str, mut socket: Web
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // Check if WS client still connected
-        if socket.send(Message::Ping(vec![].into())).await.is_err() {
+        if socket.send(Message::Ping(Vec::new().into())).await.is_err() {
             return;
         }
     }

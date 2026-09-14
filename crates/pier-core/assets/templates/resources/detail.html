@@ -2,7 +2,7 @@
 {% block title %}{{ t('resources_detail.page_title') }}{% endblock %}
 
 {% block content %}
-<div class="p-6 space-y-6" x-data="resourceDetail('{{ resource_id }}')" x-init="init()"
+<div class="p-6 space-y-6" x-data="resourceDetail('{{ resource_id }}')"
      x-effect="if (resource.name) document.title = resource.name + ' — Pier'">
     <!-- Header -->
     <div class="flex items-center justify-between">
@@ -2357,6 +2357,7 @@ function resourceDetail(id) {
         selectedComposeService: '',
         containerLogs: '', deploymentLogs: [], logLines: 100, logFontSize: parseInt(localStorage.getItem('pierLogFontSize') || '12'),
         logSearch: '', logStreaming: false, logFollow: true, logFullscreen: false, logSocket: null, logSearchCount: 0, buildLogFollow: true,
+        logReconnecting: false, logRetries: 0, logStreamStopped: false, _logReconnectTimer: null,
         showDeleteModal: false, deleteConfirmName: '', deleteVolumes: false, deleteBackups: false, deletePassword: '', deleting: false, requirePwOnDelete: true,
         showDeleteDbModal: false, deleteDbName: '', deleteDbConfirm: '', deleteDbPassword: '', deleteDbBackups: false, deletingDb: false,
         showCompose: false, editingName: false, editName: '', loadingCompose: false, gitComposeContent: '',
@@ -3105,6 +3106,11 @@ function resourceDetail(id) {
             // button's loaders never ran, so fill the panel here instead of
             // showing an empty one until the first poll comes back.
             if (this.tab === 'deployments') { this.loadDeployments(); this.loadDeploymentLogs(); }
+            // Same for the Logs tab. Only the tab BUTTON used to load them, so
+            // arriving by link, bookmark or page reload left the panel showing
+            // "no logs" over a container that had plenty — and the only way out
+            // was the Refresh button.
+            if (this.tab === 'logs') { this.loadContainerLogs(); }
             // Background polling: check for status changes + new deployments every 5s
             // A resource created through the wizard lands here already
             // deploying. Nothing used to watch it closely: only the 5s
@@ -3467,9 +3473,11 @@ function resourceDetail(id) {
             const containerName = this.resolveLogContainerName();
             const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             const url = proto + '//' + location.host + '/api/v1/containers/' + encodeURIComponent(containerName) + '/logs/ws';
+            this.logStreamStopped = false;
             try {
                 this.logSocket = new WebSocket(url);
                 this.logStreaming = true;
+                this.logSocket.onopen = () => { this.logRetries = 0; this.logReconnecting = false; };
                 this.logSocket.onmessage = (e) => {
                     const line = e.data.trim();
                     if (line) {
@@ -3477,11 +3485,40 @@ function resourceDetail(id) {
                         if (this.logFollow) this.$nextTick(() => this.scrollLogsToBottom());
                     }
                 };
-                this.logSocket.onclose = () => { this.logStreaming = false; this.logSocket = null; };
-                this.logSocket.onerror = () => { this.logStreaming = false; this.logSocket = null; };
+                // A socket that drops on its own is the common case, not the
+                // exception: an idle stream carries no bytes, so anything with a
+                // timeout in the path (reverse proxy, LB, NAT) closes it. It used
+                // to die silently, leaving the operator to notice and click.
+                this.logSocket.onclose = () => {
+                    this.logSocket = null;
+                    if (this.logStreamStopped || this.tab !== 'logs') { this.logStreaming = false; return; }
+                    this.scheduleLogReconnect();
+                };
+                this.logSocket.onerror = () => { if (this.logSocket) this.logSocket.close(); };
             } catch { this.logStreaming = false; }
         },
+        scheduleLogReconnect() {
+            if (this.logRetries >= 5) {
+                this.logStreaming = false;
+                this.logReconnecting = false;
+                return;
+            }
+            const delay = Math.min(1000 * Math.pow(2, this.logRetries), 8000);
+            this.logRetries += 1;
+            this.logReconnecting = true;
+            this.logStreaming = true; // the operator asked for a stream; say it is still on
+            this._logReconnectTimer = setTimeout(() => {
+                if (this.logStreamStopped || this.tab !== 'logs') { this.logStreaming = false; this.logReconnecting = false; return; }
+                this.startLogStream();
+            }, delay);
+        },
         stopLogStream() {
+            // Distinguishes "the operator pressed stop" from "the socket died",
+            // which is what stops a reconnect loop from fighting the button.
+            this.logStreamStopped = true;
+            this.logReconnecting = false;
+            this.logRetries = 0;
+            if (this._logReconnectTimer) { clearTimeout(this._logReconnectTimer); this._logReconnectTimer = null; }
             if (this.logSocket) { this.logSocket.close(); this.logSocket = null; }
             this.logStreaming = false;
         },
