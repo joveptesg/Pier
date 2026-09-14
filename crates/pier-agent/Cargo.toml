@@ -53,3 +53,6 @@ rand = { workspace = true }
 
 # Hex encoding — shell-run ids and similar opaque tokens.
 hex = { workspace = true }
+
+# Constant-time comparison for the agent bearer token (`verify_token`).
+subtle = { workspace = true }

@@ -3302,7 +3302,7 @@ dependencies = [
 
 [[package]]
 name = "pier-agent"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -3317,6 +3317,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "subtle",
  "sysinfo",
  "thiserror 2.0.18",
  "tokio",
@@ -3328,7 +3329,7 @@ dependencies = [
 
 [[package]]
 name = "pier-core"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "accept-language",
  "aes-gcm",
@@ -3372,6 +3373,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
+ "subtle",
  "sysinfo",
  "tar",
  "tempfile",
@@ -3394,7 +3396,7 @@ dependencies = [
 
 [[package]]
 name = "pier-net-helper"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -3407,7 +3409,7 @@ dependencies = [
 
 [[package]]
 name = "pier-tests"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "anyhow",
  "async-trait",

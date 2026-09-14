@@ -43,4 +43,4 @@ The Pier code is open source, but the **"Pier" name and logo are trademarks** an
 
 ## Security Vulnerabilities
 
-If you discover a security vulnerability, please **do not** open a public issue. Instead, email [info@devcom.app](mailto:info@devcom.app) with details.
+If you discover a security vulnerability, please **do not** open a public issue. See [SECURITY.md](SECURITY.md) for how to report it, what to include, and what to expect from us.

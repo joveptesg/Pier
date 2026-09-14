@@ -14,6 +14,7 @@
 
 use std::path::PathBuf;
 use std::sync::Mutex;
+use subtle::ConstantTimeEq;
 
 /// Persisted-on-disk one-shot token store. Held in `AppState` as `Arc<Self>`.
 pub struct SetupTokenStore {
@@ -103,17 +104,14 @@ impl SetupTokenStore {
     }
 }
 
-/// Length-checked, branch-free byte comparison. We avoid the `subtle` crate to
-/// keep the dependency surface small — this is the only place we need it.
+/// Length-checked, branch-free byte comparison.
+///
+/// Delegates to `subtle`, which is a direct workspace dependency now that the
+/// agent bearer token and the GitLab webhook token need the same guarantee.
+/// A hand-rolled accumulator loop lives or dies on the optimizer not undoing
+/// it; `subtle` carries the barriers that keep it honest.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
+    bool::from(a.ct_eq(b))
 }
 
 #[cfg(test)]

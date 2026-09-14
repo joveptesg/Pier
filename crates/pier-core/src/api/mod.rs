@@ -79,12 +79,16 @@ async fn health(State(state): State<SharedState>) -> axum::Json<serde_json::Valu
 
 /// Build the API router at /api/v1/*.
 ///
-/// `tower_governor` rate-limits the unauthenticated auth endpoints by peer IP.
+/// `tower_governor` rate-limits the unauthenticated endpoints by peer IP.
 /// `per_second(n)` means "replenish one token every n seconds", so a 5-burst
 /// with `per_second(12)` allows a 5-attempt burst and then throttles to roughly
 /// one attempt per 12 seconds. Setup is more permissive on rate but a single
 /// successful call locks the endpoint via the atomic insert in
 /// [`auth::setup`].
+///
+/// Note that peer IP is the *socket* peer: behind a reverse proxy every client
+/// shares the proxy's bucket. That is a pre-existing property of all governors
+/// here, not something the webhook profile introduces.
 pub fn api_router(state: SharedState) -> Router<SharedState> {
     let login_governor = Arc::new(
         GovernorConfigBuilder::default()
@@ -118,6 +122,17 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             .finish()
             .expect("deploy governor config"),
     );
+    // Webhooks are public and carry a shared secret, so an unthrottled route is
+    // an offline-speed guessing oracle. Real pushes arrive in bursts (monorepo
+    // fan-out, provider retries) but never in floods, so the burst is generous
+    // and the sustained rate is not.
+    let webhook_governor = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(2)
+            .burst_size(10)
+            .finish()
+            .expect("webhook governor config"),
+    );
 
     let public = Router::new()
         .route(
@@ -148,8 +163,14 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             get(servers::download_agent_binary),
         )
         // Webhooks (public — GitHub/GitLab need to reach these)
-        .route("/webhooks/github", post(webhooks::github))
-        .route("/webhooks/gitlab", post(webhooks::gitlab))
+        .route(
+            "/webhooks/github",
+            post(webhooks::github).layer(GovernorLayer::new(webhook_governor.clone())),
+        )
+        .route(
+            "/webhooks/gitlab",
+            post(webhooks::gitlab).layer(GovernorLayer::new(webhook_governor)),
+        )
         // GitHub App manifest callback (public — GitHub redirects here)
         .route("/sources/github/callback", get(sources::github_callback))
         // Invitation accept — recipient is anonymous until they POST.

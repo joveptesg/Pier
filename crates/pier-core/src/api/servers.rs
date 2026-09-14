@@ -244,13 +244,13 @@ pub async fn create(
 /// next time anyone tries to use it.
 ///
 /// Why we keep the plaintext column even after hashing landed in
-/// migration 40: core needs to authenticate OUTBOUND to the agent
-/// using a Bearer that the agent itself compares with `==`. The hash
-/// alone can't reproduce the plaintext, so we trade a slightly weaker
-/// at-rest posture for a much simpler outbound auth story. A future
-/// migration moves outbound auth to a per-agent signing key derived
-/// from a master secret in `data_dir`, at which point the plaintext
-/// column can finally be nulled out.
+/// migration 40: core needs to authenticate OUTBOUND to the agent by
+/// presenting the Bearer verbatim, and the hash alone can't reproduce
+/// the plaintext. So we trade a slightly weaker at-rest posture for a
+/// much simpler outbound auth story. A future migration moves outbound
+/// auth to a per-agent signing key derived from a master secret in
+/// `data_dir`, at which point the plaintext column can finally be
+/// nulled out.
 ///
 /// Mesh-routed: once configure_mesh has flipped this peer to `active`,
 /// `get_server_info` returns the mesh IP so the POST below goes over

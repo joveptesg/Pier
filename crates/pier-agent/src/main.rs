@@ -8,6 +8,7 @@ use bollard::Docker;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
 
@@ -42,12 +43,35 @@ type SharedState = Arc<AgentState>;
 // Auth middleware helper
 // ---------------------------------------------------------------------------
 
+/// Authenticate a request against the configured agent bearer token.
+///
+/// Two properties are load-bearing here, because this is the *only* gate in
+/// front of `/api/v1/agent/exec`, `/deploy`, `/files` and `/shell` — arbitrary
+/// command execution and file writes on the host:
+///
+///   * **Never authenticate against an empty token.** `main` refuses to start
+///     without `PIER_AGENT_TOKEN`, but this check keeps the invariant local: an
+///     empty `state.token` would otherwise match an empty bearer and turn every
+///     route below into an open door on a port the installer opens publicly.
+///   * **Constant-time comparison.** `==` on `str` short-circuits at the first
+///     differing byte, which leaks a byte-by-byte oracle to anyone who can time
+///     the response. The signal is tiny next to network jitter, but the fix is
+///     free and the alternative is arguing about how tiny.
 pub(crate) fn verify_token(headers: &HeaderMap, state: &AgentState) -> bool {
+    token_matches(headers, &state.token)
+}
+
+/// The decision itself, split out from `AgentState` so it is testable without a
+/// live Docker connection.
+fn token_matches(headers: &HeaderMap, expected: &str) -> bool {
+    if expected.is_empty() {
+        return false;
+    }
     headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .map(|v| v.strip_prefix("Bearer ").unwrap_or(v))
-        .map(|t| t == state.token)
+        .map(|t| bool::from(t.as_bytes().ct_eq(expected.as_bytes())))
         .unwrap_or(false)
 }
 
@@ -566,8 +590,9 @@ async fn mesh_preflight(State(state): State<SharedState>, headers: HeaderMap) ->
 //   * `state.token` is held by every in-flight request as `&AgentState`.
 //     A mid-request swap would create a race where the SAME request
 //     could see both the old and the new value depending on when it
-//     reads, and the bearer string is compared via `==`, not a guarded
-//     accessor. Restarting closes every connection cleanly.
+//     reads, since `verify_token` reads the field directly rather than
+//     through a guarded accessor. Restarting closes every connection
+//     cleanly.
 //   * systemd respawn is a well-understood failure mode the operator
 //     can already monitor; adding bespoke runtime mutability buys us
 //     nothing over it.
@@ -903,10 +928,20 @@ async fn main() -> Result<()> {
     // `.ok()` because a second install (e.g. in tests) is harmless.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-    let token = std::env::var("PIER_AGENT_TOKEN").unwrap_or_else(|_| {
-        tracing::warn!("PIER_AGENT_TOKEN not set — using empty token (insecure!)");
-        String::new()
-    });
+    // Refuse to run without a bearer token rather than warning and continuing.
+    // Every route but /health is gated by `verify_token`, and the enrollment
+    // script opens this port on the host firewall, so a tokenless agent would
+    // be an unauthenticated `/api/v1/agent/exec` reachable from anywhere. A
+    // systemd crashloop is loud and fixable; the old behavior was silent.
+    let token = std::env::var("PIER_AGENT_TOKEN").unwrap_or_default();
+    if token.trim().is_empty() {
+        anyhow::bail!(
+            "PIER_AGENT_TOKEN is not set — refusing to start. Without it the agent \
+             would accept any request on /api/v1/agent/* (including /exec). The \
+             installer writes this to /etc/pier-agent/auth.env, which the systemd \
+             unit loads via EnvironmentFile=; check that the file exists and is readable."
+        );
+    }
 
     let port: u16 = std::env::var("PIER_AGENT_PORT")
         .ok()
@@ -1000,4 +1035,59 @@ async fn main() -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TOK: &str = "pier_srv_0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn hdrs(auth: Option<&str>) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        if let Some(a) = auth {
+            h.insert("authorization", a.parse().unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn accepts_the_configured_token() {
+        assert!(token_matches(&hdrs(Some(&format!("Bearer {TOK}"))), TOK));
+        // A bare token with no `Bearer ` prefix is accepted too — the
+        // `strip_prefix(..).unwrap_or(v)` fallback. Kept deliberately.
+        assert!(token_matches(&hdrs(Some(TOK)), TOK));
+    }
+
+    #[test]
+    fn rejects_wrong_tokens() {
+        let mut same_len = TOK.to_string();
+        same_len.pop();
+        same_len.push('X');
+
+        assert!(!token_matches(
+            &hdrs(Some(&format!("Bearer {same_len}"))),
+            TOK
+        ));
+        assert!(!token_matches(&hdrs(Some("Bearer short")), TOK));
+        assert!(!token_matches(
+            &hdrs(Some(&format!("Bearer {TOK}more"))),
+            TOK
+        ));
+        assert!(!token_matches(&hdrs(None), TOK));
+    }
+
+    /// Regression: an unconfigured token must authenticate nothing. `main`
+    /// refuses to start in this state, but if that guard is ever bypassed an
+    /// empty token must not match an empty bearer and open `/exec` to anyone.
+    #[test]
+    fn empty_configured_token_authenticates_nothing() {
+        for header in ["", "Bearer ", "Bearer", "anything at all"] {
+            assert!(
+                !token_matches(&hdrs(Some(header)), ""),
+                "empty token accepted header {header:?}"
+            );
+        }
+        assert!(!token_matches(&hdrs(None), ""));
+    }
 }

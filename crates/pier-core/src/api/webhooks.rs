@@ -10,6 +10,7 @@ use axum::Json;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use subtle::ConstantTimeEq;
 
 use crate::deploy::{self, CommitInfo};
 use crate::error::{AppError, AppResult};
@@ -208,7 +209,13 @@ impl SignatureCheck<'_> {
             SignatureCheck::GitHub { body, signature } => {
                 verify_github_signature(secret, body, signature).is_ok()
             }
-            SignatureCheck::GitLab { token } => *token == secret,
+            // Constant-time, matching what `verify_github_signature` gets for
+            // free from `Mac::verify_slice`. GitLab hands us the shared secret
+            // verbatim rather than an HMAC, so the comparison is ours to make:
+            // `==` would short-circuit at the first differing byte.
+            SignatureCheck::GitLab { token } => {
+                bool::from(token.as_bytes().ct_eq(secret.as_bytes()))
+            }
         }
     }
 }
@@ -263,17 +270,39 @@ async fn dispatch_push(
 
     let mut started: Vec<String> = Vec::new();
     let mut skipped: Vec<serde_json::Value> = Vec::new();
+    // Signature outcomes are counted, never itemized into `skipped` — see the
+    // note above the return value.
+    let mut verified = 0usize;
+    let mut unverified = 0usize;
 
     for svc in services {
         // 1. Per-service signature — load-bearing for multi-tenant repos.
         let sig_ok = match svc.webhook_secret.as_deref() {
             Some(secret) if !secret.is_empty() => sig.verify(secret),
-            _ => true, // no secret configured → accept (matches prior behavior)
+            _ => {
+                // Back-compat: services configured before webhook secrets
+                // existed have none, and deploy on any push that names their
+                // repo. Changing that would silently break working setups, so
+                // it stays — but it is not something to leave unlogged.
+                tracing::warn!(
+                    service = %svc.id,
+                    repo = %repo_url,
+                    "Webhook accepted WITHOUT verification: no secret configured for this service"
+                );
+                true
+            }
         };
         if !sig_ok {
-            skipped.push(serde_json::json!({"id": svc.id, "reason": "signature mismatch"}));
+            tracing::warn!(
+                service = %svc.id,
+                repo = %repo_url,
+                branch = %branch,
+                "Webhook rejected: secret mismatch"
+            );
+            unverified += 1;
             continue;
         }
+        verified += 1;
 
         // 2. auto_deploy toggle.
         if !svc.auto_deploy {
@@ -323,6 +352,22 @@ async fn dispatch_push(
             });
             dependents.push(dep_id);
         }
+    }
+
+    // This route is unauthenticated by construction — GitHub and GitLab have to
+    // reach it — so the response must not double as a secret oracle. We cannot
+    // hide success outright (a valid push visibly starts a deploy), but we can
+    // refuse to say *which* service rejected the caller: under monorepo fan-out
+    // the old per-service `"signature mismatch"` entries let one request test N
+    // secrets and report exactly which one hit. Those outcomes now live only in
+    // the log above. The reasons that remain in `skipped` (`auto_deploy
+    // disabled`, `no watched path changed`) are secret-independent and are what
+    // make monorepo path rules debuggable from the provider's delivery UI.
+    if verified == 0 && unverified > 0 {
+        // Nothing accepted the push. Answer exactly as we do for a repo we have
+        // never seen, so a wrong secret is indistinguishable from a wrong repo
+        // URL and this route can't be used to enumerate configured repos.
+        return Ok(serde_json::json!({"ok": true, "skipped": "no matching service"}));
     }
 
     Ok(serde_json::json!({
@@ -738,6 +783,38 @@ mod tests {
 
     fn known(paths: &[&str]) -> ChangedPaths {
         ChangedPaths::Known(paths.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn gitlab_token_matches_only_exactly() {
+        let secret = "0123456789abcdef0123456789abcdef";
+        let check = |t| SignatureCheck::GitLab { token: t }.verify(secret);
+
+        assert!(check(secret));
+        // Same length, differs only in the final byte — the case a
+        // short-circuiting `==` would answer faster than a full mismatch.
+        assert!(!check("0123456789abcdef0123456789abcdeF"));
+        // A prefix of the real secret must not pass.
+        assert!(!check("0123456789abcdef"));
+        assert!(!check("0123456789abcdef0123456789abcdef0"));
+        assert!(!check(""));
+    }
+
+    #[test]
+    fn github_signature_round_trips_and_rejects_tampering() {
+        let secret = "shhh";
+        let body = b"{\"ref\":\"refs/heads/main\"}";
+
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        let sig = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+
+        assert!(verify_github_signature(secret, body, &sig).is_ok());
+        assert!(verify_github_signature("wrong", body, &sig).is_err());
+        assert!(verify_github_signature(secret, b"tampered", &sig).is_err());
+        // Missing algorithm prefix and non-hex both fail closed.
+        assert!(verify_github_signature(secret, body, "deadbeef").is_err());
+        assert!(verify_github_signature(secret, body, "sha256=zz").is_err());
     }
 
     #[test]

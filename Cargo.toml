@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 license = "AGPL-3.0"
 repository = "https://github.com/joveptesg/pier"
@@ -113,6 +113,12 @@ urlencoding = "2.1"
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+
+# Constant-time comparison. Every secret a caller supplies must be compared
+# with this, never `==` — see `pier-agent`'s `verify_token` and the GitLab arm
+# of `SignatureCheck::verify`. Already in the tree transitively (hmac, aes-gcm,
+# rustls), so declaring it directly costs no extra build weight.
+subtle = "2.6"
 
 # Tar archive (Docker build context)
 tar = "0.4"

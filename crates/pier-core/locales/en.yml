@@ -2275,6 +2275,7 @@ errors:
     compose_yaml_required: Docker Compose YAML is required
     dockerfile_content_required: Dockerfile content is required
     repository_url_required: Repository URL is required
+    webhook_secret_too_short: Webhook secret must be at least %{min} characters. Leave it blank to generate a strong one.
     ssh_deploy_key_required: SSH deploy key is required
     dockerfile_not_found_in_repo: "Dockerfile not found at '%{path}' in repository"
     source_id_required_for_github_app: source_id is required for GitHub App deploy

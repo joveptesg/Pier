@@ -4441,6 +4441,11 @@ pub async fn get_git_config(
     Ok(Json(config))
 }
 
+/// Minimum length for an operator-supplied webhook secret. Auto-generated ones
+/// are 64 hex chars; this floor only constrains values typed by hand, and is
+/// set where a secret stops being guessable over a public, rate-limited route.
+const MIN_WEBHOOK_SECRET_LEN: usize = 32;
+
 /// PUT /api/v1/resources/{id}/git — configure git source for a service.
 pub async fn update_git_config(
     State(state): State<SharedState>,
@@ -4449,11 +4454,28 @@ pub async fn update_git_config(
     Json(body): Json<UpdateGitConfigRequest>,
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
-    // Generate webhook secret if not provided
-    let webhook_secret = body.webhook_secret.unwrap_or_else(|| {
-        hex::encode(uuid::Uuid::new_v4().as_bytes().as_slice())
-            + &hex::encode(uuid::Uuid::new_v4().as_bytes().as_slice())
-    });
+    // Webhook secret. A blank value means "not provided" — writing `Some("")`
+    // here would land an empty secret in the DB, which the webhook handler
+    // treats as "no secret configured" and stops verifying pushes entirely.
+    // Anything the caller does supply has to be long enough to be worth
+    // verifying, since the webhook route is public: without a floor a user can
+    // set the secret to a single character.
+    let webhook_secret = match body.webhook_secret.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => {
+            if s.chars().count() < MIN_WEBHOOK_SECRET_LEN {
+                return Err(AppError::BadRequest(crate::i18n::te_args(
+                    "errors.resources.webhook_secret_too_short",
+                    &[("min", &MIN_WEBHOOK_SECRET_LEN.to_string())],
+                )));
+            }
+            s.to_string()
+        }
+        // 32 random bytes as 64 hex chars.
+        _ => {
+            hex::encode(uuid::Uuid::new_v4().as_bytes().as_slice())
+                + &hex::encode(uuid::Uuid::new_v4().as_bytes().as_slice())
+        }
+    };
 
     let db = state
         .db
