@@ -270,11 +270,19 @@ fn load_protected(state: &SharedState) -> Result<Protected> {
             }
         }
 
+        let compose = compose.unwrap_or_default();
+        // `services.image` holds one image per service row, but a stack can
+        // declare several — a sidecar's pulled image would otherwise be
+        // unprotected for as long as the stack is down.
+        for image in compose_image_refs(&compose) {
+            exact.insert(image);
+        }
+
         // Same slug rule the deploy path uses to build image tags and compose
         // project names, so the two stay in step.
         let slug = name.to_lowercase().replace(' ', "-");
         if !slug.is_empty() {
-            projects.push((slug, compose.unwrap_or_default()));
+            projects.push((slug, compose));
         }
     }
 
@@ -326,9 +334,50 @@ fn compose_declares_service(compose: &str, svc: &str) -> bool {
     false
 }
 
+/// Every image named by an `image:` key in a compose file.
+///
+/// Matches the value, never the repository on its own. Reaching for the bare
+/// repository looks tempting and is wrong: a postgres stack mentions
+/// `postgres` in `container_name`, `POSTGRES_PASSWORD` and half its
+/// environment, so repository matching would protect every `postgres:*` tag
+/// on the host — including the stale ones this module exists to collect.
+///
+/// Values carrying `${VAR}` are skipped; the substitution happens at compose
+/// runtime and is not resolvable from here.
+fn compose_image_refs(compose: &str) -> Vec<String> {
+    let mut found = Vec::new();
+
+    for line in compose.lines() {
+        let body = line.trim();
+        if body.starts_with('#') {
+            continue;
+        }
+        let Some(value) = body.strip_prefix("image:") else {
+            continue;
+        };
+
+        let value = value.trim().trim_matches(['"', '\'']).trim();
+        if value.is_empty() || value.contains('$') {
+            continue;
+        }
+
+        // A bare name means `:latest`, which is how repo_tags spells it.
+        let has_tag = match value.rsplit_once(':') {
+            Some((_, tag)) => !tag.contains('/'),
+            None => false,
+        };
+        if !has_tag {
+            found.push(format!("{value}:latest"));
+        }
+        found.push(value.to_string());
+    }
+
+    found
+}
+
 #[cfg(test)]
 mod tests {
-    use super::compose_declares_service;
+    use super::{compose_declares_service, compose_image_refs};
 
     const COMPOSE: &str = "services:\n\
                            \x20 api:\n\
@@ -366,5 +415,54 @@ mod tests {
     fn empty_compose_protects_nothing() {
         assert!(!compose_declares_service("", "api"));
         assert!(!compose_declares_service("not yaml at all", "api"));
+    }
+
+    const PULLED: &str = "services:\n\
+                          \x20 db:\n\
+                          \x20   image: postgres:latest\n\
+                          \x20   container_name: pier-db-postgresql\n\
+                          \x20   environment:\n\
+                          \x20     POSTGRES_PASSWORD: secret\n\
+                          \x20 cache:\n\
+                          \x20   image: \"redis:7-alpine\"\n\
+                          \x20 app:\n\
+                          \x20   image: my-app\n\
+                          \x20 tuned:\n\
+                          \x20   image: ${CUSTOM_IMAGE}\n\
+                          # image: commented-out:1.0\n";
+
+    #[test]
+    fn collects_declared_images() {
+        let refs = compose_image_refs(PULLED);
+        assert!(refs.contains(&"postgres:latest".to_string()));
+        assert!(refs.contains(&"redis:7-alpine".to_string()));
+        // A bare name is `:latest`, which is how repo_tags spells it.
+        assert!(refs.contains(&"my-app".to_string()));
+        assert!(refs.contains(&"my-app:latest".to_string()));
+    }
+
+    #[test]
+    fn ignores_unresolvable_and_commented_images() {
+        let refs = compose_image_refs(PULLED);
+        assert!(!refs.iter().any(|r| r.contains('$')));
+        assert!(!refs.iter().any(|r| r.starts_with("commented-out")));
+    }
+
+    #[test]
+    fn does_not_protect_a_whole_repository() {
+        // Verified against production: this compose mentions `postgres` in
+        // `container_name` and `POSTGRES_PASSWORD`, but the only image it
+        // actually uses is `postgres:latest`. A stale `postgres:18-alpine`
+        // must stay collectable.
+        let refs = compose_image_refs(PULLED);
+        assert!(!refs.contains(&"postgres:18-alpine".to_string()));
+        assert!(!refs.contains(&"postgres".to_string()));
+    }
+
+    #[test]
+    fn registry_port_is_not_mistaken_for_a_tag() {
+        let refs = compose_image_refs("services:\n  a:\n    image: registry:5000/team/app\n");
+        assert!(refs.contains(&"registry:5000/team/app".to_string()));
+        assert!(refs.contains(&"registry:5000/team/app:latest".to_string()));
     }
 }
