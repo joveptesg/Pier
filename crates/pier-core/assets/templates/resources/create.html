@@ -2,7 +2,7 @@
 {% block title %}{{ t('resources_create.page_title') }}{% endblock %}
 
 {% block content %}
-<div class="p-6 space-y-6" x-data="createResource('{{ catalog_id }}', {{ host_total_ram_gb }})" x-init="init()">
+<div class="p-6 space-y-6" x-data="createResource('{{ catalog_id }}', {{ host_total_ram_gb }})">
     <!-- Header -->
     <div class="flex items-center gap-3">
         <a href="/resources/new" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">

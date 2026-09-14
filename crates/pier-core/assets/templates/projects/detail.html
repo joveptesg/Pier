@@ -2,7 +2,7 @@
 {% block title %}{{ t('projects_detail.title') }}{% endblock %}
 
 {% block content %}
-<div class="p-6 space-y-6" x-data="projectDetail('{{ project_id }}')" x-init="init()"
+<div class="p-6 space-y-6" x-data="projectDetail('{{ project_id }}')"
      x-effect="if (project.name) document.title = project.name + ' — Pier'">
     <!-- Header -->
     <div class="flex items-center justify-between">

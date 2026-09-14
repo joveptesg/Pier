@@ -2,7 +2,7 @@
 {% block title %}{% if mode == 'create' %}{{ t('compose_editor.title_new') }}{% else %}{{ t('compose_editor.title_edit') }}{% endif %}{% endblock %}
 
 {% block content %}
-<div class="p-6 space-y-6" x-data="stackEditor('{{ mode }}', '{{ stack_id|default('') }}')" x-init="init()">
+<div class="p-6 space-y-6" x-data="stackEditor('{{ mode }}', '{{ stack_id|default('') }}')">
     <!-- Header -->
     <div class="flex items-center gap-3">
         <a href="/stacks" class="text-gray-500 hover:text-gray-300 transition-colors">
