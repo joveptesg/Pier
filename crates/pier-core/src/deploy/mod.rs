@@ -1744,6 +1744,80 @@ pub fn parse_compose_services(
     services
 }
 
+/// Attach `compose_service IS NULL` port rows to the compose service that
+/// declares their container port.
+///
+/// Two ordinary situations leave rows untagged on a multi-service stack:
+/// migration 32 added the column with no backfill, and a single-service stack
+/// stores NULL by design — so adding a sidecar later flips the stack to
+/// multi-service while the existing row still matches nothing. Either way
+/// `inject_ports_into_yaml` skips the row (its `None` arm only matches
+/// single-service stacks) and the published binding disappears.
+///
+/// Only re-tags when exactly one service declares the port. Guessing wrong
+/// would publish a host port on the wrong container, which is worse than
+/// leaving the row orphaned and saying so in the log.
+fn backfill_orphan_port_rows(
+    db: &rusqlite::Connection,
+    service_id: &str,
+    services: &[ComposeService],
+) {
+    let orphans: Vec<(i64, u16)> = {
+        let Ok(mut stmt) = db.prepare(
+            "SELECT rowid, container_port FROM port_allocations              WHERE service_id = ?1 AND compose_service IS NULL",
+        ) else {
+            return;
+        };
+        let Ok(rows) = stmt.query_map([service_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)? as u16))
+        }) else {
+            return;
+        };
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
+    for (rowid, container_port) in orphans {
+        let owners: Vec<&str> = services
+            .iter()
+            .filter(|svc| svc.ports.iter().any(|(_, cp)| *cp == container_port))
+            .map(|svc| svc.name.as_str())
+            .collect();
+
+        match owners.as_slice() {
+            [owner] => {
+                if let Err(e) = db.execute(
+                    "UPDATE port_allocations SET compose_service = ?1 WHERE rowid = ?2",
+                    rusqlite::params![owner, rowid],
+                ) {
+                    tracing::warn!(
+                        service = %service_id,
+                        port = container_port,
+                        "Could not re-tag orphaned port allocation: {e}"
+                    );
+                } else {
+                    tracing::info!(
+                        service = %service_id,
+                        port = container_port,
+                        compose_service = %owner,
+                        "Re-tagged orphaned port allocation to its compose service"
+                    );
+                }
+            }
+            [] => tracing::warn!(
+                service = %service_id,
+                port = container_port,
+                "Orphaned port allocation: no compose service declares this container port,                  so it cannot be published. Re-save the port from the UI to recreate it."
+            ),
+            many => tracing::warn!(
+                service = %service_id,
+                port = container_port,
+                candidates = ?many,
+                "Orphaned port allocation: several compose services declare this container                  port, so it is left untagged rather than published on the wrong one."
+            ),
+        }
+    }
+}
+
 pub(crate) fn update_ports_from_compose(state: &AppState, service_id: &str, yaml: &str) {
     // Resolve `${VAR}` / `${VAR:-default}` like docker-compose does, using
     // the service's env_json as the source for VAR values. Without this,
@@ -1780,6 +1854,17 @@ pub(crate) fn update_ports_from_compose(state: &AppState, service_id: &str, yaml
     }
 
     if let Ok(db) = state.db.lock() {
+        // Re-tag orphaned rows BEFORE the upsert, not after: the upsert keys on
+        // `(service_id, port_name, compose_service)`, so an untagged row does
+        // not match the tagged tuple we are about to write. It would insert a
+        // second row for the same container port carrying default private
+        // state, and inject would then emit that one — unpublishing a port the
+        // operator had made public. Re-tagging first makes the upsert land on
+        // the existing row and keep its is_public/public_port.
+        if multi_service {
+            backfill_orphan_port_rows(&db, service_id, &services);
+        }
+
         upsert_port_rows(&db, service_id, &flat);
 
         // Update services.port with the first host port (legacy single-port
@@ -3125,10 +3210,10 @@ struct ServiceInfo {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_pier_networks, env_json_to_env_content, find_compose_candidates,
-        inject_env_file_into_services, inject_mesh_extra_hosts_into_services, inject_pier_labels,
-        inject_ports_into_yaml, normalize_mesh_hostname, tcp_ports_from_exposed, upsert_port_rows,
-        PortRow,
+        apply_pier_networks, backfill_orphan_port_rows, env_json_to_env_content,
+        find_compose_candidates, inject_env_file_into_services,
+        inject_mesh_extra_hosts_into_services, inject_pier_labels, inject_ports_into_yaml,
+        normalize_mesh_hostname, tcp_ports_from_exposed, upsert_port_rows, ComposeService, PortRow,
     };
     use crate::crypto::encrypt_env_json;
 
@@ -3475,6 +3560,179 @@ networks:
         .unwrap()
         .map(|r| r.unwrap())
         .collect()
+    }
+
+    fn svc_with_ports(name: &str, ports: &[(u16, u16)]) -> ComposeService {
+        ComposeService {
+            name: name.to_string(),
+            container_name: String::new(),
+            ports: ports.to_vec(),
+        }
+    }
+
+    fn insert_orphan(db: &rusqlite::Connection, id: &str, host: u16, container: u16) {
+        db.execute(
+            "INSERT INTO port_allocations              (id, service_id, port_name, host_port, container_port, is_public, public_port, compose_service)              VALUES (?1, 'svc-web', 'primary', ?2, ?3, 1, ?2, NULL)",
+            rusqlite::params![id, host as i64, container as i64],
+        )
+        .unwrap();
+    }
+
+    /// Issue #13: a legacy row tagged NULL on a multi-service stack matches no
+    /// service, so its published binding vanishes. Re-tag it to the service
+    /// that declares the port.
+    #[test]
+    fn orphan_port_row_is_retagged_to_the_only_declaring_service() {
+        let db = fresh_ports_db();
+        insert_orphan(&db, "p1", 3050, 8080);
+
+        backfill_orphan_port_rows(
+            &db,
+            "svc-web",
+            &[
+                svc_with_ports("app", &[(3050, 8080)]),
+                svc_with_ports("db", &[(5432, 5432)]),
+            ],
+        );
+
+        let rows = dump_ports(&db, "svc-web");
+        assert_eq!(rows[0].0.as_deref(), Some("app"), "{rows:?}");
+    }
+
+    /// The operator's public/private state lives on the orphaned row. Re-tagging
+    /// must carry it over — that state being replaced by a fresh default row is
+    /// what unpublished the port in the first place.
+    #[test]
+    fn retagging_an_orphan_preserves_its_public_state() {
+        let db = fresh_ports_db();
+        insert_orphan(&db, "p1", 3050, 8080);
+
+        backfill_orphan_port_rows(&db, "svc-web", &[svc_with_ports("app", &[(3050, 8080)])]);
+
+        let (is_public, public_port): (i64, Option<i64>) = db
+            .query_row(
+                "SELECT is_public, public_port FROM port_allocations WHERE id = 'p1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(is_public, 1, "public flag lost");
+        assert_eq!(public_port, Some(3050), "public port lost");
+    }
+
+    /// Ambiguity must not be resolved by guessing: publishing a host port on
+    /// the wrong container is worse than leaving the row orphaned.
+    #[test]
+    fn ambiguous_orphan_port_row_is_left_untagged() {
+        let db = fresh_ports_db();
+        insert_orphan(&db, "p1", 3050, 8080);
+
+        backfill_orphan_port_rows(
+            &db,
+            "svc-web",
+            &[
+                svc_with_ports("app", &[(3050, 8080)]),
+                svc_with_ports("clone", &[(3051, 8080)]),
+            ],
+        );
+
+        let rows = dump_ports(&db, "svc-web");
+        assert_eq!(rows[0].0, None, "guessed an owner: {rows:?}");
+    }
+
+    /// No service declares the port — nothing to attach it to, and inventing
+    /// one would publish it on an unrelated container.
+    #[test]
+    fn orphan_port_row_with_no_declaring_service_is_left_untagged() {
+        let db = fresh_ports_db();
+        insert_orphan(&db, "p1", 3050, 8080);
+
+        backfill_orphan_port_rows(&db, "svc-web", &[svc_with_ports("db", &[(5432, 5432)])]);
+
+        let rows = dump_ports(&db, "svc-web");
+        assert_eq!(rows[0].0, None, "{rows:?}");
+    }
+
+    /// Rows that already name their service are none of this function's
+    /// business — it only ever touches NULL ones.
+    #[test]
+    fn backfill_leaves_already_tagged_rows_alone() {
+        let db = fresh_ports_db();
+        db.execute(
+            "INSERT INTO port_allocations              (id, service_id, port_name, host_port, container_port, compose_service)              VALUES ('p1', 'svc-web', 'primary', 3050, 8080, 'db')",
+            [],
+        )
+        .unwrap();
+
+        backfill_orphan_port_rows(&db, "svc-web", &[svc_with_ports("app", &[(3050, 8080)])]);
+
+        let rows = dump_ports(&db, "svc-web");
+        assert_eq!(rows[0].0.as_deref(), Some("db"), "retagged a tagged row");
+    }
+
+    /// The actual #13 failure, end to end: without the re-tag, the upsert keys
+    /// on (service_id, port_name, compose_service), misses the untagged row and
+    /// inserts a second one at the default. inject then emits THAT row, so the
+    /// port comes back bound to 127.0.0.1 instead of 0.0.0.0 — the service is
+    /// reachable from the host and nowhere else.
+    #[test]
+    fn retag_then_upsert_keeps_one_row_and_stays_public() {
+        let db = fresh_ports_db();
+        insert_orphan(&db, "p1", 3050, 8080);
+        let services = [
+            svc_with_ports("app", &[(3050, 8080)]),
+            svc_with_ports("db", &[(5432, 5432)]),
+        ];
+
+        // Order matters: re-tag first, then upsert, exactly as
+        // update_ports_from_compose does it.
+        backfill_orphan_port_rows(&db, "svc-web", &services);
+        upsert_port_rows(
+            &db,
+            "svc-web",
+            &[
+                (Some("app".into()), "primary".into(), 3050, 8080),
+                (Some("db".into()), "primary".into(), 5432, 5432),
+            ],
+        );
+
+        let rows = dump_ports(&db, "svc-web");
+        assert_eq!(rows.len(), 2, "a duplicate row was inserted: {rows:?}");
+
+        let (is_public, public_port): (i64, Option<i64>) = db
+            .query_row(
+                "SELECT is_public, public_port FROM port_allocations                  WHERE service_id = 'svc-web' AND container_port = 8080",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(is_public, 1, "port was silently unpublished");
+        assert_eq!(public_port, Some(3050));
+    }
+
+    /// Without the re-tag the same sequence produces the outage, so the test
+    /// above is pinning a real behaviour change rather than a tautology.
+    #[test]
+    fn without_retag_the_upsert_shadows_the_orphan() {
+        let db = fresh_ports_db();
+        insert_orphan(&db, "p1", 3050, 8080);
+
+        upsert_port_rows(
+            &db,
+            "svc-web",
+            &[(Some("app".into()), "primary".into(), 3051, 8080)],
+        );
+
+        let rows = dump_ports(&db, "svc-web");
+        assert_eq!(rows.len(), 2, "expected the shadowing row: {rows:?}");
+        let tagged_public: i64 = db
+            .query_row(
+                "SELECT is_public FROM port_allocations                  WHERE service_id = 'svc-web' AND compose_service = 'app'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tagged_public, 0, "the shadowing row is the private default");
     }
 
     #[test]
