@@ -66,6 +66,12 @@ fn with_pier_ports(state: &AppState, service_id: &str, yaml: &str) -> String {
     if !has_rows {
         return yaml.to_string();
     }
+    // Before stripping: a row left tagged NULL on a multi-service stack matches
+    // no service, so inject would emit nothing for it, the container would come
+    // up with no binding, and `port_sync` would reconcile the row to
+    // `is_public = 0`. Resolution needs the `ports:` blocks strip is about to
+    // remove, so it has to happen here rather than downstream.
+    crate::deploy::backfill_orphan_ports(state, service_id, yaml);
     inject_ports_from_db(state, service_id, &strip_compose_ports(yaml))
 }
 

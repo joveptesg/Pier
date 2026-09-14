@@ -1744,6 +1744,27 @@ pub fn parse_compose_services(
     services
 }
 
+/// Re-tag orphaned port rows for `service_id` using `yaml` as written.
+///
+/// Must run BEFORE `strip_compose_ports`: the resolution needs the `ports:`
+/// blocks that strip removes. Deploy paths that reach
+/// `update_ports_from_compose` only after the stack is already up (the
+/// resources redeploy path does) would otherwise inject from a still-orphaned
+/// row, publish nothing, and let `port_sync` reconcile the row to
+/// `is_public = 0` — the very outage this is meant to prevent.
+///
+/// No-op on single-service stacks, where NULL is the correct tag.
+pub(crate) fn backfill_orphan_ports(state: &AppState, service_id: &str, yaml: &str) {
+    let env_map = load_env_map(state, service_id);
+    let services = parse_compose_services(yaml, &env_map);
+    if services.len() <= 1 {
+        return;
+    }
+    if let Ok(db) = state.db.lock() {
+        backfill_orphan_port_rows(&db, service_id, &services);
+    }
+}
+
 /// Attach `compose_service IS NULL` port rows to the compose service that
 /// declares their container port.
 ///
