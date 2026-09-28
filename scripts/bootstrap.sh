@@ -111,8 +111,26 @@ echo ""
 
 # ── Step 1: Base system packages ─────────────────────────────────────────────
 
+# Older installers always wrote Docker's ubuntu repo, even on Debian
+# (issue #14). A leftover list for the wrong distro breaks every
+# `apt-get update`, so drop it; get.docker.com rewrites it correctly.
+heal_stale_docker_repo() {
+    local os_ids list repo_distro
+    os_ids=" $(. /etc/os-release && echo "${ID:-} ${ID_LIKE:-}") "
+    for list in /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources; do
+        [[ -f "$list" ]] || continue
+        repo_distro=$(grep -oE 'download\.docker\.com/linux/[a-z]+' "$list" | head -n1 | cut -d/ -f3 || true)
+        [[ -n "$repo_distro" ]] || continue
+        if [[ "$os_ids" != *" ${repo_distro} "* ]]; then
+            warn "Removing stale Docker repo ${list} (linux/${repo_distro} does not match this host)"
+            rm -f "$list"
+        fi
+    done
+}
+
 step "Installing base packages (curl, ca-certificates, gnupg)..."
 export DEBIAN_FRONTEND=noninteractive
+heal_stale_docker_repo
 apt-get update -qq
 apt-get install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
 
@@ -127,16 +145,11 @@ else
         apt-get remove -y -qq "$pkg" >/dev/null 2>&1 || true
     done
 
-    install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-    chmod a+r /etc/apt/keyrings/docker.asc
-
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-        > /etc/apt/sources.list.d/docker.list
-
-    apt-get update -qq
-    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
+    # Docker's official script picks the right repo per distro
+    # (Ubuntu, Debian, ...) — same path agent provisioning uses.
+    curl -fsSL https://get.docker.com -o "${WORK_DIR}/get-docker.sh"
+    sh "${WORK_DIR}/get-docker.sh" >/dev/null \
+        || error "Docker install failed (get.docker.com). See output above."
 
     systemctl enable docker >/dev/null 2>&1
     systemctl start docker
