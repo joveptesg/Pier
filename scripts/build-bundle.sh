@@ -104,6 +104,7 @@ chmod 755 "${BUNDLE_DIR}/pier"
 # Copy scripts + service unit
 cp "${SCRIPT_DIR}/setup.sh" "${BUNDLE_DIR}/setup.sh"
 cp "${SCRIPT_DIR}/install.sh" "${BUNDLE_DIR}/install.sh"
+cp "${SCRIPT_DIR}/lib-swap.sh" "${BUNDLE_DIR}/lib-swap.sh"
 cp "${SCRIPT_DIR}/pier.service" "${BUNDLE_DIR}/pier.service"
 
 # Create bundle archive

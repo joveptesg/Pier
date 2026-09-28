@@ -238,6 +238,14 @@ for _unit in pier.service pier-net-helper.service; do
     fi
 done
 
+# install.sh sources lib-swap.sh from its own dir for the 4 GiB swap floor;
+# without it the swap step is skipped. Soft-fail like the units above.
+if ! curl -fsSL "https://raw.githubusercontent.com/${REPO}/${REF}/scripts/lib-swap.sh" \
+        -o "${WORK_DIR}/lib-swap.sh"; then
+    rm -f "${WORK_DIR}/lib-swap.sh"
+    warn "Could not fetch lib-swap.sh; install.sh will skip swap setup."
+fi
+
 # ── Step 6: Run install.sh ───────────────────────────────────────────────────
 
 step "Running install.sh..."
