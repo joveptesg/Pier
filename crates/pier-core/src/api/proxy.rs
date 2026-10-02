@@ -15,41 +15,18 @@ pub struct ProxySettingsRequest {
 }
 
 /// POST /api/v1/proxy/enable
+///
+/// Also the panel's "Restart" button. The redeploy stops the very Traefik the
+/// request usually travels through, so the work runs in its own task: if the
+/// connection drops, the deploy and the `proxy.enabled` write still finish.
 pub async fn enable(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
-    // Get settings
-    let (acme_email, dashboard) = {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let email = crate::proxy::read_acme_email(&db);
-        let dash = db
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap_or_else(|_| "false".to_string())
-            == "true";
-        (email, dash)
-    };
-
     let version = read_traefik_version(&state)?;
-
-    // Deploy Traefik
-    crate::proxy::deploy_traefik(
-        &state.docker,
-        &state.config.data_dir,
-        &acme_email,
-        dashboard,
-        &version,
-    )
-    .await
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy Traefik: {e}")))?;
-
-    // Save enabled state
-    {
-        let db = state
+    let task_state = state.clone();
+    tokio::spawn(async move {
+        crate::proxy::redeploy_from_settings(&task_state, &version)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Deploy Traefik: {e}")))?;
+        let db = task_state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
@@ -57,7 +34,10 @@ pub async fn enable(State(state): State<SharedState>) -> AppResult<impl IntoResp
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.enabled', 'true')",
             [],
         )?;
-    }
+        Ok::<_, AppError>(())
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Traefik enable task failed: {e}"))??;
 
     Ok(Json(
         serde_json::json!({"ok": true, "message": "Proxy enabled"}),
@@ -233,7 +213,7 @@ pub async fn update_settings(
         .as_deref()
         .map(crate::proxy::config::normalize_domain);
 
-    let (acme_email, dashboard_enabled, acme_email_changed) = {
+    let (acme_email, acme_email_changed) = {
         let db = state
             .db
             .lock()
@@ -273,16 +253,7 @@ pub async fn update_settings(
             )?;
         }
 
-        let email = crate::proxy::read_acme_email(&db);
-        let dash = db
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap_or_else(|_| "false".to_string())
-            == "true";
-        (email, dash, changed)
+        (crate::proxy::read_acme_email(&db), changed)
     };
 
     // Handle platform domain (Traefik DYNAMIC config — a watched directory, so
@@ -332,15 +303,7 @@ pub async fn update_settings(
         let state = state.clone();
         let email = acme_email.clone();
         tokio::spawn(async move {
-            match crate::proxy::deploy_traefik(
-                &state.docker,
-                &state.config.data_dir,
-                &email,
-                dashboard_enabled,
-                &version,
-            )
-            .await
-            {
+            match crate::proxy::redeploy_from_settings(&state, &version).await {
                 Err(e) => tracing::warn!("ACME email saved but Traefik redeploy failed: {e}"),
                 Ok(()) => tracing::info!("ACME contact set to {email}; Traefik redeployed"),
             }
@@ -432,6 +395,11 @@ fn version_is_newer(a: &str, b: &str) -> bool {
 /// Resilient: if the new version fails to start (e.g. breaking change in a
 /// Traefik release crashes on this server's config), automatically rolls back
 /// to the previously running version so the platform stays online.
+///
+/// The whole update-or-rollback sequence runs in a detached task. The panel is
+/// normally reached through the Traefik being replaced, so the request dies the
+/// moment the old container stops; were the work tied to the handler, axum
+/// would drop it there and leave the node with no proxy at all.
 pub async fn update(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
     let latest = fetch_latest_traefik_version().await.map_err(|e| {
         AppError::BadRequest(crate::i18n::te_args(
@@ -440,6 +408,13 @@ pub async fn update(State(state): State<SharedState>) -> AppResult<impl IntoResp
         ))
     })?;
 
+    let version = tokio::spawn(run_update(state, latest))
+        .await
+        .map_err(|e| anyhow::anyhow!("Traefik update task failed: {e}"))??;
+    Ok(Json(serde_json::json!({"ok": true, "version": version})))
+}
+
+async fn run_update(state: SharedState, latest: String) -> AppResult<String> {
     // Snapshot the currently running version, persist it as `previous` so we
     // can roll back if the new deploy fails. Then write the new version.
     let previous: String = {
@@ -467,76 +442,39 @@ pub async fn update(State(state): State<SharedState>) -> AppResult<impl IntoResp
         current
     };
 
-    // Re-read acme settings for the redeploy
-    let (acme_email, dashboard) = {
+    let deploy_err = match crate::proxy::redeploy_from_settings(&state, &latest).await {
+        Ok(()) => return Ok(latest),
+        Err(e) => e,
+    };
+    tracing::error!("Traefik {latest} failed to start: {deploy_err}; rolling back to {previous}");
+
+    // Roll back the version setting so subsequent restarts use the old image
+    {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let email = crate::proxy::read_acme_email(&db);
-        let dash = db
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap_or_else(|_| "false".to_string())
-            == "true";
-        (email, dash)
-    };
+        db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.traefik_version', ?1)",
+            [&previous],
+        )?;
+    }
 
-    match crate::proxy::deploy_traefik(
-        &state.docker,
-        &state.config.data_dir,
-        &acme_email,
-        dashboard,
-        &latest,
-    )
-    .await
-    {
-        Ok(_) => Ok(Json(serde_json::json!({"ok": true, "version": latest}))),
-        Err(deploy_err) => {
-            tracing::error!(
-                "Traefik {latest} failed to start: {deploy_err}; rolling back to {previous}"
-            );
-
-            // Roll back the version setting so subsequent restarts use the old image
-            {
-                let db = state
-                    .db
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-                db.execute(
-                    "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy.traefik_version', ?1)",
-                    [&previous],
-                )?;
-            }
-
-            // Single rollback attempt — no retry loop
-            match crate::proxy::deploy_traefik(
-                &state.docker,
-                &state.config.data_dir,
-                &acme_email,
-                dashboard,
-                &previous,
-            )
-            .await
-            {
-                Ok(_) => {
-                    tracing::info!("Rollback to Traefik {previous} succeeded");
-                    Err(AppError::BadRequest(crate::i18n::te_args(
-                        "errors.proxy.update_failed_rolled_back",
-                        &[
-                            ("latest", &latest),
-                            ("err", &deploy_err.to_string()),
-                            ("previous", &previous),
-                        ],
-                    )))
-                }
-                Err(rollback_err) => Err(AppError::Internal(anyhow::anyhow!(
-                    "Update to Traefik {latest} failed: {deploy_err}. Rollback to {previous} ALSO failed: {rollback_err}. Manual recovery required."
-                ))),
-            }
+    // Single rollback attempt — no retry loop (the watchdog covers the rest)
+    match crate::proxy::redeploy_from_settings(&state, &previous).await {
+        Ok(()) => {
+            tracing::info!("Rollback to Traefik {previous} succeeded");
+            Err(AppError::BadRequest(crate::i18n::te_args(
+                "errors.proxy.update_failed_rolled_back",
+                &[
+                    ("latest", &latest),
+                    ("err", &deploy_err.to_string()),
+                    ("previous", &previous),
+                ],
+            )))
         }
+        Err(rollback_err) => Err(AppError::Internal(anyhow::anyhow!(
+            "Update to Traefik {latest} failed: {deploy_err}. Rollback to {previous} ALSO failed: {rollback_err}. Manual recovery required."
+        ))),
     }
 }

@@ -304,6 +304,10 @@ async fn main() -> Result<()> {
     proxy::ssl_monitor::start_ssl_monitor(state.clone());
     tracing::info!("SSL monitor started");
 
+    // Record where each domain's DNS points (6-hourly) so the panel can flag
+    // domains that can never get a certificate on this server.
+    proxy::dns_check::start(state.clone());
+
     // Start alerts scheduler (checks metrics every 30s)
     alerts::start_scheduler(state.clone());
     tracing::info!("Alerts scheduler started");
@@ -531,12 +535,18 @@ async fn main() -> Result<()> {
             // still-live old Traefik, and end up EXITED — taking pier-net
             // Docker DNS resolution (`getaddrinfo ENOTFOUND pier-<svc>`) down
             // with them for every consumer in the network.
+            let acme_keep = proxy_state
+                .db
+                .lock()
+                .ok()
+                .and_then(|db| proxy::acme_gc::domain_hosts(&db));
             let traefik_result = proxy::deploy_traefik(
                 &proxy_state.docker,
                 &proxy_data_dir,
                 &acme_email,
                 proxy_dashboard,
                 &proxy_traefik_version,
+                acme_keep,
             )
             .await;
 
@@ -649,6 +659,9 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+
+            // Started only after the boot-time deploy so it never races it.
+            proxy::watchdog::start(proxy_state.clone());
         });
     }
 

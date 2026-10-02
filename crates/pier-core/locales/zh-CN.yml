@@ -1396,6 +1396,16 @@ s3_list:
   toast_removed: 已移除存储
 
 domains_list:
+  check_dns: "检查 DNS"
+  checking_dns: "检查中…"
+  toast_dns_checked: "DNS 已检查：%{n} 个域名"
+  toast_dns_failed: "DNS 检查失败"
+  dns_mismatch: "DNS → %{ips}"
+  dns_mismatch_hint: "DNS 记录指向另一台服务器，而不是运行此服务的服务器。Let’s Encrypt 无法在此签发证书——请更新 A 记录或删除该域名。"
+  dns_nxdomain: "DNS：无记录"
+  dns_nxdomain_hint: "该域名无法解析（没有 A 记录或域名已过期）。在解析生效前无法签发证书。"
+  dns_proxied: "Cloudflare 代理"
+  dns_proxied_hint: "该域名解析到 Cloudflare 边缘节点。代理后 HTTP-01 证书验证可能失败——请使用 SSL Full 模式配合源证书，或在签发证书时暂停代理。"
   title: 域名
   heading: 域名
   subtitle: 管理自定义域名和 SSL 证书
@@ -1481,6 +1491,9 @@ proxy_settings:
   error_prefix: "错误：%{message}"
   restart_success: 代理已重启
   restart_failed: 重启代理失败
+  reconnect_waiting: Traefik 正在重启——连接已中断，正在等待代理恢复…
+  restart_recovered: "代理已恢复：%{image}"
+  restart_timeout: 代理在 2 分钟内未恢复——请检查服务器（看门狗会继续重试）。
   save_success: 设置已保存
   save_failed: 保存设置失败
 

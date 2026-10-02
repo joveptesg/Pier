@@ -1416,6 +1416,16 @@ s3_list:
 
 # Custom domains (domains/list.html).
 domains_list:
+  check_dns: "Check DNS"
+  checking_dns: "Checking…"
+  toast_dns_checked: "DNS checked: %{n} domain(s)"
+  toast_dns_failed: "DNS check failed"
+  dns_mismatch: "DNS → %{ips}"
+  dns_mismatch_hint: "The DNS record points to another server, not the one running this service. Let’s Encrypt cannot issue a certificate here — update the A record or remove the domain."
+  dns_nxdomain: "DNS: no record"
+  dns_nxdomain_hint: "The domain does not resolve (no A record, or the domain expired). A certificate cannot be issued until it does."
+  dns_proxied: "Cloudflare proxy"
+  dns_proxied_hint: "The domain resolves to Cloudflare edges. HTTP-01 certificate checks may fail behind the proxy — use SSL mode Full with an origin certificate, or pause the proxy while the certificate is issued."
   title: Domains
   heading: Domains
   subtitle: Manage custom domains and SSL certificates
@@ -1501,6 +1511,9 @@ proxy_settings:
   error_prefix: "Error: %{message}"
   restart_success: Proxy restarted
   restart_failed: Failed to restart proxy
+  reconnect_waiting: Traefik is restarting — the connection dropped, waiting for the proxy to come back…
+  restart_recovered: "Proxy is back up: %{image}"
+  restart_timeout: The proxy did not come back within 2 minutes — check the server (the watchdog keeps retrying).
   save_success: Settings saved
   save_failed: Failed to save settings
 

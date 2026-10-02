@@ -1395,6 +1395,16 @@ s3_list:
   toast_removed: Almacenamiento eliminado
 
 domains_list:
+  check_dns: "Comprobar DNS"
+  checking_dns: "Comprobando…"
+  toast_dns_checked: "DNS comprobado: %{n} dominio(s)"
+  toast_dns_failed: "Falló la comprobación de DNS"
+  dns_mismatch: "DNS → %{ips}"
+  dns_mismatch_hint: "El registro DNS apunta a otro servidor, no al que ejecuta este servicio. Let’s Encrypt no puede emitir un certificado aquí: actualiza el registro A o elimina el dominio."
+  dns_nxdomain: "DNS: sin registro"
+  dns_nxdomain_hint: "El dominio no resuelve (sin registro A o el dominio expiró). No se puede emitir un certificado hasta que resuelva."
+  dns_proxied: "Proxy de Cloudflare"
+  dns_proxied_hint: "El dominio resuelve a servidores de Cloudflare. La verificación HTTP-01 puede fallar detrás del proxy: usa el modo SSL Full con un certificado de origen o pausa el proxy mientras se emite el certificado."
   title: Dominios
   heading: Dominios
   subtitle: Gestiona dominios personalizados y certificados SSL
@@ -1480,6 +1490,9 @@ proxy_settings:
   error_prefix: "Error: %{message}"
   restart_success: Proxy reiniciado
   restart_failed: No se pudo reiniciar el proxy
+  reconnect_waiting: Traefik se está reiniciando — la conexión se cortó, esperando a que el proxy vuelva…
+  restart_recovered: "El proxy volvió a funcionar: %{image}"
+  restart_timeout: El proxy no volvió en 2 minutos — revisa el servidor (el watchdog sigue reintentando).
   save_success: Configuración guardada
   save_failed: No se pudo guardar la configuración
 

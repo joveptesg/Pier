@@ -1601,6 +1601,17 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE services ADD COLUMN inject_init INTEGER NOT NULL DEFAULT 1;
     "#,
+    // Migration 70: where each domain's DNS actually points.
+    //
+    // A domain whose A record names another server (or nothing at all) can
+    // never get a Let's Encrypt certificate here, and Traefik retries it
+    // forever without telling anyone. `proxy::dns_check` fills these in so
+    // the panel can say so. `dns_status`: ok | mismatch | nxdomain | proxied
+    // | unknown; `dns_ips`: comma-separated addresses it resolved to.
+    r#"
+    ALTER TABLE domains ADD COLUMN dns_status TEXT NOT NULL DEFAULT 'unknown';
+    ALTER TABLE domains ADD COLUMN dns_ips TEXT NOT NULL DEFAULT '';
+    "#,
 ];
 
 /// Run all pending database migrations.

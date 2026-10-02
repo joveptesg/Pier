@@ -58,13 +58,16 @@ pub async fn list(
             "strip_prefix": row.get::<_, i32>(9)? != 0,
             "is_active": row.get::<_, i32>(10)? != 0,
             "service_name": row.get::<_, Option<String>>(11)?,
+            "dns_status": row.get::<_, String>(12)?,
+            "dns_ips": row.get::<_, String>(13)?,
         }))
     };
     let items: Vec<serde_json::Value> = if see_all {
         let mut stmt = db.prepare(
             "SELECT d.id, d.domain, d.service_id, d.ssl_status, d.ssl_expires_at,
                     d.ssl_provider, d.is_generated, d.created_at, d.compose_service,
-                    d.strip_prefix, d.is_active, s.name as service_name
+                    d.strip_prefix, d.is_active, s.name as service_name,
+                    d.dns_status, d.dns_ips
              FROM domains d
              LEFT JOIN services s ON d.service_id = s.id
              ORDER BY d.created_at DESC",
@@ -78,7 +81,8 @@ pub async fn list(
         let mut stmt = db.prepare(
             "SELECT d.id, d.domain, d.service_id, d.ssl_status, d.ssl_expires_at,
                     d.ssl_provider, d.is_generated, d.created_at, d.compose_service,
-                    d.strip_prefix, d.is_active, s.name as service_name
+                    d.strip_prefix, d.is_active, s.name as service_name,
+                    d.dns_status, d.dns_ips
              FROM domains d
              JOIN services s ON d.service_id = s.id
              JOIN project_members pm ON pm.project_id = s.project_id
@@ -199,6 +203,7 @@ pub async fn create(
         .map(|s| format!(" / {s}"))
         .unwrap_or_default();
     tracing::info!("Domain draft created: {domain} → service {service_name}{svc_tag} (inactive, awaiting activate)");
+    crate::proxy::dns_check::spawn_check_one(state.clone(), id.clone());
 
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -312,6 +317,7 @@ pub async fn update(
         regenerate_for_service_routed(&state, &service_id).await?;
     }
 
+    crate::proxy::dns_check::spawn_check_one(state.clone(), id.clone());
     Ok(Json(serde_json::json!({"ok": true, "id": id})))
 }
 
@@ -387,6 +393,7 @@ pub async fn activate(
             notify.notify_one();
         });
     }
+    crate::proxy::dns_check::spawn_check_one(state.clone(), id.clone());
 
     Ok(Json(
         serde_json::json!({"ok": true, "id": id, "is_active": true}),
@@ -496,6 +503,13 @@ pub async fn remove(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+/// POST /api/v1/domains/dns-check — re-check every domain's DNS right now
+/// (after changing an A record, instead of waiting for the 6-hourly sweep).
+pub async fn dns_check(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let checked = crate::proxy::dns_check::check_all(&state).await?;
+    Ok(Json(serde_json::json!({"ok": true, "checked": checked})))
+}
+
 /// GET /api/v1/resources/{id}/domains — list domains for a specific service
 pub async fn list_for_service(
     State(state): State<SharedState>,
@@ -508,7 +522,7 @@ pub async fn list_for_service(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let mut stmt = db.prepare(
-        "SELECT id, domain, ssl_status, ssl_expires_at, ssl_provider, is_generated, created_at, compose_service, strip_prefix, is_active, COALESCE(path_prefix, '')
+        "SELECT id, domain, ssl_status, ssl_expires_at, ssl_provider, is_generated, created_at, compose_service, strip_prefix, is_active, COALESCE(path_prefix, ''), dns_status, dns_ips
          FROM domains WHERE service_id = ?1
          ORDER BY is_generated DESC, created_at ASC",
     )?;
@@ -526,6 +540,8 @@ pub async fn list_for_service(
                 "strip_prefix": row.get::<_, i32>(8)? != 0,
                 "is_active": row.get::<_, i32>(9)? != 0,
                 "path_prefix": row.get::<_, String>(10)?,
+                "dns_status": row.get::<_, String>(11)?,
+                "dns_ips": row.get::<_, String>(12)?,
             }))
         })?
         .filter_map(|r| r.ok())

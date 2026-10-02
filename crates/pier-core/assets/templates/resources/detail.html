@@ -345,6 +345,11 @@
                                           :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
                                           x-text="d.ssl_status"></span>
                                     <span x-show="d.is_active === false" class="text-[10px] text-gray-400">—</span>
+                                    <span x-show="['mismatch','nxdomain','proxied'].includes(d.dns_status)" x-cloak
+                                          class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap cursor-help"
+                                          :class="d.dns_status === 'proxied' ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400'"
+                                          :title="d.dns_status === 'mismatch' ? '{{ t('domains_list.dns_mismatch_hint') }}' : d.dns_status === 'nxdomain' ? '{{ t('domains_list.dns_nxdomain_hint') }}' : '{{ t('domains_list.dns_proxied_hint') }}'"
+                                          x-text="d.dns_status === 'mismatch' ? '{{ t('domains_list.dns_mismatch') }}'.replace('%{ips}', d.dns_ips) : d.dns_status === 'nxdomain' ? '{{ t('domains_list.dns_nxdomain') }}' : '{{ t('domains_list.dns_proxied') }}'"></span>
                                 </td>
                                 <td class="px-5 py-2.5 text-right whitespace-nowrap">
                                     <div class="inline-flex items-center gap-2 align-middle">
@@ -1262,6 +1267,11 @@ NODE_ENV=production"></textarea>
                                           :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
                                           x-text="d.ssl_status"></span>
                                     <span x-show="d.is_active === false" class="text-[10px] text-gray-400">—</span>
+                                    <span x-show="['mismatch','nxdomain','proxied'].includes(d.dns_status)" x-cloak
+                                          class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap cursor-help"
+                                          :class="d.dns_status === 'proxied' ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400'"
+                                          :title="d.dns_status === 'mismatch' ? '{{ t('domains_list.dns_mismatch_hint') }}' : d.dns_status === 'nxdomain' ? '{{ t('domains_list.dns_nxdomain_hint') }}' : '{{ t('domains_list.dns_proxied_hint') }}'"
+                                          x-text="d.dns_status === 'mismatch' ? '{{ t('domains_list.dns_mismatch') }}'.replace('%{ips}', d.dns_ips) : d.dns_status === 'nxdomain' ? '{{ t('domains_list.dns_nxdomain') }}' : '{{ t('domains_list.dns_proxied') }}'"></span>
                                 </td>
                                 <td class="px-5 py-2.5 text-right whitespace-nowrap">
                                     <div class="inline-flex items-center gap-2 align-middle">
@@ -1341,6 +1351,11 @@ NODE_ENV=production"></textarea>
                                                   :class="d.ssl_status === 'active' ? 'bg-green-100 dark:bg-green-500/10 text-green-600' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600'"
                                                   x-text="d.ssl_status"></span>
                                             <span x-show="d.is_active === false" class="text-[10px] text-gray-400">—</span>
+                                            <span x-show="['mismatch','nxdomain','proxied'].includes(d.dns_status)" x-cloak
+                                                  class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap cursor-help"
+                                                  :class="d.dns_status === 'proxied' ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400'"
+                                                  :title="d.dns_status === 'mismatch' ? '{{ t('domains_list.dns_mismatch_hint') }}' : d.dns_status === 'nxdomain' ? '{{ t('domains_list.dns_nxdomain_hint') }}' : '{{ t('domains_list.dns_proxied_hint') }}'"
+                                                  x-text="d.dns_status === 'mismatch' ? '{{ t('domains_list.dns_mismatch') }}'.replace('%{ips}', d.dns_ips) : d.dns_status === 'nxdomain' ? '{{ t('domains_list.dns_nxdomain') }}' : '{{ t('domains_list.dns_proxied') }}'"></span>
                                         </td>
                                         <td class="px-5 py-2.5 text-right whitespace-nowrap">
                                             <div class="inline-flex items-center gap-2 align-middle">

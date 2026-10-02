@@ -1,5 +1,8 @@
+pub mod acme_gc;
 pub mod config;
+pub mod dns_check;
 pub mod ssl_monitor;
+pub mod watchdog;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -54,12 +57,91 @@ pub fn read_acme_email(db: &rusqlite::Connection) -> String {
 }
 
 /// Deploy and start the Traefik reverse proxy container.
+///
+/// Cancellation-safe: the stop → remove → create → start sequence runs in its
+/// own task, so dropping this future (axum does that when the client
+/// disconnects) cannot abandon it halfway. That used to be exactly how
+/// "Update Traefik" took a node offline — the operator reaches the panel
+/// *through* Traefik, stopping the container cut the request, the handler was
+/// dropped right after `stop_container`, and the node was left with an
+/// `Exited (0)` proxy that `unless-stopped` never brings back.
+///
+/// `acme_keep`: hostnames from the `domains` table (active or not). When
+/// `Some`, certificates for hosts that are neither there nor routed by any
+/// dynamic config are pruned from `acme.json` while Traefik is stopped — see
+/// [`acme_gc`]. `None` skips pruning.
 pub async fn deploy_traefik(
     docker: &Docker,
     data_dir: &Path,
     acme_email: &str,
     dashboard: bool,
     version: &str,
+    acme_keep: Option<Vec<String>>,
+) -> Result<()> {
+    let docker = docker.clone();
+    let data_dir = data_dir.to_path_buf();
+    let acme_email = acme_email.to_string();
+    let version = version.to_string();
+    tokio::spawn(async move {
+        deploy_traefik_inner(
+            &docker,
+            &data_dir,
+            &acme_email,
+            dashboard,
+            &version,
+            acme_keep,
+        )
+        .await
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Traefik deploy task failed: {e}"))?
+}
+
+/// Redeploy Traefik at `version`, reading the ACME contact, dashboard flag and
+/// the certificate keep-list fresh from the database.
+pub async fn redeploy_from_settings(
+    state: &crate::state::SharedState,
+    version: &str,
+) -> Result<()> {
+    let (acme_email, dashboard, acme_keep) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        let dashboard = db
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'proxy.dashboard'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_else(|_| "false".to_string())
+            == "true";
+        (read_acme_email(&db), dashboard, acme_gc::domain_hosts(&db))
+    };
+    deploy_traefik(
+        &state.docker,
+        &state.config.data_dir,
+        &acme_email,
+        dashboard,
+        version,
+        acme_keep,
+    )
+    .await
+}
+
+/// True while a deploy or stop holds the Traefik lock. The watchdog uses it to
+/// stay out of the way of a redeploy that is legitimately mid-flight.
+pub fn deploy_in_progress() -> bool {
+    TRAEFIK_DEPLOY_LOCK.try_lock().is_err()
+}
+
+async fn deploy_traefik_inner(
+    docker: &Docker,
+    data_dir: &Path,
+    acme_email: &str,
+    dashboard: bool,
+    version: &str,
+    acme_keep: Option<Vec<String>>,
 ) -> Result<()> {
     // Serialize concurrent redeploys (e.g. two near-simultaneous public-port
     // toggles) so stop→remove→create isn't racing against itself.
@@ -97,6 +179,20 @@ pub async fn deploy_traefik(
         .await
     {
         tracing::debug!("Remove old Traefik (ignored): {e}");
+    }
+
+    // Traefik keeps acme.json in memory and rewrites it, so the store can only
+    // be edited while the container is down — i.e. right here.
+    if let Some(keep) = acme_keep {
+        match acme_gc::prune_acme_store(data_dir, &keep) {
+            Ok(removed) if !removed.is_empty() => tracing::info!(
+                "acme.json: dropped {} certificate(s) for domains no longer on this server: {}",
+                removed.len(),
+                removed.join(", ")
+            ),
+            Ok(_) => {}
+            Err(e) => tracing::warn!("acme.json cleanup skipped: {e}"),
+        }
     }
 
     // Bridge mode + pier-net: Traefik accesses services via Docker DNS (container names).

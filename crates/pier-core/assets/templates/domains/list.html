@@ -9,11 +9,16 @@
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('domains_list.heading') }}</h2>
             <p class="text-sm text-gray-500 mt-1">{{ t('domains_list.subtitle') }}</p>
         </div>
+        <div class="flex items-center gap-2">
+        <button @click="checkDns()" :disabled="checkingDns"
+                class="px-4 py-2 text-sm font-medium border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+                x-text="checkingDns ? '{{ t('domains_list.checking_dns') }}' : '{{ t('domains_list.check_dns') }}'"></button>
         <button @click="showAdd = true"
                 class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
             {{ t('domains_list.add_domain') }}
         </button>
+        </div>
     </div>
 
     <!-- Add Domain Modal -->
@@ -127,6 +132,11 @@
                                 <svg x-show="d.ssl_status === 'active'" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                                 <span x-text="d.ssl_status"></span>
                             </span>
+                            <span x-show="['mismatch','nxdomain','proxied'].includes(d.dns_status)" x-cloak
+                                  class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap cursor-help"
+                                  :class="d.dns_status === 'proxied' ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400'"
+                                  :title="d.dns_status === 'mismatch' ? '{{ t('domains_list.dns_mismatch_hint') }}' : d.dns_status === 'nxdomain' ? '{{ t('domains_list.dns_nxdomain_hint') }}' : '{{ t('domains_list.dns_proxied_hint') }}'"
+                                  x-text="d.dns_status === 'mismatch' ? '{{ t('domains_list.dns_mismatch') }}'.replace('%{ips}', d.dns_ips) : d.dns_status === 'nxdomain' ? '{{ t('domains_list.dns_nxdomain') }}' : '{{ t('domains_list.dns_proxied') }}'"></span>
                         </td>
                         <td class="px-4 py-3">
                             <span x-show="d.is_generated" class="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">{{ t('domains_list.type_auto') }}</span>
@@ -164,6 +174,7 @@ function domainsPage() {
         toast: '',
         toastType: 'success',
         serviceFilter: '',
+        checkingDns: false,
         _bgInterval: null,
 
         get filteredDomains() {
@@ -190,6 +201,23 @@ function domainsPage() {
             if (!this._bgInterval) {
                 this._bgInterval = setInterval(() => this.load(), 5000);
             }
+        },
+
+        async checkDns() {
+            this.checkingDns = true;
+            try {
+                const res = await fetch('/api/v1/domains/dns-check', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    this.showToast('{{ t('domains_list.toast_dns_checked') }}'.replace('%{n}', data.checked));
+                    await this.load();
+                } else {
+                    this.showToast(data.error || '{{ t('domains_list.toast_dns_failed') }}', 'error');
+                }
+            } catch (e) {
+                this.showToast('{{ t('domains_list.toast_dns_failed') }}', 'error');
+            }
+            this.checkingDns = false;
         },
 
         async addDomain() {

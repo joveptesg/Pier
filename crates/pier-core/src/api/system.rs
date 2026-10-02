@@ -539,8 +539,8 @@ pub async fn cleanup_settings_get(
     })))
 }
 
-/// Docker size strings are parsed in `crate::docker::cleanup`, next to the
-/// prune passes whose output they describe.
+// Docker size strings are parsed in `crate::docker::cleanup`, next to the
+// prune passes whose output they describe.
 
 const GITHUB_RELEASE_URL: &str = "https://api.github.com/repos/joveptesg/pier/releases/tags/latest";
 const BINARY_ASSET_NAME: &str = "pier-linux-amd64";

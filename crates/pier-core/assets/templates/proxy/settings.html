@@ -191,9 +191,32 @@ function proxySettings() {
                     this.showToast(data.error || '{{ t('proxy_settings.update_failed') }}', 'error');
                 }
             } catch (e) {
-                this.showToast('{{ t('proxy_settings.error_prefix') }}'.replace('%{message}', e.message), 'error');
+                await this.recoverAfterDrop();
             }
             this.updatingVersion = false;
+        },
+
+        // The panel usually reaches the server *through* Traefik, so restarting
+        // it cuts this very request (network error, or a CDN error page that
+        // isn't JSON). The server finishes the job regardless — wait for the
+        // proxy to come back and report what is actually running.
+        async recoverAfterDrop() {
+            this.showToast('{{ t('proxy_settings.reconnect_waiting') }}');
+            const deadline = Date.now() + 120000;
+            while (Date.now() < deadline) {
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    const res = await fetch('/api/v1/proxy/status');
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    if (data.traefik && data.traefik.running) {
+                        this.showToast('{{ t('proxy_settings.restart_recovered') }}'.replace('%{image}', data.traefik.image || 'traefik'));
+                        await this.load();
+                        return;
+                    }
+                } catch (e) { /* still restarting */ }
+            }
+            this.showToast('{{ t('proxy_settings.restart_timeout') }}', 'error');
         },
 
         async restart() {
@@ -208,7 +231,7 @@ function proxySettings() {
                     this.showToast(data.error || '{{ t('proxy_settings.restart_failed') }}', 'error');
                 }
             } catch (e) {
-                this.showToast('{{ t('proxy_settings.error_prefix') }}'.replace('%{message}', e.message), 'error');
+                await this.recoverAfterDrop();
             }
             this.busy = false;
         },
