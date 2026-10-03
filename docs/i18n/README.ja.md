@@ -86,18 +86,31 @@ sudo bash install.sh --binary ./pier-linux-amd64
 
 > オプション A の手動版で、Docker の自動インストールを省いたものです。Docker + Compose が既にインストールされている必要があります（[INSTALL.md](../../INSTALL.md) を参照）。`sha256sum -c` が一致するように、バイナリのファイル名は `pier-linux-amd64` のままにしてください。
 
+次に `https://YOUR_SERVER_IP:8443/setup` を開いて管理者アカウントを作成します（パネルは自己署名証明書で起動するため、ブラウザの警告を承認してください）。
+
 ### Pier の更新
 
-更新では新しい**ビルド済みバイナリ**を取得します — ソースからの再ビルドは不要です。`install.sh` は実行中のサービスを検出して停止し、バイナリを入れ替えてから再起動します。その際、`.env` と `/opt/pier/data` は保持されます。
+**パネルから（1.4.3 以降）:** *Settings → Updates → Check for Updates → Update & Restart*。パネルは小さな root サービス（`pier-updater`）に公式インストーラーの再実行を依頼します。インストーラーは担当するすべて — `pier` バイナリ、`pier-net-helper`、`pier-agent` とそれらの systemd ユニット — を更新し、Pier を再起動します。`.env` と `/opt/pier/data` は保持されます。パネルが要求できるのは最新リリースのみで、何をインストールするかはサーバー側が sha256 で検証して決定します。
+
+**1.4.3 より前にインストールしたサーバー**にはまだアップデーターがなく、パネルにその旨のバナーが表示されます。SSH でインストーラーを一度だけ実行してください。以降はパネルからの更新ですべてが更新されます:
 
 ```bash
-# 最も簡単 — ワンコマンドインストーラーを再実行（最新リリースを再ダウンロード）:
 curl -fsSL https://pier.team/install | sudo bash
 
-# または手動で、オプション D と同じ流れ（ダウンロード → 検証 → install.sh）。
+# 確認: 両方の行が "enabled"、ファイルが存在すること
+systemctl is-enabled pier-net-helper pier-updater.path
+ls -l /usr/local/sbin/pier-update
 ```
 
-次に `http://YOUR_SERVER_IP:8443/setup` を開いて管理者アカウントを作成します。
+更新に失敗した場合、パネルにインストーラーのログが表示されます。サーバー上では:
+
+```bash
+cat /var/lib/pier-updater/status.json        # 最後の実行: running / success / failed
+cat /var/lib/pier-updater/last.log           # インストーラーの全出力
+journalctl -u pier-updater -n 50 --no-pager
+```
+
+ワンライナーの再実行は常に安全です — 手動で行う同じ更新です。新しいコミットから約 10 分以内に `404` で失敗する場合は、CI が `latest` リリースを再公開中です。しばらく待って再試行してください。
 
 > 詳細なサーバーセットアップ（セキュリティ強化、ファイアウォール、Docker インストール）については、[INSTALL.md](../../INSTALL.md) を参照してください。
 

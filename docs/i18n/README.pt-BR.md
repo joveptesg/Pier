@@ -86,18 +86,31 @@ sudo bash install.sh --binary ./pier-linux-amd64
 
 > O equivalente manual da Opção A, menos a instalação automática do Docker. Requer o Docker + Compose já presentes (consulte [INSTALL.md](../../INSTALL.md)). O nome do arquivo do binário deve permanecer `pier-linux-amd64` para que o `sha256sum -c` corresponda.
 
+Em seguida, abra `https://IP_DO_SEU_SERVIDOR:8443/setup` para criar sua conta de administrador (o painel inicia com um certificado autoassinado — aceite o aviso do navegador).
+
 ### Atualizando o Pier
 
-As atualizações baixam um **binário pré-compilado** novo — sem necessidade de recompilar a partir do código-fonte. O `install.sh` detecta o serviço em execução, para-o, troca o binário e o reinicia, preservando seu `.env` e o `/opt/pier/data`.
+**Pelo painel (1.4.3+):** *Settings → Updates → Check for Updates → Update & Restart*. O painel pede a um pequeno serviço root (`pier-updater`) que execute novamente o instalador oficial, que atualiza tudo pelo que é responsável — o binário `pier`, `pier-net-helper`, `pier-agent` e suas unidades systemd — e reinicia o Pier. Seu `.env` e `/opt/pier/data` são preservados. O painel só pode solicitar a release mais recente; o que é instalado é decidido no servidor, verificado por sha256.
+
+**Servidores instalados antes da 1.4.3** ainda não têm o atualizador — o painel mostra um aviso. Execute o instalador uma vez via SSH; depois disso, as atualizações pelo painel cobrem tudo:
 
 ```bash
-# Mais fácil — execute novamente o instalador de um comando (rebaixa a última release):
 curl -fsSL https://pier.team/install | sudo bash
 
-# Ou manualmente, o mesmo fluxo da Opção D (baixar → verificar → install.sh).
+# Verificar: as duas linhas "enabled" e o arquivo existe
+systemctl is-enabled pier-net-helper pier-updater.path
+ls -l /usr/local/sbin/pier-update
 ```
 
-Em seguida, abra `http://IP_DO_SEU_SERVIDOR:8443/setup` para criar sua conta de administrador.
+Se uma atualização falhar, o painel mostra o log do instalador. No servidor:
+
+```bash
+cat /var/lib/pier-updater/status.json        # última execução: running / success / failed
+cat /var/lib/pier-updater/last.log           # saída completa do instalador
+journalctl -u pier-updater -n 50 --no-pager
+```
+
+Executar o comando de uma linha novamente é sempre seguro — é a mesma atualização, feita à mão. Se falhar com `404` nos ~10 minutos após um novo commit, o CI está republicando a release `latest`: aguarde e tente de novo.
 
 > Para configuração detalhada do servidor (hardening de segurança, firewall, instalação do Docker), consulte [INSTALL.md](../../INSTALL.md).
 

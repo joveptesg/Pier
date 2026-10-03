@@ -8,7 +8,7 @@ If you need Pier right here and now, without building from source manually:
 curl -fsSL https://pier.team/install | sudo bash
 ```
 
-The script installs Docker, downloads the pre-built binary from [GitHub Releases](https://github.com/joveptesg/pier/releases/tag/latest) (with sha256 verification), and runs [`install.sh`](scripts/install.sh). Works on a fresh Ubuntu/Debian. For the next steps (creating an admin account at `http://SERVER_IP:8443/setup`) — see §8.
+The script installs Docker, downloads the pre-built binary from [GitHub Releases](https://github.com/joveptesg/pier/releases/tag/latest) (with sha256 verification), and runs [`install.sh`](scripts/install.sh). Works on a fresh Ubuntu/Debian. For the next steps (creating an admin account at `https://SERVER_IP:8443/setup`) — see §7.
 
 > For alternative installation options (Docker, building from source) — see [README.md](README.md#quick-start).
 
@@ -163,7 +163,7 @@ Flags: `--no-swap`, `--profile NAME`, `--jobs N`, `--no-install`, `--port PORT`,
 
 ```bash
 systemctl status pier
-curl localhost:8443/health
+curl -k https://localhost:8443/health
 journalctl -u pier -f
 ```
 
@@ -172,10 +172,10 @@ journalctl -u pier -f
 Open in your browser:
 
 ```
-http://SERVER_IP:8443/setup
+https://SERVER_IP:8443/setup
 ```
 
-Create an admin account. After that, Pier is ready to use.
+The panel starts with a self-signed certificate — accept the browser warning. Create an admin account. After that, Pier is ready to use.
 
 ---
 
@@ -228,10 +228,32 @@ Credentials are stored in Pier's database (encrypted), per-project or global. Th
 
 ## Updating Pier
 
+**Installed with the one-liner (1.4.3+):** update from the panel — *Settings → Updates → Check for Updates → Update & Restart*. A root service (`pier-updater`) re-runs the official installer, which refreshes the binaries (`pier`, `pier-net-helper`, `pier-agent`) and their systemd units, then restarts Pier. `.env` and `/opt/pier/data` are preserved.
+
+Servers installed before 1.4.3 need one manual run of the installer to get the updater (until then the panel shows a banner):
+
+```bash
+curl -fsSL https://pier.team/install | sudo bash
+systemctl is-enabled pier-net-helper pier-updater.path   # both: enabled
+ls -l /usr/local/sbin/pier-update                         # must exist
+```
+
+Updater status and log: `/var/lib/pier-updater/status.json`, `/var/lib/pier-updater/last.log`, `journalctl -u pier-updater`.
+
+**Built from source (§5):** keep updating the same way:
+
 ```bash
 cd /tmp/pier
 git pull
 sudo bash scripts/build-from-source.sh
+```
+
+> A panel update installs the pre-built release binary over a source build. If you run a modified build, update from source only.
+
+**Rollback** — install a specific release instead of `latest` (database migrations are not undone, so back up `/opt/pier/data` first if you may need this):
+
+```bash
+curl -fsSL https://pier.team/install | sudo bash -s -- --release-tag v1.4.2
 ```
 
 ---

@@ -86,18 +86,31 @@ sudo bash install.sh --binary ./pier-linux-amd64
 
 > 这是方式 A 的手动等价流程，但不会自动安装 Docker。要求系统中已存在 Docker + Compose（参见 [INSTALL.md](../../INSTALL.md)）。二进制文件名必须保持为 `pier-linux-amd64`，这样 `sha256sum -c` 才能匹配。
 
+然后打开 `https://YOUR_SERVER_IP:8443/setup` 创建管理员账号（面板首次使用自签名证书启动——请在浏览器中接受安全警告）。
+
 ### 更新 Pier
 
-更新会拉取全新的**预构建二进制文件** — 无需从源码重新构建。`install.sh` 会检测正在运行的服务、停止它、替换二进制文件并重新启动，同时保留你的 `.env` 和 `/opt/pier/data`。
+**通过面板（1.4.3+）：** *设置 → 更新 → 检查更新 → 更新并重启*。面板会请求一个小型 root 服务（`pier-updater`）重新运行官方安装程序，它会更新其负责的全部内容——`pier` 二进制、`pier-net-helper`、`pier-agent` 及其 systemd 单元——并重启 Pier。`.env` 和 `/opt/pier/data` 会被保留。面板只能请求最新发行版；安装什么由服务器决定，并经过 sha256 校验。
+
+**1.4.3 之前安装的服务器**还没有更新器——面板会显示提示横幅。请通过 SSH 运行一次安装程序；之后面板更新即可覆盖全部组件：
 
 ```bash
-# 最简单的方式 —— 重新运行一键安装脚本（会重新下载最新发行版）：
 curl -fsSL https://pier.team/install | sudo bash
 
-# 或手动操作，流程与方式 D 相同（下载 → 校验 → install.sh）。
+# 检查：两行均为 "enabled"，且文件存在
+systemctl is-enabled pier-net-helper pier-updater.path
+ls -l /usr/local/sbin/pier-update
 ```
 
-然后打开 `http://YOUR_SERVER_IP:8443/setup` 创建管理员账号。
+如果更新失败，面板会显示安装程序日志。在服务器上：
+
+```bash
+cat /var/lib/pier-updater/status.json        # 最近一次运行：running / success / failed
+cat /var/lib/pier-updater/last.log           # 安装程序完整输出
+journalctl -u pier-updater -n 50 --no-pager
+```
+
+重新运行一行命令始终是安全的——就是手动执行同样的更新。如果在新提交后约 10 分钟内出现 `404` 失败，说明 CI 正在重新发布 `latest`：请稍候重试。
 
 > 如需详细的服务器配置指南（安全加固、防火墙、Docker 安装），请参阅 [INSTALL.md](../../INSTALL.md)。
 

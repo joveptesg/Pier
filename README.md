@@ -71,18 +71,31 @@ sudo bash install.sh --binary ./pier-linux-amd64
 
 > The manual equivalent of Option A, minus auto-installing Docker. Requires Docker + Compose already present (see [INSTALL.md](INSTALL.md)). The binary filename must stay `pier-linux-amd64` so `sha256sum -c` matches.
 
+Then open `https://YOUR_SERVER_IP:8443/setup` to create your admin account (the panel starts with a self-signed certificate — accept the browser warning).
+
 ### Updating Pier
 
-Updates pull a fresh **pre-built binary** — no rebuild from source needed. `install.sh` detects the running service, stops it, swaps the binary, and restarts it, preserving your `.env` and `/opt/pier/data`.
+**From the panel (1.4.3+):** *Settings → Updates → Check for Updates → Update & Restart*. The panel asks a small root service (`pier-updater`) to re-run the official installer, which refreshes everything it owns — the `pier` binary, `pier-net-helper`, `pier-agent` and their systemd units — and restarts Pier. Your `.env` and `/opt/pier/data` are preserved. The panel can only request the latest release; what gets installed is decided on the server and verified by sha256.
+
+**Servers installed before 1.4.3** don't have the updater yet — the panel shows a banner about it. Run the installer once over SSH; after that, panel updates cover everything:
 
 ```bash
-# Easiest — re-run the one-command installer (re-downloads the latest release):
 curl -fsSL https://pier.team/install | sudo bash
 
-# Or manually, same flow as Option C (download → verify → install.sh).
+# Check: both lines must say "enabled", and the file must exist
+systemctl is-enabled pier-net-helper pier-updater.path
+ls -l /usr/local/sbin/pier-update
 ```
 
-Then open `http://YOUR_SERVER_IP:8443/setup` to create your admin account.
+If an update fails, the panel shows the installer log. On the server:
+
+```bash
+cat /var/lib/pier-updater/status.json        # last run: running / success / failed
+cat /var/lib/pier-updater/last.log           # full installer output
+journalctl -u pier-updater -n 50 --no-pager
+```
+
+Re-running the one-liner is always safe — it is the same update, done by hand. If it fails with `404` within ~10 minutes of a new commit, CI is republishing the `latest` release: wait and retry.
 
 > For detailed server setup (security hardening, firewall, Docker installation), see [INSTALL.md](INSTALL.md).
 

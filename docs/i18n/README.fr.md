@@ -86,18 +86,31 @@ sudo bash install.sh --binary ./pier-linux-amd64
 
 > L'équivalent manuel de l'Option A, sans l'installation automatique de Docker. Nécessite que Docker + Compose soient déjà présents (voir [INSTALL.md](../../INSTALL.md)). Le nom de fichier du binaire doit rester `pier-linux-amd64` pour que `sha256sum -c` corresponde.
 
+Ouvrez ensuite `https://IP_DE_VOTRE_SERVEUR:8443/setup` pour créer votre compte administrateur (le panneau démarre avec un certificat auto-signé : acceptez l'avertissement du navigateur).
+
 ### Mettre à jour Pier
 
-Les mises à jour récupèrent un nouveau **binaire préconstruit** — aucune recompilation depuis les sources n'est nécessaire. `install.sh` détecte le service en cours d'exécution, l'arrête, remplace le binaire et le redémarre, en préservant votre `.env` et `/opt/pier/data`.
+**Depuis le panneau (1.4.3+) :** *Settings → Updates → Check for Updates → Update & Restart*. Le panneau demande à un petit service root (`pier-updater`) de relancer l'installateur officiel, qui met à jour tout ce dont il a la charge — le binaire `pier`, `pier-net-helper`, `pier-agent` et leurs unités systemd — puis redémarre Pier. Votre `.env` et `/opt/pier/data` sont conservés. Le panneau ne peut demander que la dernière release ; ce qui est installé est décidé côté serveur, vérifié par sha256.
+
+**Les serveurs installés avant 1.4.3** n'ont pas encore le service de mise à jour — le panneau l'indique par un bandeau. Lancez l'installateur une fois en SSH ; ensuite, les mises à jour depuis le panneau couvrent tout :
 
 ```bash
-# Le plus simple — relancer l'installeur en une commande (re-télécharge la dernière version) :
 curl -fsSL https://pier.team/install | sudo bash
 
-# Ou manuellement, selon le même flux que l'Option D (télécharger → vérifier → install.sh).
+# Vérifier : les deux lignes "enabled", le fichier existe
+systemctl is-enabled pier-net-helper pier-updater.path
+ls -l /usr/local/sbin/pier-update
 ```
 
-Ouvrez ensuite `http://IP_DE_VOTRE_SERVEUR:8443/setup` pour créer votre compte administrateur.
+Si une mise à jour échoue, le panneau affiche le journal de l'installateur. Sur le serveur :
+
+```bash
+cat /var/lib/pier-updater/status.json        # dernière exécution : running / success / failed
+cat /var/lib/pier-updater/last.log           # sortie complète de l'installateur
+journalctl -u pier-updater -n 50 --no-pager
+```
+
+Relancer la commande en une ligne est toujours sans risque — c'est la même mise à jour, faite à la main. Si elle échoue avec `404` dans les ~10 minutes suivant un nouveau commit, la CI republie la release `latest` : patientez puis réessayez.
 
 > Pour une configuration détaillée du serveur (renforcement de la sécurité, pare-feu, installation de Docker), consultez [INSTALL.md](../../INSTALL.md).
 
