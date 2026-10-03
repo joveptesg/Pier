@@ -116,6 +116,10 @@ pub async fn redeploy_from_settings(
             )
             .unwrap_or_else(|_| "false".to_string())
             == "true";
+        log_orphans_removed(&config::remove_orphan_service_configs(
+            &db,
+            &state.config.data_dir,
+        ));
         (read_acme_email(&db), dashboard, acme_gc::domain_hosts(&db))
     };
     deploy_traefik(
@@ -127,6 +131,17 @@ pub async fn redeploy_from_settings(
         acme_keep,
     )
     .await
+}
+
+/// Log what [`config::remove_orphan_service_configs`] cleaned up.
+pub fn log_orphans_removed(removed: &[String]) {
+    if !removed.is_empty() {
+        tracing::info!(
+            "Removed {} Traefik router file(s) left behind by deleted services: {}",
+            removed.len(),
+            removed.join(", ")
+        );
+    }
 }
 
 /// True while a deploy or stop holds the Traefik lock. The watchdog uses it to

@@ -165,8 +165,50 @@ pub fn write_domain_config(
     Ok(())
 }
 
+/// Delete per-service router files whose service no longer exists.
+///
+/// Routers live in `dynamic/<service_id>.yml` (and legacy `tcp-<id>.yml`),
+/// but several delete paths (compose stacks, remote/federated services,
+/// older versions) dropped the row and left the file. Traefik keeps routing
+/// such a host and renewing its certificate forever. Only files named by a
+/// UUID that is absent from `services` are touched; anything else in the
+/// directory (`_pier-platform.yml`, operator files) is left alone. Returns the
+/// removed file names. Does nothing if `services` can't be read.
+pub fn remove_orphan_service_configs(db: &rusqlite::Connection, data_dir: &Path) -> Vec<String> {
+    let live: std::collections::HashSet<String> =
+        match db.prepare("SELECT id FROM services").and_then(|mut stmt| {
+            stmt.query_map([], |row| row.get::<_, String>(0))
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        }) {
+            Ok(ids) => ids,
+            Err(_) => return Vec::new(),
+        };
+    let dynamic_dir = data_dir.join("traefik").join("dynamic");
+    let Ok(entries) = std::fs::read_dir(&dynamic_dir) else {
+        return Vec::new();
+    };
+    let mut removed = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(id) = orphan_candidate_id(&name) else {
+            continue;
+        };
+        if !live.contains(id) && std::fs::remove_file(entry.path()).is_ok() {
+            removed.push(name);
+        }
+    }
+    removed
+}
+
+/// The service id a dynamic config file belongs to, if its name is
+/// `<uuid>.yml` or `tcp-<uuid>.yml`.
+fn orphan_candidate_id(file_name: &str) -> Option<&str> {
+    let stem = file_name.strip_suffix(".yml")?;
+    let id = stem.strip_prefix("tcp-").unwrap_or(stem);
+    uuid::Uuid::parse_str(id).ok().map(|_| id)
+}
+
 /// Remove a dynamic config file for a service.
-#[allow(dead_code)]
 pub fn remove_domain_config(data_dir: &Path, service_id: &str) -> Result<()> {
     let file_path = data_dir
         .join("traefik")
@@ -1075,4 +1117,62 @@ pub async fn detect_public_ipv6() -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod orphan_config_tests {
+    use super::*;
+
+    #[test]
+    fn orphan_candidates_are_uuid_named_only() {
+        let id = "15eb6675-4d1b-4fe0-a7ab-83bf73447669";
+        assert_eq!(orphan_candidate_id(&format!("{id}.yml")), Some(id));
+        assert_eq!(orphan_candidate_id(&format!("tcp-{id}.yml")), Some(id));
+        assert_eq!(orphan_candidate_id("_pier-platform.yml"), None);
+        assert_eq!(orphan_candidate_id("custom.yml"), None);
+        assert_eq!(orphan_candidate_id(&format!("{id}.yaml")), None);
+    }
+
+    #[test]
+    fn removes_only_configs_of_deleted_services() {
+        let dir = tempfile::tempdir().unwrap();
+        let dynamic = dir.path().join("traefik").join("dynamic");
+        std::fs::create_dir_all(&dynamic).unwrap();
+        let live = "7b7b7f30-cc82-49ab-a728-954d20975a9c";
+        let gone = "838ab9ef-d4fd-4f46-a868-0bb7a45e068e";
+        for f in [
+            format!("{live}.yml"),
+            format!("{gone}.yml"),
+            format!("tcp-{gone}.yml"),
+            "_pier-platform.yml".to_string(),
+        ] {
+            std::fs::write(dynamic.join(f), "x").unwrap();
+        }
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE services (id TEXT PRIMARY KEY);")
+            .unwrap();
+        db.execute("INSERT INTO services (id) VALUES (?1)", [live])
+            .unwrap();
+
+        let mut removed = remove_orphan_service_configs(&db, dir.path());
+        removed.sort();
+        assert_eq!(
+            removed,
+            vec![format!("{gone}.yml"), format!("tcp-{gone}.yml")]
+        );
+        assert!(dynamic.join(format!("{live}.yml")).exists());
+        assert!(dynamic.join("_pier-platform.yml").exists());
+    }
+
+    #[test]
+    fn orphan_gc_is_a_noop_without_services_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let dynamic = dir.path().join("traefik").join("dynamic");
+        std::fs::create_dir_all(&dynamic).unwrap();
+        let f = dynamic.join("838ab9ef-d4fd-4f46-a868-0bb7a45e068e.yml");
+        std::fs::write(&f, "x").unwrap();
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        assert!(remove_orphan_service_configs(&db, dir.path()).is_empty());
+        assert!(f.exists());
+    }
 }

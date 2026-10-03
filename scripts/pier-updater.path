@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch for Pier update requests from the panel
+
+# The panel (user pier) writes this file to ask for an update; its contents
+# are ignored. pier-update removes it as its first step.
+[Path]
+PathExists=/opt/pier/data/update-request
+Unit=pier-updater.service
+
+[Install]
+WantedBy=multi-user.target

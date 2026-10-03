@@ -323,6 +323,10 @@ pub async fn remove(
         })?
     };
 
+    // Drop the stack's Traefik router with it — left behind, Traefik keeps
+    // routing the host and renewing its certificate forever.
+    let _ = crate::proxy::config::remove_domain_config(&state.config.data_dir, &id);
+
     // Down first, ignore errors
     let _ = docker::compose::down_stack(&name, &state.config).await;
     let _ = docker::compose::remove_stack(&name, &state.config).await;

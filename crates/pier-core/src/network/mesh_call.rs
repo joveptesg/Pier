@@ -208,6 +208,23 @@ pub fn permission_denied_hint() -> String {
     )
 }
 
+/// Operator-facing explanation for a missing helper socket on a node whose
+/// pier unit is sandboxed — the common case, and the one where the direct-swap
+/// fallback cannot work either. Usually the helper simply isn't running: an
+/// older installer wrote its unit without `[Install]` (it shows as `static`),
+/// so nothing starts it again after a reboot.
+pub fn helper_not_running_hint() -> String {
+    format!(
+        "pier-net-helper is not running ({HELPER_SOCKET_DEFAULT} is missing), and updates \
+         are applied through it. Start it on this server, then retry:\n\
+         \n    sudo systemctl start pier-net-helper\n\
+         \n\
+         To keep it running across reboots, re-run the installer once (it rewrites and \
+         enables the helper unit):\n\
+         \n    curl -fsSL https://pier.team/install | sudo bash"
+    )
+}
+
 #[cfg(unix)]
 pub async fn call_local_socket<P: Serialize>(op: &str, params: &P) -> Result<MeshOpResult> {
     use std::path::PathBuf;

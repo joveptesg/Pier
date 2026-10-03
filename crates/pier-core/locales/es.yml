@@ -1909,6 +1909,11 @@ settings_notifications:
 
 # Settings — updates (settings/updates.html).
 settings_updates:
+  updater_running: "Actualizando Pier…"
+  updater_running_detail: "El instalador está actualizando Pier, su helper y los servicios. El panel se reinicia durante el proceso; puede tardar unos minutos."
+  updater_timeout: "La actualización no terminó en 30 minutos. Revisa el servidor: journalctl -u pier-updater"
+  updater_banner_title: "Activa las actualizaciones completas con un clic"
+  updater_banner_desc: "Este servidor se instaló con un instalador antiguo, así que las actualizaciones desde el panel solo pueden reemplazar el binario de Pier, no el helper ni los servicios del sistema. Ejecuta el instalador una vez por SSH; después, cada actualización desde el panel lo actualizará todo automáticamente."
   page_title: Actualizaciones
   heading: Actualizaciones
   subheading: Gestiona la versión de Pier y las preferencias de actualización

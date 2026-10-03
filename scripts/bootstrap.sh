@@ -19,6 +19,10 @@ set -euo pipefail
 #   3. Verifies the binary against its published sha256
 #   4. Downloads install.sh from the repo
 #   5. Runs install.sh --binary <downloaded-pier>
+#
+# Also the engine of in-panel updates: /usr/local/sbin/pier-update runs this
+# with PIER_SKIP_SYSTEM_PACKAGES=1 (skip steps 1-2 when Docker is present) and
+# PIER_SKIP_FIREWALL=1 (honoured by install.sh).
 # ============================================================================
 
 REPO="joveptesg/pier"
@@ -128,11 +132,22 @@ heal_stale_docker_repo() {
     done
 }
 
-step "Installing base packages (curl, ca-certificates, gnupg)..."
-export DEBIAN_FRONTEND=noninteractive
-heal_stale_docker_repo
-apt-get update -qq
-apt-get install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+# An update of an existing node skips apt entirely: the packages are already
+# there, and an unrelated broken apt source must not be able to block it.
+SKIP_SYSTEM_PACKAGES=false
+if [[ "${PIER_SKIP_SYSTEM_PACKAGES:-0}" == "1" ]] && command -v docker &>/dev/null \
+        && docker compose version &>/dev/null 2>&1 && command -v curl &>/dev/null; then
+    SKIP_SYSTEM_PACKAGES=true
+    info "Update mode: skipping base packages and Docker installation"
+fi
+
+if [[ "$SKIP_SYSTEM_PACKAGES" != true ]]; then
+    step "Installing base packages (curl, ca-certificates, gnupg)..."
+    export DEBIAN_FRONTEND=noninteractive
+    heal_stale_docker_repo
+    apt-get update -qq
+    apt-get install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+fi
 
 # ── Step 2: Docker CE + Compose ──────────────────────────────────────────────
 
@@ -202,10 +217,24 @@ chmod +x "${WORK_DIR}/pier"
 # bin dir (GET /api/v1/servers/download/{name}), so they must sit next to the
 # core binary for install.sh to stage them into /opt/pier/bin. Soft-fail: a
 # single-node core works fine without them; only agent enrollment needs them.
+# pier-net-helper runs as root, so it is checked as strictly as the core: a
+# published checksum that doesn't match aborts the install. A release without
+# the .sha256 asset is still accepted (older releases), with a warning.
 step "Downloading agent binaries (pier-agent, pier-net-helper)..."
 for _agbin in pier-agent pier-net-helper; do
     _agurl="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${_agbin}-linux-amd64"
     if curl -fsSL "$_agurl" -o "${WORK_DIR}/${_agbin}"; then
+        if curl -fsSL "${_agurl}.sha256" -o "${WORK_DIR}/${_agbin}.sha256"; then
+            _exp=$(awk '{print $1}' "${WORK_DIR}/${_agbin}.sha256")
+            _act=$(sha256sum "${WORK_DIR}/${_agbin}" | awk '{print $1}')
+            if [[ -z "$_exp" || "$_exp" != "$_act" ]]; then
+                error "Checksum mismatch for ${_agbin} — refusing to install
+  Expected: ${_exp:-<empty>}
+  Actual:   ${_act}"
+            fi
+        else
+            warn "No published checksum for ${_agbin}; installing unverified"
+        fi
         chmod +x "${WORK_DIR}/${_agbin}"
         info "Fetched ${_agbin}"
     else
@@ -230,7 +259,8 @@ chmod +x "${WORK_DIR}/install.sh"
 # from the repo for `curl | bash` installs too, so a unit fix (e.g. the
 # Group=pier one from issue #9) reaches this path without an install.sh bump.
 # Soft-fail: the inline fallback still covers a missing file.
-for _unit in pier.service pier-net-helper.service; do
+for _unit in pier.service pier-net-helper.service \
+        pier-updater.service pier-updater.path pier-update.sh; do
     _unit_url="https://raw.githubusercontent.com/${REPO}/${REF}/scripts/${_unit}"
     if ! curl -fsSL "$_unit_url" -o "${WORK_DIR}/${_unit}"; then
         rm -f "${WORK_DIR}/${_unit}"

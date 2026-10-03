@@ -673,6 +673,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             get(system::cleanup_settings_get).put(system::cleanup_settings_update),
         )
         .route("/system/update", post(system::update_now))
+        .route("/system/update-status", get(system::update_status))
         .route(
             "/system/update-settings",
             get(system::update_settings).put(system::save_update_settings),

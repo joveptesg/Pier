@@ -1,7 +1,13 @@
 [Unit]
 Description=Pier PaaS
-After=network.target docker.service
+After=network.target docker.service pier-net-helper.service
 Requires=docker.service
+# Pull the privileged helper up with pier. Self-update and mesh ops go
+# through it, and a helper unit written by an older installer has no
+# [Install] section (systemctl reports it `static`), so without this nothing
+# restarts it after a reboot. Wants= is soft: a node without the helper boots
+# fine.
+Wants=pier-net-helper.service
 
 [Service]
 Type=simple

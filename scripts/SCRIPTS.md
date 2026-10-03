@@ -10,6 +10,8 @@
 | `setup.sh` | Установка на чистый сервер — ставит Docker, вызывает install.sh |
 | `install.sh` | Установка Pier как systemd-сервис (требует Docker) |
 | `pier.service` | Systemd unit file |
+| `pier-update.sh` | Самообновление из панели: ставится в `/usr/local/sbin/pier-update`, запускается от root через `pier-updater.service`/`.path` и повторяет путь `bootstrap.sh → install.sh` (без apt/Docker и без ufw) |
+| `pier-updater.service`, `pier-updater.path` | Юниты самообновления: `.path` следит за `/opt/pier/data/update-request`, который кладёт панель; статус и лог — `/var/lib/pier-updater/` |
 | `pier.env.example` | Пример конфигурации |
 
 ---

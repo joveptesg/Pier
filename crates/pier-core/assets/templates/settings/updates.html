@@ -133,10 +133,25 @@
                             <!-- whitespace-pre-line + break-words: server hints are multi-line and
                                  carry a shell command the operator has to be able to read. -->
                             <p class="text-xs text-red-700 dark:text-red-400 whitespace-pre-line break-words" x-text="updateError"></p>
+                            <pre x-show="updateLog" x-cloak class="mt-2 max-h-64 overflow-auto text-[11px] leading-snug bg-white/60 dark:bg-black/30 rounded p-2 text-red-800 dark:text-red-300 whitespace-pre-wrap break-words" x-text="updateLog"></pre>
                         </div>
                     </div>
                 </div>
             </template>
+
+            <!-- No root self-updater on this node (installed by an older installer):
+                 updates from the panel can only swap the core binary, never the
+                 helper or the systemd units. One installer run fixes that for good. -->
+            <div x-show="checked && updaterActive === false" x-cloak class="border-t border-gray-100 dark:border-gray-800 pt-4">
+                <div class="flex items-start gap-3 bg-blue-50 dark:bg-blue-500/5 border border-blue-200 dark:border-blue-500/20 rounded-lg p-4">
+                    <svg class="w-5 h-5 text-blue-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div class="min-w-0">
+                        <p class="text-sm font-medium text-blue-900 dark:text-blue-300">{{ t('settings_updates.updater_banner_title') }}</p>
+                        <p class="text-xs text-blue-800 dark:text-blue-400 mt-1">{{ t('settings_updates.updater_banner_desc') }}</p>
+                        <code class="block mt-2 text-xs bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-500/20 rounded px-2 py-1.5 text-gray-800 dark:text-gray-200 break-all select-all">curl -fsSL https://pier.team/install | sudo bash</code>
+                    </div>
+                </div>
+            </div>
 
             <!-- Helper unreachable — self-update runs THROUGH pier-net-helper, so a
                  node in this state cannot update at all. Say so on "Check now"
@@ -264,11 +279,15 @@ function updatesPage() {
         checkError: '',
         // Set from update-check's `helper` block; empty means nothing to warn about.
         helperWarning: '',
+        // update-check's `updater.active`; null until checked. When true, updates
+        // go through the root self-updater and the helper isn't involved.
+        updaterActive: null,
 
         // Update install
         updating: false,
         updateComplete: false,
         updateError: '',
+        updateLog: '',
         progressMessage: '',
         progressDetail: '',
         progressPercent: 0,
@@ -356,9 +375,10 @@ function updatesPage() {
             try {
                 const res = await fetch('/api/v1/system/update-check');
                 const r = await res.json().catch(() => ({}));
-                // Only warn when the helper is there but unusable. "Not installed"
-                // is a valid setup — the direct-swap path still covers it.
-                if (r.helper && r.helper.reachable === false && r.helper.hint) {
+                this.updaterActive = r.updater ? r.updater.active === true : false;
+                // The helper only matters when there is no self-updater to
+                // carry the update.
+                if (!this.updaterActive && r.helper && r.helper.reachable === false && r.helper.hint) {
                     this.helperWarning = r.helper.hint;
                 }
                 if (!res.ok || r.error) {
@@ -384,6 +404,7 @@ function updatesPage() {
             if (!confirm('{{ t('settings_updates.confirm_install') }}')) return;
             this.updating = true;
             this.updateError = '';
+            this.updateLog = '';
             this.updateComplete = false;
             this.progressMessage = '{{ t('settings_updates.progress_downloading') }}';
             this.progressDetail = '{{ t('settings_updates.progress_downloading_detail') }}';
@@ -396,9 +417,14 @@ function updatesPage() {
                 // looking for `ok`/`message` threw that text away and showed a
                 // bare "Update failed" — which is how a broken pier-net-helper
                 // socket stayed invisible in the panel (issue #9).
+                // Remember the previous updater run so its leftover status
+                // isn't mistaken for the one this click starts.
+                const prevStarted = await this.updaterStartedAt();
                 const res = await fetch('/api/v1/system/update', { method: 'POST' });
                 const r = await res.json().catch(() => ({}));
-                if (res.ok && r.ok) {
+                if (res.ok && r.ok && r.mode === 'updater') {
+                    this.followUpdater(prevStarted);
+                } else if (res.ok && r.ok) {
                     this.progressMessage = '{{ t('settings_updates.progress_installing') }}';
                     this.progressDetail = '{{ t('settings_updates.progress_installing_detail') }}';
                     this.progressPercent = 60;
@@ -420,6 +446,55 @@ function updatesPage() {
                 this.updating = false;
                 this.updateError = '{{ t('settings_updates.update_request_failed') }}'.replace('%{error}', e.message);
             }
+        },
+
+        async updaterStartedAt() {
+            try {
+                const r = await fetch('/api/v1/system/update-status').then(r => r.json());
+                return (r.status && r.status.started_at) || '';
+            } catch {
+                return '';
+            }
+        },
+
+        // Follow the root self-updater (runs the installer, restarts pier).
+        // pier is down for part of it, so failed fetches are expected; only
+        // the updater's own status decides success or failure.
+        async followUpdater(prevStarted) {
+            this.progressMessage = '{{ t('settings_updates.updater_running') }}';
+            this.progressDetail = '{{ t('settings_updates.updater_running_detail') }}';
+            this.progressPercent = 30;
+            const deadline = Date.now() + 30 * 60 * 1000;
+            while (Date.now() < deadline) {
+                await this.sleep(3000);
+                let r;
+                try {
+                    const res = await fetch('/api/v1/system/update-status');
+                    if (!res.ok) continue;
+                    r = await res.json();
+                } catch {
+                    this.progressDetail = '{{ t('settings_updates.progress_reconnecting') }}';
+                    continue;
+                }
+                const st = r.status || {};
+                if (!st.started_at || st.started_at === prevStarted) continue;
+                if (st.state === 'running') {
+                    this.progressDetail = st.message || this.progressDetail;
+                    this.progressPercent = Math.min(85, this.progressPercent + 2);
+                } else if (st.state === 'success') {
+                    this.progressPercent = 90;
+                    this.progressDetail = '{{ t('settings_updates.progress_reconnecting') }}';
+                    this.pollReconnect();
+                    return;
+                } else if (st.state === 'failed') {
+                    this.updating = false;
+                    this.updateError = st.message || '{{ t('settings_updates.update_failed_fallback') }}';
+                    this.updateLog = r.log_tail || '';
+                    return;
+                }
+            }
+            this.updating = false;
+            this.updateError = '{{ t('settings_updates.updater_timeout') }}';
         },
 
         pollReconnect() {

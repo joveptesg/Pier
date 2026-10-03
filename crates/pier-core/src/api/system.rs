@@ -602,6 +602,60 @@ pub async fn save_update_settings(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+// ── Self-updater ────────────────────────────────────────────────────────────
+//
+// Nodes installed by a current installer carry pier-updater.path, a root
+// systemd path unit that runs the official installer when the panel drops a
+// request file. That refreshes everything the installer owns — pier,
+// pier-net-helper, pier-agent and their units — whereas the helper route below
+// can only swap the core binary. The request's contents are never read: the
+// panel can ask for "the latest release", nothing else.
+
+/// Watched by pier-updater.path. Must match scripts/pier-updater.path.
+const UPDATE_REQUEST: &str = "/opt/pier/data/update-request";
+const UPDATER_BIN: &str = "/usr/local/sbin/pier-update";
+const UPDATER_STATUS: &str = "/var/lib/pier-updater/status.json";
+const UPDATER_LOG: &str = "/var/lib/pier-updater/last.log";
+
+/// True when the root self-updater is installed and armed.
+async fn updater_active() -> bool {
+    if !std::path::Path::new(UPDATER_BIN).exists() {
+        return false;
+    }
+    tokio::process::Command::new("systemctl")
+        .args(["is-active", "--quiet", "pier-updater.path"])
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Last `n` lines of `text`.
+fn tail_lines(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+/// GET /api/v1/system/update-status — progress of the root self-updater.
+pub async fn update_status() -> AppResult<impl IntoResponse> {
+    let status: serde_json::Value = tokio::fs::read_to_string(UPDATER_STATUS)
+        .await
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let log_tail = tokio::fs::read_to_string(UPDATER_LOG)
+        .await
+        .map(|s| tail_lines(&s, 40))
+        .unwrap_or_default();
+    Ok(Json(serde_json::json!({
+        "active": updater_active().await,
+        // Request not yet picked up by systemd.
+        "pending": std::path::Path::new(UPDATE_REQUEST).exists(),
+        "status": status,
+        "log_tail": log_tail,
+    })))
+}
+
 /// GET /api/v1/system/update-check
 /// Reachability of the local privileged helper, reported alongside the
 /// update check.
@@ -613,7 +667,8 @@ pub async fn save_update_settings(
 /// nowhere to appear.
 async fn helper_status() -> serde_json::Value {
     use crate::network::mesh_call::{
-        call_local_socket, helper_unreachable_reason, permission_denied_hint, HelperUnreachable,
+        call_local_socket, helper_not_running_hint, helper_unreachable_reason,
+        permission_denied_hint, HelperUnreachable,
     };
 
     match call_local_socket("status", &serde_json::json!({})).await {
@@ -624,12 +679,14 @@ async fn helper_status() -> serde_json::Value {
                 "reason": "permission_denied",
                 "hint": permission_denied_hint(),
             }),
-            // A node with no helper at all is a legitimate configuration —
-            // `apply_update_direct` still covers it — so report it without a
-            // remedy rather than crying wolf.
+            // Only an unsandboxed install can update without the helper, and
+            // every installer-made node is sandboxed — so a missing socket
+            // almost always means "helper stopped", and the operator should
+            // hear about it before pressing Update, not after.
             HelperUnreachable::NotInstalled => serde_json::json!({
                 "reachable": false,
                 "reason": "not_installed",
+                "hint": helper_not_running_hint(),
             }),
             HelperUnreachable::Other => serde_json::json!({
                 "reachable": false,
@@ -643,6 +700,7 @@ async fn helper_status() -> serde_json::Value {
 pub async fn update_check() -> AppResult<impl IntoResponse> {
     let current_version = env!("CARGO_PKG_VERSION");
     let helper = helper_status().await;
+    let updater = serde_json::json!({ "active": updater_active().await });
 
     // Get current binary modification time
     let bin_path = std::env::current_exe().unwrap_or_default();
@@ -672,6 +730,7 @@ pub async fn update_check() -> AppResult<impl IntoResponse> {
             "current_version": current_version,
             "error": format!("GitHub API returned {}", resp.status()),
             "helper": helper,
+            "updater": updater,
         })));
     }
 
@@ -718,11 +777,27 @@ pub async fn update_check() -> AppResult<impl IntoResponse> {
         "download_url": download_url,
         "size": asset_size,
         "helper": helper,
+        "updater": updater,
     })))
 }
 
 /// POST /api/v1/system/update
+///
+/// With the root self-updater installed this only drops the request file and
+/// returns `mode: "updater"`; the panel then follows `update-status`. Without
+/// it, falls back to swapping the core binary through pier-net-helper.
 pub async fn update_now() -> AppResult<impl IntoResponse> {
+    if updater_active().await {
+        tokio::fs::write(UPDATE_REQUEST, chrono::Utc::now().to_rfc3339())
+            .await
+            .map_err(|e| anyhow::anyhow!("Request update: {e}"))?;
+        tracing::info!("Self-update requested via pier-updater");
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "mode": "updater",
+            "message": "Update started",
+        })));
+    }
     // Fetch release info first
     let client = reqwest::Client::builder()
         .user_agent("pier-updater")
@@ -849,6 +924,14 @@ async fn apply_update_direct(staged: &str, bytes: &[u8]) -> AppResult<Json<serde
     let old_path = bin_dir.join("pier.old");
 
     tokio::fs::write(&new_path, bytes).await.map_err(|e| {
+        // EROFS: the pier unit is sandboxed (ProtectSystem=strict), so only the
+        // helper could have applied this — it just isn't running. Say that,
+        // as a Conflict so the text reaches the panel (Internal is masked).
+        if e.raw_os_error() == Some(30) {
+            let hint = crate::network::mesh_call::helper_not_running_hint();
+            tracing::error!("self-update aborted: {hint}");
+            return AppError::Conflict(format!("Update aborted. {hint}"));
+        }
         AppError::Internal(anyhow::anyhow!(
             "Write {}: {e}. Update manually: curl -fsSL https://pier.team/install | sudo bash",
             new_path.display()
@@ -904,6 +987,18 @@ async fn apply_update_direct(staged: &str, bytes: &[u8]) -> AppResult<Json<serde
 // System timezone — one IANA name stored in settings, used when formatting
 // outbound message timestamps (Telegram, Email, …).
 // ───────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod updater_tests {
+    use super::tail_lines;
+
+    #[test]
+    fn tails_last_lines() {
+        assert_eq!(tail_lines("a\nb\nc\n", 2), "b\nc");
+        assert_eq!(tail_lines("a", 5), "a");
+        assert_eq!(tail_lines("", 5), "");
+    }
+}
 
 #[derive(serde::Deserialize)]
 pub struct TimezoneRequest {

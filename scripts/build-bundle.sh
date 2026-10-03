@@ -106,6 +106,10 @@ cp "${SCRIPT_DIR}/setup.sh" "${BUNDLE_DIR}/setup.sh"
 cp "${SCRIPT_DIR}/install.sh" "${BUNDLE_DIR}/install.sh"
 cp "${SCRIPT_DIR}/lib-swap.sh" "${BUNDLE_DIR}/lib-swap.sh"
 cp "${SCRIPT_DIR}/pier.service" "${BUNDLE_DIR}/pier.service"
+cp "${SCRIPT_DIR}/pier-net-helper.service" "${BUNDLE_DIR}/pier-net-helper.service"
+cp "${SCRIPT_DIR}/pier-update.sh" "${BUNDLE_DIR}/pier-update.sh"
+cp "${SCRIPT_DIR}/pier-updater.service" "${BUNDLE_DIR}/pier-updater.service"
+cp "${SCRIPT_DIR}/pier-updater.path" "${BUNDLE_DIR}/pier-updater.path"
 
 # Create bundle archive
 cd "${PIER_ROOT}/dist"

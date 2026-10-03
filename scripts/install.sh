@@ -30,6 +30,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 # ── Parse arguments ──────────────────────────────────────────────────────────
 
 BINARY_PATH=""
+PORT_EXPLICIT=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --port)
             PIER_PORT="$2"
+            PORT_EXPLICIT=true
             shift 2
             ;;
         --help|-h)
@@ -57,6 +59,16 @@ done
 
 [[ -z "$BINARY_PATH" ]] && error "Missing --binary argument. Usage: sudo bash install.sh --binary /path/to/pier"
 [[ ! -f "$BINARY_PATH" ]] && error "Binary not found: $BINARY_PATH"
+
+# An upgrade without --port keeps the port the node already listens on. The
+# default (8443) used to win here, so re-running the installer on a custom-port
+# node waited for startup on the wrong port and opened 8443 in the firewall.
+if [[ "$PORT_EXPLICIT" != true && -f "$PIER_ENV" ]]; then
+    _env_port=$(sed -n 's/^PIER_PORT=\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$PIER_ENV" | tail -n1)
+    if [[ -n "$_env_port" ]]; then
+        PIER_PORT="$_env_port"
+    fi
+fi
 
 # ── Check root ───────────────────────────────────────────────────────────────
 
@@ -389,6 +401,31 @@ PIER_HELPER_UNIT_EOF
         || warn "pier-net-helper failed to start; mesh features unavailable"
 fi
 
+# ── Self-updater (in-panel updates) ─────────────────────────────────────────
+# pier-updater.path watches for a request file the panel drops; it starts
+# pier-updater.service, which runs /usr/local/sbin/pier-update as root — the
+# same bootstrap.sh → install.sh path as a manual `curl | bash`. That is what
+# lets "Update" in the panel refresh the helper and the units too, which the
+# sandboxed pier service can't. Re-installed on every run, so it updates itself.
+UPDATER_BIN=/usr/local/sbin/pier-update
+if [[ -f "${SCRIPT_DIR}/pier-update.sh" && -f "${SCRIPT_DIR}/pier-updater.service" \
+        && -f "${SCRIPT_DIR}/pier-updater.path" ]]; then
+    # Temp file + rename, never an in-place overwrite: this very script may be
+    # running under pier-update right now, and bash reads its script lazily.
+    install -m755 -o root -g root "${SCRIPT_DIR}/pier-update.sh" "${UPDATER_BIN}.new"
+    mv -f "${UPDATER_BIN}.new" "$UPDATER_BIN"
+    install -m644 "${SCRIPT_DIR}/pier-updater.service" /etc/systemd/system/pier-updater.service
+    install -m644 "${SCRIPT_DIR}/pier-updater.path" /etc/systemd/system/pier-updater.path
+    install -d -m755 -o root -g root /var/lib/pier-updater
+    systemctl daemon-reload
+    systemctl enable pier-updater.path >/dev/null 2>&1 || true
+    systemctl start pier-updater.path \
+        || warn "pier-updater.path failed to start; in-panel updates fall back to core-only"
+    info "Installed the self-updater (in-panel updates refresh helper + units too)"
+else
+    warn "Self-updater files not found next to install.sh — in-panel updates will replace the core binary only"
+fi
+
 # ── Install binary ───────────────────────────────────────────────────────────
 
 info "Installing binary to ${PIER_BIN}"
@@ -495,8 +532,14 @@ else
     cat > "$PIER_SERVICE" <<EOF
 [Unit]
 Description=Pier PaaS
-After=network.target docker.service
+After=network.target docker.service pier-net-helper.service
 Requires=docker.service
+# Pull the privileged helper up with pier. Self-update and mesh ops go
+# through it, and a helper unit written by an older installer has no
+# [Install] section (systemctl reports it `static`), so without this nothing
+# restarts it after a reboot. Wants= is soft: a node without the helper boots
+# fine.
+Wants=pier-net-helper.service
 
 [Service]
 Type=simple

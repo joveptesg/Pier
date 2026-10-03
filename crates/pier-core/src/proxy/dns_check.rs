@@ -47,6 +47,14 @@ pub fn start(state: SharedState) {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(60)).await;
         loop {
+            // Piggyback: drop router files of deleted services. The directory
+            // is watched, so Traefik forgets those hosts immediately.
+            if let Ok(db) = state.db.lock() {
+                super::log_orphans_removed(&super::config::remove_orphan_service_configs(
+                    &db,
+                    &state.config.data_dir,
+                ));
+            }
             match check_all(&state).await {
                 Ok(n) => tracing::debug!("DNS check: {n} domain(s) checked"),
                 Err(e) => tracing::warn!("DNS check failed: {e}"),

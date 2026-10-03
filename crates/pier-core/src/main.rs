@@ -535,11 +535,15 @@ async fn main() -> Result<()> {
             // still-live old Traefik, and end up EXITED — taking pier-net
             // Docker DNS resolution (`getaddrinfo ENOTFOUND pier-<svc>`) down
             // with them for every consumer in the network.
-            let acme_keep = proxy_state
-                .db
-                .lock()
-                .ok()
-                .and_then(|db| proxy::acme_gc::domain_hosts(&db));
+            // Orphaned router files go first: their hosts would otherwise
+            // count as routed and keep their certificates alive.
+            let acme_keep = proxy_state.db.lock().ok().and_then(|db| {
+                proxy::log_orphans_removed(&proxy::config::remove_orphan_service_configs(
+                    &db,
+                    &proxy_data_dir,
+                ));
+                proxy::acme_gc::domain_hosts(&db)
+            });
             let traefik_result = proxy::deploy_traefik(
                 &proxy_state.docker,
                 &proxy_data_dir,

@@ -1910,6 +1910,11 @@ settings_notifications:
 
 # Settings — updates (settings/updates.html).
 settings_updates:
+  updater_running: "正在更新 Pier…"
+  updater_running_detail: "安装程序正在更新 Pier、其辅助程序和服务。期间面板会重启，可能需要几分钟。"
+  updater_timeout: "更新在 30 分钟内未完成。请检查服务器：journalctl -u pier-updater"
+  updater_banner_title: "启用完整的一键更新"
+  updater_banner_desc: "此服务器由旧版安装程序安装，因此面板更新只能替换 Pier 二进制文件，无法更新辅助程序和系统服务。请通过 SSH 运行一次安装程序，之后面板中的每次更新都会自动更新全部组件。"
   page_title: 更新
   heading: 更新
   subheading: 管理 Pier 版本和更新偏好

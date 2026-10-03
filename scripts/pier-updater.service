@@ -1,0 +1,15 @@
+[Unit]
+Description=Pier self-updater (runs the official installer when the panel asks)
+Documentation=https://github.com/joveptesg/pier
+After=network-online.target
+Wants=network-online.target
+
+# Started only by pier-updater.path. Not sandboxed on purpose: it IS the
+# installer — it replaces binaries in /usr/local/bin and /opt/pier/bin and
+# rewrites units in /etc/systemd/system, which is exactly what the hardened
+# pier and pier-net-helper units can't do. What it installs is not up to the
+# caller: see /usr/local/sbin/pier-update.
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pier-update
+TimeoutStartSec=30min
