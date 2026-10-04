@@ -145,6 +145,9 @@ pub async fn get(
             "max_nodes": cluster.max_nodes,
             "default_nodes": cluster.default_nodes,
             "description": cluster.description,
+            // When set, cluster mode can only run this tag — the form swaps the
+            // version picker down to this single option.
+            "pinned_version": crate::catalog::cluster::pinned_cluster_version(&item.meta.id),
         });
     }
 

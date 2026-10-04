@@ -209,6 +209,8 @@ pub async fn get(
     axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
+    // Before the lock: the guard must not be held across an await.
+    let live = crate::api::resources::live_container_problems(&state).await;
     let db = state
         .db
         .lock()
@@ -251,8 +253,10 @@ pub async fn get(
                     .find(|i| i.meta.id == cid)
                     .and_then(|i| i.meta.icon.clone())
             });
+            let sid: String = row.get(0)?;
             Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
+                "live_problem": live.get(&sid),
+                "id": sid,
                 "name": row.get::<_, String>(1)?,
                 "service_type": row.get::<_, String>(2)?,
                 "status": row.get::<_, String>(3)?,

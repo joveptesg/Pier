@@ -32,7 +32,7 @@ VNC_PW = { default = "{{password}}", description = "Password for user kasm_user"
 LAUNCH_URL = { default = "", description = "URL Chrome opens on start (blank = new tab)" }
 
 [versions]
-available = ["1.19.0", "1.18.0", "1.17.0", "1.16.1"]
+available = ["1.19.0"]
 default = "1.19.0"
 
 [ui.fields.name]

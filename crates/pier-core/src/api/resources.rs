@@ -2423,6 +2423,62 @@ async fn create_railpack_app(
     })))
 }
 
+/// Services whose containers are not actually up, keyed by service id.
+///
+/// `services.status` records what the last deploy did: `running` means
+/// `compose up` succeeded. A container that then crashes into a restart loop
+/// (or exits) leaves that row at `running` forever, so the panel showed a green
+/// badge over a dead service. This reads the live state so the API can report
+/// it next to the stored one: `restarting` when any of the service's
+/// containers is in a restart loop, `exited` when one has stopped.
+///
+/// One `list_containers` call, local Docker only — a service on a remote agent
+/// simply has no entry here and keeps its stored status. Best-effort: a Docker
+/// error yields an empty map rather than failing the request.
+pub(crate) async fn live_container_problems(state: &SharedState) -> HashMap<String, &'static str> {
+    use bollard::models::ContainerSummaryStateEnum as S;
+    use bollard::query_parameters::ListContainersOptions;
+
+    let Ok(list) = state
+        .docker
+        .list_containers(Some(ListContainersOptions {
+            all: true,
+            ..Default::default()
+        }))
+        .await
+    else {
+        return HashMap::new();
+    };
+
+    let mut problems: HashMap<String, &'static str> = HashMap::new();
+    for c in &list {
+        let Some(sid) = c.labels.as_ref().and_then(|l| l.get("pier.service.id")) else {
+            continue;
+        };
+        let problem = match c.state {
+            Some(S::RESTARTING) => "restarting",
+            Some(S::DEAD) => "exited",
+            // One-shot init/migration containers in a stack finish with
+            // "Exited (0) …" by design; only a non-zero exit is a failure.
+            Some(S::EXITED)
+                if !c
+                    .status
+                    .as_deref()
+                    .is_some_and(|s| s.starts_with("Exited (0)")) =>
+            {
+                "exited"
+            }
+            _ => continue,
+        };
+        // A restart loop is the louder signal; never downgrade it.
+        let slot = problems.entry(sid.clone()).or_insert(problem);
+        if problem == "restarting" {
+            *slot = "restarting";
+        }
+    }
+    problems
+}
+
 /// GET /api/v1/resources — list deployed resources visible to the caller.
 ///
 /// Global Admin+ and peer requests see every resource. Plain Users see only
@@ -2431,6 +2487,8 @@ pub async fn list(
     State(state): State<SharedState>,
     axum::Extension(user): axum::Extension<AuthUser>,
 ) -> AppResult<impl IntoResponse> {
+    // Before the lock: the guard must not be held across an await.
+    let live = live_container_problems(&state).await;
     let db = state
         .db
         .lock()
@@ -2446,8 +2504,10 @@ pub async fn list(
                 .find(|i| i.meta.id == cid)
                 .and_then(|i| i.meta.icon.clone())
         });
+        let id: String = row.get(0)?;
         Ok(serde_json::json!({
-            "id": row.get::<_, String>(0)?,
+            "live_problem": live.get(&id),
+            "id": id,
             "project_id": row.get::<_, Option<String>>(1)?,
             "name": row.get::<_, String>(2)?,
             "service_type": row.get::<_, String>(3)?,
@@ -2545,6 +2605,9 @@ pub async fn get(
     // load-bearing — the make-public toggle — syncs synchronously in
     // set_port_public, so moving this off the read path is safe.
     crate::docker::port_sync::spawn_port_sync_throttled(state.clone(), id.clone());
+
+    // Before the lock: the guard must not be held across an await.
+    let live_problem = live_container_problems(&state).await.remove(&id);
 
     let db = state
         .db
@@ -2655,6 +2718,9 @@ pub async fn get(
     result["ports"] = serde_json::json!(ports_json);
     result["public_ip"] = serde_json::json!(public_ip);
     result["container_name"] = serde_json::json!(container_name);
+    // `null` when the containers match the stored status; otherwise
+    // "restarting" / "exited" — see `live_container_problems`.
+    result["live_problem"] = serde_json::json!(live_problem);
     Ok(Json(result))
 }
 

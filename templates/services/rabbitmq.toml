@@ -43,8 +43,8 @@ retries = 5
 start_period = "30s"
 
 [versions]
-available = ["management", "4.0-management-alpine", "3.13-management-alpine", "3.12-management-alpine"]
-default = "management"
+available = ["4.3-management-alpine"]
+default = "4.3-management-alpine"
 
 [ui.fields.name]
 type = "text"

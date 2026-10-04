@@ -128,8 +128,8 @@
                         <div class="flex items-center justify-between text-xs mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
                             <div class="flex items-center gap-4">
                                 <span class="inline-flex items-center gap-1">
-                                    <span class="w-1.5 h-1.5 rounded-full" :class="r.status === 'running' ? 'bg-green-500' : r.status === 'failed' ? 'bg-red-500' : 'bg-yellow-400'"></span>
-                                    <span class="text-gray-500" x-text="r.status"></span>
+                                    <span class="w-1.5 h-1.5 rounded-full" :class="r.status === 'running' && r.live_problem ? 'bg-red-500' : r.status === 'running' ? 'bg-green-500' : r.status === 'failed' ? 'bg-red-500' : 'bg-yellow-400'"></span>
+                                    <span class="text-gray-500" x-text="r.status === 'running' && r.live_problem ? r.live_problem : r.status"></span>
                                 </span>
                                 <span x-show="r.primary_domain"
                                       class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400"

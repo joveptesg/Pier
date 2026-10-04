@@ -45,7 +45,8 @@ pub fn build_cluster_compose(
 
 fn build_postgresql(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("pg");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("17");
+    let image = PG_CFG.image;
+    let version = PG_CFG.default_version;
     let password = vars
         .get("password")
         .map(|s| s.as_str())
@@ -65,7 +66,7 @@ fn build_postgresql(nodes: usize, vars: &HashMap<String, String>) -> Result<Stri
     // Primary
     yaml.push_str(&format!(
         r#"  postgresql-primary:
-    image: bitnami/postgresql:{version}
+    image: {image}:{version}
     container_name: pier-{name}-primary
     ports:
       - "{port}:5432"
@@ -94,7 +95,7 @@ fn build_postgresql(nodes: usize, vars: &HashMap<String, String>) -> Result<Stri
     for i in 1..nodes {
         yaml.push_str(&format!(
             r#"  postgresql-replica-{i}:
-    image: bitnami/postgresql:{version}
+    image: {image}:{version}
     container_name: pier-{name}-replica-{i}
     environment:
       POSTGRESQL_REPLICATION_MODE: slave
@@ -130,7 +131,8 @@ fn build_postgresql(nodes: usize, vars: &HashMap<String, String>) -> Result<Stri
 
 fn build_mysql(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("mysql");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("9.3");
+    let image = MYSQL_CFG.image;
+    let version = MYSQL_CFG.default_version;
     let password = vars
         .get("password")
         .map(|s| s.as_str())
@@ -149,7 +151,7 @@ fn build_mysql(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
 
     yaml.push_str(&format!(
         r#"  mysql-primary:
-    image: bitnami/mysql:{version}
+    image: {image}:{version}
     container_name: pier-{name}-primary
     ports:
       - "{port}:3306"
@@ -176,7 +178,7 @@ fn build_mysql(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     for i in 1..nodes {
         yaml.push_str(&format!(
             r#"  mysql-replica-{i}:
-    image: bitnami/mysql:{version}
+    image: {image}:{version}
     container_name: pier-{name}-replica-{i}
     environment:
       MYSQL_REPLICATION_MODE: slave
@@ -210,7 +212,8 @@ fn build_mysql(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
 
 fn build_mariadb(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("mariadb");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("11.8");
+    let image = MARIADB_CFG.image;
+    let version = MARIADB_CFG.default_version;
     let password = vars
         .get("password")
         .map(|s| s.as_str())
@@ -229,7 +232,7 @@ fn build_mariadb(nodes: usize, vars: &HashMap<String, String>) -> Result<String>
 
     yaml.push_str(&format!(
         r#"  mariadb-primary:
-    image: bitnami/mariadb:{version}
+    image: {image}:{version}
     container_name: pier-{name}-primary
     ports:
       - "{port}:3306"
@@ -242,7 +245,7 @@ fn build_mariadb(nodes: usize, vars: &HashMap<String, String>) -> Result<String>
     volumes:
       - primary_data:/bitnami/mariadb/data
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ["CMD", "/opt/bitnami/scripts/mariadb/healthcheck.sh"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -256,7 +259,7 @@ fn build_mariadb(nodes: usize, vars: &HashMap<String, String>) -> Result<String>
     for i in 1..nodes {
         yaml.push_str(&format!(
             r#"  mariadb-replica-{i}:
-    image: bitnami/mariadb:{version}
+    image: {image}:{version}
     container_name: pier-{name}-replica-{i}
     environment:
       MARIADB_REPLICATION_MODE: slave
@@ -288,9 +291,13 @@ fn build_mariadb(nodes: usize, vars: &HashMap<String, String>) -> Result<String>
 // MongoDB — Replica Set with healthcheck-based rs.initiate()
 // ---------------------------------------------------------------------------
 
+/// mongod 8.0+ refuses to start on Linux 6.19 – 7.0.13 (SERVER-121912); having
+/// glibc register rseq works around it. Same value as the standalone template.
+const MONGO_RSEQ_WORKAROUND: &str = "glibc.pthread.rseq=1";
+
 fn build_mongodb(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("mongo");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("8.0");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("9.0");
     let port = vars.get("port").map(|s| s.as_str()).unwrap_or("27017");
 
     let mut yaml = String::from("services:\n");
@@ -317,6 +324,8 @@ fn build_mongodb(nodes: usize, vars: &HashMap<String, String>) -> Result<String>
     image: mongo:{version}
     container_name: pier-{name}-node-1
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    environment:
+      GLIBC_TUNABLES: {MONGO_RSEQ_WORKAROUND}
     ports:
       - "{port}:27017"
     volumes:
@@ -340,6 +349,8 @@ fn build_mongodb(nodes: usize, vars: &HashMap<String, String>) -> Result<String>
     image: mongo:{version}
     container_name: pier-{name}-node-{i}
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    environment:
+      GLIBC_TUNABLES: {MONGO_RSEQ_WORKAROUND}
     volumes:
       - node{i}_data:/data/db
     restart: unless-stopped
@@ -363,7 +374,7 @@ fn build_mongodb(nodes: usize, vars: &HashMap<String, String>) -> Result<String>
 
 fn build_cassandra(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("cassandra");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("5.0");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("5.0.9");
     let port = vars.get("port").map(|s| s.as_str()).unwrap_or("9042");
     let default_cluster = format!("pier-{name}");
     let cluster_name = vars
@@ -433,7 +444,7 @@ fn build_cassandra(nodes: usize, vars: &HashMap<String, String>) -> Result<Strin
 
 fn build_scylladb(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("scylla");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("6.2");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("2026.3");
     let port = vars.get("port").map(|s| s.as_str()).unwrap_or("9042");
     let smp = vars.get("smp").map(|s| s.as_str()).unwrap_or("1");
     let memory = vars.get("memory").map(|s| s.as_str()).unwrap_or("750M");
@@ -493,7 +504,7 @@ fn build_scylladb(nodes: usize, vars: &HashMap<String, String>) -> Result<String
 
 fn build_redis(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("redis");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("8.0");
+    let version = REDIS_LEGACY_VERSION;
     let password = vars
         .get("password")
         .map(|s| s.as_str())
@@ -509,7 +520,7 @@ fn build_redis(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     // Master
     yaml.push_str(&format!(
         r#"  redis-master:
-    image: bitnami/redis:{version}
+    image: bitnamilegacy/redis:{version}
     container_name: pier-{name}-master
     ports:
       - "{port}:6379"
@@ -533,7 +544,7 @@ fn build_redis(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     for i in 1..=replica_count {
         yaml.push_str(&format!(
             r#"  redis-replica-{i}:
-    image: bitnami/redis:{version}
+    image: bitnamilegacy/redis:{version}
     container_name: pier-{name}-replica-{i}
     environment:
       REDIS_REPLICATION_MODE: slave
@@ -556,7 +567,7 @@ fn build_redis(nodes: usize, vars: &HashMap<String, String>) -> Result<String> {
     for i in 1..=sentinel_count {
         yaml.push_str(&format!(
             r#"  redis-sentinel-{i}:
-    image: bitnami/redis-sentinel:{version}
+    image: bitnamilegacy/redis-sentinel:{version}
     container_name: pier-{name}-sentinel-{i}
     environment:
       REDIS_MASTER_SET: "pier-{name}"
@@ -666,7 +677,7 @@ fn build_cassandra_distributed(
 ) -> Result<String> {
     ensure_one_node_per_server(nodes, "cassandra")?;
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("cassandra");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("5.0");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("5.0.9");
     let default_cluster = format!("pier-{name}");
     let cluster_name = vars
         .get("CASSANDRA_CLUSTER_NAME")
@@ -736,7 +747,7 @@ fn build_scylladb_distributed(
 ) -> Result<String> {
     ensure_one_node_per_server(nodes, "scylladb")?;
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("scylla");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("6.2");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("2026.3");
     let smp = vars.get("smp").map(|s| s.as_str()).unwrap_or("1");
     let memory = vars.get("memory").map(|s| s.as_str()).unwrap_or("750M");
 
@@ -800,7 +811,8 @@ fn build_redis_distributed(
     vars: &HashMap<String, String>,
 ) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("redis");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("8.0");
+    // Same tag for the bitnami node and the official-image sentinel below.
+    let version = REDIS_LEGACY_VERSION;
     let password = vars
         .get("password")
         .map(|s| s.as_str())
@@ -823,7 +835,7 @@ fn build_redis_distributed(
         // node is/becomes a replica) so Sentinel + the master see a reachable
         // address. REDIS_MASTER_PASSWORD is masterauth for after a promotion.
         yaml.push_str(&format!(
-            "  redis-{num}:\n    image: bitnami/redis:{version}\n    container_name: pier-{name}-node-{num}\n    ports:\n      - \"0.0.0.0:{hp}:6379\"\n    environment:\n      REDIS_PASSWORD: \"{password}\"\n      REDIS_MASTER_PASSWORD: \"{password}\"\n      REDIS_EXTRA_FLAGS: \"--replica-announce-ip {ip} --replica-announce-port {hp}\"\n"
+            "  redis-{num}:\n    image: bitnamilegacy/redis:{version}\n    container_name: pier-{name}-node-{num}\n    ports:\n      - \"0.0.0.0:{hp}:6379\"\n    environment:\n      REDIS_PASSWORD: \"{password}\"\n      REDIS_MASTER_PASSWORD: \"{password}\"\n      REDIS_EXTRA_FLAGS: \"--replica-announce-ip {ip} --replica-announce-port {hp}\"\n"
         ));
         if n.index == 0 {
             yaml.push_str("      REDIS_REPLICATION_MODE: master\n");
@@ -877,7 +889,7 @@ fn build_mongodb_distributed(
     vars: &HashMap<String, String>,
 ) -> Result<String> {
     let name = vars.get("name").map(|s| s.as_str()).unwrap_or("mongo");
-    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("8.0");
+    let version = vars.get("version").map(|s| s.as_str()).unwrap_or("9.0");
 
     // Full member list by mesh address (used in the rs.initiate on node 0).
     let members: Vec<String> = nodes
@@ -904,7 +916,7 @@ fn build_mongodb_distributed(
         let hp = n.host_port;
         let num = n.index + 1; // 1-based service/container naming
         let common = format!(
-            "  mongo-{num}:\n    image: mongo:{version}\n    container_name: pier-{name}-node-{num}\n    command: [\"mongod\", \"--replSet\", \"rs0\", \"--bind_ip_all\"]\n    ports:\n      - \"0.0.0.0:{hp}:27017\"\n    volumes:\n      - node{num}_data:/data/db\n"
+            "  mongo-{num}:\n    image: mongo:{version}\n    container_name: pier-{name}-node-{num}\n    command: [\"mongod\", \"--replSet\", \"rs0\", \"--bind_ip_all\"]\n    environment:\n      GLIBC_TUNABLES: {MONGO_RSEQ_WORKAROUND}\n    ports:\n      - \"0.0.0.0:{hp}:27017\"\n    volumes:\n      - node{num}_data:/data/db\n"
         );
         yaml.push_str(&common);
         if n.index == 0 {
@@ -925,6 +937,24 @@ fn build_mongodb_distributed(
         }
     }
     Ok(yaml)
+}
+
+/// Last tag of `bitnamilegacy/redis` / `bitnamilegacy/redis-sentinel`; the
+/// official `redis` image the distributed sentinels run publishes it too.
+const REDIS_LEGACY_VERSION: &str = "8.2.1";
+
+/// The image tag a Bitnami-based cluster always runs, whatever version the
+/// form offered for a standalone instance. Bitnami pulled its versioned tags
+/// from Docker Hub, so these clusters are pinned to the last tag of the frozen
+/// `bitnamilegacy/*` mirror. `None` = the cluster honours the form's version.
+pub fn pinned_cluster_version(catalog_id: &str) -> Option<&'static str> {
+    match catalog_id {
+        "postgresql" => Some(PG_CFG.default_version),
+        "mysql" => Some(MYSQL_CFG.default_version),
+        "mariadb" => Some(MARIADB_CFG.default_version),
+        "redis" => Some(REDIS_LEGACY_VERSION),
+        _ => None,
+    }
 }
 
 /// Per-DB knobs for the Bitnami streaming-replication trio.
@@ -953,8 +983,8 @@ struct ReplCfg {
 
 const PG_CFG: ReplCfg = ReplCfg {
     catalog: "postgresql",
-    image: "bitnami/postgresql",
-    default_version: "17",
+    image: "bitnamilegacy/postgresql",
+    default_version: "17.6.0",
     default_name: "pg",
     internal_port: 5432,
     data_path: "/bitnami/postgresql",
@@ -979,8 +1009,8 @@ fn pg_replica_auth(pw: &str) -> String {
 
 const MYSQL_CFG: ReplCfg = ReplCfg {
     catalog: "mysql",
-    image: "bitnami/mysql",
-    default_version: "9.3",
+    image: "bitnamilegacy/mysql",
+    default_version: "9.4.0",
     default_name: "mysql",
     internal_port: 3306,
     data_path: "/bitnami/mysql/data",
@@ -1005,15 +1035,17 @@ fn mysql_replica_auth(pw: &str) -> String {
 
 const MARIADB_CFG: ReplCfg = ReplCfg {
     catalog: "mariadb",
-    image: "bitnami/mariadb",
-    default_version: "11.8",
+    image: "bitnamilegacy/mariadb",
+    default_version: "11.8.3",
     default_name: "mariadb",
     internal_port: 3306,
     data_path: "/bitnami/mariadb/data",
     primary_svc: "mariadb-primary",
     db_var: "MARIADB_DATABASE",
     default_db: "mydb",
-    healthcheck: "[\"CMD\", \"healthcheck.sh\", \"--connect\", \"--innodb_initialized\"]",
+    // Bitnami's own script (root password from env). The bare `healthcheck.sh`
+    // only exists in the official mariadb image — not on Bitnami's PATH.
+    healthcheck: "[\"CMD\", \"/opt/bitnami/scripts/mariadb/healthcheck.sh\"]",
     mode_key: "MARIADB_REPLICATION_MODE",
     repl_user_key: "MARIADB_REPLICATION_USER",
     repl_pass_key: "MARIADB_REPLICATION_PASSWORD",
@@ -1040,10 +1072,11 @@ fn build_repl_distributed(
         .get("name")
         .map(|s| s.as_str())
         .unwrap_or(cfg.default_name);
-    let version = vars
-        .get("version")
-        .map(|s| s.as_str())
-        .unwrap_or(cfg.default_version);
+    // Bitnami pulled its versioned tags from Docker Hub; only the frozen
+    // `bitnamilegacy/*` mirror still serves them, and it has none of the
+    // versions the catalog form offers (18-alpine, 9.7, 12.3). Always use
+    // the last legacy tag rather than the form value.
+    let version = cfg.default_version;
     let password = vars
         .get("password")
         .map(|s| s.as_str())
@@ -1132,5 +1165,75 @@ pub fn decommission_command(catalog_id: &str, _node_role: &str) -> Option<Vec<St
         }
         // PostgreSQL, MySQL, MariaDB, Redis: just stop the replica, no decommission needed
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vars_with_version(v: &str) -> HashMap<String, String> {
+        HashMap::from([
+            ("name".to_string(), "t".to_string()),
+            ("version".to_string(), v.to_string()),
+        ])
+    }
+
+    fn plan(server: &str, index: usize) -> ClusterNodePlan {
+        ClusterNodePlan {
+            index,
+            role: if index == 0 { "primary" } else { "replica" }.to_string(),
+            server_id: server.to_string(),
+            mesh_addr: format!("10.42.0.{}", index + 1),
+            host_port: 15432 + index as u16,
+            extra_port: Some(26379 + index as u16),
+        }
+    }
+
+    /// Bitnami-based clusters must ignore the standalone version from the form
+    /// and run the pinned legacy tag — the plain `bitnami/*` tags are gone.
+    #[test]
+    fn bitnami_clusters_run_pinned_legacy_tag() {
+        // A standalone-only version that does not exist in bitnamilegacy.
+        let vars = vars_with_version("18-alpine");
+        for (id, image) in [
+            ("postgresql", "bitnamilegacy/postgresql"),
+            ("mysql", "bitnamilegacy/mysql"),
+            ("mariadb", "bitnamilegacy/mariadb"),
+            ("redis", "bitnamilegacy/redis"),
+        ] {
+            let pinned = pinned_cluster_version(id).expect("pinned version");
+            let want = format!("image: {image}:{pinned}");
+
+            let single = build_cluster_compose(id, 3, &vars).unwrap();
+            assert!(single.contains(&want), "{id} single-host:\n{single}");
+
+            let nodes = [plan("a", 0), plan("a", 1), plan("b", 2)];
+            let multi = build_cluster_compose_for_server(id, "a", &nodes, &vars).unwrap();
+            assert!(multi.contains(&want), "{id} cross-server:\n{multi}");
+
+            for yaml in [&single, &multi] {
+                assert!(!yaml.contains("image: bitnami/"), "{id}:\n{yaml}");
+                assert!(!yaml.contains("18-alpine"), "{id}:\n{yaml}");
+            }
+        }
+    }
+
+    #[test]
+    fn other_clusters_honour_form_version() {
+        assert_eq!(pinned_cluster_version("mongodb"), None);
+        let yaml = build_cluster_compose("mongodb", 3, &vars_with_version("8.3")).unwrap();
+        assert!(yaml.contains("image: mongo:8.3"));
+    }
+
+    #[test]
+    fn mongo_nodes_carry_the_rseq_workaround() {
+        let vars = vars_with_version("9.0");
+        let want = "GLIBC_TUNABLES: glibc.pthread.rseq=1";
+        let single = build_cluster_compose("mongodb", 3, &vars).unwrap();
+        assert_eq!(single.matches(want).count(), 3, "{single}");
+        let nodes = [plan("a", 0), plan("a", 1), plan("b", 2)];
+        let multi = build_cluster_compose_for_server("mongodb", "a", &nodes, &vars).unwrap();
+        assert_eq!(multi.matches(want).count(), 2, "{multi}");
     }
 }

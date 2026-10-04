@@ -18,7 +18,7 @@ Compared to alternatives — OpenSearch + OpenSearch Dashboards is the AWS-led A
 [compose]
 template = """services:
   elasticsearch:
-    image: elasticsearch:{{version}}
+    image: docker.elastic.co/elasticsearch/elasticsearch:{{version}}
     container_name: pier-{{name}}-es
     ports:
       - "{{port}}:9200"
@@ -36,7 +36,7 @@ template = """services:
       start_period: 60s
     restart: unless-stopped
   kibana:
-    image: kibana:{{version}}
+    image: docker.elastic.co/kibana/kibana:{{version}}
     container_name: pier-{{name}}-kibana
     ports:
       - "{{kibana_port}}:5601"
@@ -59,8 +59,8 @@ placeholder = "my-elk"
 [ui.fields.version]
 type = "select"
 label = "Version"
-options = ["8.17.0", "8.16.0", "8.15.0", "7.17.25"]
-default = "8.17.0"
+options = ["9.5.4"]
+default = "9.5.4"
 
 [ui.fields.port]
 type = "number"

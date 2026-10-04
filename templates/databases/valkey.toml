@@ -40,8 +40,8 @@ timeout = "5s"
 retries = 5
 
 [versions]
-available = ["latest", "8.1-alpine", "8.0-alpine", "7.2-alpine"]
-default = "latest"
+available = ["9.1-alpine", "9.0-alpine"]
+default = "9.1-alpine"
 
 [ui.fields.name]
 type = "text"

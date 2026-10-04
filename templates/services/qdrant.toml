@@ -32,8 +32,8 @@ description = "gRPC API"
 mount = "/qdrant/storage"
 
 [versions]
-available = ["1.13.2", "1.13.1", "1.12.5", "1.11.5"]
-default = "1.13.2"
+available = ["1.19.1"]
+default = "1.19.1"
 
 [ui.fields.name]
 type = "text"

@@ -38,15 +38,15 @@ retries = 5
 start_period = "30s"
 
 [versions]
-available = ["latest", "9.3", "9.2", "8.4", "8.0"]
-default = "latest"
+available = ["9.7", "8.4"]
+default = "9.7"
 
 [cluster]
 supported = true
 min_nodes = 2
 max_nodes = 5
 default_nodes = 3
-description = "Streaming replication: 1 primary + N-1 read replicas (bitnami/mysql)"
+description = "Streaming replication: 1 primary + N-1 read replicas (bitnamilegacy/mysql 9.4.0)"
 
 [ui.fields.name]
 type = "text"

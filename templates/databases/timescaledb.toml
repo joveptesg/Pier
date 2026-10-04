@@ -39,8 +39,8 @@ retries = 5
 start_period = "30s"
 
 [versions]
-available = ["latest-pg17", "latest-pg18"]
-default = "latest-pg17"
+available = ["latest-pg18"]
+default = "latest-pg18"
 
 [ui.fields.name]
 type = "text"

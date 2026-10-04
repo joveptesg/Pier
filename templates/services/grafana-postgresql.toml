@@ -65,8 +65,8 @@ placeholder = "my-grafana"
 [ui.fields.version]
 type = "select"
 label = "Grafana Version"
-options = ["11.6", "11.5", "11.4", "10.4"]
-default = "11.6"
+options = ["13.2.3"]
+default = "13.2.3"
 
 [ui.fields.admin_password]
 type = "password"

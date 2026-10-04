@@ -32,8 +32,8 @@ SYNAPSE_SERVER_NAME = { default = "localhost", description = "Server name (domai
 SYNAPSE_REPORT_STATS = { default = "no", description = "Report anonymous stats" }
 
 [versions]
-available = ["v1.123.0", "v1.122.0", "v1.121.0"]
-default = "v1.123.0"
+available = ["v1.162.0"]
+default = "v1.162.0"
 
 [ui.fields.name]
 type = "text"

@@ -40,8 +40,8 @@ retries = 10
 start_period = "300s"
 
 [versions]
-available = ["latest", "java21", "java17"]
-default = "latest"
+available = ["java25"]
+default = "java25"
 
 [ui.fields.name]
 type = "text"

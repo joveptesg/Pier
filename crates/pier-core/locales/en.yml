@@ -575,6 +575,7 @@ resources_create:
   standalone_button: Standalone
   cluster_button: Cluster
   cluster_unavailable_hint: Add remote servers to enable cluster mode
+  cluster_version_pinned_hint: Cluster mode runs a fixed version — newer versions are available for a standalone instance
   number_of_nodes_label: Number of Nodes
   nodes_suffix: nodes
   node_distribution_label: Node Distribution
@@ -677,6 +678,7 @@ resources_detail:
   make_public_desc: "Raw TCP exposure (e.g. DB clients) via direct Docker port binding. Toggling recreates this service's container (~3 s downtime); the platform stays online. For HTTP access, use the Domains tab."
   public_toggle_db_confirm: "This will stop and recreate the database container. Make sure a recent backup exists before continuing. Continue?"
   pgdata_at_risk_title: Database files are stored in an anonymous volume
+  live_problem_hint: The last deploy succeeded, but the container is not up now. Check the Logs tab.
   pgdata_at_risk_desc: "This cluster lives outside the service's named volume, so it is skipped by volume backups and is destroyed whenever the container is recreated. Repairing moves the data into the named volume and pins PGDATA there."
   pgdata_not_repairable: "Automatic repair is unavailable — this service has no named volume to move the data into. Back up the database and recreate the service."
   pgdata_repair_btn: Repair storage

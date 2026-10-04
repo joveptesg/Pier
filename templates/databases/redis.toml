@@ -42,15 +42,15 @@ timeout = "5s"
 retries = 5
 
 [versions]
-available = ["latest", "8.0-alpine", "7.4-alpine", "7.2-alpine"]
-default = "latest"
+available = ["8.10-alpine", "8.4-alpine"]
+default = "8.10-alpine"
 
 [cluster]
 supported = true
 min_nodes = 3
 max_nodes = 5
 default_nodes = 3
-description = "Sentinel HA: 1 master + N-1 replicas + N sentinels (bitnami/redis)"
+description = "Sentinel HA: 1 master + N-1 replicas + N sentinels (bitnamilegacy/redis 8.2.1)"
 
 [ui.fields.name]
 type = "text"

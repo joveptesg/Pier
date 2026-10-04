@@ -68,8 +68,8 @@ placeholder = "my-directus"
 [ui.fields.version]
 type = "select"
 label = "Directus Version"
-options = ["11.5", "11.4", "11.3", "10.13"]
-default = "11.5"
+options = ["12.4.1"]
+default = "12.4.1"
 
 [ui.fields.admin_email]
 type = "text"

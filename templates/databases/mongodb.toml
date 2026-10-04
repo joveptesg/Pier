@@ -31,6 +31,10 @@ mount = "/data/db"
 [env]
 MONGO_INITDB_ROOT_USERNAME = { default = "root", description = "Root username" }
 MONGO_INITDB_ROOT_PASSWORD = { default = "{{password}}", description = "Root password", secret = true }
+# MongoDB 8.0+ refuses to start on Linux 6.19 – 7.0.13 (SERVER-121912: its
+# bundled tcmalloc breaks on the kernel's rseq change). Ubuntu 26.04 ships
+# 7.0.0. Registering rseq in glibc lets mongod run; harmless on fixed kernels.
+GLIBC_TUNABLES = { default = "glibc.pthread.rseq=1", description = "Workaround for MongoDB on Linux kernel 6.19–7.0.13" }
 
 [healthcheck]
 test = ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
@@ -40,8 +44,8 @@ retries = 5
 start_period = "30s"
 
 [versions]
-available = ["latest", "8.0", "7.0"]
-default = "latest"
+available = ["9.0", "8.3"]
+default = "9.0"
 
 [cluster]
 supported = true

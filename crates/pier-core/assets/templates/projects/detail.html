@@ -118,8 +118,8 @@
                     <div class="flex items-center justify-between text-xs mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
                         <div class="flex items-center gap-4">
                             <span class="inline-flex items-center gap-1">
-                                <span class="w-1.5 h-1.5 rounded-full" :class="svc.status === 'running' ? 'bg-green-500' : svc.status === 'failed' ? 'bg-red-500' : 'bg-yellow-400'"></span>
-                                <span class="text-gray-500" x-text="svc.status"></span>
+                                <span class="w-1.5 h-1.5 rounded-full" :class="svc.status === 'running' && svc.live_problem ? 'bg-red-500' : svc.status === 'running' ? 'bg-green-500' : svc.status === 'failed' ? 'bg-red-500' : 'bg-yellow-400'"></span>
+                                <span class="text-gray-500" x-text="svc.status === 'running' && svc.live_problem ? svc.live_problem : svc.status"></span>
                             </span>
                             <span x-show="svc.primary_domain"
                                   class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400"

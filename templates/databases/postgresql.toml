@@ -55,15 +55,15 @@ retries = 5
 start_period = "30s"
 
 [versions]
-available = ["latest", "18-alpine", "17-alpine", "16-alpine"]
-default = "latest"
+available = ["18-alpine", "17-alpine", "latest"]
+default = "18-alpine"
 
 [cluster]
 supported = true
 min_nodes = 2
 max_nodes = 5
 default_nodes = 3
-description = "Streaming replication: 1 primary + N-1 read replicas (bitnami/postgresql)"
+description = "Streaming replication: 1 primary + N-1 read replicas (bitnamilegacy/postgresql 17.6.0)"
 
 [ui.fields.name]
 type = "text"

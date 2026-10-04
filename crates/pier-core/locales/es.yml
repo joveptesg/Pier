@@ -565,6 +565,7 @@ resources_create:
   standalone_button: Independiente
   cluster_button: Clúster
   cluster_unavailable_hint: Añade servidores remotos para habilitar el modo clúster
+  cluster_version_pinned_hint: El modo clúster usa una versión fija — las versiones más recientes están disponibles para una instancia independiente
   number_of_nodes_label: Número de Nodos
   nodes_suffix: nodos
   node_distribution_label: Distribución de Nodos
@@ -666,6 +667,7 @@ resources_detail:
   make_public_desc: "Exposición TCP en bruto (p. ej. clientes de BD) mediante enlace directo de puertos de Docker. Al activarlo se recrea el contenedor de este servicio (~3 s de inactividad); la plataforma permanece en línea. Para acceso HTTP, usa la pestaña Dominios."
   public_toggle_db_confirm: "Esto detendrá y recreará el contenedor de la base de datos. Asegúrate de tener una copia de seguridad reciente antes de continuar. ¿Continuar?"
   pgdata_at_risk_title: Los archivos de la base de datos están en un volumen anónimo
+  live_problem_hint: El último despliegue tuvo éxito, pero el contenedor no está activo ahora. Revisa la pestaña Logs.
   pgdata_at_risk_desc: "Este clúster está fuera del volumen con nombre del servicio, por lo que las copias de seguridad de volúmenes lo omiten y se destruye cada vez que se recrea el contenedor. La reparación mueve los datos al volumen con nombre y fija PGDATA allí."
   pgdata_not_repairable: "La reparación automática no está disponible: este servicio no tiene un volumen con nombre al que mover los datos. Haz una copia de seguridad y vuelve a crear el servicio."
   pgdata_repair_btn: Reparar almacenamiento

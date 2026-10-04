@@ -30,8 +30,8 @@ mount = "/config"
 mount = "/metadata"
 
 [versions]
-available = ["2.35.1", "2.34.0", "latest"]
-default = "2.35.1"
+available = ["2.37.1"]
+default = "2.37.1"
 
 [ui.fields.name]
 type = "text"

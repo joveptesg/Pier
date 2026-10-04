@@ -161,8 +161,8 @@ pub async fn scan(state: &SharedState) -> Result<ImageScan> {
         });
     }
 
-    scan.dangling.sort_by(|a, b| b.size.cmp(&a.size));
-    scan.orphans.sort_by(|a, b| b.size.cmp(&a.size));
+    scan.dangling.sort_by_key(|a| std::cmp::Reverse(a.size));
+    scan.orphans.sort_by_key(|a| std::cmp::Reverse(a.size));
     Ok(scan)
 }
 

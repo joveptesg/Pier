@@ -27,8 +27,8 @@ description = "Web UI (HTTPS)"
 mount = "/data"
 
 [versions]
-available = ["2.25.1", "2.25.0", "2.24.0", "2.23.0"]
-default = "2.25.1"
+available = ["2.45.1"]
+default = "2.45.1"
 
 [ui.fields.name]
 type = "text"

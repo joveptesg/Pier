@@ -16,7 +16,7 @@ Single-node only in this template — suitable for dev, test, and small-to-mediu
 """
 
 [docker]
-image = "elasticsearch:{{version}}"
+image = "docker.elastic.co/elasticsearch/elasticsearch:{{version}}"
 
 [ports.primary]
 internal = 9200
@@ -44,8 +44,8 @@ retries = 5
 start_period = "60s"
 
 [versions]
-available = ["8.17.0", "8.16.0", "8.15.0", "7.17.25"]
-default = "8.17.0"
+available = ["9.5.4"]
+default = "9.5.4"
 
 [ui.fields.name]
 type = "text"

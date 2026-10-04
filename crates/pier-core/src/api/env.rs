@@ -60,6 +60,70 @@ pub async fn update_env(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+/// True for keys the env editor hides: anything with a lowercase letter. Those
+/// are catalog template vars (`version`, `name`, `password`, `port`, …) that
+/// the compose YAML is regenerated from, not container environment.
+fn is_template_var(key: &str) -> bool {
+    key.chars().any(|c| c.is_ascii_lowercase())
+}
+
+/// Carry the stored template vars over into an incoming env map.
+///
+/// The editor only round-trips UPPERCASE keys, so a plain save used to drop
+/// `version` & co. from `env_json`; the next regeneration then emitted
+/// `image: mongo:{{version}}` and the redeploy failed. Keys the caller sends
+/// explicitly still win.
+fn keep_template_vars(
+    state: &SharedState,
+    id: &str,
+    mut env: HashMap<String, String>,
+) -> AppResult<HashMap<String, String>> {
+    let (stored, image, catalog_id): (Option<String>, Option<String>, Option<String>) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+        db.query_row(
+            "SELECT env_json, image, catalog_id FROM services WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap_or((None, None, None))
+    };
+    let stored: HashMap<String, String> =
+        serde_json::from_str(&crate::crypto::decrypt_env_json(stored.as_deref()))
+            .unwrap_or_default();
+    for (k, v) in stored {
+        if is_template_var(&k) {
+            env.entry(k).or_insert(v);
+        }
+    }
+    // Services saved before this fix already lost `version`; recover it from
+    // the image they were created with (template `mongo:{{version}}` +
+    // stored `mongo:9.0` → `9.0`).
+    if !env.contains_key("version") {
+        let template = catalog_id
+            .as_deref()
+            .and_then(|cid| state.catalog.iter().find(|i| i.meta.id == cid))
+            .and_then(|item| item.docker.as_ref())
+            .map(|d| d.image.as_str());
+        if let Some(v) = template
+            .zip(image.as_deref())
+            .and_then(|(t, i)| version_from_image(t, i))
+        {
+            env.insert("version".to_string(), v);
+        }
+    }
+    Ok(env)
+}
+
+/// The `{{version}}` part of `image`, matched against the catalog's `template`.
+fn version_from_image(template: &str, image: &str) -> Option<String> {
+    let (prefix, suffix) = template.split_once("{{version}}")?;
+    let v = image.strip_prefix(prefix)?.strip_suffix(suffix)?;
+    (!v.is_empty()).then(|| v.to_string())
+}
+
 /// Persist a service's env vars (encrypted), keep the on-disk `.env` in step,
 /// and optionally redeploy — the whole body of the `PUT .../env` handler minus
 /// the authorization check.
@@ -79,6 +143,7 @@ pub(crate) async fn apply_env_update(
 ) -> AppResult<()> {
     let state = state.clone();
     let id = id.to_string();
+    let env = keep_template_vars(&state, &id, env)?;
     let body = UpdateEnvRequest { env, redeploy };
 
     let env_json_plain = serde_json::to_string(&body.env)
@@ -296,4 +361,37 @@ pub(crate) async fn apply_env_update(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn template_vars_are_the_keys_the_editor_hides() {
+        for k in ["version", "name", "password", "db_password", "ssh_port"] {
+            assert!(is_template_var(k), "{k}");
+        }
+        for k in [
+            "POSTGRES_DB",
+            "GLIBC_TUNABLES",
+            "MONGO_INITDB_ROOT_USERNAME",
+        ] {
+            assert!(!is_template_var(k), "{k}");
+        }
+    }
+
+    #[test]
+    fn version_is_recovered_from_the_image() {
+        assert_eq!(
+            version_from_image("mongo:{{version}}", "mongo:9.0").as_deref(),
+            Some("9.0")
+        );
+        assert_eq!(
+            version_from_image("qdrant/qdrant:v{{version}}", "qdrant/qdrant:v1.19.1").as_deref(),
+            Some("1.19.1")
+        );
+        assert_eq!(version_from_image("mongo:{{version}}", "redis:8.4"), None);
+        assert_eq!(version_from_image("nginx:latest", "nginx:latest"), None);
+    }
 }

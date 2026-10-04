@@ -38,8 +38,8 @@ retries = 5
 start_period = "30s"
 
 [versions]
-available = ["11.6", "11.5", "11.4", "11.3", "10.4"]
-default = "11.6"
+available = ["13.2.3"]
+default = "13.2.3"
 
 [ui.fields.name]
 type = "text"

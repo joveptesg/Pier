@@ -66,8 +66,8 @@ placeholder = "my-gitea"
 [ui.fields.version]
 type = "select"
 label = "Gitea Version"
-options = ["1.23", "1.22", "1.21"]
-default = "1.23"
+options = ["28.0"]
+default = "28.0"
 
 [ui.fields.db_password]
 type = "password"
