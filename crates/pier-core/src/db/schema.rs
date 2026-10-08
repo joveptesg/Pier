@@ -1612,7 +1612,68 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE domains ADD COLUMN dns_status TEXT NOT NULL DEFAULT 'unknown';
     ALTER TABLE domains ADD COLUMN dns_ips TEXT NOT NULL DEFAULT '';
     "#,
+    // Migration 71: drop duplicate port rows. See `DEDUPE_PORT_ROWS_SQL`.
+    DEDUPE_PORT_ROWS_SQL,
 ];
+
+/// One-time cleanup of `port_allocations` rows that repeat a container port.
+///
+/// The catalog emitter writes a public port as two compose lines for one
+/// container port (`127.0.0.1:10000:5432` + `0.0.0.0:5432:5432`), and
+/// `update_ports_from_compose` used to turn each line into its own row:
+/// `primary` and a phantom `port-1`, both pointing at `:5432`. Making the
+/// port public then bound 0.0.0.0:5432 twice ("address already in use").
+///
+/// Keeps the oldest row per `(service, compose_service, container_port,
+/// protocol)`, carrying over the public flag from a public duplicate so an
+/// open port stays open. `replica_N` rows legitimately share a container port
+/// and are left alone.
+pub(crate) const DEDUPE_PORT_ROWS_SQL: &str = r#"
+    UPDATE port_allocations
+    SET is_public = 1,
+        public_port = (
+            SELECT d.public_port FROM port_allocations d
+            WHERE d.service_id = port_allocations.service_id
+              AND COALESCE(d.compose_service, '') = COALESCE(port_allocations.compose_service, '')
+              AND d.container_port = port_allocations.container_port
+              AND d.protocol = port_allocations.protocol
+              AND d.port_name NOT LIKE 'replica\_%' ESCAPE '\'
+              AND d.rowid > port_allocations.rowid
+              AND d.is_public = 1 AND d.public_port IS NOT NULL
+            ORDER BY d.rowid LIMIT 1
+        )
+    WHERE is_public = 0
+      AND port_name NOT LIKE 'replica\_%' ESCAPE '\'
+      AND rowid = (
+            SELECT MIN(k.rowid) FROM port_allocations k
+            WHERE k.service_id = port_allocations.service_id
+              AND COALESCE(k.compose_service, '') = COALESCE(port_allocations.compose_service, '')
+              AND k.container_port = port_allocations.container_port
+              AND k.protocol = port_allocations.protocol
+              AND k.port_name NOT LIKE 'replica\_%' ESCAPE '\'
+      )
+      AND EXISTS (
+            SELECT 1 FROM port_allocations d
+            WHERE d.service_id = port_allocations.service_id
+              AND COALESCE(d.compose_service, '') = COALESCE(port_allocations.compose_service, '')
+              AND d.container_port = port_allocations.container_port
+              AND d.protocol = port_allocations.protocol
+              AND d.port_name NOT LIKE 'replica\_%' ESCAPE '\'
+              AND d.rowid > port_allocations.rowid
+              AND d.is_public = 1 AND d.public_port IS NOT NULL
+      );
+
+    DELETE FROM port_allocations
+    WHERE port_name NOT LIKE 'replica\_%' ESCAPE '\'
+      AND rowid > (
+            SELECT MIN(k.rowid) FROM port_allocations k
+            WHERE k.service_id = port_allocations.service_id
+              AND COALESCE(k.compose_service, '') = COALESCE(port_allocations.compose_service, '')
+              AND k.container_port = port_allocations.container_port
+              AND k.protocol = port_allocations.protocol
+              AND k.port_name NOT LIKE 'replica\_%' ESCAPE '\'
+      );
+"#;
 
 /// Run all pending database migrations.
 pub fn run_migrations(conn: &Connection) -> Result<()> {

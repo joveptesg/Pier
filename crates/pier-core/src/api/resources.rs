@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
@@ -2451,13 +2451,18 @@ pub(crate) async fn live_container_problems(state: &SharedState) -> HashMap<Stri
     };
 
     let mut problems: HashMap<String, &'static str> = HashMap::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for c in &list {
         let Some(sid) = c.labels.as_ref().and_then(|l| l.get("pier.service.id")) else {
             continue;
         };
+        seen.insert(sid.clone());
         let problem = match c.state {
             Some(S::RESTARTING) => "restarting",
             Some(S::DEAD) => "exited",
+            // Created but never started — what a port toggle leaves behind
+            // when the new container fails to bind. It is not serving.
+            Some(S::CREATED) => "exited",
             // One-shot init/migration containers in a stack finish with
             // "Exited (0) …" by design; only a non-zero exit is a failure.
             Some(S::EXITED)
@@ -2476,7 +2481,77 @@ pub(crate) async fn live_container_problems(state: &SharedState) -> HashMap<Stri
             *slot = "restarting";
         }
     }
+
+    // A local catalog service recorded as running with no container at all.
+    // Limited to catalog services: their containers always carry
+    // `pier.service.id`, so "no labelled container" really means gone. Git
+    // and compose services may run unlabelled and would read as missing.
+    if let Ok(db) = state.db.lock() {
+        if let Ok(mut stmt) = db.prepare(
+            "SELECT s.id FROM services s LEFT JOIN servers sv ON sv.id = s.server_id \
+             WHERE s.status = 'running' AND s.catalog_id IS NOT NULL \
+               AND (s.server_id IS NULL OR sv.is_local = 1)",
+        ) {
+            let ids = stmt
+                .query_map([], |r| r.get::<_, String>(0))
+                .map(|it| it.filter_map(|r| r.ok()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            for id in ids {
+                if !seen.contains(&id) {
+                    problems.entry(id).or_insert("missing");
+                }
+            }
+        }
+    }
     problems
+}
+
+/// Whether any container of `service_id` is running, found the same way
+/// `docker::recreate` finds them: by `pier.service.id` label, else by
+/// `services.container_id`. A Docker error counts as running — this only
+/// decides whether to mark the service failed, and a guess must not do that.
+async fn service_has_running_container(state: &SharedState, service_id: &str) -> bool {
+    use bollard::models::ContainerSummaryStateEnum as S;
+    use bollard::query_parameters::ListContainersOptions;
+
+    let Ok(list) = state
+        .docker
+        .list_containers(Some(ListContainersOptions {
+            all: true,
+            ..Default::default()
+        }))
+        .await
+    else {
+        return true;
+    };
+    let labelled: Vec<_> = list
+        .iter()
+        .filter(|c| {
+            c.labels
+                .as_ref()
+                .and_then(|l| l.get("pier.service.id"))
+                .is_some_and(|s| s == service_id)
+        })
+        .collect();
+    if !labelled.is_empty() {
+        return labelled.iter().any(|c| c.state == Some(S::RUNNING));
+    }
+    let cid: Option<String> = state.db.lock().ok().and_then(|db| {
+        db.query_row(
+            "SELECT container_id FROM services WHERE id = ?1",
+            [service_id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+    });
+    let Some(cid) = cid.filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    match state.docker.inspect_container(&cid, None).await {
+        Ok(info) => info.state.and_then(|s| s.running).unwrap_or(false),
+        Err(_) => false,
+    }
 }
 
 /// GET /api/v1/resources — list deployed resources visible to the caller.
@@ -3105,10 +3180,14 @@ pub async fn stop(
         Err(e) => format!("{e}"),
     };
     record_deployment_log(&db, &id, "stop", status_str, &log_output);
-    let _ = db.execute(
-        "UPDATE services SET status = 'stopped', updated_at = datetime('now') WHERE id = ?1",
-        [&id],
-    );
+    // Only a stop that worked makes the service stopped; a failed one leaves
+    // it in whatever state it was really in.
+    if result.is_ok() {
+        let _ = db.execute(
+            "UPDATE services SET status = 'stopped', updated_at = datetime('now') WHERE id = ?1",
+            [&id],
+        );
+    }
 
     if let Err(e) = result {
         return Err(AppError::OperationFailed(action_failure_summary(&e)));
@@ -5081,6 +5160,20 @@ pub async fn set_port_public(
                         )
                     };
                 }
+            }
+            // A failure after stop+remove leaves the service down while the
+            // row still says `running`. Pre-flight failures happen before the
+            // container is touched, so ask Docker rather than assuming.
+            if !service_has_running_container(&state, &id).await {
+                if let Ok(db) = state.db.lock() {
+                    let _ = db.execute(
+                        "UPDATE services SET status = 'failed', updated_at = datetime('now') WHERE id = ?1",
+                        [&id],
+                    );
+                }
+                tracing::error!(
+                    "Port-public toggle for {id} left the service without a running container"
+                );
             }
             tracing::error!("Port-public toggle for {id} failed; DB rolled back: {e}");
             Err(AppError::Internal(anyhow::anyhow!(

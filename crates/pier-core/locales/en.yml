@@ -822,6 +822,12 @@ resources_detail:
   create_database_btn: + Create Database
   th_database: Database
   th_owner: Owner
+  th_privileges: Privileges
+  privilege_createrole: Can create roles
+  privilege_createdb: Can create databases
+  privileges_label: User privileges
+  privileges_hint: "Privileges belong to the user: they apply to every database it owns. Needed when the app's migrations create their own roles."
+  privilege_toggle_title: Click to turn on or off
   th_password: Password
   th_size: Size
   th_connection_url: Connection URL
@@ -1076,6 +1082,7 @@ resources_detail:
   err_query_failed: Query failed
   toast_all_fields_required: All fields required
   toast_database_created: Database %{name} created
+  toast_privileges_updated: Privileges of %{name} updated
   toast_database_deleted: Database deleted
   toast_password_required: Password is required
   toast_password_changed: Password changed
@@ -2377,6 +2384,9 @@ errors:
     password_required: Password is required
     owner_not_found: Could not find owner for database %{name}
     container_not_found: "Container '%{name}' not found. Make sure the service is running."
+    command_failed: "Database command failed: %{error}"
+    privileges_unsupported_engine: User privileges can only be managed for PostgreSQL
+    privileges_superuser: "%{name} is a superuser; its privileges are not managed here"
   domains:
     domain_required: Domain is required
     domain_not_found: Domain %{name} not found

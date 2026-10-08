@@ -327,6 +327,10 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/databases/{dbname}/password",
             put(databases::change_password),
         )
+        .route(
+            "/resources/{id}/databases/{dbname}/privileges",
+            put(databases::set_privileges),
+        )
         // Restore a per-DB backup directly from a user-uploaded file.
         // Body limit raised to 5 GB to accommodate full Postgres dumps;
         // applied per-route so other endpoints keep their default 2 MB cap.

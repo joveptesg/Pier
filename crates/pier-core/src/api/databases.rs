@@ -86,7 +86,7 @@ pub async fn list_databases(
                     "-F",
                     "|",
                     "-c",
-                    "SELECT d.datname, r.rolname, pg_size_pretty(pg_database_size(d.datname)) FROM pg_database d JOIN pg_roles r ON d.datdba = r.oid WHERE d.datistemplate = false ORDER BY d.datname",
+                    "SELECT d.datname, r.rolname, pg_size_pretty(pg_database_size(d.datname)), r.rolcreaterole, r.rolcreatedb, r.rolsuper FROM pg_database d JOIN pg_roles r ON d.datdba = r.oid WHERE d.datistemplate = false ORDER BY d.datname",
                 ],
             )
             .await?
@@ -171,6 +171,11 @@ pub async fn list_databases(
                 "owner": parts.get(1).map(|s| s.trim()).unwrap_or(""),
                 "size": parts.get(2).map(|s| s.trim()).unwrap_or("0"),
                 "stored_password": cred.map(|(_, p)| p.as_str()).unwrap_or(""),
+                // PostgreSQL only — read live from pg_roles so the toggles
+                // never disagree with the database. `null` for other engines.
+                "createrole": pg_bool(parts.get(3)),
+                "createdb": pg_bool(parts.get(4)),
+                "superuser": pg_bool(parts.get(5)),
             })
         })
         .filter(|d| {
@@ -247,17 +252,39 @@ pub async fn create_database(
                 Vec::new()
             };
 
-            // Each command must run separately — CREATE DATABASE cannot run inside a transaction
-            let create_user = format!("CREATE USER {username} WITH PASSWORD '{password}'");
-            exec_in_container(
+            // An existing role gets the password from the form instead of a
+            // silently failing CREATE — otherwise the panel stores a password
+            // the database never got.
+            let exists_sql = format!(
+                "SELECT 1 FROM pg_roles WHERE rolname = {}",
+                pg_literal(&username.to_lowercase())
+            );
+            let role_exists = exec_checked(
                 &state.docker,
                 &container,
-                &["psql", "-U", "postgres", "-c", &create_user],
+                &["psql", "-U", "postgres", "-t", "-A", "-c", &exists_sql],
+            )
+            .await?
+            .trim()
+                == "1";
+            let role_sql = pg_role_sql(
+                role_exists,
+                username,
+                password,
+                body.createrole,
+                body.createdb,
+            );
+
+            // Each command must run separately — CREATE DATABASE cannot run inside a transaction
+            exec_checked(
+                &state.docker,
+                &container,
+                &["psql", "-U", "postgres", "-c", &role_sql],
             )
             .await?;
 
             let create_db = format!("CREATE DATABASE {db_name} OWNER {username}");
-            exec_in_container(
+            exec_checked(
                 &state.docker,
                 &container,
                 &["psql", "-U", "postgres", "-c", &create_db],
@@ -265,7 +292,7 @@ pub async fn create_database(
             .await?;
 
             let grant = format!("GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {username}");
-            exec_in_container(
+            exec_checked(
                 &state.docker,
                 &container,
                 &["psql", "-U", "postgres", "-c", &grant],
@@ -280,7 +307,7 @@ pub async fn create_database(
             let sql = format!(
                 "CREATE DATABASE IF NOT EXISTS {db_name}; CREATE USER IF NOT EXISTS '{username}'@'%' IDENTIFIED BY '{password}'; GRANT ALL PRIVILEGES ON {db_name}.* TO '{username}'@'%'; FLUSH PRIVILEGES;"
             );
-            exec_in_container(
+            exec_checked(
                 &state.docker,
                 &container,
                 &["mysql", "-u", "root", "-e", &sql],
@@ -306,7 +333,7 @@ pub async fn create_database(
                  db.pier_init.insertOne({{_init:1}}); \
                  db.pier_init.drop();"
             );
-            exec_in_container(
+            exec_checked(
                 &state.docker,
                 &container,
                 &[
@@ -331,17 +358,14 @@ pub async fn create_database(
         }
     }
 
-    // Store credentials in database_credentials table
+    // Store credentials. A re-used role just had its password changed, so
+    // every database it owns gets the new one — not only this row.
     {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let cred_id = uuid::Uuid::new_v4().to_string();
-        let _ = db.execute(
-            "INSERT INTO database_credentials (id, service_id, db_name, username, password) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![cred_id, id, db_name, username, password],
-        );
+        store_credentials(&db, &id, db_name, username, password, catalog != "mongodb")?;
     }
 
     tracing::info!("Created database {db_name} with user {username} in {container}");
@@ -675,8 +699,11 @@ pub async fn change_password(
 
     match catalog.as_str() {
         "postgresql" | "postgis" | "timescaledb" => {
-            let sql = format!("ALTER USER {username} WITH PASSWORD '{password}'");
-            exec_in_container(
+            let sql = format!(
+                "ALTER USER {username} WITH PASSWORD {}",
+                pg_literal(password)
+            );
+            exec_checked(
                 &state.docker,
                 &container,
                 &["psql", "-U", "postgres", "-c", &sql],
@@ -687,7 +714,7 @@ pub async fn change_password(
             let sql = format!(
                 "ALTER USER '{username}'@'%' IDENTIFIED BY '{password}'; FLUSH PRIVILEGES;"
             );
-            exec_in_container(
+            exec_checked(
                 &state.docker,
                 &container,
                 &["mysql", "-u", "root", "-e", &sql],
@@ -709,7 +736,7 @@ pub async fn change_password(
                 "db = db.getSiblingDB('{dbname}'); \
                  db.changeUserPassword('{username}', {pwd_js});"
             );
-            exec_in_container(
+            exec_checked(
                 &state.docker,
                 &container,
                 &[
@@ -740,30 +767,264 @@ pub async fn change_password(
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-        let updated = db.execute(
-            "UPDATE database_credentials SET password = ?1 WHERE service_id = ?2 AND db_name = ?3",
-            rusqlite::params![password, id, dbname],
-        ).unwrap_or(0);
-        if updated == 0 {
-            // No existing record — insert new one
-            let cred_id = uuid::Uuid::new_v4().to_string();
-            let _ = db.execute(
-                "INSERT INTO database_credentials (id, service_id, db_name, username, password) VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![cred_id, id, dbname, username, password],
-            );
-        }
+        store_credentials(&db, &id, &dbname, &username, password, catalog != "mongodb")?;
     }
 
     tracing::info!("Changed password for user {username} (db: {dbname}) in {container}");
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-/// Execute a command inside a Docker container and return stdout.
+#[derive(Deserialize)]
+pub struct PrivilegesRequest {
+    #[serde(default)]
+    pub createrole: bool,
+    #[serde(default)]
+    pub createdb: bool,
+}
+
+/// PUT /api/v1/resources/{id}/databases/{dbname}/privileges — set the
+/// owner role's `CREATEROLE` / `CREATEDB`. PostgreSQL family only; never
+/// touches a superuser (`postgres`), and never grants `SUPERUSER`.
+///
+/// The privileges belong to the role, so they apply to every database the
+/// role owns.
+pub async fn set_privileges(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path((id, dbname)): Path<(String, String)>,
+    Json(body): Json<PrivilegesRequest>,
+) -> AppResult<impl IntoResponse> {
+    enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
+    if dbname.is_empty() || !dbname.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.databases.invalid_name_chars",
+        )));
+    }
+
+    let (catalog_id, name) = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT catalog_id, name FROM services WHERE id = ?1",
+            [&id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(|_| {
+            AppError::NotFound(crate::i18n::te_args(
+                "errors.databases.resource_not_found",
+                &[("id", &id)],
+            ))
+        })?
+    };
+    if !matches!(
+        catalog_id.as_deref(),
+        Some("postgresql" | "postgis" | "timescaledb")
+    ) {
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.databases.privileges_unsupported_engine",
+        )));
+    }
+    let container = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+
+    let owner_sql = format!(
+        "SELECT r.rolname, r.rolsuper FROM pg_database d JOIN pg_roles r ON d.datdba = r.oid WHERE d.datname = {}",
+        pg_literal(&dbname)
+    );
+    let out = exec_checked(
+        &state.docker,
+        &container,
+        &[
+            "psql", "-U", "postgres", "-t", "-A", "-F", "|", "-c", &owner_sql,
+        ],
+    )
+    .await?;
+    let mut parts = out.trim().split('|');
+    let owner = parts.next().unwrap_or("").trim().to_string();
+    let is_super = parts.next().map(|s| s.trim() == "t").unwrap_or(false);
+    if owner.is_empty() {
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.databases.owner_not_found",
+            &[("name", &dbname)],
+        )));
+    }
+    if is_super {
+        return Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.databases.privileges_superuser",
+            &[("name", &owner)],
+        )));
+    }
+
+    let sql = format!(
+        "ALTER ROLE {} WITH {}",
+        pg_ident(&owner),
+        pg_role_flags(body.createrole, body.createdb)
+    );
+    exec_checked(
+        &state.docker,
+        &container,
+        &["psql", "-U", "postgres", "-c", &sql],
+    )
+    .await?;
+
+    tracing::info!(
+        "Set privileges for role {owner} (db: {dbname}) in {container}: createrole={} createdb={}",
+        body.createrole,
+        body.createdb
+    );
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "owner": owner,
+        "createrole": body.createrole,
+        "createdb": body.createdb,
+    })))
+}
+
+/// psql `-A` prints booleans as `t` / `f`; anything else (missing column on
+/// non-PostgreSQL engines) is `null`.
+fn pg_bool(field: Option<&&str>) -> serde_json::Value {
+    match field.map(|s| s.trim()) {
+        Some("t") => serde_json::Value::Bool(true),
+        Some("f") => serde_json::Value::Bool(false),
+        _ => serde_json::Value::Null,
+    }
+}
+
+/// SQL string literal: wrap in single quotes, doubling any inside.
+fn pg_literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Quoted identifier for a role name read back from `pg_roles` — it may
+/// carry upper case or characters an unquoted name would mangle.
+fn pg_ident(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
+}
+
+fn pg_role_flags(createrole: bool, createdb: bool) -> String {
+    format!(
+        "{} {}",
+        if createrole {
+            "CREATEROLE"
+        } else {
+            "NOCREATEROLE"
+        },
+        if createdb { "CREATEDB" } else { "NOCREATEDB" }
+    )
+}
+
+/// Statement that leaves `username` able to log in with `password`.
+///
+/// A new role gets exactly the requested privileges. An existing one gets the
+/// new password and only *gains* privileges: creating a second database for a
+/// role must not quietly revoke something it already relies on — revoking is
+/// done explicitly from the privileges toggle.
+fn pg_role_sql(
+    exists: bool,
+    username: &str,
+    password: &str,
+    createrole: bool,
+    createdb: bool,
+) -> String {
+    let pwd = pg_literal(password);
+    if exists {
+        let mut sql = format!("ALTER ROLE {username} WITH LOGIN PASSWORD {pwd}");
+        if createrole {
+            sql.push_str(" CREATEROLE");
+        }
+        if createdb {
+            sql.push_str(" CREATEDB");
+        }
+        sql
+    } else {
+        format!(
+            "CREATE ROLE {username} WITH LOGIN PASSWORD {pwd} {}",
+            pg_role_flags(createrole, createdb)
+        )
+    }
+}
+
+/// Upsert the stored credentials for `(service_id, db_name)` and carry the
+/// new password to every other database of the same user. PostgreSQL and
+/// MySQL users are server-wide, so one password change applies to all of
+/// them; leaving the siblings stale is how the panel ended up showing
+/// passwords that no longer worked. MongoDB users are per-database, so a
+/// shared username there is a different user.
+fn store_credentials(
+    db: &rusqlite::Connection,
+    service_id: &str,
+    db_name: &str,
+    username: &str,
+    password: &str,
+    server_wide_user: bool,
+) -> Result<(), AppError> {
+    let updated = db.execute(
+        "UPDATE database_credentials SET username = ?1, password = ?2 \
+         WHERE service_id = ?3 AND db_name = ?4",
+        rusqlite::params![username, password, service_id, db_name],
+    )?;
+    if updated == 0 {
+        db.execute(
+            "INSERT INTO database_credentials (id, service_id, db_name, username, password) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                service_id,
+                db_name,
+                username,
+                password
+            ],
+        )?;
+    }
+    if server_wide_user {
+        db.execute(
+            "UPDATE database_credentials SET password = ?1 WHERE service_id = ?2 AND username = ?3",
+            rusqlite::params![password, service_id, username],
+        )?;
+    }
+    Ok(())
+}
+
+/// Execute a command inside a Docker container and return stdout+stderr.
+///
+/// The exit code is ignored — callers that parse whatever the tool printed
+/// (mongosh browsing) rely on that. Anything that changes state should use
+/// [`exec_checked`] instead.
 pub(crate) async fn exec_in_container(
     docker: &bollard::Docker,
     container: &str,
     cmd: &[&str],
 ) -> Result<String, AppError> {
+    exec_with_exit_code(docker, container, cmd)
+        .await
+        .map(|(out, _)| out)
+}
+
+/// Like [`exec_in_container`], but a non-zero exit code is an error carrying
+/// the tool's own message. Without this a failed `CREATE USER` (role already
+/// there) was reported as success and the panel stored a password the
+/// database never got.
+pub(crate) async fn exec_checked(
+    docker: &bollard::Docker,
+    container: &str,
+    cmd: &[&str],
+) -> Result<String, AppError> {
+    let (out, code) = exec_with_exit_code(docker, container, cmd).await?;
+    match code {
+        Some(0) | None => Ok(out),
+        Some(_) => Err(AppError::BadRequest(crate::i18n::te_args(
+            "errors.databases.command_failed",
+            &[("error", out.trim())],
+        ))),
+    }
+}
+
+async fn exec_with_exit_code(
+    docker: &bollard::Docker,
+    container: &str,
+    cmd: &[&str],
+) -> Result<(String, Option<i64>), AppError> {
     use bollard::exec::{CreateExecOptions, StartExecResults};
     use futures_util::StreamExt;
 
@@ -801,7 +1062,16 @@ pub(crate) async fn exec_in_container(
         }
     }
 
-    Ok(result)
+    // The stream has ended, so the process has exited and inspect reports
+    // its code. `None` only if Docker cannot say — treat that as success
+    // rather than failing an operation that may well have worked.
+    let exit_code = docker
+        .inspect_exec(&exec.id)
+        .await
+        .ok()
+        .and_then(|i| i.exit_code);
+
+    Ok((result, exit_code))
 }
 
 /// Install the requested PostGIS extensions into the freshly-created database.
@@ -834,6 +1104,13 @@ pub struct CreateDatabaseRequest {
     pub database: String,
     pub username: String,
     pub password: String,
+    /// PostgreSQL-family only: let the owner create roles (`CREATEROLE`).
+    /// Apps whose migrations set up their own `*_app` / `*_owner` roles need it.
+    #[serde(default)]
+    pub createrole: bool,
+    /// PostgreSQL-family only: let the owner create databases (`CREATEDB`).
+    #[serde(default)]
+    pub createdb: bool,
     /// PostGIS-only: list of PostGIS extensions to install in the new DB.
     /// Each name is validated against `POSTGIS_EXTENSIONS`. Ignored for
     /// non-postgis catalogs.
@@ -851,3 +1128,93 @@ const POSTGIS_EXTENSIONS: &[&str] = &[
     "fuzzystrmatch",
     "postgis_tiger_geocoder",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pg_literal_doubles_single_quotes() {
+        assert_eq!(pg_literal("it's"), "'it''s'");
+        assert_eq!(pg_literal("plain"), "'plain'");
+    }
+
+    #[test]
+    fn new_role_gets_exactly_the_requested_privileges() {
+        assert_eq!(
+            pg_role_sql(false, "sudoku", "pw", true, false),
+            "CREATE ROLE sudoku WITH LOGIN PASSWORD 'pw' CREATEROLE NOCREATEDB"
+        );
+        assert_eq!(
+            pg_role_sql(false, "app", "pw", false, false),
+            "CREATE ROLE app WITH LOGIN PASSWORD 'pw' NOCREATEROLE NOCREATEDB"
+        );
+    }
+
+    #[test]
+    fn existing_role_gets_password_and_only_gains_privileges() {
+        // Creating a second database must never revoke what the role has.
+        assert_eq!(
+            pg_role_sql(true, "sudoku", "pw", false, false),
+            "ALTER ROLE sudoku WITH LOGIN PASSWORD 'pw'"
+        );
+        assert_eq!(
+            pg_role_sql(true, "sudoku", "pw", true, true),
+            "ALTER ROLE sudoku WITH LOGIN PASSWORD 'pw' CREATEROLE CREATEDB"
+        );
+    }
+
+    #[test]
+    fn password_with_quote_cannot_break_out_of_the_literal() {
+        let sql = pg_role_sql(false, "u", "a'; DROP ROLE postgres; --", false, false);
+        assert!(
+            sql.contains("PASSWORD 'a''; DROP ROLE postgres; --'"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn pg_ident_quotes_and_escapes() {
+        assert_eq!(pg_ident("Sudoku"), "\"Sudoku\"");
+        assert_eq!(pg_ident("a\"b"), "\"a\"\"b\"");
+    }
+
+    #[test]
+    fn pg_bool_parses_psql_booleans() {
+        assert_eq!(pg_bool(Some(&"t")), serde_json::Value::Bool(true));
+        assert_eq!(pg_bool(Some(&"f ")), serde_json::Value::Bool(false));
+        assert_eq!(pg_bool(None), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn store_credentials_upserts_and_syncs_server_wide_user() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::schema::run_migrations(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO services (id, name, service_type) VALUES ('s', 'pg', 'database')",
+            [],
+        )
+        .unwrap();
+        store_credentials(&conn, "s", "one", "sudoku", "old", true).unwrap();
+        store_credentials(&conn, "s", "two", "sudoku", "new", true).unwrap();
+        let pw: Vec<String> = conn
+            .prepare("SELECT password FROM database_credentials ORDER BY db_name")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(pw, vec!["new".to_string(), "new".to_string()]);
+
+        // Re-storing the same database updates, never duplicates.
+        store_credentials(&conn, "s", "two", "sudoku", "newer", false).unwrap();
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM database_credentials WHERE db_name = 'two'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+}

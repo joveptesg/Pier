@@ -514,4 +514,88 @@ mod tests {
             "an exempt port must still be re-taken by its owner"
         );
     }
+
+    // ─── migration 71: duplicate port rows ───────────────────────────────
+
+    fn insert_full(
+        conn: &Connection,
+        id: &str,
+        port_name: &str,
+        host: i64,
+        container: i64,
+        public_port: Option<i64>,
+        compose_service: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO port_allocations              (id, service_id, port_name, host_port, container_port, protocol, is_public, public_port, compose_service)              VALUES (?1, 'svc-1', ?2, ?3, ?4, 'tcp', ?5, ?6, ?7)",
+            rusqlite::params![
+                id,
+                port_name,
+                host,
+                container,
+                public_port.is_some() as i64,
+                public_port,
+                compose_service
+            ],
+        )
+        .expect("insert alloc");
+    }
+
+    fn names_and_public(conn: &Connection) -> Vec<(String, bool, Option<i64>)> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT port_name, is_public, public_port FROM port_allocations                  WHERE service_id = 'svc-1' ORDER BY rowid",
+            )
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0, r.get(2)?)))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+    }
+
+    #[test]
+    fn dedupe_migration_drops_phantom_port_row_and_keeps_public_flag() {
+        let conn = test_conn();
+        // The db-postgresql shape: private `primary` plus a public `port-1`
+        // parsed from the catalog's second compose line for the same 5432.
+        insert_full(&conn, "p1", "primary", 10000, 5432, None, None);
+        insert_full(&conn, "p2", "port-1", 5432, 5432, Some(5432), None);
+        conn.execute_batch(schema::DEDUPE_PORT_ROWS_SQL).unwrap();
+        assert_eq!(
+            names_and_public(&conn),
+            vec![("primary".to_string(), true, Some(5432))]
+        );
+    }
+
+    #[test]
+    fn dedupe_migration_keeps_distinct_container_ports() {
+        let conn = test_conn();
+        insert_full(&conn, "p1", "primary", 4471, 4471, Some(4471), None);
+        insert_full(&conn, "p2", "port-1", 1883, 1883, None, None);
+        conn.execute_batch(schema::DEDUPE_PORT_ROWS_SQL).unwrap();
+        assert_eq!(names_and_public(&conn).len(), 2);
+    }
+
+    #[test]
+    fn dedupe_migration_keeps_replicas_and_compose_services() {
+        let conn = test_conn();
+        insert_full(&conn, "r1", "replica_1", 7000, 5432, None, None);
+        insert_full(&conn, "r2", "replica_2", 7001, 5432, None, None);
+        insert_full(&conn, "a", "primary", 3050, 80, None, Some("api"));
+        insert_full(&conn, "b", "primary", 3054, 80, None, Some("web"));
+        conn.execute_batch(schema::DEDUPE_PORT_ROWS_SQL).unwrap();
+        assert_eq!(names_and_public(&conn).len(), 4);
+    }
+
+    #[test]
+    fn dedupe_migration_keeps_existing_public_primary() {
+        let conn = test_conn();
+        insert_full(&conn, "p1", "primary", 10000, 5432, Some(7732), None);
+        insert_full(&conn, "p2", "port-1", 5432, 5432, Some(5432), None);
+        conn.execute_batch(schema::DEDUPE_PORT_ROWS_SQL).unwrap();
+        assert_eq!(
+            names_and_public(&conn),
+            vec![("primary".to_string(), true, Some(7732))]
+        );
+    }
 }
