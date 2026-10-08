@@ -52,6 +52,14 @@ pub async fn recreate_with_port_bindings(state: &AppState, service_id: &str) -> 
     // noticing on a prior recreate or sync.
     let our_host_ports: HashSet<u16> = allocations.iter().map(|a| a.host_port as u16).collect();
 
+    // Two of our own rows asking for the same public port on different
+    // container ports can never both bind. Pre-flight skips self-owned ports,
+    // so without this the conflict only surfaced as Docker's opaque
+    // "address already in use" after the container was already torn down.
+    if let Some(msg) = public_port_collision(&allocations) {
+        anyhow::bail!(msg);
+    }
+
     let containers_list = state
         .docker
         .list_containers(Some(ListContainersOptions {
@@ -807,11 +815,54 @@ pub(crate) fn build_port_bindings_for_container(
         out.entry(key.clone()).or_insert_with(|| Some(Vec::new()));
         if let Some(list) = out.get_mut(&key) {
             if let Some(v) = list.as_mut() {
-                v.push(binding);
+                // Duplicate rows for one container port (e.g. a compose with
+                // both `10000:5432` and `5432:5432`) collapse to the same
+                // public binding. Docker would try to bind it twice and fail
+                // with "address already in use" against itself.
+                let dup = v
+                    .iter()
+                    .any(|b| b.host_ip == binding.host_ip && b.host_port == binding.host_port);
+                if !dup {
+                    v.push(binding);
+                }
             }
         }
     }
     out
+}
+
+/// Detect two public rows of one service that want the same host port for
+/// different container ports (or different compose services). Rows that map
+/// the same public port to the same container port are not a conflict —
+/// [`build_port_bindings_for_container`] collapses them into one binding.
+/// Returns a user-facing error message on conflict.
+fn public_port_collision(allocations: &[PortAllocation]) -> Option<String> {
+    let mut seen: HashMap<u16, &PortAllocation> = HashMap::new();
+    for a in allocations {
+        if !a.is_public || a.container_port <= 0 {
+            continue;
+        }
+        let Some(pp) = a.public_port else { continue };
+        let pp = pp as u16;
+        match seen.get(&pp) {
+            Some(prev)
+                if prev.container_port != a.container_port
+                    || prev.protocol != a.protocol
+                    || prev.compose_service != a.compose_service =>
+            {
+                return Some(format!(
+                    "Ports \"{}\" ({}) and \"{}\" ({}) of this service both want public port {pp}. \
+                     Change one of them and toggle again.",
+                    prev.port_name, prev.container_port, a.port_name, a.container_port
+                ));
+            }
+            Some(_) => {}
+            None => {
+                seen.insert(pp, a);
+            }
+        }
+    }
+    None
 }
 
 /// Union of the old container's `ExposedPorts` and the container ports we're
@@ -1016,6 +1067,37 @@ mod tests {
             Some(vec![binding(Some("127.0.0.1"), "10000")]),
         );
         assert_eq!(describe_bindings(&m), "127.0.0.1:10000->27017/tcp");
+    }
+
+    #[test]
+    fn duplicate_rows_same_container_port_collapse_to_one_public_binding() {
+        // db-postgresql: `primary` 10000->5432 and `port-1` 5432->5432, both
+        // public on 5432. Two identical 0.0.0.0:5432 bindings made Docker fail
+        // with "address already in use" against itself.
+        let a = alloc("primary", 10000, 5432, true, Some(5432));
+        let b = alloc("port-1", 5432, 5432, true, Some(5432));
+        let refs: Vec<&PortAllocation> = vec![&a, &b];
+        let m = build_port_bindings_for_container(&refs);
+        let e = m.get("5432/tcp").unwrap().as_ref().unwrap();
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0].host_ip.as_deref(), Some("0.0.0.0"));
+        assert_eq!(e[0].host_port.as_deref(), Some("5432"));
+        assert!(public_port_collision(&[a, b]).is_none());
+    }
+
+    #[test]
+    fn public_port_collision_on_different_container_ports() {
+        let a = alloc("primary", 10000, 5432, true, Some(5432));
+        let b = alloc("port-1", 10001, 8080, true, Some(5432));
+        let msg = public_port_collision(&[a, b]).expect("collision");
+        assert!(msg.contains("5432"));
+    }
+
+    #[test]
+    fn public_port_collision_ignores_private_rows() {
+        let a = alloc("primary", 10000, 5432, true, Some(5432));
+        let b = alloc("port-1", 10001, 8080, false, Some(5432));
+        assert!(public_port_collision(&[a, b]).is_none());
     }
 
     #[test]

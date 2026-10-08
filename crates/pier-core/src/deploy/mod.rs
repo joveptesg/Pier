@@ -1855,7 +1855,29 @@ pub(crate) fn update_ports_from_compose(state: &AppState, service_id: &str, yaml
     let multi_service = services.len() > 1;
     let mut flat: Vec<(Option<String>, String, u16, u16)> = Vec::new();
     for svc in &services {
-        for (i, (host_port, container_port)) in svc.ports.iter().enumerate() {
+        // One row per container port. A compose with both `10000:5432` and
+        // `5432:5432` used to produce `primary` and `port-1` for the same
+        // 5432; turning the port public then bound 0.0.0.0:5432 twice and
+        // Docker refused with "address already in use".
+        let mut seen_container_ports: std::collections::HashSet<u16> =
+            std::collections::HashSet::new();
+        let unique_ports: Vec<&(u16, u16)> = svc
+            .ports
+            .iter()
+            .filter(|(host_port, container_port)| {
+                let first = seen_container_ports.insert(*container_port);
+                if !first {
+                    tracing::warn!(
+                        service = %service_id,
+                        compose_service = %svc.name,
+                        "Ignoring duplicate compose mapping {host_port}:{container_port}; \
+                         container port {container_port} is already mapped"
+                    );
+                }
+                first
+            })
+            .collect();
+        for (i, (host_port, container_port)) in unique_ports.into_iter().enumerate() {
             let port_name = if i == 0 {
                 "primary".to_string()
             } else {
@@ -2354,8 +2376,18 @@ pub(crate) fn inject_ports_into_yaml(yaml: &str, rows: &[PortRow]) -> String {
         // stack deployed from compose reaches the host the same way one from
         // the catalog does. The two never collide: a public row emits only the
         // `0.0.0.0` line, so the same container port is bound once.
+        //
+        // Only the first row per container port is written. Two rows for the
+        // same port (left over from a compose that mapped it twice) would
+        // otherwise round-trip as two mappings, get parsed back into two rows
+        // on the next deploy, and bind the same public port twice.
         let mut port_lines: Vec<String> = Vec::new();
+        let mut seen_container_ports: std::collections::HashSet<u16> =
+            std::collections::HashSet::new();
         for (_, container_port, is_public, host_port, public_port) in &svc_rows {
+            if !seen_container_ports.insert(*container_port) {
+                continue;
+            }
             if *is_public {
                 let Some(pp) = public_port else { continue };
                 port_lines.push(format!("{item_pad}- \"0.0.0.0:{pp}:{container_port}\""));
@@ -4397,6 +4429,32 @@ services:
             out.contains("FOO=bar"),
             "sibling environment block must be preserved, yaml = {out}"
         );
+    }
+
+    #[test]
+    fn inject_ports_writes_one_mapping_per_container_port() {
+        // db-postgresql had `primary` 10000->5432 and `port-1` 5432->5432.
+        // Writing both made the next deploy parse two rows again, and going
+        // public bound 0.0.0.0:5432 twice ("address already in use").
+        let yaml = "\
+services:
+  db:
+    image: postgres:17
+";
+        let rows: Vec<PortRow> = vec![
+            (None, 5432, false, 10000, None),
+            (None, 5432, false, 5432, None),
+        ];
+        let out = inject_ports_into_yaml(yaml, &rows);
+        assert!(out.contains("- \"127.0.0.1:10000:5432\""), "yaml = {out}");
+        assert!(!out.contains("127.0.0.1:5432:5432"), "yaml = {out}");
+
+        let rows: Vec<PortRow> = vec![
+            (None, 5432, true, 10000, Some(5432)),
+            (None, 5432, true, 5432, Some(5432)),
+        ];
+        let out = inject_ports_into_yaml(yaml, &rows);
+        assert_eq!(out.matches("0.0.0.0:5432:5432").count(), 1, "yaml = {out}");
     }
 
     #[test]
