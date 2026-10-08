@@ -2483,21 +2483,57 @@ pub(crate) async fn live_container_problems(state: &SharedState) -> HashMap<Stri
     }
 
     // A local catalog service recorded as running with no container at all.
-    // Limited to catalog services: their containers always carry
-    // `pier.service.id`, so "no labelled container" really means gone. Git
-    // and compose services may run unlabelled and would read as missing.
+    //
+    // Git services keep `git-*` in `catalog_id` too, and their containers
+    // carry no `pier.service.id` label — the first version of this check read
+    // every running git app as missing. So git services are excluded, and a
+    // service also counts as present when its container is found the way
+    // `docker::recreate` finds unlabelled ones: by `services.container_id`
+    // (name or id) or by its compose project `pier-{slug}`.
+    let mut names_and_ids: HashSet<String> = HashSet::new();
+    let mut projects: HashSet<String> = HashSet::new();
+    for c in &list {
+        if let Some(id) = &c.id {
+            names_and_ids.insert(id.clone());
+        }
+        for n in c.names.iter().flatten() {
+            names_and_ids.insert(n.trim_start_matches('/').to_string());
+        }
+        if let Some(p) = c
+            .labels
+            .as_ref()
+            .and_then(|l| l.get("com.docker.compose.project"))
+        {
+            projects.insert(p.clone());
+        }
+    }
+    let present = |cid: &Option<String>, name: &str| -> bool {
+        let by_cid = cid.as_deref().filter(|s| !s.is_empty()).is_some_and(|cid| {
+            names_and_ids.contains(cid) || names_and_ids.iter().any(|x| x.starts_with(cid))
+        });
+        let project = format!("pier-{}", name.to_lowercase().replace(' ', "-"));
+        by_cid || projects.contains(&project) || names_and_ids.contains(&project)
+    };
     if let Ok(db) = state.db.lock() {
         if let Ok(mut stmt) = db.prepare(
-            "SELECT s.id FROM services s LEFT JOIN servers sv ON sv.id = s.server_id \
+            "SELECT s.id, s.container_id, s.name FROM services s \
+             LEFT JOIN servers sv ON sv.id = s.server_id \
              WHERE s.status = 'running' AND s.catalog_id IS NOT NULL \
+               AND s.catalog_id NOT LIKE 'git-%' \
                AND (s.server_id IS NULL OR sv.is_local = 1)",
         ) {
-            let ids = stmt
-                .query_map([], |r| r.get::<_, String>(0))
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                })
                 .map(|it| it.filter_map(|r| r.ok()).collect::<Vec<_>>())
                 .unwrap_or_default();
-            for id in ids {
-                if !seen.contains(&id) {
+            for (id, cid, name) in rows {
+                if !seen.contains(&id) && !present(&cid, &name) {
                     problems.entry(id).or_insert("missing");
                 }
             }
