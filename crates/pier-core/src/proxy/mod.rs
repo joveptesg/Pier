@@ -15,7 +15,7 @@ use bollard::query_parameters::{
 };
 use bollard::Docker;
 
-pub const DEFAULT_TRAEFIK_VERSION: &str = "v3.7.13";
+pub const DEFAULT_TRAEFIK_VERSION: &str = "v3.7.14";
 const TRAEFIK_CONTAINER: &str = "pier-traefik";
 const PIER_NETWORK: &str = "pier-net";
 
