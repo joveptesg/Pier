@@ -57,18 +57,7 @@ cargo build --release
 sudo bash scripts/install.sh --binary target/release/pier
 ```
 
-### 方式 C：Docker
-
-```bash
-docker run -d \
-  --name pier \
-  -p 8443:8443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v pier-data:/app/data \
-  ghcr.io/joveptesg/pier:latest
-```
-
-### 方式 D：从预构建发行版安装（无需构建）
+### 方式 C：从预构建发行版安装（无需构建）
 
 已经装好了 Docker？直接获取最新的预构建二进制文件 — 无需 Rust 工具链，无需编译：
 

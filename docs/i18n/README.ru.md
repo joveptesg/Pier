@@ -57,18 +57,7 @@ cargo build --release
 sudo bash scripts/install.sh --binary target/release/pier
 ```
 
-### Вариант C: Docker
-
-```bash
-docker run -d \
-  --name pier \
-  -p 8443:8443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v pier-data:/app/data \
-  ghcr.io/joveptesg/pier:latest
-```
-
-### Вариант D: Установка из готового релиза (без сборки)
+### Вариант C: Установка из готового релиза (без сборки)
 
 Docker уже установлен? Скачайте готовый бинарник напрямую — без тулчейна Rust и без компиляции:
 
