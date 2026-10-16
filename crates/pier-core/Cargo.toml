@@ -109,6 +109,9 @@ globset = { workspace = true }
 # Gzip (backup compression)
 flate2 = { workspace = true }
 
+# Password-protected zip (emergency env/DB export)
+zip = { workspace = true }
+
 # Temp dirs (scoped registry auth for docker compose CLI)
 tempfile = { workspace = true }
 

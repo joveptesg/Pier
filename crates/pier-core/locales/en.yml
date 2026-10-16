@@ -2267,6 +2267,21 @@ canvas:
   collapse_hint: Double-click to collapse/expand
 
 # Support modal partial (partials/support_modal.html).
+emergency_export:
+  button: Export
+  menu_item: Emergency export
+  server_button: Emergency export
+  title: Emergency export
+  warning_secrets: The archive contains all environment variables and database passwords. Keep it safe.
+  note_contents: "Includes env of every service and dumps of PostgreSQL/MySQL/MariaDB/MongoDB running on the panel host. Nothing is stored on the server: the archive is built, sent to you and deleted."
+  account_password: Account password
+  archive_password: Archive password (AES-256 zip)
+  archive_password_repeat: Repeat archive password
+  archive_password_hint: At least 8 characters. Open the archive with 7-Zip, WinRAR or Keka; the built-in Windows extractor does not support AES.
+  passwords_mismatch: Passwords do not match
+  building: Building archive...
+  download: Download
+  toast_downloaded: Archive downloaded
 support_modal:
   close: Close
   heading: Love Pier? Support our work.
@@ -2672,6 +2687,9 @@ errors:
     grant_not_found: Grant %{v} not found
   env:
     resource_not_found: Resource %{v} not found
+  export:
+    archive_password_short: Archive password must be at least %{n} characters
+    target_not_found: Service or server not found
   federation_tokens:
     label_required: Label is required
     token_not_found: Token %{v} not found

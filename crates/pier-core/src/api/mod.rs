@@ -17,6 +17,7 @@ pub mod deployments;
 pub mod domains;
 pub mod env;
 pub mod events;
+pub mod export;
 pub mod federation;
 pub mod federation_agent;
 pub mod federation_tokens;
@@ -344,6 +345,8 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/resources/{id}/env",
             get(env::get_env).put(env::update_env),
         )
+        // Emergency export: env (+ local DB dump) as an encrypted zip download
+        .route("/resources/{id}/export", post(export::export_resource))
         // PGDATA-in-anonymous-volume diagnosis and repair
         .route("/resources/{id}/pgdata-status", get(pgdata_repair::status))
         .route("/resources/{id}/pgdata-repair", post(pgdata_repair::repair))
@@ -669,6 +672,9 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         .route("/servers/{id}/deploy", post(servers::deploy_to_server))
         .route("/servers/{id}/stop", post(servers::stop_on_server))
         .route("/servers/{id}/promote-bundle", get(promote::bundle))
+        // Emergency export: env of every service on the server (+ local DB
+        // dumps) as an encrypted zip. Admin only — spans all projects.
+        .route("/servers/{id}/export", post(export::export_server))
         .route("/servers/{id}/promote", post(promote::trigger))
         // System mutations (cleanup/update/timezone/logs).
         .route("/system/cleanup", post(system::cleanup))

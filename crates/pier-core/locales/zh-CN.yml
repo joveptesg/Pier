@@ -2237,6 +2237,21 @@ canvas:
   collapse_hint: 双击折叠/展开
 
 # Support modal partial (partials/support_modal.html).
+emergency_export:
+  button: 导出
+  menu_item: 紧急导出
+  server_button: 紧急导出
+  title: 紧急导出
+  warning_secrets: 归档包含所有环境变量和数据库密码，请妥善保管。
+  note_contents: "包含每个服务的环境变量，以及面板主机上运行的 PostgreSQL/MySQL/MariaDB/MongoDB 的转储。服务器上不保留任何内容：归档生成、发送给您后即被删除。"
+  account_password: 账户密码
+  archive_password: 归档密码（AES-256 zip）
+  archive_password_repeat: 再次输入归档密码
+  archive_password_hint: 至少 8 个字符。请使用 7-Zip、WinRAR 或 Keka 打开；Windows 自带解压工具不支持 AES。
+  passwords_mismatch: 两次输入的密码不一致
+  building: 正在生成归档...
+  download: 下载
+  toast_downloaded: 归档已下载
 support_modal:
   close: 关闭
   heading: 喜欢 Pier 吗？支持我们的工作。
@@ -2635,6 +2650,9 @@ errors:
     grant_not_found: 未找到授权 %{v}
   env:
     resource_not_found: 未找到资源 %{v}
+  export:
+    archive_password_short: 归档密码至少需要 %{n} 个字符
+    target_not_found: 未找到服务或服务器
   federation_tokens:
     label_required: 标签为必填项
     token_not_found: 未找到令牌 %{v}

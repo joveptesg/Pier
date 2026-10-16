@@ -2236,6 +2236,21 @@ canvas:
   collapse_hint: Doble clic para plegar/desplegar
 
 # Support modal partial (partials/support_modal.html).
+emergency_export:
+  button: Exportar
+  menu_item: Exportación de emergencia
+  server_button: Exportación de emergencia
+  title: Exportación de emergencia
+  warning_secrets: El archivo contiene todas las variables de entorno y contraseñas de bases de datos. Guárdelo en un lugar seguro.
+  note_contents: "Incluye el env de cada servicio y volcados de PostgreSQL/MySQL/MariaDB/MongoDB que se ejecutan en el host del panel. No se guarda nada en el servidor: el archivo se genera, se le envía y se elimina."
+  account_password: Contraseña de la cuenta
+  archive_password: Contraseña del archivo (zip AES-256)
+  archive_password_repeat: Repita la contraseña del archivo
+  archive_password_hint: Al menos 8 caracteres. Abra el archivo con 7-Zip, WinRAR o Keka; el extractor integrado de Windows no admite AES.
+  passwords_mismatch: Las contraseñas no coinciden
+  building: Generando archivo...
+  download: Descargar
+  toast_downloaded: Archivo descargado
 support_modal:
   close: Cerrar
   heading: ¿Te encanta Pier? Apoya nuestro trabajo.
@@ -2634,6 +2649,9 @@ errors:
     grant_not_found: No se encontró la concesión %{v}
   env:
     resource_not_found: No se encontró el recurso %{v}
+  export:
+    archive_password_short: La contraseña del archivo debe tener al menos %{n} caracteres
+    target_not_found: No se encontró el servicio o servidor
   federation_tokens:
     label_required: La etiqueta es obligatoria
     token_not_found: No se encontró el token %{v}

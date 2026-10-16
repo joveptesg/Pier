@@ -130,6 +130,9 @@ globset = "0.4.18"
 # Gzip (backup compression)
 flate2 = "1"
 
+# Password-protected zip (emergency env/DB export)
+zip = { version = "9.0.3", default-features = false, features = ["aes-crypto", "deflate-flate2-zlib-rs"] }
+
 # Temp dirs (scoped ~/.docker/config.json for registry auth)
 tempfile = "3"
 

@@ -43,6 +43,8 @@ pub enum AuthEvent {
     ProjectMemberRemoved,
     // Deploy events
     ServiceDeployed,
+    // Emergency env/DB export (archive download)
+    SecretsExported,
 }
 
 impl AuthEvent {
@@ -70,6 +72,7 @@ impl AuthEvent {
             Self::ProjectMemberRoleChanged => "project.member_role_changed",
             Self::ProjectMemberRemoved => "project.member_removed",
             Self::ServiceDeployed => "service.deployed",
+            Self::SecretsExported => "secrets.exported",
         }
     }
 }

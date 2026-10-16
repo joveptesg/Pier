@@ -10,6 +10,7 @@ mod db;
 mod deploy;
 mod docker;
 mod error;
+mod export;
 mod federation;
 mod git;
 mod i18n;
