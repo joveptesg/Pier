@@ -347,6 +347,7 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         )
         // Emergency export: env (+ local DB dump) as an encrypted zip download
         .route("/resources/{id}/export", post(export::export_resource))
+        .route("/projects/{id}/export", post(export::export_project))
         // PGDATA-in-anonymous-volume diagnosis and repair
         .route("/resources/{id}/pgdata-status", get(pgdata_repair::status))
         .route("/resources/{id}/pgdata-repair", post(pgdata_repair::repair))
@@ -675,6 +676,8 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Emergency export: env of every service on the server (+ local DB
         // dumps) as an encrypted zip. Admin only — spans all projects.
         .route("/servers/{id}/export", post(export::export_server))
+        // Settings → Export: selected or all projects in one archive.
+        .route("/export", post(export::export_all))
         .route("/servers/{id}/promote", post(promote::trigger))
         // System mutations (cleanup/update/timezone/logs).
         .route("/system/cleanup", post(system::cleanup))

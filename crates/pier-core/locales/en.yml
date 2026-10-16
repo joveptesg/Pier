@@ -1790,6 +1790,16 @@ settings_index:
   coming_soon: Coming soon
   tab_general: General
   tab_cleanup: Cleanup
+  tab_export: Export
+  export_title: Export environment and databases
+  export_desc: "Download an encrypted zip with env of every service in the selected projects plus dumps of databases running on the panel host. Nothing is stored on the server."
+  export_projects: Projects
+  export_select_all: Select all
+  export_select_none: Clear
+  export_no_projects: No projects yet
+  export_unassigned: Include services without a project
+  export_button: Export
+  export_all_label: All projects
   tab_railpack: Auto-build (Railpack)
   tab_external_access: External Access
   tab_account: Account
@@ -2269,7 +2279,8 @@ canvas:
 # Support modal partial (partials/support_modal.html).
 emergency_export:
   button: Export
-  menu_item: Emergency export
+  include_dumps: Include database dumps
+  danger_desc: Download an encrypted zip with this service env and, for databases on the panel host, a dump. Nothing is stored on the server.
   server_button: Emergency export
   title: Emergency export
   warning_secrets: The archive contains all environment variables and database passwords. Keep it safe.
@@ -2689,7 +2700,8 @@ errors:
     resource_not_found: Resource %{v} not found
   export:
     archive_password_short: Archive password must be at least %{n} characters
-    target_not_found: Service or server not found
+    target_not_found: Service, project or server not found
+    nothing_selected: Select at least one project
   federation_tokens:
     label_required: Label is required
     token_not_found: Token %{v} not found

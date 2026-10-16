@@ -12,7 +12,7 @@ use tokio_util::io::ReaderStream;
 
 use crate::auth::audit::{self, AuthEvent};
 use crate::auth::middleware::AuthUser;
-use crate::auth::rbac::{enforce_resource_role, ProjectRole};
+use crate::auth::rbac::{enforce_project_role, enforce_resource_role, ProjectRole};
 use crate::error::{AppError, AppResult};
 use crate::export::{self, Scope};
 use crate::state::SharedState;
@@ -26,6 +26,19 @@ pub struct ExportRequest {
     pub password: Option<String>,
     /// Password the zip is encrypted with (AES-256).
     pub archive_password: String,
+    /// Dump local databases (default on).
+    #[serde(default = "default_true")]
+    pub include_dumps: bool,
+    /// `POST /export` only: projects to include; `None` = all of them.
+    #[serde(default)]
+    pub project_ids: Option<Vec<String>>,
+    /// `POST /export` only: also include services without a project.
+    #[serde(default = "default_true")]
+    pub include_unassigned: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// POST /api/v1/resources/{id}/export — env (+ DB dump if local) of one service.
@@ -48,6 +61,41 @@ pub async fn export_server(
     Json(body): Json<ExportRequest>,
 ) -> AppResult<Response> {
     run(state, user, Scope::Server(id), body).await
+}
+
+/// POST /api/v1/projects/{id}/export — every service of the project. Editor+.
+pub async fn export_project(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Path(id): Path<String>,
+    Json(body): Json<ExportRequest>,
+) -> AppResult<Response> {
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+        enforce_project_role(&user, &id, ProjectRole::Editor, &db)?;
+    }
+    run(state, user, Scope::Project(id), body).await
+}
+
+/// POST /api/v1/export — Settings → Export: selected (or all) projects. Admin only.
+pub async fn export_all(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+    Json(body): Json<ExportRequest>,
+) -> AppResult<Response> {
+    if matches!(&body.project_ids, Some(ids) if ids.is_empty()) && !body.include_unassigned {
+        return Err(AppError::BadRequest(crate::i18n::te(
+            "errors.export.nothing_selected",
+        )));
+    }
+    let scope = Scope::Projects {
+        ids: body.project_ids.clone(),
+        include_unassigned: body.include_unassigned,
+    };
+    run(state, user, scope, body).await
 }
 
 async fn run(
@@ -73,6 +121,10 @@ async fn run(
     let (kind, target_id) = match &scope {
         Scope::Service(id) => ("service", id.clone()),
         Scope::Server(id) => ("server", id.clone()),
+        Scope::Project(id) => ("project", id.clone()),
+        Scope::Projects { ids, .. } => {
+            ("all", ids.as_ref().map_or("*".into(), |ids| ids.join(",")))
+        }
     };
     let Some((label, services)) = export::load_services(&state, &scope)? else {
         return Err(AppError::NotFound(crate::i18n::te(
@@ -86,6 +138,7 @@ async fn run(
         &user.username,
         services,
         body.archive_password,
+        body.include_dumps,
     )
     .await?;
 

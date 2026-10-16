@@ -1762,6 +1762,16 @@ settings_index:
   coming_soon: 即将推出
   tab_general: 常规
   tab_cleanup: 清理
+  tab_export: 导出
+  export_title: 导出环境变量和数据库
+  export_desc: "下载加密 zip：包含所选项目中每个服务的环境变量，以及面板主机上数据库的转储。服务器上不保留任何内容。"
+  export_projects: 项目
+  export_select_all: 全选
+  export_select_none: 清除
+  export_no_projects: 暂无项目
+  export_unassigned: 包含未归属项目的服务
+  export_button: 导出
+  export_all_label: 所有项目
   tab_railpack: 自动构建（Railpack）
   tab_external_access: 外部访问
   tab_account: 账户
@@ -2239,7 +2249,8 @@ canvas:
 # Support modal partial (partials/support_modal.html).
 emergency_export:
   button: 导出
-  menu_item: 紧急导出
+  include_dumps: 包含数据库转储
+  danger_desc: 下载加密 zip，包含此服务的环境变量；若数据库位于面板主机，还包含其转储。服务器上不保留任何内容。
   server_button: 紧急导出
   title: 紧急导出
   warning_secrets: 归档包含所有环境变量和数据库密码，请妥善保管。
@@ -2652,7 +2663,8 @@ errors:
     resource_not_found: 未找到资源 %{v}
   export:
     archive_password_short: 归档密码至少需要 %{n} 个字符
-    target_not_found: 未找到服务或服务器
+    target_not_found: 未找到服务、项目或服务器
+    nothing_selected: 请至少选择一个项目
   federation_tokens:
     label_required: 标签为必填项
     token_not_found: 未找到令牌 %{v}

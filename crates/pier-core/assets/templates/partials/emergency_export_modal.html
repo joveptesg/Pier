@@ -5,7 +5,7 @@
      class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
      style="top:0;left:0"
      @click.self="if (!busy) open = false">
-    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-xl">
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-xl text-left">
         <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">{{ t('emergency_export.title') }}</h3>
         <p class="text-sm font-mono text-gray-500 dark:text-gray-400 mb-3 truncate" x-text="title"></p>
 
@@ -31,6 +31,11 @@
         </div>
         <p class="text-xs text-gray-500 mt-2">{{ t('emergency_export.archive_password_hint') }}</p>
         <p x-show="archivePassword2 && archivePassword !== archivePassword2" class="text-xs text-red-500 mt-1">{{ t('emergency_export.passwords_mismatch') }}</p>
+        <label class="flex items-center gap-2 mt-3 cursor-pointer">
+            <input type="checkbox" x-model="includeDumps"
+                   class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
+            <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('emergency_export.include_dumps') }}</span>
+        </label>
 
         <div class="flex justify-end gap-2 mt-5">
             <button @click="open = false" :disabled="busy"
@@ -48,7 +53,7 @@
 <script>
 function emergencyExport() {
     return {
-        open: false, busy: false, url: '', title: '', requirePw: true,
+        open: false, busy: false, url: '', title: '', extra: {}, includeDumps: true, requirePw: true,
         accountPassword: '', archivePassword: '', archivePassword2: '',
         get canSubmit() {
             return !this.busy
@@ -59,6 +64,8 @@ function emergencyExport() {
         async show(detail) {
             this.url = detail.url;
             this.title = detail.title || '';
+            this.extra = detail.extra || {};
+            this.includeDumps = true;
             this.accountPassword = this.archivePassword = this.archivePassword2 = '';
             this.open = true;
             try {
@@ -78,8 +85,10 @@ function emergencyExport() {
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        ...this.extra,
                         password: this.accountPassword || null,
                         archive_password: this.archivePassword,
+                        include_dumps: this.includeDumps,
                     }),
                 });
                 if (!res.ok) {

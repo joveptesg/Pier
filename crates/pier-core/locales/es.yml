@@ -1761,6 +1761,16 @@ settings_index:
   coming_soon: Próximamente
   tab_general: General
   tab_cleanup: Limpieza
+  tab_export: Exportar
+  export_title: Exportar entorno y bases de datos
+  export_desc: "Descargue un zip cifrado con el env de cada servicio de los proyectos seleccionados y volcados de las bases de datos del host del panel. No se guarda nada en el servidor."
+  export_projects: Proyectos
+  export_select_all: Seleccionar todo
+  export_select_none: Limpiar
+  export_no_projects: Aún no hay proyectos
+  export_unassigned: Incluir servicios sin proyecto
+  export_button: Exportar
+  export_all_label: Todos los proyectos
   tab_railpack: Auto-build (Railpack)
   tab_external_access: Acceso externo
   tab_account: Cuenta
@@ -2238,7 +2248,8 @@ canvas:
 # Support modal partial (partials/support_modal.html).
 emergency_export:
   button: Exportar
-  menu_item: Exportación de emergencia
+  include_dumps: Incluir volcados de bases de datos
+  danger_desc: Descargue un zip cifrado con el env de este servicio y, para bases de datos en el host del panel, un volcado. No se guarda nada en el servidor.
   server_button: Exportación de emergencia
   title: Exportación de emergencia
   warning_secrets: El archivo contiene todas las variables de entorno y contraseñas de bases de datos. Guárdelo en un lugar seguro.
@@ -2651,7 +2662,8 @@ errors:
     resource_not_found: No se encontró el recurso %{v}
   export:
     archive_password_short: La contraseña del archivo debe tener al menos %{n} caracteres
-    target_not_found: No se encontró el servicio o servidor
+    target_not_found: No se encontró el servicio, proyecto o servidor
+    nothing_selected: Seleccione al menos un proyecto
   federation_tokens:
     label_required: La etiqueta es obligatoria
     token_not_found: No se encontró el token %{v}

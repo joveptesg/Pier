@@ -26,6 +26,12 @@ use crate::state::SharedState;
 pub enum Scope {
     Service(String),
     Server(String),
+    Project(String),
+    /// Settings → Export. `ids: None` = every project (new ones included).
+    Projects {
+        ids: Option<Vec<String>>,
+        include_unassigned: bool,
+    },
 }
 
 /// One `services` row with everything the export needs, secrets decrypted.
@@ -67,7 +73,7 @@ pub struct ExportSummary {
 }
 
 /// Load the services covered by `scope`. Returns the scope's display name
-/// (service or server name) alongside the rows; `None` if the target is gone.
+/// (service, server or project name) alongside the rows; `None` if the target is gone.
 pub fn load_services(
     state: &SharedState,
     scope: &Scope,
@@ -84,7 +90,8 @@ pub fn load_services(
          LEFT JOIN projects p ON p.id = s.project_id
          LEFT JOIN servers sv ON sv.id = s.server_id";
 
-    let (label, sql, server_is_local) = match scope {
+    use rusqlite::types::Value;
+    let (label, filter, params): (String, String, Vec<Value>) = match scope {
         Scope::Service(id) => {
             let Some(name) = db
                 .query_row("SELECT name FROM services WHERE id = ?1", [id], |r| {
@@ -94,7 +101,7 @@ pub fn load_services(
             else {
                 return Ok(None);
             };
-            (name, format!("{COLS} WHERE s.id = ?1"), false)
+            (name, "s.id = ?1".into(), vec![id.clone().into()])
         }
         Scope::Server(id) => {
             let Some((name, is_local)) = db
@@ -111,40 +118,76 @@ pub fn load_services(
             // server_id rows belong to it too.
             (
                 name,
-                format!(
-                    "{COLS} WHERE s.server_id = ?1
-                       OR (?2 = 1 AND (s.server_id IS NULL OR s.server_id = 'local'))
-                     ORDER BY s.name"
-                ),
-                is_local,
+                "s.server_id = ?1
+                   OR (?2 = 1 AND (s.server_id IS NULL OR s.server_id = 'local'))"
+                    .into(),
+                vec![id.clone().into(), Value::Integer(is_local as i64)],
             )
         }
-    };
-    let id = match scope {
-        Scope::Service(id) | Scope::Server(id) => id,
+        Scope::Project(id) => {
+            let Some(name) = db
+                .query_row("SELECT name FROM projects WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .optional()?
+            else {
+                return Ok(None);
+            };
+            (name, "s.project_id = ?1".into(), vec![id.clone().into()])
+        }
+        Scope::Projects {
+            ids,
+            include_unassigned,
+        } => {
+            let mut parts = Vec::new();
+            match ids {
+                None => parts.push("s.project_id IS NOT NULL".to_string()),
+                Some(ids) if !ids.is_empty() => {
+                    let marks = (1..=ids.len())
+                        .map(|i| format!("?{i}"))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    parts.push(format!("s.project_id IN ({marks})"));
+                }
+                Some(_) => {}
+            }
+            if *include_unassigned {
+                parts.push("s.project_id IS NULL".into());
+            }
+            if parts.is_empty() {
+                parts.push("0".into());
+            }
+            let label = match ids {
+                None => "all projects".to_string(),
+                Some(ids) => format!("{} projects", ids.len()),
+            };
+            let params = ids
+                .iter()
+                .flatten()
+                .map(|id| Value::from(id.clone()))
+                .collect();
+            (label, parts.join(" OR "), params)
+        }
     };
 
+    let sql = format!("{COLS} WHERE {filter} ORDER BY p.name, s.name");
     let mut stmt = db.prepare(&sql)?;
-    let map_row = |r: &rusqlite::Row| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, Option<String>>(2)?,
-            r.get::<_, Option<String>>(3)?,
-            r.get::<_, Option<String>>(4)?,
-            r.get::<_, bool>(5)?,
-            r.get::<_, Option<String>>(6)?,
-            r.get::<_, Option<String>>(7)?,
-            r.get::<_, Option<String>>(8)?,
-            r.get::<_, Option<String>>(9)?,
-        ))
-    };
-    let rows: Vec<_> = match scope {
-        Scope::Service(_) => stmt.query_map([id], map_row)?.collect::<Result<_, _>>()?,
-        Scope::Server(_) => stmt
-            .query_map(rusqlite::params![id, server_is_local], map_row)?
-            .collect::<Result<_, _>>()?,
-    };
+    let rows: Vec<_> = stmt
+        .query_map(rusqlite::params_from_iter(params), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, bool>(5)?,
+                r.get::<_, Option<String>>(6)?,
+                r.get::<_, Option<String>>(7)?,
+                r.get::<_, Option<String>>(8)?,
+                r.get::<_, Option<String>>(9)?,
+            ))
+        })?
+        .collect::<Result<_, _>>()?;
     drop(stmt);
     drop(db);
 
@@ -199,6 +242,7 @@ pub async fn build_archive(
     exported_by: &str,
     services: Vec<ExportService>,
     password: String,
+    include_dumps: bool,
 ) -> Result<(File, ExportSummary)> {
     let tmp_dir = state.config.data_dir.join("tmp");
     std::fs::create_dir_all(&tmp_dir)?;
@@ -228,8 +272,7 @@ pub async fn build_archive(
                 .await?;
         }
 
-        let status = dump_status(svc);
-        let status = match status {
+        let status = match dump_status(svc, include_dumps) {
             DumpStatus::Done { .. } => {
                 let (a, files, errors) = dump_service(archive, svc, &dir).await?;
                 archive = a;
@@ -269,10 +312,15 @@ pub async fn build_archive(
 
 /// Decide up front whether a service gets dumped. `Done` here is a
 /// placeholder meaning "go dump it"; the real file list comes later.
-fn dump_status(svc: &ExportService) -> DumpStatus {
+fn dump_status(svc: &ExportService, include_dumps: bool) -> DumpStatus {
     let catalog = svc.catalog_id.as_deref().unwrap_or("");
     if !executor::supports_backup(catalog) {
         return DumpStatus::None;
+    }
+    if !include_dumps {
+        return DumpStatus::Skipped {
+            reason: "disabled".into(),
+        };
     }
     if !svc.is_local {
         return DumpStatus::Skipped {
@@ -541,13 +589,21 @@ mod tests {
             credentials: vec![],
         };
         assert_eq!(
-            dump_status(&svc),
+            dump_status(&svc, true),
             DumpStatus::Skipped {
                 reason: "remote server".into()
             }
         );
+        svc.is_local = true;
+        assert_eq!(
+            dump_status(&svc, false),
+            DumpStatus::Skipped {
+                reason: "disabled".into()
+            }
+        );
+        assert!(matches!(dump_status(&svc, true), DumpStatus::Done { .. }));
         svc.catalog_id = Some("redis".into());
-        assert_eq!(dump_status(&svc), DumpStatus::None);
+        assert_eq!(dump_status(&svc, true), DumpStatus::None);
     }
 
     #[test]

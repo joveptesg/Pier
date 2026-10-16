@@ -217,6 +217,41 @@
         </div>
     </div>
 
+    <!-- ── Tab: Export ───────────────────────────────────────── -->
+    <div x-show="tab === 'export'" x-cloak x-data="exportSettings()" x-init="load()"
+         class="bg-white dark:bg-gray-900 border border-red-200 dark:border-red-800/50 rounded-xl p-5">
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('settings_index.export_title') }}</h3>
+        <p class="text-xs text-gray-500 mb-4">{{ t('settings_index.export_desc') }}</p>
+
+        <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">{{ t('settings_index.export_projects') }}</p>
+            <div class="flex gap-3 text-xs">
+                <button @click="selected = projects.map(p => p.id)" class="text-blue-600 dark:text-blue-400 hover:underline">{{ t('settings_index.export_select_all') }}</button>
+                <button @click="selected = []" class="text-blue-600 dark:text-blue-400 hover:underline">{{ t('settings_index.export_select_none') }}</button>
+            </div>
+        </div>
+        <div class="border border-gray-200 dark:border-gray-800 rounded-lg divide-y divide-gray-100 dark:divide-gray-800 max-h-72 overflow-y-auto mb-3">
+            <template x-for="p in projects" :key="p.id">
+                <label class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <input type="checkbox" :value="p.id" x-model="selected"
+                           class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
+                    <span class="text-sm text-gray-900 dark:text-white truncate" x-text="p.name"></span>
+                </label>
+            </template>
+            <p x-show="loaded && projects.length === 0" class="px-3 py-2 text-sm text-gray-500">{{ t('settings_index.export_no_projects') }}</p>
+        </div>
+        <label class="flex items-center gap-2 mb-5 cursor-pointer">
+            <input type="checkbox" x-model="includeUnassigned"
+                   class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
+            <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('settings_index.export_unassigned') }}</span>
+        </label>
+
+        <button @click="start()" :disabled="!selected.length && !includeUnassigned"
+                class="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            {{ t('settings_index.export_button') }}
+        </button>
+    </div>
+
     <!-- ── Tab: Auto-build (Railpack) ───────────────────────── -->
     <div x-show="tab === 'railpack'" x-cloak x-data="railpackSettings()" x-init="load()"
          class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5 space-y-5">
@@ -532,14 +567,40 @@
             </button>
         </div>
     </div>
+
+    {% include "partials/emergency_export_modal.html" %}
 </div>
 
 <script>
+function exportSettings() {
+    return {
+        projects: [], selected: [], includeUnassigned: true, loaded: false,
+        async load() {
+            try {
+                this.projects = await api('/api/v1/projects');
+                this.selected = this.projects.map(p => p.id);
+            } catch (e) { toast(e.message, 'error'); }
+            this.loaded = true;
+        },
+        start() {
+            // Everything ticked -> send null so the server takes every project,
+            // including ones created after this page loaded.
+            const all = this.selected.length === this.projects.length;
+            this.$dispatch('emergency-export', {
+                url: '/api/v1/export',
+                title: all ? '{{ t('settings_index.export_all_label') }}' : this.selected.length + ' / ' + this.projects.length,
+                extra: { project_ids: all ? null : this.selected, include_unassigned: this.includeUnassigned },
+            });
+        },
+    };
+}
+
 function settingsPage() {
     return {
         tabs: [
             { id: 'general',         label: '{{ t('settings_index.tab_general') }}' },
             { id: 'cleanup',         label: '{{ t('settings_index.tab_cleanup') }}' },
+            { id: 'export',          label: '{{ t('settings_index.tab_export') }}' },
             { id: 'railpack',        label: '{{ t('settings_index.tab_railpack') }}' },
             { id: 'external-access', label: '{{ t('settings_index.tab_external_access') }}' },
             { id: 'account',         label: '{{ t('settings_index.tab_account') }}' },
