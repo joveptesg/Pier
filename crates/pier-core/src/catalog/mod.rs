@@ -252,11 +252,12 @@ pub fn load_catalog() -> Vec<CatalogItem> {
                         "beszel" => 15,
                         "gotify" => 16,
                         "audiobookshelf" => 17,
-                        "amneziawg" => 18,
-                        "minecraft" => 19,
-                        "terraria" => 20,
-                        "kasm-chrome" => 21,
-                        "kasm-desktop" => 22,
+                        "berth" => 18,
+                        "amneziawg" => 19,
+                        "minecraft" => 20,
+                        "terraria" => 21,
+                        "kasm-chrome" => 22,
+                        "kasm-desktop" => 23,
                         _ => 99,
                     };
                     svc(&a.meta.id).cmp(&svc(&b.meta.id))

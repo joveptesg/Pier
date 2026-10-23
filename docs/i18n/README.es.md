@@ -279,7 +279,7 @@ Si tu proyecto necesita anular el comportamiento por defecto, deja un [`railpack
 
 **Bases de datos** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
 
-**Servicios** — Grafana, Gitea, Forgejo, Matrix Synapse, Elasticsearch, Kibana, RabbitMQ, Directus, Supabase, NocoDB, Portainer, Gotify, Audiobookshelf, Qdrant, Beszel
+**Servicios** — Grafana, Gitea, Forgejo, Matrix Synapse, Elasticsearch, Kibana, RabbitMQ, Directus, Supabase, NocoDB, Portainer, Gotify, Audiobookshelf, Berth, Qdrant, Beszel
 
 **Juegos** — Minecraft, Terraria
 

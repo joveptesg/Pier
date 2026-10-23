@@ -279,7 +279,7 @@ npm install left-pad         # npmjs.org からプロキシ + キャッシュ
 
 **データベース** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
 
-**サービス** — Grafana, Gitea, Forgejo, Matrix Synapse, Elasticsearch, Kibana, RabbitMQ, Directus, Supabase, NocoDB, Portainer, Gotify, Audiobookshelf, Qdrant, Beszel
+**サービス** — Grafana, Gitea, Forgejo, Matrix Synapse, Elasticsearch, Kibana, RabbitMQ, Directus, Supabase, NocoDB, Portainer, Gotify, Audiobookshelf, Berth, Qdrant, Beszel
 
 **ゲーム** — Minecraft, Terraria
 

@@ -279,7 +279,7 @@ Para projetos que precisam de overrides, coloque um [`railpack.json`](https://ra
 
 **Bancos de Dados** — PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Valkey, ClickHouse, Cassandra, ScyllaDB
 
-**Serviços** — Grafana, Gitea, Forgejo, Matrix Synapse, Elasticsearch, Kibana, RabbitMQ, Directus, Supabase, NocoDB, Portainer, Gotify, Audiobookshelf, Qdrant, Beszel
+**Serviços** — Grafana, Gitea, Forgejo, Matrix Synapse, Elasticsearch, Kibana, RabbitMQ, Directus, Supabase, NocoDB, Portainer, Gotify, Audiobookshelf, Berth, Qdrant, Beszel
 
 **Jogos** — Minecraft, Terraria
 

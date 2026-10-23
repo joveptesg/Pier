@@ -1,0 +1,42 @@
+[meta]
+id = "berth"
+name = "Berth"
+description = "Self-hosted audiobook server with mobile apps"
+category = "service"
+icon = "berth"
+tags = ["audiobook", "media", "library", "s3", "mobile"]
+long_description = """
+Berth is a lightweight, open-source (Apache-2.0) audiobook server written in Rust. Upload books through the web admin, keep the files on local disk, any S3-compatible storage (AWS, Cloudflare R2, Backblaze B2, MinIO, Yandex Object Storage) or Google Drive, and listen in the Berth app on Android and iOS. Phones connect by scanning a QR code from the admin.
+
+Use it as a family audiobook library, a private shelf for DRM-free books you own, or an audiobook backend whose files live in cheap object storage. Playback can be served straight from the bucket or CDN through short-lived signed URLs — the server only authorizes access. A JSON API (v1, OpenAPI contract) is available for scripting.
+
+How it works on Pier — port 8080 behind Traefik, one persistent volume `/data` for the SQLite database, automatic pre-migration backups, local storage and `secret.key`. There are no default credentials: open the service logs and follow the one-time setup link. Attach a domain, then set it in the admin under Settings → Internet address so phone QR codes point to it. Keep a copy of `secret.key` outside the backups — storage keys in the database can't be decrypted without it.
+
+Compared to alternatives — Audiobookshelf scans folders on disk and adds podcasts and ebooks; Berth treats the database as the source of truth (books are entities, not scanned folders) and is built around remote storage with signed-URL delivery. Audible is SaaS with DRM; Berth is for files you own on a server you control.
+"""
+
+[docker]
+image = "ghcr.io/joveptesg/berth:{{version}}"
+
+[ports.primary]
+internal = 8080
+protocol = "tcp"
+description = "Web admin & API"
+
+[volumes.data]
+mount = "/data"
+
+[versions]
+available = ["1.0.0"]
+default = "1.0.0"
+
+[ui.fields.name]
+type = "text"
+label = "Service Name"
+required = true
+placeholder = "my-berth"
+
+[ui.fields.version]
+type = "select"
+label = "Version"
+options_from = "versions.available"
