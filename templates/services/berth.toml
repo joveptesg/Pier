@@ -27,8 +27,8 @@ description = "Web admin & API"
 mount = "/data"
 
 [versions]
-available = ["1.0.0"]
-default = "1.0.0"
+available = ["latest"]
+default = "latest"
 
 [ui.fields.name]
 type = "text"
