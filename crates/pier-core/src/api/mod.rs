@@ -163,6 +163,13 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
             "/servers/download/{name}",
             get(servers::download_agent_binary),
         )
+        // Agent install script — fetched by `curl | sudo bash` on the new
+        // node, which has no session. Gated by a live bootstrap token checked
+        // in-handler; rate-limited like login to slow token guessing.
+        .route(
+            "/servers/install-script",
+            get(servers::install_script).layer(GovernorLayer::new(login_governor.clone())),
+        )
         // Webhooks (public — GitHub/GitLab need to reach these)
         .route(
             "/webhooks/github",
@@ -649,7 +656,6 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Read-only server endpoints stay in `protected` so non-admins can
         // see what infrastructure exists in the UI.
         .route("/servers", post(servers::create))
-        .route("/servers/install-script", get(servers::install_script))
         .route("/servers/{id}", delete(servers::remove))
         .route("/servers/{id}/name", put(servers::rename))
         .route("/servers/{id}/test", post(servers::test_connection))

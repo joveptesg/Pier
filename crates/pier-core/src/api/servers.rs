@@ -1495,6 +1495,30 @@ pub async fn install_script(
         )));
     }
 
+    // The route is public (the new node has no session), so the bootstrap
+    // token is the only credential: it must be live and belong to this row.
+    // Not consumed here — /handshake spends it.
+    let hash = server_token::hash(&bootstrap_token);
+    let now = chrono::Utc::now().timestamp();
+    let alive = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+        db.query_row(
+            "SELECT bootstrap_expires_at FROM servers \
+             WHERE id = ?1 AND bootstrap_token_hash = ?2 AND kind = 'agent'",
+            [&server_id, &hash],
+            |r| r.get::<_, Option<i64>>(0),
+        )
+        .ok()
+        .map(|exp| server_token::bootstrap_alive(exp, now))
+        .unwrap_or(false)
+    };
+    if !alive {
+        return Err(AppError::Unauthorized);
+    }
+
     // Get Pier server's public IP and port. Prefers IPv4; falls back
     // to IPv6 when v4 isn't known so a dual-stack core with a v4-only
     // entry still gets a sensible install command. Brackets are
