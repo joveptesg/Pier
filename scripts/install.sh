@@ -135,8 +135,11 @@ if [[ "${PIER_SKIP_RAILPACK:-0}" != "1" ]]; then
         # linux-amd64 binary. Failure is non-fatal — Pier still works for
         # Dockerfile / Compose / Docker Image deploys, only the "Auto-build"
         # catalog item will be unusable.
-        RAILPACK_TAG=$(curl -fsSL https://api.github.com/repos/railwayapp/railpack/releases/latest 2>/dev/null \
-            | grep -oP '"tag_name":\s*"\K[^"]+' | head -n1)
+        # `|| RAILPACK_TAG=""`: under `set -euo pipefail` a failed curl (GitHub
+        # unreachable / rate-limited) would otherwise abort the whole install.
+        RAILPACK_TAG=$(curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors \
+                https://api.github.com/repos/railwayapp/railpack/releases/latest 2>/dev/null \
+            | grep -oP '"tag_name":\s*"\K[^"]+' | head -n1) || RAILPACK_TAG=""
         if [[ -n "$RAILPACK_TAG" ]]; then
             # railpack ships a versioned musl tarball (the old flat
             # railpack-linux-amd64 asset name 404s on current releases).
