@@ -23,6 +23,7 @@ pub fn init_templates() -> Environment<'static> {
 
     // Inject version as a global variable available in all templates
     env.add_global("version", env!("CARGO_PKG_VERSION"));
+    env.add_global("large_backup_bytes", crate::backup::LARGE_BACKUP_BYTES);
 
     // Localization: `{{ t("key") }}` / `{{ t("key", name=value) }}` resolves
     // against the embedded catalog using the current request's locale. See

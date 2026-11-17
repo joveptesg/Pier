@@ -1680,6 +1680,12 @@ const MIGRATIONS: &[&str] = &[
         DELETE FROM schedules WHERE id = 'sched-exp-' || OLD.id;
     END;
     "#,
+    // Migration 74: S3 addressing style per storage. 1 = path-style
+    // (`https://host/bucket`, what every storage used so far), 0 =
+    // virtual-hosted (`https://bucket.host`, required by e.g. Alibaba OSS).
+    r#"
+    ALTER TABLE s3_storages ADD COLUMN path_style INTEGER NOT NULL DEFAULT 1;
+    "#,
 ];
 
 /// One-time cleanup of `port_allocations` rows that repeat a container port.

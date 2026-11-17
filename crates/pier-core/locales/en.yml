@@ -1104,6 +1104,7 @@ resources_detail:
   confirm_delete_schedule: Delete this schedule? Existing backups in S3 are not removed.
   toast_schedule_deleted: Schedule deleted
   toast_backup_started: Backup started
+  large_backup_warning: "Backup of %{name} is %{size} (over %{limit}). Database backups are held in the panel memory while uploading, so if the database keeps growing the backup may fail. For large databases use Env export with DB dumps: it writes to disk and uploads in parts."
   confirm_delete_backup: Delete backup from %{when}? This removes the object from S3 too.
   toast_backup_deleted: Backup deleted
   toast_restore_complete: Restore complete
@@ -1405,6 +1406,10 @@ s3_list:
   label_bucket: Bucket
   label_key_prefix: Key prefix
   key_prefix_help: First folder inside the bucket — e.g. server name. Leave empty to write to the bucket root.
+  label_addressing: Addressing
+  addressing_path: "Path — https://host/bucket"
+  addressing_virtual: "Virtual-hosted — https://bucket.host"
+  addressing_help: "Most self-hosted stores (MinIO, Ceph, RustFS) use Path. Pick Virtual-hosted if the provider requires the bucket in the host name (e.g. Alibaba OSS). Endpoint without the bucket name."
   label_access_key: Access Key
   label_secret_key: Secret Key
   placeholder_secret_keep: Leave empty to keep current

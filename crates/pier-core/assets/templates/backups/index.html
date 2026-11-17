@@ -96,6 +96,7 @@
         <!-- Recent backups across all services -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ t('backups_page.history_title') }}</h3>
+            <div x-show="largestBackup" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm mb-3" x-text="largestBackup ? largeBackupText(largestBackup) : ''"></div>
             <div x-show="backups.length > 0" class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>
@@ -125,7 +126,10 @@
                                     <span :class="statusClass(b.status)" class="font-medium" x-text="b.status" :title="b.error_message || ''"></span>
                                     <span x-show="b.triggered_by === 'manual'" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ t('backups_page.manual') }}</span>
                                 </td>
-                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap" x-text="formatBytes(b.size_bytes)"></td>
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap">
+                                    <span x-text="formatBytes(b.size_bytes)"></span>
+                                    <span x-show="isLargeBackup(b)" class="inline-block align-middle text-amber-500" :title="largeBackupText(b)"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg></span>
+                                </td>
                                 <td class="py-2 px-2 text-right">
                                     <div class="flex items-center justify-end gap-1">
                                         <a x-show="b.status === 'completed'" :href="'/api/v1/backups/' + b.id + '/download'" class="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('backups_page.download') }}">
@@ -550,11 +554,38 @@ function backupsPage() {
             this.busy = false;
         },
         async runDb(s) {
+            const known = new Set(this.backups.map(b => b.id));
             try {
                 await api('/api/v1/resources/' + s.service_id + '/backups/trigger?schedule_id=' + encodeURIComponent(s.id), { method: 'POST' });
                 toast('{{ t('resources_detail.toast_backup_started') }}');
-                setTimeout(() => this.loadDb(), 5000);
+                this.watchNewBackups(known);
             } catch (e) { toast(e.message, 'error'); }
+        },
+        // Reload until the started run finishes (up to 10 min), then warn
+        // if it came out large.
+        watchNewBackups(known, tries = 0) {
+            setTimeout(async () => {
+                await this.loadDb();
+                const fresh = this.backups.filter(b => !known.has(b.id));
+                if (fresh.length && fresh.every(b => b.status !== 'running')) {
+                    fresh.filter(b => this.isLargeBackup(b)).forEach(b => toast(this.largeBackupText(b), 'warning'));
+                    return;
+                }
+                if (tries < 120) this.watchNewBackups(known, tries + 1);
+            }, 5000);
+        },
+        largeBackupBytes: {{ large_backup_bytes }},
+        isLargeBackup(b) { return b.status === 'completed' && (b.size_bytes || 0) > this.largeBackupBytes; },
+        get largestBackup() {
+            return this.backups.filter(b => this.isLargeBackup(b))
+                .reduce((max, b) => (!max || b.size_bytes > max.size_bytes) ? b : max, null);
+        },
+        largeBackupText(b) {
+            const name = (b.service_name || b.service_id) + (b.database_name ? ' / ' + b.database_name : '');
+            return '{{ t('resources_detail.large_backup_warning') }}'
+                .replace('%{name}', name)
+                .replace('%{size}', this.formatBytes(b.size_bytes))
+                .replace('%{limit}', this.formatBytes(this.largeBackupBytes));
         },
         async deleteDb(s) {
             if (!confirm('{{ t('resources_detail.confirm_delete_schedule') }}')) return;

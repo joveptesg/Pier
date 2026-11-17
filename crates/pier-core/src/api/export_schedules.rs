@@ -8,7 +8,7 @@ use axum::Json;
 use rusqlite::Connection;
 use serde::Deserialize;
 
-use crate::api::backups::{download_blob, validate_cron};
+use crate::api::backups::validate_cron;
 use crate::api::export::MIN_ARCHIVE_PASSWORD;
 use crate::auth::middleware::AuthUser;
 use crate::error::{AppError, AppResult};
@@ -334,32 +334,37 @@ pub async fn download_run(
             "errors.export_schedules.run_not_found",
         )));
     }
-    let data = download_blob(
+    // Streamed: an archive with DB dumps can be many GB, more than the
+    // panel should hold in memory.
+    let (len, body) = crate::s3::download_stream(
         &st.storage_type,
         &st.endpoint,
         &st.region,
         &st.bucket,
         &st.access_key,
         &st.secret_key,
+        st.path_style,
         &key,
     )
-    .await?;
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("storage download: {e}")))?;
     let filename = key.rsplit('/').next().unwrap_or("pier-export.zip");
-    Ok((
-        [
-            (
-                axum::http::header::CONTENT_TYPE,
-                "application/zip".to_string(),
-            ),
-            (
-                axum::http::header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{filename}\""),
-            ),
-            (axum::http::header::CACHE_CONTROL, "no-store".to_string()),
-        ],
-        data,
-    )
-        .into_response())
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/zip"),
+    );
+    if let Ok(v) = format!("attachment; filename=\"{filename}\"").parse() {
+        headers.insert(axum::http::header::CONTENT_DISPOSITION, v);
+    }
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    if let Some(n) = len {
+        headers.insert(axum::http::header::CONTENT_LENGTH, n.into());
+    }
+    Ok((headers, body).into_response())
 }
 
 /// DELETE /api/v1/export-runs/{id} — removes the archive from storage and
@@ -378,6 +383,7 @@ pub async fn delete_run(
                 &st.bucket,
                 &st.access_key,
                 &st.secret_key,
+                st.path_style,
                 &key,
             )
             .await

@@ -2000,6 +2000,7 @@ NODE_ENV=production"></textarea>
         <!-- Backup history — accordion grouped by database -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ t('resources_detail.backup_history') }}</h3>
+            <div x-show="largestBackup" x-cloak class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 rounded-lg px-4 py-3 text-sm mb-3" x-text="largestBackup ? largeBackupText(largestBackup) : ''"></div>
             <div class="space-y-2">
                 <template x-for="g in backupGroups" :key="g.key">
                     <div class="border border-gray-200 dark:border-gray-800 rounded-lg">
@@ -2028,6 +2029,7 @@ NODE_ENV=production"></textarea>
                                         <span :class="b.status === 'completed' ? 'text-green-500' : b.status === 'failed' ? 'text-red-500' : 'text-yellow-500'" class="text-xs font-medium" x-text="b.status"></span>
                                         <span class="text-gray-500 text-xs" x-text="b.started_at"></span>
                                         <span class="text-xs text-gray-400" x-text="formatBytes(b.size_bytes)"></span>
+                                        <span x-show="isLargeBackup(b)" class="text-amber-500" :title="largeBackupText(b)"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg></span>
                                         <span x-show="b.storage_name" class="text-xs text-gray-400" x-text="b.storage_name"></span>
                                         <span x-show="b.triggered_by === 'manual'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ t('resources_detail.manual') }}</span>
                                     </div>
@@ -3440,7 +3442,34 @@ function resourceDetail(id) {
         async triggerBackup(databaseName, scheduleId) {
             const qs = scheduleId ? ('?schedule_id='+encodeURIComponent(scheduleId)) : (databaseName ? ('?database_name='+encodeURIComponent(databaseName)) : '');
             const url = '/api/v1/resources/'+this.id+'/backups/trigger' + qs;
-            try { await api(url,{method:'POST'}); toast('{{ t('resources_detail.toast_backup_started') }}'); setTimeout(()=>this.loadBackups(),5000); } catch(e){toast(e.message,'error');}
+            const known = new Set(this.backupHistory.map(b => b.id));
+            try { await api(url,{method:'POST'}); toast('{{ t('resources_detail.toast_backup_started') }}'); this.watchNewBackups(known); } catch(e){toast(e.message,'error');}
+        },
+        // Reload the history until the run(s) started from here finish (up to
+        // 10 min), then warn about any that came out large.
+        watchNewBackups(known, tries = 0) {
+            setTimeout(async () => {
+                await this.loadBackups();
+                const fresh = this.backupHistory.filter(b => !known.has(b.id));
+                if (fresh.length && fresh.every(b => b.status !== 'running')) {
+                    this.loadSchedules();
+                    fresh.filter(b => this.isLargeBackup(b)).forEach(b => toast(this.largeBackupText(b), 'warning'));
+                    return;
+                }
+                if (tries < 120) this.watchNewBackups(known, tries + 1);
+            }, 5000);
+        },
+        largeBackupBytes: {{ large_backup_bytes }},
+        isLargeBackup(b) { return b.status === 'completed' && (b.size_bytes || 0) > this.largeBackupBytes; },
+        get largestBackup() {
+            return this.backupHistory.filter(b => this.isLargeBackup(b))
+                .reduce((max, b) => (!max || b.size_bytes > max.size_bytes) ? b : max, null);
+        },
+        largeBackupText(b) {
+            return '{{ t('resources_detail.large_backup_warning') }}'
+                .replace('%{name}', b.database_name || '{{ t('resources_detail.cluster_badge') }}')
+                .replace('%{size}', this.formatBytes(b.size_bytes))
+                .replace('%{limit}', this.formatBytes(this.largeBackupBytes));
         },
         toggleBackupGroup(key) { this.expandedBackupGroups[key] = !this.expandedBackupGroups[key]; },
         async deleteBackup(b) {

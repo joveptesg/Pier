@@ -97,6 +97,15 @@
                 <input x-model="form.bucket" type="text" placeholder="pier-backups"
                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
+            <div x-show="form.storage_type !== 'bunny'">
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('s3_list.label_addressing') }}</label>
+                <select x-model="form.addressing"
+                        class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="path">{{ t('s3_list.addressing_path') }}</option>
+                    <option value="virtual">{{ t('s3_list.addressing_virtual') }}</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">{{ t('s3_list.addressing_help') }}</p>
+            </div>
             <div>
                 <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
                     {{ t('s3_list.label_key_prefix') }} <span class="text-gray-400 font-normal">({{ t('common.optional') }})</span>
@@ -133,7 +142,7 @@ function s3Data() {
         loading: true,
         showAdd: false,
         editingId: null,
-        form: { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '', key_prefix: 'pier-backups' },
+        form: { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '', key_prefix: 'pier-backups', addressing: 'path' },
         async init() {
             try {
                 this.storages = await fetch('/api/v1/s3').then(r => r.ok ? r.json() : []);
@@ -141,7 +150,7 @@ function s3Data() {
             this.loading = false;
         },
         resetForm() {
-            this.form = { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '', key_prefix: 'pier-backups' };
+            this.form = { name: '', storage_type: 's3', endpoint: '', region: '', bucket: '', access_key: '', secret_key: '', key_prefix: 'pier-backups', addressing: 'path' };
             this.editingId = null;
         },
         closeModal() {
@@ -159,6 +168,7 @@ function s3Data() {
                 access_key: s.access_key,
                 secret_key: '',
                 key_prefix: s.key_prefix || '',
+                addressing: s.path_style === false ? 'virtual' : 'path',
             };
             this.showAdd = true;
         },
@@ -166,17 +176,19 @@ function s3Data() {
             if (!this.form.name || !this.form.endpoint || !this.form.bucket) {
                 toast('{{ t('s3_list.toast_required') }}', 'error'); return;
             }
+            const { addressing, ...payload } = this.form;
+            payload.path_style = addressing !== 'virtual';
             try {
                 if (this.editingId) {
                     await api('/api/v1/s3/' + this.editingId, {
                         method: 'PUT',
-                        body: JSON.stringify(this.form),
+                        body: JSON.stringify(payload),
                     });
                     toast('{{ t('s3_list.toast_updated') }}');
                 } else {
                     await api('/api/v1/s3', {
                         method: 'POST',
-                        body: JSON.stringify(this.form),
+                        body: JSON.stringify(payload),
                     });
                     toast('{{ t('s3_list.toast_added') }}');
                 }

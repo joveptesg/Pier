@@ -1079,6 +1079,7 @@ resources_detail:
   confirm_delete_schedule: ¿Eliminar esta programación? Las copias de seguridad existentes en S3 no se eliminan.
   toast_schedule_deleted: Programación eliminada
   toast_backup_started: Copia de seguridad iniciada
+  large_backup_warning: "La copia de %{name} ocupa %{size} (más de %{limit}). Las copias de bases de datos se mantienen en la memoria del panel durante la subida, así que si la base sigue creciendo la copia puede fallar. Para bases grandes usa Env export con volcados de BD: escribe en disco y sube por partes."
   confirm_delete_backup: ¿Eliminar la copia de seguridad del %{when}? Esto también elimina el objeto de S3.
   toast_backup_deleted: Copia de seguridad eliminada
   toast_restore_complete: Restauración completada
@@ -1378,6 +1379,10 @@ s3_list:
   label_bucket: Bucket
   label_key_prefix: Prefijo de clave
   key_prefix_help: Primera carpeta dentro del bucket — p. ej. el nombre del servidor. Déjalo vacío para escribir en la raíz del bucket.
+  label_addressing: Direccionamiento
+  addressing_path: "Ruta — https://host/bucket"
+  addressing_virtual: "Host virtual — https://bucket.host"
+  addressing_help: "La mayoría de almacenamientos propios (MinIO, Ceph, RustFS) usan Ruta. Elige Host virtual si el proveedor exige el bucket en el nombre de host (p. ej. Alibaba OSS). Endpoint sin el nombre del bucket."
   label_access_key: Clave de acceso
   label_secret_key: Clave secreta
   placeholder_secret_keep: Déjalo vacío para mantener la actual

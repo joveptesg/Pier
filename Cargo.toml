@@ -92,7 +92,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 axum-extra = { version = "0.12", features = ["cookie"] }
 
 # HTTP Client
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "cookies"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "cookies", "stream"], default-features = false }
 
 # S3
 aws-sdk-s3 = "1.82"

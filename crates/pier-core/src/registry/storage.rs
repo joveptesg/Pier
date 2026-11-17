@@ -32,6 +32,7 @@ struct ColdTier {
     access_key: String,
     secret_key: String,
     key_prefix: String,
+    path_style: bool,
 }
 
 fn package_dir(state: &SharedState, package: &str) -> PathBuf {
@@ -202,7 +203,7 @@ async fn load_cold_tier(state: &SharedState) -> Result<Option<ColdTier>> {
         };
 
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix, path_style
              FROM s3_storages
              WHERE id = ?1",
             [&id],
@@ -215,14 +216,23 @@ async fn load_cold_tier(state: &SharedState) -> Result<Option<ColdTier>> {
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
+                    row.get::<_, bool>(7)?,
                 ))
             },
         )
         .optional()?
     };
 
-    let Some((storage_type, endpoint, region, bucket, access_key_enc, secret_key_enc, key_prefix)) =
-        row
+    let Some((
+        storage_type,
+        endpoint,
+        region,
+        bucket,
+        access_key_enc,
+        secret_key_enc,
+        key_prefix,
+        path_style,
+    )) = row
     else {
         return Ok(None);
     };
@@ -241,6 +251,7 @@ async fn load_cold_tier(state: &SharedState) -> Result<Option<ColdTier>> {
         access_key,
         secret_key,
         key_prefix,
+        path_style,
     }))
 }
 
@@ -260,6 +271,7 @@ async fn upload_to_cold(
             &tier.region,
             &tier.access_key,
             &tier.secret_key,
+            tier.path_style,
         )?;
         s3::upload_file(&client, &tier.bucket, &key, body).await
     }
@@ -275,6 +287,7 @@ async fn download_from_cold(tier: &ColdTier, package: &str, filename: &str) -> R
             &tier.region,
             &tier.access_key,
             &tier.secret_key,
+            tier.path_style,
         )?;
         let resp = client
             .get_object()

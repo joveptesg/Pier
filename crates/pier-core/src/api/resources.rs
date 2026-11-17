@@ -2844,8 +2844,8 @@ pub(crate) async fn purge_backup_blobs(state: &SharedState, blobs: &[(String, St
 
     let storage_ids: std::collections::HashSet<&str> =
         blobs.iter().map(|(sid, _)| sid.as_str()).collect();
-    let mut storages: StdMap<String, (String, String, String, String, String, String)> =
-        StdMap::new();
+    type StorageRow = (String, String, String, String, String, String, bool);
+    let mut storages: StdMap<String, StorageRow> = StdMap::new();
     {
         let db = match state.db.lock() {
             Ok(g) => g,
@@ -2856,7 +2856,7 @@ pub(crate) async fn purge_backup_blobs(state: &SharedState, blobs: &[(String, St
         };
         for sid in storage_ids {
             let row = db.query_row(
-                "SELECT storage_type, endpoint, region, bucket, access_key, secret_key
+                "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, path_style
                  FROM s3_storages WHERE id = ?1",
                 [sid],
                 |row| {
@@ -2867,6 +2867,7 @@ pub(crate) async fn purge_backup_blobs(state: &SharedState, blobs: &[(String, St
                         row.get::<_, String>(3)?,
                         row.get::<_, String>(4)?,
                         row.get::<_, String>(5)?,
+                        row.get::<_, bool>(6)?,
                     ))
                 },
             );
@@ -2880,7 +2881,7 @@ pub(crate) async fn purge_backup_blobs(state: &SharedState, blobs: &[(String, St
     }
 
     for (sid, key) in blobs {
-        let Some((storage_type, endpoint, region, bucket, access_key, secret_key)) =
+        let Some((storage_type, endpoint, region, bucket, access_key, secret_key, path_style)) =
             storages.get(sid)
         else {
             continue;
@@ -2892,6 +2893,7 @@ pub(crate) async fn purge_backup_blobs(state: &SharedState, blobs: &[(String, St
             bucket,
             access_key,
             secret_key,
+            *path_style,
             key,
         )
         .await

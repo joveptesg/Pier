@@ -553,13 +553,13 @@ pub async fn trigger_backup(
     let env_vars: std::collections::HashMap<String, String> =
         serde_json::from_str(&decrypted_env).unwrap_or_default();
 
-    let (storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix) = {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix, path_style) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix FROM s3_storages WHERE id = ?1",
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix, path_style FROM s3_storages WHERE id = ?1",
             [&s3_storage_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
@@ -569,6 +569,7 @@ pub async fn trigger_backup(
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
+                row.get::<_, bool>(7)?,
             )),
         )?
     };
@@ -651,12 +652,19 @@ pub async fn trigger_backup(
         };
 
         let size = data.len() as i64;
+        crate::backup::warn_if_large(&name, db_name_opt.as_deref(), data.len() as u64);
 
         let upload_result = match storage_type.as_str() {
             "bunny" => {
                 crate::s3::bunny::upload_file(&bucket, &access_key, &endpoint, &s3_key, data).await
             }
-            _ => match crate::s3::build_client(&endpoint, &region, &access_key, &secret_key) {
+            _ => match crate::s3::build_client(
+                &endpoint,
+                &region,
+                &access_key,
+                &secret_key,
+                path_style,
+            ) {
                 Ok(client) => crate::s3::upload_file(&client, &bucket, &s3_key, data).await,
                 Err(e) => Err(e),
             },
@@ -832,13 +840,13 @@ pub async fn restore_backup(
     let owner = resolve_owner(&state, &service_id, &body.target_database_name)?;
 
     // 4. S3 config + download blob.
-    let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key, path_style) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key FROM s3_storages WHERE id = ?1",
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, path_style FROM s3_storages WHERE id = ?1",
             [&s3_storage_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
@@ -847,6 +855,7 @@ pub async fn restore_backup(
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, bool>(6)?,
             )),
         )?
     };
@@ -858,6 +867,7 @@ pub async fn restore_backup(
         &bucket,
         &access_key,
         &secret_key,
+        path_style,
         &s3_key,
     )
     .await?;
@@ -1176,6 +1186,7 @@ async fn apply_restore(
     .map_err(|e| AppError::Internal(anyhow::anyhow!("restore failed: {e}")))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn download_blob(
     storage_type: &str,
     endpoint: &str,
@@ -1183,6 +1194,7 @@ pub(crate) async fn download_blob(
     bucket: &str,
     access_key: &str,
     _secret_key: &str,
+    path_style: bool,
     s3_key: &str,
 ) -> AppResult<Vec<u8>> {
     match storage_type {
@@ -1208,8 +1220,9 @@ pub(crate) async fn download_blob(
             Ok(bytes.to_vec())
         }
         _ => {
-            let client = crate::s3::build_client(endpoint, region, access_key, _secret_key)
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 client: {e}")))?;
+            let client =
+                crate::s3::build_client(endpoint, region, access_key, _secret_key, path_style)
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 client: {e}")))?;
             let resp = client
                 .get_object()
                 .bucket(bucket)
@@ -1266,13 +1279,13 @@ pub async fn download_backup(
         .map_err(|_| AppError::NotFound(crate::i18n::te("errors.backups.backup_not_completed")))?
     };
 
-    let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key, path_style) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key FROM s3_storages WHERE id = ?1",
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, path_style FROM s3_storages WHERE id = ?1",
             [&s3_storage_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
@@ -1281,6 +1294,7 @@ pub async fn download_backup(
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, bool>(6)?,
             )),
         )?
     };
@@ -1291,8 +1305,9 @@ pub async fn download_backup(
             Ok(axum::response::Redirect::temporary(&url).into_response())
         }
         _ => {
-            let client = crate::s3::build_client(&endpoint, &region, &access_key, &secret_key)
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 client: {e}")))?;
+            let client =
+                crate::s3::build_client(&endpoint, &region, &access_key, &secret_key, path_style)
+                    .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 client: {e}")))?;
 
             let resp = client
                 .get_object()
@@ -1373,13 +1388,13 @@ pub async fn delete_backup(
         })?
     };
 
-    let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key, path_style) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key FROM s3_storages WHERE id = ?1",
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, path_style FROM s3_storages WHERE id = ?1",
             [&s3_storage_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
@@ -1388,6 +1403,7 @@ pub async fn delete_backup(
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, bool>(6)?,
             )),
         )?
     };
@@ -1399,6 +1415,7 @@ pub async fn delete_backup(
         &bucket,
         &access_key,
         &secret_key,
+        path_style,
         &s3_key,
     )
     .await

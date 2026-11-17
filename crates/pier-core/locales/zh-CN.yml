@@ -1079,6 +1079,7 @@ resources_detail:
   confirm_delete_schedule: 删除此计划？S3 中现有的备份不会被移除。
   toast_schedule_deleted: 计划已删除
   toast_backup_started: 备份已启动
+  large_backup_warning: "%{name} 的备份大小为 %{size}（超过 %{limit}）。数据库备份在上传期间保存在面板内存中，如果数据库继续增长，备份可能会失败。大型数据库请使用带数据库转储的 Env export：它写入磁盘并分片上传。"
   confirm_delete_backup: 删除 %{when} 的备份？此操作也会从 S3 中移除该对象。
   toast_backup_deleted: 备份已删除
   toast_restore_complete: 恢复完成
@@ -1379,6 +1380,10 @@ s3_list:
   label_bucket: 存储桶
   label_key_prefix: 键前缀
   key_prefix_help: bucket 内的第一层文件夹——例如服务器名称。留空则写入 bucket 根目录。
+  label_addressing: 寻址方式
+  addressing_path: "路径 — https://host/bucket"
+  addressing_virtual: "虚拟主机 — https://bucket.host"
+  addressing_help: "大多数自建存储（MinIO、Ceph、RustFS）使用路径方式。如果服务商要求将 bucket 放在主机名中（例如阿里云 OSS），请选择虚拟主机。Endpoint 不要包含 bucket 名称。"
   label_access_key: 访问密钥
   label_secret_key: 私密密钥
   placeholder_secret_keep: 留空则保持当前值

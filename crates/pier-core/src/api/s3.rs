@@ -19,6 +19,9 @@ pub struct CreateS3Request {
     pub secret_key: String,
     #[serde(default)]
     pub key_prefix: Option<String>,
+    /// `https://host/bucket` (true) or `https://bucket.host` (false).
+    #[serde(default = "default_true")]
+    pub path_style: bool,
 }
 
 #[derive(Deserialize)]
@@ -35,10 +38,17 @@ pub struct UpdateS3Request {
     pub secret_key: String,
     #[serde(default)]
     pub key_prefix: Option<String>,
+    /// `https://host/bucket` (true) or `https://bucket.host` (false).
+    #[serde(default = "default_true")]
+    pub path_style: bool,
 }
 
 fn default_s3_type() -> String {
     "s3".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Strip leading/trailing slashes and whitespace; the join in build_s3_key
@@ -54,7 +64,8 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     let mut stmt = db.prepare(
-        "SELECT id, name, storage_type, endpoint, region, bucket, access_key, key_prefix, created_at
+        "SELECT id, name, storage_type, endpoint, region, bucket, access_key, key_prefix, created_at,
+                path_style
          FROM s3_storages WHERE is_active = 1 ORDER BY created_at DESC",
     )?;
     let items: Vec<serde_json::Value> = stmt
@@ -69,6 +80,7 @@ pub async fn list(State(state): State<SharedState>) -> AppResult<impl IntoRespon
                 "access_key": row.get::<_, String>(6)?,
                 "key_prefix": row.get::<_, String>(7)?,
                 "created_at": row.get::<_, String>(8)?,
+                "path_style": row.get::<_, bool>(9)?,
             }))
         })?
         .filter_map(|r| r.ok())
@@ -100,8 +112,8 @@ pub async fn create(
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
     db.execute(
-        "INSERT INTO s3_storages (id, name, storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO s3_storages (id, name, storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix, path_style)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
             id,
             body.name.trim(),
@@ -112,6 +124,7 @@ pub async fn create(
             body.access_key,
             body.secret_key,
             key_prefix,
+            body.path_style,
         ],
     )?;
     Ok(Json(serde_json::json!({"ok": true, "id": id})))
@@ -208,6 +221,10 @@ pub async fn update(
             &[("v", &id)],
         )));
     }
+    db.execute(
+        "UPDATE s3_storages SET path_style = ?1 WHERE id = ?2",
+        rusqlite::params![body.path_style, id],
+    )?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -235,13 +252,13 @@ pub async fn test(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key, path_style) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, path_style
              FROM s3_storages WHERE id = ?1",
             [&id],
             |row| {
@@ -252,6 +269,7 @@ pub async fn test(
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
+                    row.get::<_, bool>(6)?,
                 ))
             },
         )
@@ -275,14 +293,21 @@ pub async fn test(
                 })?;
         }
         _ => {
-            crate::s3::test_connection(&endpoint, &region, &bucket, &access_key, &secret_key)
-                .await
-                .map_err(|e| {
-                    AppError::BadRequest(crate::i18n::te_args(
-                        "errors.s3.test_failed",
-                        &[("v", &e.to_string())],
-                    ))
-                })?;
+            crate::s3::test_connection(
+                &endpoint,
+                &region,
+                &bucket,
+                &access_key,
+                &secret_key,
+                path_style,
+            )
+            .await
+            .map_err(|e| {
+                AppError::BadRequest(crate::i18n::te_args(
+                    "errors.s3.test_failed",
+                    &[("v", &e.to_string())],
+                ))
+            })?;
         }
     }
 

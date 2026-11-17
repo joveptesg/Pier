@@ -9,8 +9,6 @@
 //! The archive password is stored encrypted with the panel master key —
 //! cron has nobody to ask for it.
 
-use std::io::Read;
-
 use anyhow::{anyhow, Context, Result};
 use rusqlite::Connection;
 
@@ -71,11 +69,13 @@ pub struct Storage {
     pub access_key: String,
     pub secret_key: String,
     pub key_prefix: String,
+    pub path_style: bool,
 }
 
 pub fn load_storage(db: &Connection, id: &str) -> Result<Storage> {
     db.query_row(
-        "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix
+        "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix,
+                path_style
            FROM s3_storages WHERE id = ?1",
         [id],
         |r| {
@@ -87,6 +87,7 @@ pub fn load_storage(db: &Connection, id: &str) -> Result<Storage> {
                 access_key: r.get(4)?,
                 secret_key: r.get(5)?,
                 key_prefix: r.get(6)?,
+                path_style: r.get(7)?,
             })
         },
     )
@@ -247,18 +248,13 @@ async fn build_and_upload(
 
     match storage.storage_type.as_str() {
         "bunny" => {
-            let data = tokio::task::spawn_blocking(move || {
-                let mut file = file;
-                let mut buf = Vec::new();
-                file.read_to_end(&mut buf).map(|_| buf)
-            })
-            .await??;
-            crate::s3::bunny::upload_file(
+            crate::s3::bunny::upload_stream(
                 &storage.bucket,
                 &storage.access_key,
                 &storage.endpoint,
                 s3_key,
-                data,
+                tokio::fs::File::from_std(file),
+                size,
             )
             .await?;
         }
@@ -268,12 +264,14 @@ async fn build_and_upload(
                 &storage.region,
                 &storage.access_key,
                 &storage.secret_key,
+                storage.path_style,
             )?;
             crate::s3::upload_stream(
                 &client,
                 &storage.bucket,
                 s3_key,
                 tokio::fs::File::from_std(file),
+                size,
             )
             .await?;
         }

@@ -118,13 +118,13 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
         serde_json::from_str(&decrypted_env).unwrap_or_default();
 
     // 2. Get S3 storage config
-    let (storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix) = {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix, path_style) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix FROM s3_storages WHERE id = ?1",
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, key_prefix, path_style FROM s3_storages WHERE id = ?1",
             [&due.s3_storage_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
@@ -134,6 +134,7 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
+                row.get::<_, bool>(7)?,
             )),
         )?
     };
@@ -208,6 +209,7 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
     };
 
     let size = data.len() as i64;
+    super::warn_if_large(&name, due.database_name.as_deref(), data.len() as u64);
 
     // 5. Upload to S3 / Bunny.net
     let upload_result = match storage_type.as_str() {
@@ -215,7 +217,8 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
             crate::s3::bunny::upload_file(&bucket, &access_key, &endpoint, &s3_key, data).await
         }
         _ => {
-            let client = crate::s3::build_client(&endpoint, &region, &access_key, &secret_key)?;
+            let client =
+                crate::s3::build_client(&endpoint, &region, &access_key, &secret_key, path_style)?;
             crate::s3::upload_file(&client, &bucket, &s3_key, data).await
         }
     };
@@ -316,13 +319,13 @@ pub(crate) async fn delete_blob_by_storage_id(
     s3_storage_id: &str,
     s3_key: &str,
 ) -> anyhow::Result<()> {
-    let (storage_type, endpoint, region, bucket, access_key, secret_key) = {
+    let (storage_type, endpoint, region, bucket, access_key, secret_key, path_style) = {
         let db = state
             .db
             .lock()
             .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
         db.query_row(
-            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key FROM s3_storages WHERE id = ?1",
+            "SELECT storage_type, endpoint, region, bucket, access_key, secret_key, path_style FROM s3_storages WHERE id = ?1",
             [s3_storage_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
@@ -331,6 +334,7 @@ pub(crate) async fn delete_blob_by_storage_id(
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, bool>(6)?,
             )),
         )?
     };
@@ -341,6 +345,7 @@ pub(crate) async fn delete_blob_by_storage_id(
         &bucket,
         &access_key,
         &secret_key,
+        path_style,
         s3_key,
     )
     .await
