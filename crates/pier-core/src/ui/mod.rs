@@ -33,6 +33,7 @@ pub fn ui_router(state: SharedState) -> Router<SharedState> {
         .route("/tasks", get(pages::tasks_list_page))
         .route("/tasks/runs/{id}", get(pages::task_run_detail_page))
         .route("/schedules", get(pages::schedules_page))
+        .route("/backups", get(pages::backups_page))
         .route("/packages", get(pages::packages_list))
         .route("/packages/{*name}", get(pages::package_detail))
         // `npm login --auth-type=web` confirmation page (Authorize CLI).

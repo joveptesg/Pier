@@ -18,6 +18,7 @@ pub mod domains;
 pub mod env;
 pub mod events;
 pub mod export;
+pub mod export_schedules;
 pub mod federation;
 pub mod federation_agent;
 pub mod federation_tokens;
@@ -682,8 +683,30 @@ pub fn api_router(state: SharedState) -> Router<SharedState> {
         // Emergency export: env of every service on the server (+ local DB
         // dumps) as an encrypted zip. Admin only — spans all projects.
         .route("/servers/{id}/export", post(export::export_server))
-        // Settings → Export: selected or all projects in one archive.
+        // System → Backups → Env export: selected or all projects in one archive.
         .route("/export", post(export::export_all))
+        // System → Backups: every backup schedule / backup across services,
+        // and scheduled env exports to S3.
+        .route("/backup-schedules", get(backups::list_all_schedules))
+        .route("/backups", get(backups::list_all_backups))
+        .route(
+            "/export-schedules",
+            get(export_schedules::list).post(export_schedules::create),
+        )
+        .route(
+            "/export-schedules/{id}",
+            put(export_schedules::update).delete(export_schedules::remove),
+        )
+        .route(
+            "/export-schedules/{id}/run",
+            post(export_schedules::run_now),
+        )
+        .route("/export-runs", get(export_schedules::list_runs))
+        .route("/export-runs/{id}", delete(export_schedules::delete_run))
+        .route(
+            "/export-runs/{id}/download",
+            get(export_schedules::download_run),
+        )
         .route("/servers/{id}/promote", post(promote::trigger))
         // System mutations (cleanup/update/timezone/logs).
         .route("/system/cleanup", post(system::cleanup))

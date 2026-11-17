@@ -1614,6 +1614,72 @@ const MIGRATIONS: &[&str] = &[
     "#,
     // Migration 71: drop duplicate port rows. See `DEDUPE_PORT_ROWS_SQL`.
     DEDUPE_PORT_ROWS_SQL,
+    // Migration 72: several backup schedules per database.
+    //
+    // Migration 27 allowed one schedule per (service, database), so a second
+    // rule for the same DB (other cron / retention / storage) was impossible,
+    // and `create_schedule` silently replaced the old one. Every replace left
+    // its `sched-bk-*` mirror in `schedules` behind, firing on cron and
+    // failing with "not found". The unique index goes, orphaned mirrors are
+    // dropped, and a trigger removes the mirror whenever a backup schedule is
+    // deleted — directly or through a cascade from services / s3_storages.
+    r#"
+    DROP INDEX IF EXISTS idx_backup_sched_service_db;
+    CREATE INDEX IF NOT EXISTS idx_backup_sched_service_db2
+        ON backup_schedules(service_id, database_name);
+    DELETE FROM schedules
+     WHERE id LIKE 'sched-bk-%'
+       AND substr(id, 10) NOT IN (SELECT id FROM backup_schedules);
+    CREATE TRIGGER IF NOT EXISTS trg_backup_schedules_drop_mirror
+        AFTER DELETE ON backup_schedules
+    BEGIN
+        DELETE FROM schedules WHERE id = 'sched-bk-' || OLD.id;
+    END;
+    "#,
+    // Migration 73: scheduled env exports (System → Backups → Env export).
+    //
+    // The same encrypted zip as the manual export, built on cron and
+    // uploaded to an S3/Bunny storage. The archive password is stored
+    // encrypted with the panel master key (`crypto::encrypt`) because cron
+    // has nobody to ask. Each rule is mirrored into `schedules` as
+    // `sched-exp-<id>`, like backup schedules are.
+    r#"
+    CREATE TABLE IF NOT EXISTS export_schedules (
+        id                   TEXT PRIMARY KEY NOT NULL,
+        name                 TEXT NOT NULL,
+        s3_storage_id        TEXT NOT NULL REFERENCES s3_storages(id) ON DELETE CASCADE,
+        cron_expression      TEXT NOT NULL,
+        retention_count      INTEGER NOT NULL DEFAULT 7,
+        project_ids          TEXT,
+        include_unassigned   INTEGER NOT NULL DEFAULT 1,
+        include_dumps        INTEGER NOT NULL DEFAULT 0,
+        archive_password_enc TEXT NOT NULL,
+        is_active            INTEGER NOT NULL DEFAULT 1,
+        last_run_at          TEXT,
+        created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS export_runs (
+        id             TEXT PRIMARY KEY NOT NULL,
+        schedule_id    TEXT REFERENCES export_schedules(id) ON DELETE SET NULL,
+        s3_storage_id  TEXT NOT NULL,
+        s3_key         TEXT NOT NULL,
+        status         TEXT NOT NULL DEFAULT 'running',
+        size_bytes     INTEGER NOT NULL DEFAULT 0,
+        services_count INTEGER NOT NULL DEFAULT 0,
+        error_message  TEXT,
+        triggered_by   TEXT NOT NULL DEFAULT 'schedule',
+        started_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at    TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_export_runs_sched
+        ON export_runs(schedule_id, started_at DESC);
+    CREATE TRIGGER IF NOT EXISTS trg_export_schedules_drop_mirror
+        AFTER DELETE ON export_schedules
+    BEGIN
+        DELETE FROM schedules WHERE id = 'sched-exp-' || OLD.id;
+    END;
+    "#,
 ];
 
 /// One-time cleanup of `port_allocations` rows that repeat a container port.

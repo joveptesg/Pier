@@ -14,8 +14,9 @@ use crate::state::SharedState;
 
 /// Body of POST /api/v1/resources/{id}/backup-schedules.
 /// `database_name` is optional — omit for a cluster-wide schedule, set to a
-/// specific DB name for a per-DB schedule. At most one schedule per
-/// (service_id, database_name) pair is allowed (enforced by UNIQUE index).
+/// specific DB name for a per-DB schedule. A database may have several
+/// schedules (different cron / retention / storage); only an exact
+/// duplicate (same database, storage and cron) is rejected.
 #[derive(Deserialize)]
 pub struct CreateScheduleRequest {
     pub s3_storage_id: String,
@@ -47,14 +48,107 @@ fn default_retention() -> i64 {
     7
 }
 
-fn cron_to_next_run(cron: &str) -> &'static str {
-    match cron {
-        "0 2 * * *" => "+1 day",
-        "0 2 * * 0" => "+7 days",
-        "0 */6 * * *" => "+6 hours",
-        "0 * * * *" => "+1 hour",
-        _ => "+1 day",
+/// Reject a cron expression the unified scheduler could not run.
+pub(crate) fn validate_cron(expr: &str) -> AppResult<()> {
+    cron_utils::validate(expr).map_err(AppError::BadRequest)
+}
+
+/// Two schedules for the same database, storage and cron would just write
+/// the same dump twice — that is the only combination we refuse.
+fn ensure_not_duplicate(
+    db: &Connection,
+    service_id: &str,
+    database_name: Option<&str>,
+    s3_storage_id: &str,
+    cron_expression: &str,
+    exclude_id: Option<&str>,
+) -> AppResult<()> {
+    let dup: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM backup_schedules
+          WHERE service_id = ?1
+            AND COALESCE(database_name, '') = COALESCE(?2, '')
+            AND s3_storage_id = ?3
+            AND cron_expression = ?4
+            AND id <> COALESCE(?5, ''))",
+        rusqlite::params![
+            service_id,
+            database_name,
+            s3_storage_id,
+            cron_expression,
+            exclude_id
+        ],
+        |r| r.get(0),
+    )?;
+    if dup {
+        return Err(AppError::Conflict(crate::i18n::te(
+            "errors.backups.duplicate_schedule",
+        )));
     }
+    Ok(())
+}
+
+/// Shared SELECT for the per-resource and the global schedule lists.
+/// `cron_expression` / `next_run_at` / `last_status` come from the unified
+/// `schedules` mirror — that is what the runner actually executes and
+/// advances; `backup_schedules.next_run_at` is only an insert-time guess.
+const SCHEDULE_SELECT: &str = "
+    SELECT bs.id, bs.service_id, sv.name, p.name, sv.catalog_id,
+           bs.s3_storage_id, st.name, st.storage_type,
+           COALESCE(u.cron_expression, bs.cron_expression), bs.retention_count,
+           bs.is_active, bs.last_run_at, datetime(u.next_run_at), u.last_status,
+           bs.database_name
+      FROM backup_schedules bs
+      JOIN services sv ON sv.id = bs.service_id
+      LEFT JOIN projects p ON p.id = sv.project_id
+      LEFT JOIN s3_storages st ON st.id = bs.s3_storage_id
+      LEFT JOIN schedules u ON u.id = 'sched-bk-' || bs.id";
+
+fn schedule_row_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "id": row.get::<_, String>(0)?,
+        "service_id": row.get::<_, String>(1)?,
+        "service_name": row.get::<_, String>(2)?,
+        "project_name": row.get::<_, Option<String>>(3)?,
+        "catalog_id": row.get::<_, Option<String>>(4)?,
+        "s3_storage_id": row.get::<_, String>(5)?,
+        "storage_name": row.get::<_, Option<String>>(6)?,
+        "storage_type": row.get::<_, Option<String>>(7)?,
+        "cron_expression": row.get::<_, String>(8)?,
+        "retention_count": row.get::<_, i64>(9)?,
+        "is_active": row.get::<_, bool>(10)?,
+        "last_run_at": row.get::<_, Option<String>>(11)?,
+        "next_run_at": row.get::<_, Option<String>>(12)?,
+        "last_status": row.get::<_, Option<String>>(13)?,
+        "database_name": row.get::<_, Option<String>>(14)?,
+    }))
+}
+
+/// Shared SELECT for the per-resource and the global backup history.
+const BACKUP_SELECT: &str = "
+    SELECT b.id, b.status, b.size_bytes, b.error_message, b.triggered_by,
+           b.started_at, b.finished_at, b.s3_key, b.database_name,
+           b.schedule_id, b.s3_storage_id, st.name, b.service_id, sv.name
+      FROM backups b
+      LEFT JOIN s3_storages st ON st.id = b.s3_storage_id
+      LEFT JOIN services sv ON sv.id = b.service_id";
+
+fn backup_row_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "id": row.get::<_, String>(0)?,
+        "status": row.get::<_, String>(1)?,
+        "size_bytes": row.get::<_, i64>(2)?,
+        "error_message": row.get::<_, Option<String>>(3)?,
+        "triggered_by": row.get::<_, String>(4)?,
+        "started_at": row.get::<_, String>(5)?,
+        "finished_at": row.get::<_, Option<String>>(6)?,
+        "s3_key": row.get::<_, String>(7)?,
+        "database_name": row.get::<_, Option<String>>(8)?,
+        "schedule_id": row.get::<_, Option<String>>(9)?,
+        "s3_storage_id": row.get::<_, String>(10)?,
+        "storage_name": row.get::<_, Option<String>>(11)?,
+        "service_id": row.get::<_, String>(12)?,
+        "service_name": row.get::<_, Option<String>>(13)?,
+    }))
 }
 
 /// Stable id of the unified-scheduler row that mirrors a `backup_schedules`
@@ -150,34 +244,38 @@ pub async fn list_schedules(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    let mut stmt = db.prepare(
-        "SELECT id, s3_storage_id, cron_expression, retention_count, is_active,
-                last_run_at, next_run_at, database_name
-         FROM backup_schedules
-         WHERE service_id = ?1
-         ORDER BY (database_name IS NOT NULL), database_name",
-    )?;
+    let mut stmt = db.prepare(&format!(
+        "{SCHEDULE_SELECT}
+         WHERE bs.service_id = ?1
+         ORDER BY (bs.database_name IS NOT NULL), bs.database_name, bs.created_at"
+    ))?;
     let items: Vec<serde_json::Value> = stmt
-        .query_map([&id], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "s3_storage_id": row.get::<_, String>(1)?,
-                "cron_expression": row.get::<_, String>(2)?,
-                "retention_count": row.get::<_, i64>(3)?,
-                "is_active": row.get::<_, bool>(4)?,
-                "last_run_at": row.get::<_, Option<String>>(5)?,
-                "next_run_at": row.get::<_, Option<String>>(6)?,
-                "database_name": row.get::<_, Option<String>>(7)?,
-            }))
-        })?
+        .query_map([&id], schedule_row_json)?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(Json(items))
+}
+
+/// GET /api/v1/backup-schedules — every backup schedule of every service
+/// (System → Backups). Admin only.
+pub async fn list_all_schedules(State(state): State<SharedState>) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let mut stmt = db.prepare(&format!(
+        "{SCHEDULE_SELECT}
+         ORDER BY sv.name, (bs.database_name IS NOT NULL), bs.database_name, bs.created_at"
+    ))?;
+    let items: Vec<serde_json::Value> = stmt
+        .query_map([], schedule_row_json)?
         .filter_map(|r| r.ok())
         .collect();
     Ok(Json(items))
 }
 
 /// POST /api/v1/resources/{id}/backup-schedules
-/// Create-or-replace semantics: if a schedule already exists for the same
-/// (service_id, database_name) pair, it is replaced.
+/// Always inserts a new schedule; editing goes through PATCH.
 pub async fn create_schedule(
     State(state): State<SharedState>,
     axum::Extension(user): axum::Extension<AuthUser>,
@@ -190,34 +288,36 @@ pub async fn create_schedule(
             "errors.backups.s3_storage_required",
         )));
     }
+    validate_cron(&body.cron_expression)?;
+    let database_name = body.database_name.filter(|n| !n.is_empty());
 
     let schedule_id = uuid::Uuid::new_v4().to_string();
-    let next_run = cron_to_next_run(&body.cron_expression);
 
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
 
-    // Replace any existing schedule for the same (service, database_name).
-    db.execute(
-        "DELETE FROM backup_schedules WHERE service_id = ?1
-         AND COALESCE(database_name, '') = COALESCE(?2, '')",
-        rusqlite::params![id, body.database_name],
+    ensure_not_duplicate(
+        &db,
+        &id,
+        database_name.as_deref(),
+        &body.s3_storage_id,
+        &body.cron_expression,
+        None,
     )?;
 
     db.execute(
         "INSERT INTO backup_schedules
-           (id, service_id, s3_storage_id, cron_expression, retention_count, database_name, next_run_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now', ?7))",
+           (id, service_id, s3_storage_id, cron_expression, retention_count, database_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![
             schedule_id,
             id,
             body.s3_storage_id,
             body.cron_expression,
             body.retention_count,
-            body.database_name,
-            next_run
+            database_name
         ],
     )?;
 
@@ -235,10 +335,31 @@ pub async fn update_schedule(
     Json(body): Json<UpdateScheduleRequest>,
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Admin)?;
+    if let Some(v) = &body.cron_expression {
+        validate_cron(v)?;
+    }
     let db = state
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+    // The schedule must belong to the resource the caller was authorised for.
+    let (database_name, cur_storage, cur_cron): (Option<String>, String, String) = db
+        .query_row(
+            "SELECT database_name, s3_storage_id, cron_expression
+               FROM backup_schedules WHERE id = ?1 AND service_id = ?2",
+            [&schedule_id, &id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|_| AppError::NotFound(crate::i18n::te("errors.backups.schedule_not_found")))?;
+    ensure_not_duplicate(
+        &db,
+        &id,
+        database_name.as_deref(),
+        body.s3_storage_id.as_deref().unwrap_or(&cur_storage),
+        body.cron_expression.as_deref().unwrap_or(&cur_cron),
+        Some(&schedule_id),
+    )?;
 
     if let Some(v) = &body.s3_storage_id {
         db.execute(
@@ -248,8 +369,8 @@ pub async fn update_schedule(
     }
     if let Some(v) = &body.cron_expression {
         db.execute(
-            "UPDATE backup_schedules SET cron_expression = ?1, next_run_at = datetime('now', ?2), updated_at = datetime('now') WHERE id = ?3",
-            rusqlite::params![v, cron_to_next_run(v), schedule_id],
+            "UPDATE backup_schedules SET cron_expression = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![v, schedule_id],
         )?;
     }
     if let Some(v) = body.retention_count {
@@ -290,7 +411,16 @@ pub async fn delete_schedule(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    db.execute("DELETE FROM backup_schedules WHERE id = ?1", [&schedule_id])?;
+    let deleted = db.execute(
+        "DELETE FROM backup_schedules WHERE id = ?1 AND service_id = ?2",
+        [&schedule_id, &id],
+    )?;
+    // Not this resource's rule: leave it and its scheduler mirror alone.
+    if deleted == 0 {
+        return Err(AppError::NotFound(crate::i18n::te(
+            "errors.backups.schedule_not_found",
+        )));
+    }
     drop_unified_for_backup(&db, &schedule_id)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("drop scheduler row: {e}")))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -301,21 +431,47 @@ pub struct TriggerQuery {
     /// Optional DB name. Omit for cluster-wide backup.
     #[serde(default)]
     pub database_name: Option<String>,
+    /// Run this exact schedule (its database and storage). Takes precedence
+    /// over `database_name` — a database may have several schedules.
+    #[serde(default)]
+    pub schedule_id: Option<String>,
 }
 
-/// POST /api/v1/resources/{id}/backups/trigger?database_name=...
+/// POST /api/v1/resources/{id}/backups/trigger?database_name=...|schedule_id=...
 ///
-/// Picks the S3 storage from the schedule matching the target (per-DB or
-/// cluster-wide). Falls back to the cluster-wide schedule's storage if no
-/// per-DB schedule exists yet, so users can trigger an ad-hoc per-DB backup
-/// without pre-configuring a per-DB schedule.
+/// With `schedule_id`, backs up that schedule's database to its storage.
+/// Otherwise picks the storage from a schedule matching the target (per-DB
+/// or cluster-wide), falling back to any active schedule of the service so
+/// users can trigger an ad-hoc per-DB backup without a per-DB schedule.
 pub async fn trigger_backup(
     State(state): State<SharedState>,
     axum::Extension(user): axum::Extension<AuthUser>,
     Path(id): Path<String>,
-    Query(q): Query<TriggerQuery>,
+    Query(mut q): Query<TriggerQuery>,
 ) -> AppResult<impl IntoResponse> {
     enforce_resource_role(&state, &user, &id, ProjectRole::Editor)?;
+    // An explicit schedule pins both the database and the storage.
+    let pinned: Option<(String, String)> = match q.schedule_id.as_deref() {
+        Some(sid) => {
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+            let (storage, db_name): (String, Option<String>) = db
+                .query_row(
+                    "SELECT s3_storage_id, database_name FROM backup_schedules
+                      WHERE id = ?1 AND service_id = ?2",
+                    [sid, &id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .map_err(|_| {
+                    AppError::NotFound(crate::i18n::te("errors.backups.schedule_not_found"))
+                })?;
+            q.database_name = db_name;
+            Some((storage, sid.to_string()))
+        }
+        None => None,
+    };
     let (name, catalog_id, env_json) = {
         let db = state
             .db
@@ -358,7 +514,9 @@ pub async fn trigger_backup(
 
     // Resolve schedule → s3_storage_id. First try exact match on
     // (service, database_name); fall back to the cluster-wide schedule.
-    let (s3_storage_id, schedule_id) = {
+    let (s3_storage_id, schedule_id) = if let Some(pair) = pinned {
+        pair
+    } else {
         let db = state
             .db
             .lock()
@@ -368,7 +526,8 @@ pub async fn trigger_backup(
                 "SELECT s3_storage_id, id FROM backup_schedules
                  WHERE service_id = ?1
                    AND COALESCE(database_name, '') = COALESCE(?2, '')
-                   AND is_active = 1",
+                   AND is_active = 1
+                 ORDER BY created_at LIMIT 1",
                 rusqlite::params![id, q.database_name],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
@@ -441,6 +600,8 @@ pub async fn trigger_backup(
     let state2 = state.clone();
     let service_id_for_creds = id.clone();
     let db_name_opt = q.database_name.clone();
+    // Run of one specific rule (its Run button) — counts as that rule's run.
+    let ran_schedule = q.schedule_id.clone();
 
     tokio::spawn(async move {
         let container_name = format!("pier-{name}");
@@ -508,6 +669,12 @@ pub async fn trigger_backup(
                         "UPDATE backups SET status='completed', size_bytes=?1, finished_at=datetime('now') WHERE id=?2",
                         rusqlite::params![size, bid],
                     );
+                    if let Some(sid) = &ran_schedule {
+                        let _ = db.execute(
+                            "UPDATE backup_schedules SET last_run_at = datetime('now') WHERE id = ?1",
+                            [sid],
+                        );
+                    }
                 }
                 Err(e) => {
                     let _ = db.execute(
@@ -542,25 +709,41 @@ pub async fn list_backups(
         .db
         .lock()
         .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
-    let mut stmt = db.prepare(
-        "SELECT id, status, size_bytes, error_message, triggered_by, started_at, finished_at,
-                s3_key, database_name
-         FROM backups WHERE service_id = ?1 ORDER BY started_at DESC LIMIT 50",
-    )?;
+    let mut stmt = db.prepare(&format!(
+        "{BACKUP_SELECT} WHERE b.service_id = ?1 ORDER BY b.started_at DESC LIMIT 50"
+    ))?;
     let items: Vec<serde_json::Value> = stmt
-        .query_map([&id], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "status": row.get::<_, String>(1)?,
-                "size_bytes": row.get::<_, i64>(2)?,
-                "error_message": row.get::<_, Option<String>>(3)?,
-                "triggered_by": row.get::<_, String>(4)?,
-                "started_at": row.get::<_, String>(5)?,
-                "finished_at": row.get::<_, Option<String>>(6)?,
-                "s3_key": row.get::<_, String>(7)?,
-                "database_name": row.get::<_, Option<String>>(8)?,
-            }))
-        })?
+        .query_map([&id], backup_row_json)?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(Json(items))
+}
+
+#[derive(Deserialize)]
+pub struct ListAllBackupsQuery {
+    #[serde(default = "default_history_limit")]
+    pub limit: i64,
+}
+
+fn default_history_limit() -> i64 {
+    100
+}
+
+/// GET /api/v1/backups?limit=N — latest backups across every service
+/// (System → Backups). Admin only.
+pub async fn list_all_backups(
+    State(state): State<SharedState>,
+    Query(q): Query<ListAllBackupsQuery>,
+) -> AppResult<impl IntoResponse> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+    let mut stmt = db.prepare(&format!(
+        "{BACKUP_SELECT} ORDER BY b.started_at DESC LIMIT ?1"
+    ))?;
+    let items: Vec<serde_json::Value> = stmt
+        .query_map([q.limit.clamp(1, 500)], backup_row_json)?
         .filter_map(|r| r.ok())
         .collect();
     Ok(Json(items))
@@ -993,7 +1176,7 @@ async fn apply_restore(
     .map_err(|e| AppError::Internal(anyhow::anyhow!("restore failed: {e}")))
 }
 
-async fn download_blob(
+pub(crate) async fn download_blob(
     storage_type: &str,
     endpoint: &str,
     region: &str,

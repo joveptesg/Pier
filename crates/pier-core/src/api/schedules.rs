@@ -108,7 +108,7 @@ pub async fn create(
         )));
     }
     check_action_type(&body.action_type)?;
-    cron_utils::parse(&body.cron_expression).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    cron_utils::validate(&body.cron_expression).map_err(AppError::BadRequest)?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let config_str = serde_json::to_string(&body.action_config).unwrap_or_else(|_| "{}".into());
@@ -215,7 +215,7 @@ pub async fn update(
     Json(body): Json<UpdateScheduleRequest>,
 ) -> AppResult<impl IntoResponse> {
     if let Some(c) = &body.cron_expression {
-        cron_utils::parse(c).map_err(|e| AppError::BadRequest(e.to_string()))?;
+        cron_utils::validate(c).map_err(AppError::BadRequest)?;
     }
     let db = state
         .db
@@ -247,6 +247,7 @@ pub async fn update(
             "UPDATE schedules SET cron_expression=?1, next_run_at=?2, updated_at=datetime('now') WHERE id=?3",
             params![c, next, id],
         )?;
+        sync_mirror_source(&db, &id, Some(&c), None)?;
     }
     if let Some(tz) = body.timezone {
         let cron: String = db.query_row(
@@ -275,6 +276,7 @@ pub async fn update(
             "UPDATE schedules SET enabled=?1, updated_at=datetime('now') WHERE id=?2",
             params![en as i64, id],
         )?;
+        sync_mirror_source(&db, &id, None, Some(en))?;
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -381,6 +383,7 @@ pub async fn enable(
         "UPDATE schedules SET enabled = 1, updated_at = datetime('now') WHERE id = ?1",
         [&id],
     )?;
+    sync_mirror_source(&db, &id, None, Some(true))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -396,10 +399,46 @@ pub async fn disable(
         "UPDATE schedules SET enabled = 0, updated_at = datetime('now') WHERE id = ?1",
         [&id],
     )?;
+    sync_mirror_source(&db, &id, None, Some(false))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+/// Backup and export rules keep their own cron / active flag for the
+/// System → Backups and resource pages. When their `sched-bk-*` /
+/// `sched-exp-*` mirror is edited here, carry the change back so both views
+/// agree (and the run doesn't fail as "inactive" after re-enabling).
+fn sync_mirror_source(
+    db: &rusqlite::Connection,
+    id: &str,
+    cron: Option<&str>,
+    enabled: Option<bool>,
+) -> rusqlite::Result<()> {
+    let (table, source_id) = if let Some(s) = id.strip_prefix("sched-bk-") {
+        ("backup_schedules", s)
+    } else if let Some(s) = id.strip_prefix("sched-exp-") {
+        ("export_schedules", s)
+    } else {
+        return Ok(());
+    };
+    if let Some(c) = cron {
+        db.execute(
+            &format!(
+                "UPDATE {table} SET cron_expression=?1, updated_at=datetime('now') WHERE id=?2"
+            ),
+            params![c, source_id],
+        )?;
+    }
+    if let Some(en) = enabled {
+        db.execute(
+            &format!("UPDATE {table} SET is_active=?1, updated_at=datetime('now') WHERE id=?2"),
+            params![en as i64, source_id],
+        )?;
+    }
+    Ok(())
+}
+
 pub async fn validate_cron(Json(body): Json<ValidateCronRequest>) -> AppResult<impl IntoResponse> {
+    cron_utils::validate(&body.cron_expression).map_err(AppError::BadRequest)?;
     let preview = cron_utils::preview(&body.cron_expression, &body.timezone, chrono::Utc::now(), 5)
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
     Ok(Json(serde_json::json!({

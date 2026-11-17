@@ -64,6 +64,28 @@ pub async fn upload_file(client: &Client, bucket: &str, key: &str, body: Vec<u8>
     Ok(())
 }
 
+/// Upload a file to S3 straight from disk, without reading it into memory.
+/// Used for export archives, which may carry large DB dumps.
+pub async fn upload_stream(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+    file: tokio::fs::File,
+) -> Result<()> {
+    let body = aws_sdk_s3::primitives::ByteStream::read_from()
+        .file(file)
+        .build()
+        .await?;
+    client
+        .put_object()
+        .bucket(bucket)
+        .key(key)
+        .body(body)
+        .send()
+        .await?;
+    Ok(())
+}
+
 /// Delete an object from S3.
 pub async fn delete_object(client: &Client, bucket: &str, key: &str) -> Result<()> {
     client

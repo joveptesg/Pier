@@ -23,6 +23,8 @@ use zip::{AesMode, CompressionMethod};
 use crate::backup::executor::{self, DbCredential, PerDbDumpFormat};
 use crate::state::SharedState;
 
+pub mod scheduled;
+
 pub enum Scope {
     Service(String),
     Server(String),

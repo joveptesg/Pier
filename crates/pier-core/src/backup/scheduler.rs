@@ -311,7 +311,7 @@ async fn run_single_backup(state: &SharedState, due: &DueSchedule) -> anyhow::Re
 /// Look up an S3 storage row and delete the given blob from whichever
 /// backend (S3 or Bunny) it points to. Used by retention cleanup so old
 /// backups don't leave orphaned blobs behind.
-async fn delete_blob_by_storage_id(
+pub(crate) async fn delete_blob_by_storage_id(
     state: &SharedState,
     s3_storage_id: &str,
     s3_key: &str,

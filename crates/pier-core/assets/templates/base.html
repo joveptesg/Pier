@@ -241,6 +241,13 @@
                         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         <span x-show="sidebarOpen" x-cloak>{{ t('nav.schedules') }}</span>
                     </a>
+                    <a href="/backups" {% if page == 'backups' %}aria-current="page"{% endif %}
+                       class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                              {% if page == 'backups' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}"
+                       :class="!sidebarOpen && 'justify-center !px-0 !gap-0'" :title="!sidebarOpen && '{{ t('nav.backups') }}'">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                        <span x-show="sidebarOpen" x-cloak>{{ t('nav.backups') }}</span>
+                    </a>
                     <a href="/settings" {% if page == 'settings' %}aria-current="page"{% endif %}
                        class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
                               {% if page == 'settings' %}bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-medium{% else %}text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200{% endif %}"

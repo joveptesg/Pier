@@ -30,6 +30,7 @@ nav:
   team: 团队
   tasks: 任务
   schedules: 计划任务
+  backups: "备份"
   settings: 设置
   logs: 日志
   updates: 更新
@@ -938,29 +939,22 @@ resources_detail:
   follow_autoscroll: 跟随（自动滚动）
   no_logs: 没有可用的日志
   matches: 个匹配项
-  cluster_wide_backup: 集群范围备份
-  backup_desc_mongo: 整个实例的单个归档文件。
-  backup_desc_sql: 包含每个数据库一个转储的归档文件。
   backup_now: 立即备份
   edit_schedule: 编辑计划
-  configure_schedule: 配置计划
   delete_schedule: 删除计划
-  cron: Cron
-  keep: 保留
   backups: 个备份
-  last_run: 上次运行
   never: 从不
-  next_run: 下次运行
-  no_cluster_schedule: 未配置集群范围计划
-  per_db_schedules: 按数据库计划
-  per_db_schedules_desc: 每个数据库一个独立计划。当某个数据库频繁更改而其他数据库不变时很有用。
   add_schedule: 添加计划
+  backup_schedules: "备份计划"
+  backup_schedules_desc: "一个数据库可以有多个计划，例如每天备份到一个存储、每小时备份到另一个存储。"
+  th_storage: "存储"
+  cluster_all_dbs: "所有数据库（集群）"
+  no_schedules: "暂无备份计划"
   th_cron: Cron
   th_keep: 保留
   th_last_run: 上次运行
   th_next_run: 下次运行
   run_now: 立即运行
-  no_per_db_schedules: 没有按数据库计划
   backup_history: 备份历史
   cluster_badge: 集群
   backup_singular: 备份
@@ -1019,9 +1013,6 @@ resources_detail:
   make_private_desc: "禁用公开访问将<strong>移除以下域名</strong>并拆除其 HTTPS 路由："
   make_private_note: 原始 TCP 端口（如有）也将被关闭。此操作可逆 — 你之后可以重新添加域名。
   remove_domains_disable: 移除域名并禁用
-  cluster_schedule_title: 集群范围备份计划
-  per_db_schedule_title_prefix: "按数据库计划： "
-  per_db_schedule_title: 按数据库计划
   s3_storage: S3 存储
   select_storage: 选择存储...
   schedule: 计划
@@ -1029,6 +1020,8 @@ resources_detail:
   cron_weekly_sunday: 每周（周日凌晨 2:00）
   cron_every_6h: 每 6 小时
   cron_every_hour: 每小时
+  cron_custom: "自定义（cron 表达式）"
+  cron_custom_hint: "5 段式 cron，UTC 时间：分 时 日 月 周。示例：30 3 * * * — 每天 03:30。"
   retention: 保留（要保留的备份数）
   ext_postgis_hint: "核心：几何类型、ST_* 函数（其余功能的必备项）"
   ext_postgis_topology_hint: 拓扑模式与拓扑感知的几何类型
@@ -1081,6 +1074,7 @@ resources_detail:
   toast_env_saved: 环境变量已保存 — 重新部署以应用
   toast_select_s3: 请选择一个 S3 存储
   toast_select_database: 请选择一个数据库
+  toast_enter_cron: "请输入 cron 表达式"
   toast_schedule_saved: 计划已保存
   confirm_delete_schedule: 删除此计划？S3 中现有的备份不会被移除。
   toast_schedule_deleted: 计划已删除
@@ -1762,16 +1756,6 @@ settings_index:
   coming_soon: 即将推出
   tab_general: 常规
   tab_cleanup: 清理
-  tab_export: 导出
-  export_title: 导出环境变量和数据库
-  export_desc: "下载加密 zip：包含所选项目中每个服务的环境变量，以及面板主机上数据库的转储。服务器上不保留任何内容。"
-  export_projects: 项目
-  export_select_all: 全选
-  export_select_none: 清除
-  export_no_projects: 暂无项目
-  export_unassigned: 包含未归属项目的服务
-  export_button: 导出
-  export_all_label: 所有项目
   tab_railpack: 自动构建（Railpack）
   tab_external_access: 外部访问
   tab_account: 账户
@@ -2247,6 +2231,85 @@ canvas:
   collapse_hint: 双击折叠/展开
 
 # Support modal partial (partials/support_modal.html).
+backups_page:
+  title: "备份"
+  heading: "备份"
+  subheading: "数据库备份计划、备份历史和环境变量导出集中管理。"
+  manage_storages: "管理存储"
+  tab_databases: "数据库"
+  tab_export: "环境变量导出"
+  db_schedules_title: "数据库备份计划"
+  db_schedules_desc: "所有数据库的所有计划。一个数据库可以有多个计划，各自拥有独立的 cron、保留数量和存储。"
+  add_schedule: "添加计划"
+  edit_schedule: "编辑计划"
+  th_service: "服务"
+  th_database: "数据库"
+  th_storage: "存储"
+  th_cron: "Cron"
+  th_keep: "保留"
+  th_last_run: "上次运行"
+  th_next_run: "下次运行"
+  th_started: "开始时间"
+  th_status: "状态"
+  th_size: "大小"
+  th_name: "名称"
+  th_projects: "项目"
+  th_contents: "内容"
+  th_services: "服务数"
+  cluster_all_dbs: "所有数据库（集群）"
+  never: "从未"
+  manual: "手动"
+  run_now: "立即运行"
+  edit: "编辑"
+  delete: "删除"
+  download: "下载"
+  save: "保存"
+  no_db_schedules: "暂无备份计划"
+  no_backup_capable: "暂无支持备份的数据库。"
+  history_title: "最近的备份"
+  no_backups: "暂无备份"
+  field_service: "服务"
+  select_service: "选择服务..."
+  field_database: "数据库"
+  select_database: "选择数据库..."
+  field_storage: "存储"
+  select_storage: "选择存储..."
+  no_storages: "尚未配置存储，去添加"
+  field_schedule: "计划"
+  toast_select_service: "请选择一个服务"
+  export_title: "导出环境变量和数据库"
+  export_desc: "下载加密 zip，包含所选项目中每个服务的环境变量以及面板主机上数据库的转储。服务器上不保留任何内容。"
+  export_projects: "项目"
+  export_select_all: "全选"
+  export_select_none: "清除"
+  export_no_projects: "暂无项目"
+  export_unassigned: "包含未分配项目的服务"
+  export_button: "导出"
+  export_all_label: "所有项目"
+  unassigned_short: "无项目"
+  export_schedules_title: "定时导出"
+  export_schedules_desc: "同样的加密归档，按计划生成并上传到存储。归档密码使用面板密钥加密保存。"
+  add_export_schedule: "添加定时导出"
+  edit_export_schedule: "编辑定时导出"
+  no_export_schedules: "暂无定时导出"
+  contents_env_only: "仅环境变量"
+  contents_env_dumps: "环境变量 + 数据库转储"
+  field_name: "名称"
+  name_placeholder: "每晚环境变量导出"
+  field_include_dumps: "包含面板主机上数据库的转储"
+  field_active: "启用"
+  archive_password_keep: "留空则保留当前归档密码。"
+  export_history_title: "导出历史"
+  no_export_runs: "暂无导出"
+  toast_name_required: "请输入名称"
+  toast_nothing_selected: "请至少选择一个项目"
+  toast_password_short: "归档密码至少需要 8 个字符"
+  toast_export_schedule_saved: "定时导出已保存"
+  toast_export_started: "导出已开始"
+  confirm_delete_export_schedule: "删除此定时导出？已上传的归档会保留在存储中。"
+  toast_export_schedule_deleted: "定时导出已删除"
+  confirm_delete_export_run: "从存储中删除此归档？"
+  toast_export_run_deleted: "归档已删除"
 emergency_export:
   button: 导出
   include_dumps: 包含数据库转储
@@ -2422,7 +2485,18 @@ errors:
     scoped_missing_name: scoped 包缺少 /name
     invalid_scoped_name: 无效的 scoped 包名称
     unscoped_has_slash: unscoped 包不能包含 /
+  cron:
+    field_count: "需要 5 个字段：分钟 小时 日 月 星期（例如 30 3 * * *），实际为 %{count} 个"
+    bad_value: "%{field}：“%{value}”无效 —— 允许 %{range}、*、列表 (1,5)、范围 (1-5) 和步长 (*/15)"
+    invalid: "无效的 cron 表达式“%{expr}”"
+    field_minute: "分钟"
+    field_hour: "小时"
+    field_day_of_month: "日"
+    field_month: "月"
+    field_day_of_week: "星期"
   backups:
+    duplicate_schedule: "该数据库已有相同存储和 cron 的计划"
+    schedule_not_found: "未找到备份计划"
     s3_storage_required: S3 存储为必填项
     resource_not_found: 未找到资源 %{id}
     backup_not_supported: "%{catalog} 不支持备份"
@@ -2665,6 +2739,13 @@ errors:
     archive_password_short: 归档密码至少需要 %{n} 个字符
     target_not_found: 未找到服务、项目或服务器
     nothing_selected: 请至少选择一个项目
+  export_schedules:
+    name_required: "名称为必填项"
+    retention_min: "保留数量至少为 1"
+    not_found: "未找到定时导出"
+    run_not_found: "导出不存在或未完成"
+    storage_gone: "此导出的存储已不存在"
+    run_in_progress: "此导出仍在进行中"
   federation_tokens:
     label_required: 标签为必填项
     token_not_found: 未找到令牌 %{v}

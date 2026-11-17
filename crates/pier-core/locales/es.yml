@@ -30,6 +30,7 @@ nav:
   team: Equipo
   tasks: Tareas
   schedules: Programaciones
+  backups: "Copias de seguridad"
   settings: Ajustes
   logs: Registros
   updates: Actualizaciones
@@ -938,29 +939,22 @@ resources_detail:
   follow_autoscroll: Seguir (desplazamiento automático)
   no_logs: No hay registros disponibles
   matches: coincidencias
-  cluster_wide_backup: Copia de seguridad de todo el clúster
-  backup_desc_mongo: Un único archivo de toda la instancia.
-  backup_desc_sql: Archivo que contiene un volcado por base de datos.
   backup_now: Hacer copia de seguridad ahora
   edit_schedule: Editar programación
-  configure_schedule: Configurar programación
   delete_schedule: Eliminar programación
-  cron: Cron
-  keep: Mantener
   backups: copias de seguridad
-  last_run: Última ejecución
   never: Nunca
-  next_run: Próxima ejecución
-  no_cluster_schedule: No hay programación de todo el clúster configurada
-  per_db_schedules: Programaciones por base de datos
-  per_db_schedules_desc: Una programación independiente por base de datos. Útil cuando una BD cambia con frecuencia y otras no.
   add_schedule: Añadir programación
+  backup_schedules: "Programaciones de copias"
+  backup_schedules_desc: "Una base de datos puede tener varias programaciones; por ejemplo, diaria a un almacenamiento y cada hora a otro."
+  th_storage: "Almacenamiento"
+  cluster_all_dbs: "Todas las bases de datos (clúster)"
+  no_schedules: "Aún no hay programaciones de copias"
   th_cron: Cron
   th_keep: Mantener
   th_last_run: Última ejecución
   th_next_run: Próxima ejecución
   run_now: Ejecutar ahora
-  no_per_db_schedules: No hay programaciones por base de datos
   backup_history: Historial de copias de seguridad
   cluster_badge: clúster
   backup_singular: copia de seguridad
@@ -1019,9 +1013,6 @@ resources_detail:
   make_private_desc: "Deshabilitar el acceso público <strong>eliminará el/los siguiente(s) dominio(s)</strong> y desmantelará sus rutas HTTPS:"
   make_private_note: El puerto TCP en bruto (si lo hay) también se cerrará. Esto es reversible — puedes volver a añadir dominios más tarde.
   remove_domains_disable: Eliminar dominios y deshabilitar
-  cluster_schedule_title: Programación de copias de seguridad de todo el clúster
-  per_db_schedule_title_prefix: "Programación por base de datos: "
-  per_db_schedule_title: Programación por base de datos
   s3_storage: Almacenamiento S3
   select_storage: Selecciona almacenamiento...
   schedule: Programación
@@ -1029,6 +1020,8 @@ resources_detail:
   cron_weekly_sunday: Semanalmente (domingo a las 2:00 AM)
   cron_every_6h: Cada 6 horas
   cron_every_hour: Cada hora
+  cron_custom: "Personalizado (expresión cron)"
+  cron_custom_hint: "Cron de 5 campos en UTC: minuto hora día mes día_semana. Ejemplo: 30 3 * * * — cada día a las 03:30."
   retention: Retención (copias de seguridad a conservar)
   ext_postgis_hint: "Núcleo: geometrías, funciones ST_* (requerido para el resto)"
   ext_postgis_topology_hint: Esquemas de topología y tipos de geometría con reconocimiento de topología
@@ -1081,6 +1074,7 @@ resources_detail:
   toast_env_saved: Entorno guardado — vuelve a desplegar para aplicar
   toast_select_s3: Selecciona un almacenamiento S3
   toast_select_database: Selecciona una base de datos
+  toast_enter_cron: "Introduce una expresión cron"
   toast_schedule_saved: Programación guardada
   confirm_delete_schedule: ¿Eliminar esta programación? Las copias de seguridad existentes en S3 no se eliminan.
   toast_schedule_deleted: Programación eliminada
@@ -1761,16 +1755,6 @@ settings_index:
   coming_soon: Próximamente
   tab_general: General
   tab_cleanup: Limpieza
-  tab_export: Exportar
-  export_title: Exportar entorno y bases de datos
-  export_desc: "Descargue un zip cifrado con el env de cada servicio de los proyectos seleccionados y volcados de las bases de datos del host del panel. No se guarda nada en el servidor."
-  export_projects: Proyectos
-  export_select_all: Seleccionar todo
-  export_select_none: Limpiar
-  export_no_projects: Aún no hay proyectos
-  export_unassigned: Incluir servicios sin proyecto
-  export_button: Exportar
-  export_all_label: Todos los proyectos
   tab_railpack: Auto-build (Railpack)
   tab_external_access: Acceso externo
   tab_account: Cuenta
@@ -2246,6 +2230,85 @@ canvas:
   collapse_hint: Doble clic para plegar/desplegar
 
 # Support modal partial (partials/support_modal.html).
+backups_page:
+  title: "Copias de seguridad"
+  heading: "Copias de seguridad"
+  subheading: "Programaciones de copias de bases de datos, historial y exportaciones de entorno en un solo lugar."
+  manage_storages: "Gestionar almacenamientos"
+  tab_databases: "Bases de datos"
+  tab_export: "Exportar env"
+  db_schedules_title: "Programaciones de copias de bases de datos"
+  db_schedules_desc: "Todas las programaciones de todas las bases de datos. Una base de datos puede tener varias, cada una con su cron, retención y almacenamiento."
+  add_schedule: "Añadir programación"
+  edit_schedule: "Editar programación"
+  th_service: "Servicio"
+  th_database: "Base de datos"
+  th_storage: "Almacenamiento"
+  th_cron: "Cron"
+  th_keep: "Conservar"
+  th_last_run: "Última ejecución"
+  th_next_run: "Próxima ejecución"
+  th_started: "Inicio"
+  th_status: "Estado"
+  th_size: "Tamaño"
+  th_name: "Nombre"
+  th_projects: "Proyectos"
+  th_contents: "Contenido"
+  th_services: "Servicios"
+  cluster_all_dbs: "Todas las bases de datos (clúster)"
+  never: "Nunca"
+  manual: "manual"
+  run_now: "Ejecutar ahora"
+  edit: "Editar"
+  delete: "Eliminar"
+  download: "Descargar"
+  save: "Guardar"
+  no_db_schedules: "Aún no hay programaciones de copias"
+  no_backup_capable: "Aún no hay bases de datos que admitan copias."
+  history_title: "Copias recientes"
+  no_backups: "Aún no hay copias"
+  field_service: "Servicio"
+  select_service: "Selecciona un servicio..."
+  field_database: "Base de datos"
+  select_database: "Selecciona una base de datos..."
+  field_storage: "Almacenamiento"
+  select_storage: "Selecciona un almacenamiento..."
+  no_storages: "No hay almacenamientos configurados; añade uno"
+  field_schedule: "Programación"
+  toast_select_service: "Selecciona un servicio"
+  export_title: "Exportar entorno y bases de datos"
+  export_desc: "Descarga un zip cifrado con el env de cada servicio de los proyectos seleccionados y volcados de las bases de datos del host del panel. No se guarda nada en el servidor."
+  export_projects: "Proyectos"
+  export_select_all: "Seleccionar todo"
+  export_select_none: "Limpiar"
+  export_no_projects: "Aún no hay proyectos"
+  export_unassigned: "Incluir servicios sin proyecto"
+  export_button: "Exportar"
+  export_all_label: "Todos los proyectos"
+  unassigned_short: "sin proyecto"
+  export_schedules_title: "Exportaciones programadas"
+  export_schedules_desc: "El mismo archivo cifrado, generado según una programación y subido a un almacenamiento. La contraseña del archivo se guarda cifrada con la clave del panel."
+  add_export_schedule: "Añadir exportación programada"
+  edit_export_schedule: "Editar exportación programada"
+  no_export_schedules: "Aún no hay exportaciones programadas"
+  contents_env_only: "solo env"
+  contents_env_dumps: "env + volcados de BD"
+  field_name: "Nombre"
+  name_placeholder: "Exportación nocturna de env"
+  field_include_dumps: "Incluir volcados de las bases de datos del host del panel"
+  field_active: "Activada"
+  archive_password_keep: "Déjalo vacío para mantener la contraseña actual del archivo."
+  export_history_title: "Historial de exportaciones"
+  no_export_runs: "Aún no hay exportaciones"
+  toast_name_required: "Introduce un nombre"
+  toast_nothing_selected: "Selecciona al menos un proyecto"
+  toast_password_short: "La contraseña del archivo debe tener al menos 8 caracteres"
+  toast_export_schedule_saved: "Exportación programada guardada"
+  toast_export_started: "Exportación iniciada"
+  confirm_delete_export_schedule: "¿Eliminar esta exportación programada? Los archivos ya subidos permanecen en el almacenamiento."
+  toast_export_schedule_deleted: "Exportación programada eliminada"
+  confirm_delete_export_run: "¿Eliminar este archivo del almacenamiento?"
+  toast_export_run_deleted: "Archivo eliminado"
 emergency_export:
   button: Exportar
   include_dumps: Incluir volcados de bases de datos
@@ -2421,7 +2484,18 @@ errors:
     scoped_missing_name: al paquete con scope le falta /name
     invalid_scoped_name: nombre de paquete con scope no válido
     unscoped_has_slash: un paquete sin scope no puede contener /
+  cron:
+    field_count: "Se esperan 5 campos: minuto hora día-del-mes mes día-de-la-semana (p. ej. 30 3 * * *), recibidos %{count}"
+    bad_value: "%{field}: «%{value}» no es válido — se permite %{range}, *, listas (1,5), rangos (1-5) y pasos (*/15)"
+    invalid: "Expresión cron no válida «%{expr}»"
+    field_minute: "Minuto"
+    field_hour: "Hora"
+    field_day_of_month: "Día del mes"
+    field_month: "Mes"
+    field_day_of_week: "Día de la semana"
   backups:
+    duplicate_schedule: "Esta base de datos ya tiene una programación con el mismo almacenamiento y cron"
+    schedule_not_found: "Programación de copia no encontrada"
     s3_storage_required: El almacenamiento S3 es obligatorio
     resource_not_found: No se encontró el recurso %{id}
     backup_not_supported: la copia de seguridad no es compatible con %{catalog}
@@ -2664,6 +2738,13 @@ errors:
     archive_password_short: La contraseña del archivo debe tener al menos %{n} caracteres
     target_not_found: No se encontró el servicio, proyecto o servidor
     nothing_selected: Seleccione al menos un proyecto
+  export_schedules:
+    name_required: "El nombre es obligatorio"
+    retention_min: "La retención debe ser al menos 1"
+    not_found: "Exportación programada no encontrada"
+    run_not_found: "Exportación no encontrada o no completada"
+    storage_gone: "El almacenamiento de esta exportación ya no existe"
+    run_in_progress: "Esta exportación todavía está en curso"
   federation_tokens:
     label_required: La etiqueta es obligatoria
     token_not_found: No se encontró el token %{v}

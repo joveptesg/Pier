@@ -1937,50 +1937,23 @@ NODE_ENV=production"></textarea>
 
     <!-- Backups Tab -->
     <div x-show="tab === 'backups' && supportsBackup" class="space-y-4">
-        <!-- Cluster-wide schedule -->
+        <!-- Backup schedules: any number per database (cluster-wide = all DBs) -->
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
             <div class="flex items-center justify-between mb-4">
                 <div>
-                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('resources_detail.cluster_wide_backup') }}</h3>
-                    <p class="text-xs text-gray-400 mt-0.5" x-text="catalogId === 'mongodb' ? '{{ t('resources_detail.backup_desc_mongo') }}' : '{{ t('resources_detail.backup_desc_sql') }}'"></p>
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('resources_detail.backup_schedules') }}</h3>
+                    <p class="text-xs text-gray-400 mt-0.5">{{ t('resources_detail.backup_schedules_desc') }}</p>
                 </div>
-                <div class="flex items-center gap-1">
-                    <button @click="triggerBackup(null)" class="p-1.5 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('resources_detail.backup_now') }}">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                    </button>
-                    <button @click="openScheduleModal(null)" class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded transition-colors" :title="clusterSchedule ? '{{ t('resources_detail.edit_schedule') }}' : '{{ t('resources_detail.configure_schedule') }}'">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                    </button>
-                    <button x-show="clusterSchedule" @click="deleteSchedule(clusterSchedule.id)" class="p-1.5 text-gray-400 hover:text-red-500 rounded transition-colors" title="{{ t('resources_detail.delete_schedule') }}">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                    </button>
-                </div>
-            </div>
-            <div x-show="clusterSchedule" class="grid grid-cols-2 gap-3 text-sm">
-                <div class="flex justify-between"><span class="text-gray-500">{{ t('resources_detail.cron') }}</span><span class="text-gray-900 dark:text-gray-100 font-mono text-xs" x-text="clusterSchedule?.cron_expression"></span></div>
-                <div class="flex justify-between"><span class="text-gray-500">{{ t('resources_detail.keep') }}</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="(clusterSchedule?.retention_count || 7) + ' {{ t('resources_detail.backups') }}'"></span></div>
-                <div class="flex justify-between"><span class="text-gray-500">{{ t('resources_detail.last_run') }}</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="clusterSchedule?.last_run_at || '{{ t('resources_detail.never') }}'"></span></div>
-                <div class="flex justify-between"><span class="text-gray-500">{{ t('resources_detail.next_run') }}</span><span class="text-gray-900 dark:text-gray-100 text-xs" x-text="clusterSchedule?.next_run_at || '-'"></span></div>
-            </div>
-            <p x-show="!clusterSchedule" class="text-sm text-gray-400">{{ t('resources_detail.no_cluster_schedule') }}</p>
-        </div>
-
-        <!-- Per-database schedules -->
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
-            <div class="flex items-center justify-between mb-4">
-                <div>
-                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('resources_detail.per_db_schedules') }}</h3>
-                    <p class="text-xs text-gray-400 mt-0.5">{{ t('resources_detail.per_db_schedules_desc') }}</p>
-                </div>
-                <button @click="openScheduleModal('')" class="p-1.5 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('resources_detail.add_schedule') }}">
+                <button @click="openScheduleModal(null)" class="p-1.5 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('resources_detail.add_schedule') }}">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 </button>
             </div>
-            <div x-show="perDbSchedules.length > 0" class="overflow-x-auto">
+            <div x-show="schedules.length > 0" class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>
                         <tr class="border-b border-gray-200 dark:border-gray-800">
                             <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('resources_detail.th_database') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('resources_detail.th_storage') }}</th>
                             <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('resources_detail.th_cron') }}</th>
                             <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('resources_detail.th_keep') }}</th>
                             <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('resources_detail.th_last_run') }}</th>
@@ -1989,19 +1962,26 @@ NODE_ENV=production"></textarea>
                         </tr>
                     </thead>
                     <tbody>
-                        <template x-for="s in perDbSchedules" :key="s.id">
-                            <tr class="border-b border-gray-100 dark:border-gray-800/50">
-                                <td class="py-2 px-2 font-mono text-xs text-gray-900 dark:text-gray-100" x-text="s.database_name"></td>
-                                <td class="py-2 px-2 font-mono text-xs text-gray-600 dark:text-gray-400" x-text="s.cron_expression"></td>
+                        <template x-for="s in schedules" :key="s.id">
+                            <tr class="border-b border-gray-100 dark:border-gray-800/50" :class="!s.is_active && 'opacity-50'">
+                                <td class="py-2 px-2 text-xs whitespace-nowrap">
+                                    <span x-show="s.database_name" class="font-mono text-gray-900 dark:text-gray-100" x-text="s.database_name"></span>
+                                    <span x-show="!s.database_name" class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 uppercase tracking-wide">{{ t('resources_detail.cluster_all_dbs') }}</span>
+                                </td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="s.storage_name || '-'"></td>
+                                <td class="py-2 px-2 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="s.cron_expression"></td>
                                 <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400" x-text="s.retention_count"></td>
-                                <td class="py-2 px-2 text-xs text-gray-500" x-text="s.last_run_at || '{{ t('resources_detail.never') }}'"></td>
-                                <td class="py-2 px-2 text-xs text-gray-500" x-text="s.next_run_at || '-'"></td>
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap">
+                                    <span x-text="s.last_run_at || '{{ t('resources_detail.never') }}'"></span>
+                                    <span x-show="s.last_status === 'failed'" class="ml-1 text-red-500 font-medium" x-text="s.last_status"></span>
+                                </td>
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap" x-text="s.next_run_at || '-'"></td>
                                 <td class="py-2 px-2 text-right">
                                     <div class="flex items-center justify-end gap-1">
-                                        <button @click="triggerBackup(s.database_name)" class="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('resources_detail.run_now') }}">
+                                        <button @click="triggerBackup(s.database_name, s.id)" class="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('resources_detail.run_now') }}">
                                             <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                                         </button>
-                                        <button @click="openScheduleModal(s.database_name)" class="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded transition-colors" title="{{ t('resources_detail.edit_schedule') }}">
+                                        <button @click="openScheduleModal(s)" class="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded transition-colors" title="{{ t('resources_detail.edit_schedule') }}">
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                                         </button>
                                         <button @click="deleteSchedule(s.id)" class="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="{{ t('resources_detail.delete_schedule') }}">
@@ -2014,7 +1994,7 @@ NODE_ENV=production"></textarea>
                     </tbody>
                 </table>
             </div>
-            <p x-show="perDbSchedules.length === 0" class="text-sm text-gray-400">{{ t('resources_detail.no_per_db_schedules') }}</p>
+            <p x-show="schedules.length === 0" class="text-sm text-gray-400">{{ t('resources_detail.no_schedules') }}</p>
         </div>
 
         <!-- Backup history — accordion grouped by database -->
@@ -2048,6 +2028,7 @@ NODE_ENV=production"></textarea>
                                         <span :class="b.status === 'completed' ? 'text-green-500' : b.status === 'failed' ? 'text-red-500' : 'text-yellow-500'" class="text-xs font-medium" x-text="b.status"></span>
                                         <span class="text-gray-500 text-xs" x-text="b.started_at"></span>
                                         <span class="text-xs text-gray-400" x-text="formatBytes(b.size_bytes)"></span>
+                                        <span x-show="b.storage_name" class="text-xs text-gray-400" x-text="b.storage_name"></span>
                                         <span x-show="b.triggered_by === 'manual'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ t('resources_detail.manual') }}</span>
                                     </div>
                                     <div class="flex items-center gap-1">
@@ -2367,13 +2348,15 @@ NODE_ENV=production"></textarea>
     <!-- Schedule Modal -->
     <div x-show="showScheduleModal" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showScheduleModal = false">
             <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="scheduleForm.database_name === null ? '{{ t('resources_detail.cluster_schedule_title') }}' : (scheduleForm.database_name ? ('{{ t('resources_detail.per_db_schedule_title_prefix') }}' + scheduleForm.database_name) : '{{ t('resources_detail.per_db_schedule_title') }}')"></h3>
-                <div x-show="scheduleForm.database_name !== null && !scheduleFormEditing">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="scheduleFormEditing ? '{{ t('resources_detail.edit_schedule') }}' : '{{ t('resources_detail.add_schedule') }}'"></h3>
+                <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_detail.database') }}</label>
-                    <select x-model="scheduleForm.database_name" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <select x-show="!scheduleFormEditing" x-model="scheduleForm.database_name" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="">{{ t('resources_detail.select_database') }}</option>
+                        <option value="__cluster__">{{ t('resources_detail.cluster_all_dbs') }}</option>
                         <template x-for="d in dbList" :key="d.name"><option :value="d.name" x-text="d.name"></option></template>
                     </select>
+                    <p x-show="scheduleFormEditing" class="text-sm font-mono text-gray-900 dark:text-gray-100" x-text="scheduleForm.database_name === '__cluster__' ? '{{ t('resources_detail.cluster_all_dbs') }}' : scheduleForm.database_name"></p>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_detail.s3_storage') }}</label>
@@ -2384,12 +2367,16 @@ NODE_ENV=production"></textarea>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_detail.schedule') }}</label>
-                    <select x-model="scheduleForm.cron_expression" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <select x-model="scheduleForm.cron_preset" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="0 2 * * *">{{ t('resources_detail.cron_daily_2am') }}</option>
                         <option value="0 2 * * 0">{{ t('resources_detail.cron_weekly_sunday') }}</option>
                         <option value="0 */6 * * *">{{ t('resources_detail.cron_every_6h') }}</option>
                         <option value="0 * * * *">{{ t('resources_detail.cron_every_hour') }}</option>
+                        <option value="custom">{{ t('resources_detail.cron_custom') }}</option>
                     </select>
+                    <input x-show="scheduleForm.cron_preset === 'custom'" x-model="scheduleForm.cron_custom" type="text" placeholder="30 3 * * *"
+                           class="mt-2 w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p x-show="scheduleForm.cron_preset === 'custom'" class="text-xs text-gray-400 mt-1">{{ t('resources_detail.cron_custom_hint') }}</p>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_detail.retention') }}</label>
@@ -2418,7 +2405,7 @@ function resourceDetail(id) {
     return {
         id, resource: {}, tab: initialTab(), showEnv: false, showSecrets: false, editableEnv: [], envViewMode: 'normal', envRawText: '',
         schedules: [], backupHistory: [], s3Storages: [], showScheduleModal: false, scheduleFormEditing: false,
-        scheduleForm: { s3_storage_id: '', cron_expression: '0 2 * * *', retention_count: 7, database_name: null },
+        scheduleForm: { id: null, s3_storage_id: '', cron_preset: '0 2 * * *', cron_custom: '', retention_count: 7, database_name: '' },
         showRestoreModal: false, restoreSource: null, restoreTarget: '', restoreConfirm: '', restoreRunning: false,
         expandedBackupGroups: {},
         clusterInfo: null,
@@ -2509,8 +2496,6 @@ function resourceDetail(id) {
             return !stateful.includes(this.catalogId);
         },
         get supportsPerDbBackup() { return ['postgresql','postgis','timescaledb','mysql','mariadb','mongodb'].includes(this.catalogId); },
-        get clusterSchedule() { return this.schedules.find(s => !s.database_name) || null; },
-        get perDbSchedules() { return this.schedules.filter(s => !!s.database_name); },
         get backupGroups() {
             // Map-insertion order = display order. Cluster-wide always first,
             // then one entry per DB known to the Databases tab, then any DB
@@ -3411,36 +3396,38 @@ function resourceDetail(id) {
         },
         async loadSchedules() { try { this.schedules=await fetch('/api/v1/resources/'+this.id+'/backup-schedules').then(r=>r.ok?r.json():[]); } catch{this.schedules=[];} },
         async loadBackups() { try { this.backupHistory=await fetch('/api/v1/resources/'+this.id+'/backups').then(r=>r.ok?r.json():[]); } catch{this.backupHistory=[];} },
-        openScheduleModal(databaseName) {
-            // databaseName semantics:
-            //   null = cluster-wide (edit if one already exists, else create)
-            //   ''   = new per-DB schedule (user still has to pick the DB)
-            //   <str> = edit existing per-DB schedule for that DB
-            let existing = null;
-            if (databaseName === null) {
-                existing = this.schedules.find(s => !s.database_name) || null;
-            } else if (databaseName) {
-                existing = this.schedules.find(s => s.database_name === databaseName) || null;
-            }
-            this.scheduleFormEditing = !!existing;
+        openScheduleModal(s) {
+            // s = existing schedule row to edit, or null for a new one. A
+            // database may have any number of schedules (other cron /
+            // retention / storage), so "new" never replaces an existing one.
+            const presets = ['0 2 * * *', '0 2 * * 0', '0 */6 * * *', '0 * * * *'];
+            const cron = s?.cron_expression || '0 2 * * *';
+            const isPreset = presets.includes(cron);
+            this.scheduleFormEditing = !!s;
             this.scheduleForm = {
-                s3_storage_id: existing?.s3_storage_id || '',
-                cron_expression: existing?.cron_expression || '0 2 * * *',
-                retention_count: existing?.retention_count ?? 7,
-                database_name: databaseName === null ? null : (databaseName || ''),
+                id: s?.id || null,
+                s3_storage_id: s?.s3_storage_id || '',
+                cron_preset: isPreset ? cron : 'custom',
+                cron_custom: isPreset ? '' : cron,
+                retention_count: s?.retention_count ?? 7,
+                database_name: s ? (s.database_name || '__cluster__') : '',
             };
             this.showScheduleModal = true;
         },
         async saveSchedule() {
-            if(!this.scheduleForm.s3_storage_id){toast('{{ t('resources_detail.toast_select_s3') }}','error');return;}
-            if(this.scheduleForm.database_name === ''){toast('{{ t('resources_detail.toast_select_database') }}','error');return;}
-            const body = {
-                s3_storage_id: this.scheduleForm.s3_storage_id,
-                cron_expression: this.scheduleForm.cron_expression,
-                retention_count: this.scheduleForm.retention_count,
-            };
-            if(this.scheduleForm.database_name) body.database_name = this.scheduleForm.database_name;
-            try { await api('/api/v1/resources/'+this.id+'/backup-schedules',{method:'POST',body:JSON.stringify(body)});
+            const f = this.scheduleForm;
+            if(!f.s3_storage_id){toast('{{ t('resources_detail.toast_select_s3') }}','error');return;}
+            if(f.database_name === ''){toast('{{ t('resources_detail.toast_select_database') }}','error');return;}
+            const cron = f.cron_preset === 'custom' ? (f.cron_custom || '').trim() : f.cron_preset;
+            if(!cron){toast('{{ t('resources_detail.toast_enter_cron') }}','error');return;}
+            const body = { s3_storage_id: f.s3_storage_id, cron_expression: cron, retention_count: f.retention_count };
+            try {
+                if (this.scheduleFormEditing) {
+                    await api('/api/v1/resources/'+this.id+'/backup-schedules/'+f.id,{method:'PATCH',body:JSON.stringify(body)});
+                } else {
+                    if (f.database_name !== '__cluster__') body.database_name = f.database_name;
+                    await api('/api/v1/resources/'+this.id+'/backup-schedules',{method:'POST',body:JSON.stringify(body)});
+                }
                 toast('{{ t('resources_detail.toast_schedule_saved') }}'); this.showScheduleModal=false; await this.loadSchedules();
             } catch(e) { toast(e.message,'error'); }
         },
@@ -3450,8 +3437,9 @@ function resourceDetail(id) {
                 toast('{{ t('resources_detail.toast_schedule_deleted') }}'); await this.loadSchedules();
             } catch(e) { toast(e.message,'error'); }
         },
-        async triggerBackup(databaseName) {
-            const url = '/api/v1/resources/'+this.id+'/backups/trigger' + (databaseName ? ('?database_name='+encodeURIComponent(databaseName)) : '');
+        async triggerBackup(databaseName, scheduleId) {
+            const qs = scheduleId ? ('?schedule_id='+encodeURIComponent(scheduleId)) : (databaseName ? ('?database_name='+encodeURIComponent(databaseName)) : '');
+            const url = '/api/v1/resources/'+this.id+'/backups/trigger' + qs;
             try { await api(url,{method:'POST'}); toast('{{ t('resources_detail.toast_backup_started') }}'); setTimeout(()=>this.loadBackups(),5000); } catch(e){toast(e.message,'error');}
         },
         toggleBackupGroup(key) { this.expandedBackupGroups[key] = !this.expandedBackupGroups[key]; },

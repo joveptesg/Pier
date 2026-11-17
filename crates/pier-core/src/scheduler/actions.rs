@@ -29,6 +29,11 @@ struct BackupActionConfig {
     backup_schedule_id: String,
 }
 
+#[derive(Deserialize)]
+struct ExportActionConfig {
+    export_schedule_id: String,
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct CleanupActionConfig {
@@ -57,6 +62,7 @@ pub async fn dispatch(
         "task" => fire_task(state, action_config, triggered_by).await,
         "backup" => fire_backup(state, action_config).await,
         "cleanup" => fire_cleanup(state, action_config).await,
+        "export" => fire_export(state, action_config).await,
         other => Err(anyhow!("unknown action_type '{other}'")),
     }
 }
@@ -101,6 +107,18 @@ async fn fire_backup(state: &SharedState, action_config: &str) -> Result<ActionR
     let cfg: BackupActionConfig = serde_json::from_str(action_config)
         .map_err(|e| anyhow!("invalid backup action_config: {e}"))?;
     let output = backup::scheduler::run_for_schedule(state, &cfg.backup_schedule_id).await?;
+    Ok(ActionResult {
+        output,
+        task_run_id: None,
+    })
+}
+
+async fn fire_export(state: &SharedState, action_config: &str) -> Result<ActionResult> {
+    let cfg: ExportActionConfig = serde_json::from_str(action_config)
+        .map_err(|e| anyhow!("invalid export action_config: {e}"))?;
+    let output =
+        crate::export::scheduled::run_for_schedule(state, &cfg.export_schedule_id, "schedule")
+            .await?;
     Ok(ActionResult {
         output,
         task_run_id: None,

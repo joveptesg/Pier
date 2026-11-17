@@ -37,6 +37,7 @@ nav:
   team: Team
   tasks: Tasks
   schedules: Schedules
+  backups: "Backups"
   settings: Settings
   logs: Logs
   updates: Updates
@@ -962,29 +963,22 @@ resources_detail:
   follow_autoscroll: Follow (auto-scroll)
   no_logs: No output yet — this container has not logged anything
   matches: matches
-  cluster_wide_backup: Cluster-wide backup
-  backup_desc_mongo: Single archive of the whole instance.
-  backup_desc_sql: Archive containing one dump per database.
   backup_now: Backup now
   edit_schedule: Edit schedule
-  configure_schedule: Configure schedule
   delete_schedule: Delete schedule
-  cron: Cron
-  keep: Keep
   backups: backups
-  last_run: Last run
   never: Never
-  next_run: Next run
-  no_cluster_schedule: No cluster-wide schedule configured
-  per_db_schedules: Per-database schedules
-  per_db_schedules_desc: One independent schedule per database. Useful when one DB changes often and others don't.
   add_schedule: Add schedule
+  backup_schedules: "Backup schedules"
+  backup_schedules_desc: "A database can have several schedules — for example daily to one storage and hourly to another."
+  th_storage: "Storage"
+  cluster_all_dbs: "All databases (cluster)"
+  no_schedules: "No backup schedules yet"
   th_cron: Cron
   th_keep: Keep
   th_last_run: Last run
   th_next_run: Next run
   run_now: Run now
-  no_per_db_schedules: No per-database schedules
   backup_history: Backup history
   cluster_badge: cluster
   backup_singular: backup
@@ -1043,9 +1037,6 @@ resources_detail:
   make_private_desc: "Disabling public access will <strong>remove the following domain(s)</strong> and tear down their HTTPS routes:"
   make_private_note: The raw TCP port (if any) will also be closed. This is reversible — you can re-add domains later.
   remove_domains_disable: Remove domains and disable
-  cluster_schedule_title: Cluster-wide backup schedule
-  per_db_schedule_title_prefix: "Per-database schedule: "
-  per_db_schedule_title: Per-database schedule
   s3_storage: S3 Storage
   select_storage: Select storage...
   schedule: Schedule
@@ -1053,6 +1044,8 @@ resources_detail:
   cron_weekly_sunday: Weekly (Sunday 2:00 AM)
   cron_every_6h: Every 6 hours
   cron_every_hour: Every hour
+  cron_custom: "Custom (cron expression)"
+  cron_custom_hint: "5-field cron in UTC: minute hour day month weekday. Example: 30 3 * * * — daily at 03:30."
   retention: Retention (backups to keep)
   ext_postgis_hint: "Core: geometries, ST_* functions (required for the rest)"
   ext_postgis_topology_hint: Topology schemas and topology-aware geometry types
@@ -1106,6 +1099,7 @@ resources_detail:
   toast_env_saved: Environment saved — redeploy to apply
   toast_select_s3: Select an S3 storage
   toast_select_database: Select a database
+  toast_enter_cron: "Enter a cron expression"
   toast_schedule_saved: Schedule saved
   confirm_delete_schedule: Delete this schedule? Existing backups in S3 are not removed.
   toast_schedule_deleted: Schedule deleted
@@ -1790,16 +1784,6 @@ settings_index:
   coming_soon: Coming soon
   tab_general: General
   tab_cleanup: Cleanup
-  tab_export: Export
-  export_title: Export environment and databases
-  export_desc: "Download an encrypted zip with env of every service in the selected projects plus dumps of databases running on the panel host. Nothing is stored on the server."
-  export_projects: Projects
-  export_select_all: Select all
-  export_select_none: Clear
-  export_no_projects: No projects yet
-  export_unassigned: Include services without a project
-  export_button: Export
-  export_all_label: All projects
   tab_railpack: Auto-build (Railpack)
   tab_external_access: External Access
   tab_account: Account
@@ -2277,6 +2261,85 @@ canvas:
   collapse_hint: Double-click to collapse/expand
 
 # Support modal partial (partials/support_modal.html).
+backups_page:
+  title: "Backups"
+  heading: "Backups"
+  subheading: "Database backup schedules, backup history and environment exports in one place."
+  manage_storages: "Manage storages"
+  tab_databases: "Databases"
+  tab_export: "Env export"
+  db_schedules_title: "Database backup schedules"
+  db_schedules_desc: "Every schedule of every database. A database can have several schedules, each with its own cron, retention and storage."
+  add_schedule: "Add schedule"
+  edit_schedule: "Edit schedule"
+  th_service: "Service"
+  th_database: "Database"
+  th_storage: "Storage"
+  th_cron: "Cron"
+  th_keep: "Keep"
+  th_last_run: "Last run"
+  th_next_run: "Next run"
+  th_started: "Started"
+  th_status: "Status"
+  th_size: "Size"
+  th_name: "Name"
+  th_projects: "Projects"
+  th_contents: "Contents"
+  th_services: "Services"
+  cluster_all_dbs: "All databases (cluster)"
+  never: "Never"
+  manual: "manual"
+  run_now: "Run now"
+  edit: "Edit"
+  delete: "Delete"
+  download: "Download"
+  save: "Save"
+  no_db_schedules: "No backup schedules yet"
+  no_backup_capable: "No databases that support backups yet."
+  history_title: "Recent backups"
+  no_backups: "No backups yet"
+  field_service: "Service"
+  select_service: "Select a service..."
+  field_database: "Database"
+  select_database: "Select a database..."
+  field_storage: "Storage"
+  select_storage: "Select storage..."
+  no_storages: "No storages configured yet — add one"
+  field_schedule: "Schedule"
+  toast_select_service: "Select a service"
+  export_title: "Export environment and databases"
+  export_desc: "Download an encrypted zip with env of every service in the selected projects plus dumps of databases running on the panel host. Nothing is stored on the server."
+  export_projects: "Projects"
+  export_select_all: "Select all"
+  export_select_none: "Clear"
+  export_no_projects: "No projects yet"
+  export_unassigned: "Include services without a project"
+  export_button: "Export"
+  export_all_label: "All projects"
+  unassigned_short: "no project"
+  export_schedules_title: "Scheduled exports"
+  export_schedules_desc: "The same encrypted archive, built on a schedule and uploaded to a storage. The archive password is kept encrypted with the panel key."
+  add_export_schedule: "Add scheduled export"
+  edit_export_schedule: "Edit scheduled export"
+  no_export_schedules: "No scheduled exports yet"
+  contents_env_only: "env only"
+  contents_env_dumps: "env + DB dumps"
+  field_name: "Name"
+  name_placeholder: "Nightly env export"
+  field_include_dumps: "Include dumps of databases running on the panel host"
+  field_active: "Enabled"
+  archive_password_keep: "Leave empty to keep the current archive password."
+  export_history_title: "Export history"
+  no_export_runs: "No exports yet"
+  toast_name_required: "Enter a name"
+  toast_nothing_selected: "Select at least one project"
+  toast_password_short: "Archive password must be at least 8 characters"
+  toast_export_schedule_saved: "Scheduled export saved"
+  toast_export_started: "Export started"
+  confirm_delete_export_schedule: "Delete this scheduled export? Archives already uploaded stay in the storage."
+  toast_export_schedule_deleted: "Scheduled export deleted"
+  confirm_delete_export_run: "Delete this archive from the storage?"
+  toast_export_run_deleted: "Archive deleted"
 emergency_export:
   button: Export
   include_dumps: Include database dumps
@@ -2459,7 +2522,18 @@ errors:
     scoped_missing_name: scoped package missing /name
     invalid_scoped_name: invalid scoped package name
     unscoped_has_slash: unscoped package cannot contain /
+  cron:
+    field_count: "Expected 5 fields: minute hour day-of-month month day-of-week (e.g. 30 3 * * *), got %{count}"
+    bad_value: "%{field}: “%{value}” is not valid — allowed %{range}, *, lists (1,5), ranges (1-5) and steps (*/15)"
+    invalid: "Invalid cron expression “%{expr}”"
+    field_minute: "Minute"
+    field_hour: "Hour"
+    field_day_of_month: "Day of month"
+    field_month: "Month"
+    field_day_of_week: "Day of week"
   backups:
+    duplicate_schedule: "This database already has a schedule with the same storage and cron"
+    schedule_not_found: "Backup schedule not found"
     s3_storage_required: S3 storage is required
     resource_not_found: Resource %{id} not found
     backup_not_supported: backup not supported for %{catalog}
@@ -2702,6 +2776,13 @@ errors:
     archive_password_short: Archive password must be at least %{n} characters
     target_not_found: Service, project or server not found
     nothing_selected: Select at least one project
+  export_schedules:
+    name_required: "Name is required"
+    retention_min: "Retention must be at least 1"
+    not_found: "Scheduled export not found"
+    run_not_found: "Export not found or not completed"
+    storage_gone: "The storage of this export no longer exists"
+    run_in_progress: "This export is still running"
   federation_tokens:
     label_required: Label is required
     token_not_found: Token %{v} not found

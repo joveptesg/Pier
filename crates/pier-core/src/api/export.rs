@@ -17,7 +17,7 @@ use crate::error::{AppError, AppResult};
 use crate::export::{self, Scope};
 use crate::state::SharedState;
 
-const MIN_ARCHIVE_PASSWORD: usize = 8;
+pub(crate) const MIN_ARCHIVE_PASSWORD: usize = 8;
 
 #[derive(Deserialize)]
 pub struct ExportRequest {

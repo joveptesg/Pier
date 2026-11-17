@@ -292,6 +292,19 @@ pub async fn schedules_page(
     )
 }
 
+/// GET /backups — System → Backups: every DB backup schedule and backup,
+/// plus manual and scheduled env exports.
+pub async fn backups_page(
+    State(state): State<SharedState>,
+    axum::Extension(user): axum::Extension<AuthUser>,
+) -> PageResult {
+    render(
+        &state,
+        "backups/index.html",
+        minijinja::context! { user => user.username, page => "backups" },
+    )
+}
+
 /// GET /settings/external-access — manage tokens that let other pier-cores control this one.
 pub async fn external_access_page(
     State(state): State<SharedState>,

@@ -1,0 +1,677 @@
+{% extends "base.html" %}
+{% block title %}{{ t('backups_page.title') }}{% endblock %}
+
+{% block content %}
+<div x-data="backupsPage()" x-init="init()" class="p-6 max-w-7xl space-y-6">
+    <!-- Header -->
+    <div class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('backups_page.heading') }}</h2>
+            <p class="text-sm text-gray-500 mt-1">{{ t('backups_page.subheading') }}</p>
+        </div>
+        <a href="/s3" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">{{ t('backups_page.manage_storages') }} &rarr;</a>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex gap-6 border-b border-gray-200 dark:border-gray-800 overflow-x-auto">
+        <template x-for="t in tabs" :key="t.id">
+            <button @click="selectTab(t.id)"
+                    class="relative -mb-px px-1 py-3 text-sm font-medium whitespace-nowrap transition-colors"
+                    :class="tab === t.id
+                        ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500'
+                        : 'text-gray-500 dark:text-gray-400 border-b-2 border-transparent hover:text-gray-900 dark:hover:text-gray-200'">
+                <span x-text="t.label"></span>
+            </button>
+        </template>
+    </div>
+
+    <!-- ── Tab: Databases ─────────────────────────────────────── -->
+    <div x-show="tab === 'databases'" x-cloak class="space-y-6">
+        <!-- All DB backup schedules -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-start justify-between gap-3 mb-4">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('backups_page.db_schedules_title') }}</h3>
+                    <p class="text-xs text-gray-400 mt-0.5">{{ t('backups_page.db_schedules_desc') }}</p>
+                </div>
+                <button @click="openDbModal(null)" class="shrink-0 px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+                    {{ t('backups_page.add_schedule') }}
+                </button>
+            </div>
+            <div x-show="loading" class="text-sm text-gray-500">{{ t('common.loading') }}</div>
+            <div x-show="!loading && schedules.length > 0" x-cloak class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-800">
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_service') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_database') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_storage') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_cron') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_keep') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_last_run') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_next_run') }}</th>
+                            <th class="py-2 px-2"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="s in schedules" :key="s.id">
+                            <tr class="border-b border-gray-100 dark:border-gray-800/50" :class="!s.is_active && 'opacity-50'">
+                                <td class="py-2 px-2 text-xs whitespace-nowrap">
+                                    <a :href="'/resources/' + s.service_id + '?tab=backups'" class="text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 font-medium" x-text="s.service_name"></a>
+                                    <div x-show="s.project_name" class="text-gray-400" x-text="s.project_name"></div>
+                                </td>
+                                <td class="py-2 px-2 text-xs whitespace-nowrap">
+                                    <span x-show="s.database_name" class="font-mono text-gray-900 dark:text-gray-100" x-text="s.database_name"></span>
+                                    <span x-show="!s.database_name" class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 uppercase tracking-wide">{{ t('backups_page.cluster_all_dbs') }}</span>
+                                </td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="s.storage_name || '-'"></td>
+                                <td class="py-2 px-2 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="s.cron_expression"></td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400" x-text="s.retention_count"></td>
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap">
+                                    <span x-text="s.last_run_at || '{{ t('backups_page.never') }}'"></span>
+                                    <span x-show="s.last_status === 'failed'" class="ml-1 text-red-500 font-medium" x-text="s.last_status"></span>
+                                </td>
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap" x-text="s.next_run_at || '-'"></td>
+                                <td class="py-2 px-2 text-right">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <button @click="runDb(s)" class="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('backups_page.run_now') }}">
+                                            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                        </button>
+                                        <button @click="openDbModal(s)" class="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded transition-colors" title="{{ t('backups_page.edit') }}">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                        </button>
+                                        <button @click="deleteDb(s)" class="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="{{ t('backups_page.delete') }}">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            <p x-show="!loading && schedules.length === 0" x-cloak class="text-sm text-gray-400">{{ t('backups_page.no_db_schedules') }}</p>
+        </div>
+
+        <!-- Recent backups across all services -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ t('backups_page.history_title') }}</h3>
+            <div x-show="backups.length > 0" class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-800">
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_started') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_service') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_database') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_storage') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_status') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_size') }}</th>
+                            <th class="py-2 px-2"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="b in backups" :key="b.id">
+                            <tr class="border-b border-gray-100 dark:border-gray-800/50">
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap" x-text="b.started_at"></td>
+                                <td class="py-2 px-2 text-xs whitespace-nowrap">
+                                    <a :href="'/resources/' + b.service_id + '?tab=backups'" class="text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400" x-text="b.service_name || b.service_id"></a>
+                                </td>
+                                <td class="py-2 px-2 text-xs whitespace-nowrap">
+                                    <span x-show="b.database_name" class="font-mono text-gray-700 dark:text-gray-300" x-text="b.database_name"></span>
+                                    <span x-show="!b.database_name" class="text-gray-400">{{ t('backups_page.cluster_all_dbs') }}</span>
+                                </td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="b.storage_name || '-'"></td>
+                                <td class="py-2 px-2 text-xs whitespace-nowrap">
+                                    <span :class="statusClass(b.status)" class="font-medium" x-text="b.status" :title="b.error_message || ''"></span>
+                                    <span x-show="b.triggered_by === 'manual'" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ t('backups_page.manual') }}</span>
+                                </td>
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap" x-text="formatBytes(b.size_bytes)"></td>
+                                <td class="py-2 px-2 text-right">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <a x-show="b.status === 'completed'" :href="'/api/v1/backups/' + b.id + '/download'" class="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('backups_page.download') }}">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                        </a>
+                                        <button @click="deleteBackup(b)" class="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="{{ t('backups_page.delete') }}">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            <p x-show="!loading && backups.length === 0" x-cloak class="text-sm text-gray-400">{{ t('backups_page.no_backups') }}</p>
+        </div>
+    </div>
+
+    <!-- ── Tab: Env export ────────────────────────────────────── -->
+    <div x-show="tab === 'export'" x-cloak class="space-y-6">
+        <!-- Manual export (moved from Settings → Export) -->
+        <div class="bg-white dark:bg-gray-900 border border-red-200 dark:border-red-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('backups_page.export_title') }}</h3>
+            <p class="text-xs text-gray-500 mb-4">{{ t('backups_page.export_desc') }}</p>
+
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">{{ t('backups_page.export_projects') }}</p>
+                <div class="flex gap-3 text-xs">
+                    <button @click="selected = projects.map(p => p.id)" class="text-blue-600 dark:text-blue-400 hover:underline">{{ t('backups_page.export_select_all') }}</button>
+                    <button @click="selected = []" class="text-blue-600 dark:text-blue-400 hover:underline">{{ t('backups_page.export_select_none') }}</button>
+                </div>
+            </div>
+            <div class="border border-gray-200 dark:border-gray-800 rounded-lg divide-y divide-gray-100 dark:divide-gray-800 max-h-72 overflow-y-auto mb-3">
+                <template x-for="p in projects" :key="p.id">
+                    <label class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                        <input type="checkbox" :value="p.id" x-model="selected"
+                               class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
+                        <span class="text-sm text-gray-900 dark:text-white truncate" x-text="p.name"></span>
+                    </label>
+                </template>
+                <p x-show="!loading && projects.length === 0" class="px-3 py-2 text-sm text-gray-500">{{ t('backups_page.export_no_projects') }}</p>
+            </div>
+            <label class="flex items-center gap-2 mb-5 cursor-pointer">
+                <input type="checkbox" x-model="includeUnassigned"
+                       class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500">
+                <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('backups_page.export_unassigned') }}</span>
+            </label>
+
+            <button @click="startManualExport()" :disabled="!selected.length && !includeUnassigned"
+                    class="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {{ t('backups_page.export_button') }}
+            </button>
+        </div>
+
+        <!-- Scheduled exports -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <div class="flex items-start justify-between gap-3 mb-4">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('backups_page.export_schedules_title') }}</h3>
+                    <p class="text-xs text-gray-400 mt-0.5">{{ t('backups_page.export_schedules_desc') }}</p>
+                </div>
+                <button @click="openExpModal(null)" class="shrink-0 px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+                    {{ t('backups_page.add_export_schedule') }}
+                </button>
+            </div>
+            <div x-show="exportSchedules.length > 0" class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-800">
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_name') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_projects') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_contents') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_storage') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_cron') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_keep') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_last_run') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_next_run') }}</th>
+                            <th class="py-2 px-2"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="es in exportSchedules" :key="es.id">
+                            <tr class="border-b border-gray-100 dark:border-gray-800/50" :class="!es.is_active && 'opacity-50'">
+                                <td class="py-2 px-2 text-xs font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap" x-text="es.name"></td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400 max-w-xs truncate" x-text="projectsLabel(es)" :title="projectsLabel(es)"></td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="es.include_dumps ? '{{ t('backups_page.contents_env_dumps') }}' : '{{ t('backups_page.contents_env_only') }}'"></td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="es.storage_name || '-'"></td>
+                                <td class="py-2 px-2 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="es.cron_expression"></td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400" x-text="es.retention_count"></td>
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap">
+                                    <span x-text="es.last_run_at || '{{ t('backups_page.never') }}'"></span>
+                                    <span x-show="es.last_status === 'failed'" class="ml-1 text-red-500 font-medium" x-text="es.last_status"></span>
+                                </td>
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap" x-text="es.next_run_at || '-'"></td>
+                                <td class="py-2 px-2 text-right">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <button @click="runExp(es)" class="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('backups_page.run_now') }}">
+                                            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                        </button>
+                                        <button @click="openExpModal(es)" class="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded transition-colors" title="{{ t('backups_page.edit') }}">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                        </button>
+                                        <button @click="deleteExp(es)" class="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="{{ t('backups_page.delete') }}">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            <p x-show="!loading && exportSchedules.length === 0" x-cloak class="text-sm text-gray-400">{{ t('backups_page.no_export_schedules') }}</p>
+        </div>
+
+        <!-- Export history -->
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800/50 rounded-xl p-5">
+            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ t('backups_page.export_history_title') }}</h3>
+            <div x-show="exportRuns.length > 0" class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-800">
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_started') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_name') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_storage') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_status') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_services') }}</th>
+                            <th class="text-left py-2 px-2 text-xs font-medium text-gray-500">{{ t('backups_page.th_size') }}</th>
+                            <th class="py-2 px-2"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="r in exportRuns" :key="r.id">
+                            <tr class="border-b border-gray-100 dark:border-gray-800/50">
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap" x-text="r.started_at"></td>
+                                <td class="py-2 px-2 text-xs text-gray-900 dark:text-gray-100 whitespace-nowrap" x-text="r.schedule_name || '-'"></td>
+                                <td class="py-2 px-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" x-text="r.storage_name || '-'"></td>
+                                <td class="py-2 px-2 text-xs whitespace-nowrap">
+                                    <span :class="statusClass(r.status)" class="font-medium" x-text="r.status" :title="r.error_message || ''"></span>
+                                    <span x-show="r.triggered_by === 'manual'" class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ t('backups_page.manual') }}</span>
+                                    <p x-show="r.error_message" class="text-red-500 max-w-xs truncate" x-text="r.error_message" :title="r.error_message"></p>
+                                </td>
+                                <td class="py-2 px-2 text-xs text-gray-500" x-text="r.status === 'completed' ? r.services_count : '-'"></td>
+                                <td class="py-2 px-2 text-xs text-gray-500 whitespace-nowrap" x-text="r.status === 'completed' ? formatBytes(r.size_bytes) : '-'"></td>
+                                <td class="py-2 px-2 text-right">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <a x-show="r.status === 'completed'" :href="'/api/v1/export-runs/' + r.id + '/download'" class="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="{{ t('backups_page.download') }}">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                        </a>
+                                        <button x-show="r.status !== 'running'" @click="deleteRun(r)" class="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="{{ t('backups_page.delete') }}">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            <p x-show="!loading && exportRuns.length === 0" x-cloak class="text-sm text-gray-400">{{ t('backups_page.no_export_runs') }}</p>
+        </div>
+    </div>
+
+    <!-- DB schedule modal -->
+    <div x-show="showDbModal" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showDbModal = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md mx-4 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="dbEditing ? '{{ t('backups_page.edit_schedule') }}' : '{{ t('backups_page.add_schedule') }}'"></h3>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('backups_page.field_service') }}</label>
+                <select x-show="!dbEditing" x-model="dbForm.service_id" @change="dbForm.database_name = ''; loadDbList(dbForm.service_id)" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">{{ t('backups_page.select_service') }}</option>
+                    <template x-for="r in services" :key="r.id"><option :value="r.id" x-text="r.name"></option></template>
+                </select>
+                <p x-show="dbEditing" class="text-sm text-gray-900 dark:text-gray-100" x-text="dbForm.service_name"></p>
+                <p x-show="!dbEditing && services.length === 0" class="text-xs text-gray-400 mt-1">{{ t('backups_page.no_backup_capable') }}</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('backups_page.field_database') }}</label>
+                <select x-show="!dbEditing" x-model="dbForm.database_name" :disabled="!dbForm.service_id" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50">
+                    <option value="">{{ t('backups_page.select_database') }}</option>
+                    <option value="__cluster__">{{ t('backups_page.cluster_all_dbs') }}</option>
+                    <template x-for="d in dbList" :key="d.name"><option :value="d.name" x-text="d.name"></option></template>
+                </select>
+                <p x-show="dbEditing" class="text-sm font-mono text-gray-900 dark:text-gray-100" x-text="dbForm.database_name === '__cluster__' ? '{{ t('backups_page.cluster_all_dbs') }}' : dbForm.database_name"></p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('backups_page.field_storage') }}</label>
+                <select x-model="dbForm.s3_storage_id" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">{{ t('backups_page.select_storage') }}</option>
+                    <template x-for="s in storages" :key="s.id"><option :value="s.id" x-text="s.name + ' (' + s.bucket + ')'"></option></template>
+                </select>
+                <p x-show="storages.length === 0" class="text-xs text-gray-400 mt-1"><a href="/s3" class="text-blue-600 dark:text-blue-400 hover:underline">{{ t('backups_page.no_storages') }}</a></p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('backups_page.field_schedule') }}</label>
+                <select x-model="dbForm.cron_preset" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="0 2 * * *">{{ t('resources_detail.cron_daily_2am') }}</option>
+                    <option value="0 2 * * 0">{{ t('resources_detail.cron_weekly_sunday') }}</option>
+                    <option value="0 */6 * * *">{{ t('resources_detail.cron_every_6h') }}</option>
+                    <option value="0 * * * *">{{ t('resources_detail.cron_every_hour') }}</option>
+                    <option value="custom">{{ t('resources_detail.cron_custom') }}</option>
+                </select>
+                <input x-show="dbForm.cron_preset === 'custom'" x-model="dbForm.cron_custom" type="text" placeholder="30 3 * * *"
+                       class="mt-2 w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p x-show="dbForm.cron_preset === 'custom'" class="text-xs text-gray-400 mt-1">{{ t('resources_detail.cron_custom_hint') }}</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_detail.retention') }}</label>
+                <input x-model.number="dbForm.retention_count" type="number" min="1" max="100"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button @click="showDbModal = false" class="px-4 py-2 text-sm text-gray-500">{{ t('common.cancel') }}</button>
+                <button @click="saveDb()" :disabled="busy" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">{{ t('backups_page.save') }}</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduled export modal -->
+    <div x-show="showExpModal" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" style="top:0;left:0" @click.self="showExpModal = false">
+        <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg mx-4 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white" x-text="expEditing ? '{{ t('backups_page.edit_export_schedule') }}' : '{{ t('backups_page.add_export_schedule') }}'"></h3>
+            <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700/40 rounded-lg px-3 py-2">
+                <p class="text-xs text-amber-800 dark:text-amber-200">{{ t('emergency_export.warning_secrets') }}</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('backups_page.field_name') }}</label>
+                <input x-model="expForm.name" type="text" placeholder="{{ t('backups_page.name_placeholder') }}"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-sm font-medium text-gray-600 dark:text-gray-400">{{ t('backups_page.export_projects') }}</label>
+                    <div class="flex gap-3 text-xs">
+                        <button @click="expForm.project_ids = projects.map(p => p.id)" class="text-blue-600 dark:text-blue-400 hover:underline">{{ t('backups_page.export_select_all') }}</button>
+                        <button @click="expForm.project_ids = []" class="text-blue-600 dark:text-blue-400 hover:underline">{{ t('backups_page.export_select_none') }}</button>
+                    </div>
+                </div>
+                <div class="border border-gray-200 dark:border-gray-800 rounded-lg divide-y divide-gray-100 dark:divide-gray-800 max-h-40 overflow-y-auto">
+                    <template x-for="p in projects" :key="p.id">
+                        <label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                            <input type="checkbox" :value="p.id" x-model="expForm.project_ids"
+                                   class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500">
+                            <span class="text-sm text-gray-900 dark:text-white truncate" x-text="p.name"></span>
+                        </label>
+                    </template>
+                    <p x-show="projects.length === 0" class="px-3 py-2 text-sm text-gray-500">{{ t('backups_page.export_no_projects') }}</p>
+                </div>
+                <label class="flex items-center gap-2 mt-2 cursor-pointer">
+                    <input type="checkbox" x-model="expForm.include_unassigned" class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('backups_page.export_unassigned') }}</span>
+                </label>
+                <label class="flex items-center gap-2 mt-2 cursor-pointer">
+                    <input type="checkbox" x-model="expForm.include_dumps" class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('backups_page.field_include_dumps') }}</span>
+                </label>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('backups_page.field_storage') }}</label>
+                <select x-model="expForm.s3_storage_id" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">{{ t('backups_page.select_storage') }}</option>
+                    <template x-for="s in storages" :key="s.id"><option :value="s.id" x-text="s.name + ' (' + s.bucket + ')'"></option></template>
+                </select>
+                <p x-show="storages.length === 0" class="text-xs text-gray-400 mt-1"><a href="/s3" class="text-blue-600 dark:text-blue-400 hover:underline">{{ t('backups_page.no_storages') }}</a></p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('backups_page.field_schedule') }}</label>
+                    <select x-model="expForm.cron_preset" class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="0 2 * * *">{{ t('resources_detail.cron_daily_2am') }}</option>
+                        <option value="0 2 * * 0">{{ t('resources_detail.cron_weekly_sunday') }}</option>
+                        <option value="0 */6 * * *">{{ t('resources_detail.cron_every_6h') }}</option>
+                        <option value="0 * * * *">{{ t('resources_detail.cron_every_hour') }}</option>
+                        <option value="custom">{{ t('resources_detail.cron_custom') }}</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('resources_detail.retention') }}</label>
+                    <input x-model.number="expForm.retention_count" type="number" min="1" max="100"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div x-show="expForm.cron_preset === 'custom'">
+                <input x-model="expForm.cron_custom" type="text" placeholder="30 3 * * *"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-400 mt-1">{{ t('resources_detail.cron_custom_hint') }}</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('emergency_export.archive_password') }}</label>
+                    <input x-model="expForm.archive_password" type="password" autocomplete="new-password"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('emergency_export.archive_password_repeat') }}</label>
+                    <input x-model="expForm.archive_password2" type="password" autocomplete="new-password"
+                           class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <p class="text-xs text-gray-500 -mt-2" x-text="expEditing ? '{{ t('backups_page.archive_password_keep') }}' : '{{ t('emergency_export.archive_password_hint') }}'"></p>
+            <p x-show="expForm.archive_password2 && expForm.archive_password !== expForm.archive_password2" class="text-xs text-red-500 -mt-2">{{ t('emergency_export.passwords_mismatch') }}</p>
+            <div x-show="requirePw">
+                <label class="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">{{ t('emergency_export.account_password') }}</label>
+                <input x-model="expForm.password" type="password" autocomplete="current-password"
+                       class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <label x-show="expEditing" class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" x-model="expForm.is_active" class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500">
+                <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('backups_page.field_active') }}</span>
+            </label>
+            <div class="flex justify-end gap-2 pt-2">
+                <button @click="showExpModal = false" class="px-4 py-2 text-sm text-gray-500">{{ t('common.cancel') }}</button>
+                <button @click="saveExp()" :disabled="busy" class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">{{ t('backups_page.save') }}</button>
+            </div>
+        </div>
+    </div>
+
+    {% include "partials/emergency_export_modal.html" %}
+</div>
+
+<script>
+function backupsPage() {
+    const PRESETS = ['0 2 * * *', '0 2 * * 0', '0 */6 * * *', '0 * * * *'];
+    const BACKUP_CATALOGS = ['postgresql', 'postgis', 'timescaledb', 'mysql', 'mariadb', 'mongodb'];
+    const getJson = (url) => fetch(url).then(r => r.ok ? r.json() : []).catch(() => []);
+    const cronFields = (c) => PRESETS.includes(c) ? { cron_preset: c, cron_custom: '' } : { cron_preset: 'custom', cron_custom: c };
+    const cronOf = (f) => f.cron_preset === 'custom' ? (f.cron_custom || '').trim() : f.cron_preset;
+
+    return {
+        tabs: [
+            { id: 'databases', label: '{{ t('backups_page.tab_databases') }}' },
+            { id: 'export',    label: '{{ t('backups_page.tab_export') }}' },
+        ],
+        tab: 'databases',
+        loading: true, busy: false,
+        schedules: [], backups: [], services: [], storages: [], projects: [],
+        exportSchedules: [], exportRuns: [],
+        selected: [], includeUnassigned: true,
+        showDbModal: false, dbEditing: false, dbForm: {}, dbList: [],
+        showExpModal: false, expEditing: false, expForm: {}, requirePw: true,
+
+        async init() {
+            const pick = () => {
+                const h = (location.hash || '').replace('#', '');
+                if (this.tabs.some(t => t.id === h)) this.tab = h;
+            };
+            pick();
+            window.addEventListener('hashchange', pick);
+            await Promise.all([this.loadRefs(), this.loadDb(), this.loadExport()]);
+            this.loading = false;
+        },
+        selectTab(id) {
+            this.tab = id;
+            history.replaceState(null, '', '#' + id);
+        },
+        async loadRefs() {
+            const [res, st, pr] = await Promise.all([getJson('/api/v1/resources'), getJson('/api/v1/s3'), getJson('/api/v1/projects')]);
+            this.services = (res || []).filter(r => BACKUP_CATALOGS.includes(r.catalog_id)).sort((a, b) => a.name.localeCompare(b.name));
+            this.storages = st || [];
+            this.projects = pr || [];
+            this.selected = this.projects.map(p => p.id);
+        },
+        async loadDb() {
+            const [s, b] = await Promise.all([getJson('/api/v1/backup-schedules'), getJson('/api/v1/backups?limit=100')]);
+            this.schedules = s || [];
+            this.backups = b || [];
+        },
+        async loadExport() {
+            const [s, r] = await Promise.all([getJson('/api/v1/export-schedules'), getJson('/api/v1/export-runs')]);
+            this.exportSchedules = s || [];
+            this.exportRuns = r || [];
+        },
+        formatBytes(b) { if (!b) return '0 B'; const k = 1024, s = ['B', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i]; },
+        statusClass(st) { return st === 'completed' ? 'text-green-500' : st === 'failed' ? 'text-red-500' : 'text-yellow-500'; },
+        projectsLabel(es) {
+            if (!es.project_ids) return '{{ t('backups_page.export_all_label') }}';
+            const names = es.project_ids.map(id => (this.projects.find(p => p.id === id) || {}).name || id);
+            if (es.include_unassigned) names.push('{{ t('backups_page.unassigned_short') }}');
+            return names.join(', ') || '-';
+        },
+
+        // ── DB backup schedules ──
+        async loadDbList(serviceId) {
+            this.dbList = serviceId ? await getJson('/api/v1/resources/' + serviceId + '/databases') : [];
+        },
+        async openDbModal(s) {
+            this.dbEditing = !!s;
+            this.dbForm = {
+                id: s?.id || null,
+                service_id: s?.service_id || '',
+                service_name: s?.service_name || '',
+                database_name: s ? (s.database_name || '__cluster__') : '',
+                s3_storage_id: s?.s3_storage_id || '',
+                retention_count: s?.retention_count ?? 7,
+                ...cronFields(s?.cron_expression || '0 2 * * *'),
+            };
+            this.dbList = [];
+            this.showDbModal = true;
+        },
+        async saveDb() {
+            const f = this.dbForm;
+            if (!f.service_id) { toast('{{ t('backups_page.toast_select_service') }}', 'error'); return; }
+            if (f.database_name === '') { toast('{{ t('resources_detail.toast_select_database') }}', 'error'); return; }
+            if (!f.s3_storage_id) { toast('{{ t('resources_detail.toast_select_s3') }}', 'error'); return; }
+            const cron = cronOf(f);
+            if (!cron) { toast('{{ t('resources_detail.toast_enter_cron') }}', 'error'); return; }
+            const body = { s3_storage_id: f.s3_storage_id, cron_expression: cron, retention_count: f.retention_count };
+            const base = '/api/v1/resources/' + f.service_id + '/backup-schedules';
+            this.busy = true;
+            try {
+                if (this.dbEditing) {
+                    await api(base + '/' + f.id, { method: 'PATCH', body: JSON.stringify(body) });
+                } else {
+                    if (f.database_name !== '__cluster__') body.database_name = f.database_name;
+                    await api(base, { method: 'POST', body: JSON.stringify(body) });
+                }
+                toast('{{ t('resources_detail.toast_schedule_saved') }}');
+                this.showDbModal = false;
+                await this.loadDb();
+            } catch (e) { toast(e.message, 'error'); }
+            this.busy = false;
+        },
+        async runDb(s) {
+            try {
+                await api('/api/v1/resources/' + s.service_id + '/backups/trigger?schedule_id=' + encodeURIComponent(s.id), { method: 'POST' });
+                toast('{{ t('resources_detail.toast_backup_started') }}');
+                setTimeout(() => this.loadDb(), 5000);
+            } catch (e) { toast(e.message, 'error'); }
+        },
+        async deleteDb(s) {
+            if (!confirm('{{ t('resources_detail.confirm_delete_schedule') }}')) return;
+            try {
+                await api('/api/v1/resources/' + s.service_id + '/backup-schedules/' + s.id, { method: 'DELETE' });
+                toast('{{ t('resources_detail.toast_schedule_deleted') }}');
+                await this.loadDb();
+            } catch (e) { toast(e.message, 'error'); }
+        },
+        async deleteBackup(b) {
+            if (!confirm('{{ t('resources_detail.confirm_delete_backup') }}'.replace('%{when}', b.started_at || ''))) return;
+            try {
+                await api('/api/v1/backups/' + b.id, { method: 'DELETE' });
+                toast('{{ t('resources_detail.toast_backup_deleted') }}');
+                await this.loadDb();
+            } catch (e) { toast(e.message, 'error'); }
+        },
+
+        // ── Manual env export ──
+        startManualExport() {
+            // Everything ticked -> send null so the server takes every project,
+            // including ones created after this page loaded.
+            const all = this.selected.length === this.projects.length;
+            this.$dispatch('emergency-export', {
+                url: '/api/v1/export',
+                title: all ? '{{ t('backups_page.export_all_label') }}' : this.selected.length + ' / ' + this.projects.length,
+                extra: { project_ids: all ? null : this.selected, include_unassigned: this.includeUnassigned },
+            });
+        },
+
+        // ── Scheduled env exports ──
+        async openExpModal(es) {
+            this.expEditing = !!es;
+            this.expForm = {
+                id: es?.id || null,
+                name: es?.name || '',
+                project_ids: es?.project_ids ? [...es.project_ids] : this.projects.map(p => p.id),
+                include_unassigned: es ? es.include_unassigned : true,
+                include_dumps: es ? es.include_dumps : false,
+                s3_storage_id: es?.s3_storage_id || '',
+                retention_count: es?.retention_count ?? 7,
+                is_active: es ? es.is_active : true,
+                archive_password: '', archive_password2: '', password: '',
+                ...cronFields(es?.cron_expression || '0 2 * * *'),
+            };
+            this.showExpModal = true;
+            try {
+                const s = await api('/api/v1/security/settings');
+                this.requirePw = !!s.require_password_on_delete;
+            } catch (e) {
+                this.requirePw = true; // fail closed, like the export modal
+            }
+        },
+        async saveExp() {
+            const f = this.expForm;
+            if (!f.name.trim()) { toast('{{ t('backups_page.toast_name_required') }}', 'error'); return; }
+            if (!f.project_ids.length && !f.include_unassigned) { toast('{{ t('backups_page.toast_nothing_selected') }}', 'error'); return; }
+            if (!f.s3_storage_id) { toast('{{ t('resources_detail.toast_select_s3') }}', 'error'); return; }
+            const cron = cronOf(f);
+            if (!cron) { toast('{{ t('resources_detail.toast_enter_cron') }}', 'error'); return; }
+            if (!this.expEditing || f.archive_password) {
+                if (f.archive_password.length < 8) { toast('{{ t('backups_page.toast_password_short') }}', 'error'); return; }
+                if (f.archive_password !== f.archive_password2) { toast('{{ t('emergency_export.passwords_mismatch') }}', 'error'); return; }
+            }
+            // Everything ticked -> null = every project, new ones included.
+            const all = this.projects.length > 0 && f.project_ids.length === this.projects.length;
+            const body = {
+                name: f.name.trim(),
+                s3_storage_id: f.s3_storage_id,
+                cron_expression: cron,
+                retention_count: f.retention_count,
+                project_ids: all ? null : f.project_ids,
+                include_unassigned: f.include_unassigned,
+                include_dumps: f.include_dumps,
+                archive_password: f.archive_password || null,
+                is_active: f.is_active,
+                password: f.password || null,
+            };
+            this.busy = true;
+            try {
+                if (this.expEditing) {
+                    await api('/api/v1/export-schedules/' + f.id, { method: 'PUT', body: JSON.stringify(body) });
+                } else {
+                    await api('/api/v1/export-schedules', { method: 'POST', body: JSON.stringify(body) });
+                }
+                toast('{{ t('backups_page.toast_export_schedule_saved') }}');
+                this.showExpModal = false;
+                await this.loadExport();
+            } catch (e) { toast(e.message, 'error'); }
+            this.expForm.archive_password = this.expForm.archive_password2 = this.expForm.password = '';
+            this.busy = false;
+        },
+        async runExp(es) {
+            try {
+                await api('/api/v1/export-schedules/' + es.id + '/run', { method: 'POST' });
+                toast('{{ t('backups_page.toast_export_started') }}');
+                setTimeout(() => this.loadExport(), 2000);
+                setTimeout(() => this.loadExport(), 15000);
+            } catch (e) { toast(e.message, 'error'); }
+        },
+        async deleteExp(es) {
+            if (!confirm('{{ t('backups_page.confirm_delete_export_schedule') }}')) return;
+            try {
+                await api('/api/v1/export-schedules/' + es.id, { method: 'DELETE' });
+                toast('{{ t('backups_page.toast_export_schedule_deleted') }}');
+                await this.loadExport();
+            } catch (e) { toast(e.message, 'error'); }
+        },
+        async deleteRun(r) {
+            if (!confirm('{{ t('backups_page.confirm_delete_export_run') }}')) return;
+            try {
+                await api('/api/v1/export-runs/' + r.id, { method: 'DELETE' });
+                toast('{{ t('backups_page.toast_export_run_deleted') }}');
+                await this.loadExport();
+            } catch (e) { toast(e.message, 'error'); }
+        },
+    };
+}
+</script>
+{% endblock %}
