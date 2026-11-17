@@ -22,12 +22,20 @@ pub fn build_client(
     let creds = Credentials::new(access_key, secret_key, None, None, "pier");
     let region = aws_sdk_s3::config::Region::new(region.to_string());
 
+    // `WhenRequired`: by default the SDK adds a CRC32 to every upload, and for
+    // a streamed body (export archives, `upload_stream`) it sends it as an
+    // aws-chunked trailer (`STREAMING-UNSIGNED-PAYLOAD-TRAILER`). Many
+    // S3-compatible stores (Ceph RGW, older MinIO, …) don't support that and
+    // answer `XAmzContentSHA256Mismatch`. Without it a streamed body goes as
+    // `UNSIGNED-PAYLOAD` over TLS, and an in-memory one keeps its signed
+    // SHA-256 payload hash, which the store verifies.
     let config = aws_sdk_s3::Config::builder()
         .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
         .region(region)
         .endpoint_url(format!("https://{host}"))
         .credentials_provider(creds)
         .force_path_style(true)
+        .request_checksum_calculation(aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired)
         .build();
 
     Ok(Client::from_conf(config))
