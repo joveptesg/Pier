@@ -43,6 +43,31 @@ warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
 
+# fetch URL DEST — download with retries that resume an interrupted transfer.
+# GitHub is reachable but flaky from some networks (RU VPS): the ~36 MB binary
+# often stalls mid-transfer, and a single curl then aborted the whole install
+# or panel update. Each attempt continues from the bytes already on disk
+# (-C -); under 1 KB/s for 30 s counts as a stall. The sha256 checks below
+# still guard the result. Exit 22 = HTTP error (missing asset): no retry.
+# Exit 33 = server refused the range: start that file over.
+fetch() {
+    local url=$1 dest=$2 attempt rc
+    rm -f "$dest"
+    for attempt in 1 2 3 4 5 6 7 8; do
+        rc=0
+        curl -fsSL -C - --connect-timeout 15 --speed-limit 1024 --speed-time 30 \
+            "$url" -o "$dest" || rc=$?
+        [[ $rc -eq 0 ]] && return 0
+        [[ $rc -eq 22 ]] && return 1
+        [[ $rc -eq 33 ]] && rm -f "$dest"
+        if [[ $attempt -lt 8 ]]; then
+            warn "Download of ${url##*/} interrupted (curl ${rc}), retrying ${attempt}/7..."
+            sleep $((attempt * 2))
+        fi
+    done
+    return 1
+}
+
 # ── Parse arguments ──────────────────────────────────────────────────────────
 
 EXTRA_ARGS=()
@@ -183,12 +208,12 @@ SHA_URL="${BINARY_URL}.sha256"
 
 step "Downloading Pier binary from ${RELEASE_TAG} release..."
 
-if ! curl -fsSL "$BINARY_URL" -o "${WORK_DIR}/pier"; then
+if ! fetch "$BINARY_URL" "${WORK_DIR}/pier"; then
     error "Failed to download ${BINARY_URL}
 Check that the release exists: https://github.com/${REPO}/releases"
 fi
 
-if ! curl -fsSL "$SHA_URL" -o "${WORK_DIR}/pier.sha256"; then
+if ! fetch "$SHA_URL" "${WORK_DIR}/pier.sha256"; then
     error "Failed to download checksum from ${SHA_URL}"
 fi
 
@@ -223,8 +248,8 @@ chmod +x "${WORK_DIR}/pier"
 step "Downloading agent binaries (pier-agent, pier-net-helper)..."
 for _agbin in pier-agent pier-net-helper; do
     _agurl="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/${_agbin}-linux-amd64"
-    if curl -fsSL "$_agurl" -o "${WORK_DIR}/${_agbin}"; then
-        if curl -fsSL "${_agurl}.sha256" -o "${WORK_DIR}/${_agbin}.sha256"; then
+    if fetch "$_agurl" "${WORK_DIR}/${_agbin}"; then
+        if fetch "${_agurl}.sha256" "${WORK_DIR}/${_agbin}.sha256"; then
             _exp=$(awk '{print $1}' "${WORK_DIR}/${_agbin}.sha256")
             _act=$(sha256sum "${WORK_DIR}/${_agbin}" | awk '{print $1}')
             if [[ -z "$_exp" || "$_exp" != "$_act" ]]; then
@@ -248,7 +273,7 @@ INSTALL_URL="https://raw.githubusercontent.com/${REPO}/${REF}/scripts/install.sh
 
 step "Downloading install.sh from ${REF}..."
 
-if ! curl -fsSL "$INSTALL_URL" -o "${WORK_DIR}/install.sh"; then
+if ! fetch "$INSTALL_URL" "${WORK_DIR}/install.sh"; then
     error "Failed to download ${INSTALL_URL}"
 fi
 
@@ -262,7 +287,7 @@ chmod +x "${WORK_DIR}/install.sh"
 for _unit in pier.service pier-net-helper.service \
         pier-updater.service pier-updater.path pier-update.sh; do
     _unit_url="https://raw.githubusercontent.com/${REPO}/${REF}/scripts/${_unit}"
-    if ! curl -fsSL "$_unit_url" -o "${WORK_DIR}/${_unit}"; then
+    if ! fetch "$_unit_url" "${WORK_DIR}/${_unit}"; then
         rm -f "${WORK_DIR}/${_unit}"
         warn "Could not fetch ${_unit}; install.sh will use its inline copy."
     fi
@@ -270,8 +295,8 @@ done
 
 # install.sh sources lib-swap.sh from its own dir for the 4 GiB swap floor;
 # without it the swap step is skipped. Soft-fail like the units above.
-if ! curl -fsSL "https://raw.githubusercontent.com/${REPO}/${REF}/scripts/lib-swap.sh" \
-        -o "${WORK_DIR}/lib-swap.sh"; then
+if ! fetch "https://raw.githubusercontent.com/${REPO}/${REF}/scripts/lib-swap.sh" \
+        "${WORK_DIR}/lib-swap.sh"; then
     rm -f "${WORK_DIR}/lib-swap.sh"
     warn "Could not fetch lib-swap.sh; install.sh will skip swap setup."
 fi
